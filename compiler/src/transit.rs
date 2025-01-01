@@ -3,9 +3,9 @@
 use std::collections::BTreeMap;
 use std::marker::PhantomData;
 
-use crate::digraph::internal::{Digraph, Predecessors};
-use crate::heap::{Heap, UsizeId};
 use std::collections::BTreeSet;
+use zkpoly_common::digraph::internal::{Digraph, Predecessors};
+use zkpoly_common::heap::{Heap, UsizeId};
 
 #[derive(Debug, Clone)]
 pub struct SourceInfo<'s> {

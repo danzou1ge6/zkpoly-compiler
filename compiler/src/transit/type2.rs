@@ -3,47 +3,14 @@
 //! therefore polynomial operations are transformed into vector expressions.
 //! Also, vertices of the computation graph still contain expression trees.
 
-use crate::{
-    digraph,
-    external::{ConstantId, FunctionId as EFunctionId},
-    heap,
-    transit::{self, BinOp, SourceInfo, UnrOp},
-};
+use crate::transit::{self, BinOp, SourceInfo, UnrOp};
 use std::any;
+use zkpoly_common::{digraph, heap};
+pub use zkpoly_runtime::constants::{Constant, ConstantId};
+pub use zkpoly_runtime::typ::{PolyRepr, Typ};
+pub use zkpoly_runtime::user_functions::{Function, FunctionId as UFunctionId};
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum PolyRepr {
-    Coef(u64),
-    Lagrange(u64),
-    ExtendedLagrange(u64),
-}
-
-#[derive(Debug, Clone)]
-pub enum Typ {
-    Poly(PolyRepr),
-    Scalar,
-    Transcript,
-    Point,
-    Tuple(Vec<Typ>),
-    Array(Box<Typ>, usize),
-    Any(any::TypeId, usize),
-}
-
-impl Typ {
-    pub fn coef(n: u64) -> Self {
-        Typ::Poly(PolyRepr::Coef(n))
-    }
-
-    pub fn lagrange(n: u64) -> Self {
-        Typ::Poly(PolyRepr::Lagrange(n))
-    }
-
-    pub fn extended_lagrange(n: u64) -> Self {
-        Typ::Poly(PolyRepr::ExtendedLagrange(n))
-    }
-}
-
-crate::define_usize_id!(ExprId);
+zkpoly_common::define_usize_id!(ExprId);
 
 impl ExprId {
     pub(super) fn from_type1(x: transit::type1::ExprId) -> Self {
@@ -91,7 +58,7 @@ pub mod template {
     }
 }
 
-pub type VertexNode = template::VertexNode<ExprId, Arith, ConstantId, EFunctionId>;
+pub type VertexNode = template::VertexNode<ExprId, Arith, ConstantId, UFunctionId>;
 
 pub type Vertex<'s> = transit::Vertex<VertexNode, Typ, SourceInfo<'s>>;
 

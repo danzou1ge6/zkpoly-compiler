@@ -1,11 +1,12 @@
-use crate::external::{ConstantId, FunctionId as EFunctionId};
 pub use crate::transit::{
     self,
     type2::{template, Typ},
 };
 use std::{panic::Location, rc::Rc};
+pub use zkpoly_runtime::constants::{Constant, ConstantId};
+pub use zkpoly_runtime::user_functions::{Function, FunctionId as UFunctionId};
 
-crate::define_usize_id!(ExprId);
+zkpoly_common::define_usize_id!(ExprId);
 
 #[derive(Debug, Clone)]
 pub struct SourceInfo {
@@ -25,7 +26,7 @@ pub enum Arith {
     Unr(transit::ArithUnrOp, Vertex),
 }
 
-pub type VertexNode = template::VertexNode<Vertex, Arith, ConstantId, EFunctionId>;
+pub type VertexNode = template::VertexNode<Vertex, Arith, ConstantId, UFunctionId>;
 pub use transit::HashTyp;
 
 #[derive(Debug, Clone)]

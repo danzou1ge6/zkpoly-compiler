@@ -1,18 +1,19 @@
 use std::any;
+use zkpoly_runtime::constants::{Constant, ConstantTable};
+use zkpoly_runtime::user_functions as uf;
 
 use super::*;
-use crate::external;
 
 pub struct Builder {
-    constants: external::ConstantTable,
-    functions: external::FunctionTable,
+    constants: ConstantTable,
+    functions: uf::FunctionTable,
 }
 
 impl Builder {
     pub fn new() -> Self {
         Self {
-            constants: external::ConstantTable::new(),
-            functions: external::FunctionTable::new(),
+            constants: ConstantTable::new(),
+            functions: uf::FunctionTable::new(),
         }
     }
 
@@ -41,7 +42,7 @@ impl Builder {
 
     #[track_caller]
     pub fn constant_scaler<T: 'static>(&mut self, name: String, value: T) -> Vertex {
-        let constant_id = self.constants.push(external::Constant::new(
+        let constant_id = self.constants.push(Constant::new(
             name.clone(),
             Typ::Scalar,
             Box::new(value),
@@ -78,7 +79,7 @@ impl Builder {
     pub fn external_function(
         &mut self,
         name: String,
-        f: external::Function,
+        f: Function,
         args: Vec<Vertex>,
     ) -> Vertex {
         let typ = f.ret_typ().clone();
@@ -103,7 +104,7 @@ impl Builder {
     #[track_caller]
     pub fn constant<T: 'static>(&mut self, name: String, value: T) -> Vertex {
         let typ = Typ::Any(any::TypeId::of::<T>(), std::mem::size_of::<T>());
-        let constant_id = self.constants.push(external::Constant::new(
+        let constant_id = self.constants.push(Constant::new(
             name.clone(),
             typ.clone(),
             Box::new(value),

@@ -1,16 +1,9 @@
-use crate::heap;
-use crate::transit::type2::Typ;
-
+use crate::error::RuntimeError;
+use crate::typ::Typ;
 use std::any;
+use zkpoly_common::heap;
 
-crate::define_usize_id!(FunctionId);
-crate::define_usize_id!(ConstantId);
-
-pub enum RuntimeError {
-    ArgNumWrong,
-    TypError,
-    Other(String),
-}
+zkpoly_common::define_usize_id!(FunctionId);
 
 pub enum FunctionValue {
     FnOnce(Box<dyn FnOnce(Vec<&dyn any::Any>) -> Result<Box<dyn any::Any>, RuntimeError>>),
@@ -43,19 +36,6 @@ impl std::fmt::Debug for Function {
     }
 }
 
-#[derive(Debug)]
-pub struct Constant {
-    name: String,
-    typ: Typ,
-    value: Box<dyn any::Any>,
-}
-
-impl Constant {
-    pub fn new(name: String, typ: Typ, value: Box<dyn any::Any>) -> Self {
-        Self { name, typ, value }
-    }
-}
-
 impl Function {
     pub fn new_once(
         name: String,
@@ -83,4 +63,3 @@ impl Function {
 }
 
 pub type FunctionTable = heap::Heap<FunctionId, Function>;
-pub type ConstantTable = heap::Heap<ConstantId, Constant>;

@@ -19,7 +19,7 @@ macro_rules! define_usize_id {
                 value.0
             }
         }
-        impl crate::heap::UsizeId for $name {}
+        impl $crate::heap::UsizeId for $name {}
     };
 }
 
