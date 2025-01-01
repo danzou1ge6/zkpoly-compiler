@@ -10,10 +10,16 @@ pub enum FunctionValue {
     FnMut(Box<dyn FnMut(Vec<&dyn any::Any>) -> Result<Box<dyn any::Any>, RuntimeError>>),
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum ParamMode {
+    In,
+    InOut
+}
+
 pub struct Function {
     name: String,
     f: FunctionValue,
-    typ: (Vec<Typ>, Typ),
+    typ: (Vec<(Typ, ParamMode)>, Typ),
 }
 
 impl Function {
@@ -40,7 +46,7 @@ impl Function {
     pub fn new_once(
         name: String,
         f: Box<dyn FnOnce(Vec<&dyn any::Any>) -> Result<Box<dyn any::Any>, RuntimeError>>,
-        typ: (Vec<Typ>, Typ),
+        typ: (Vec<(Typ, ParamMode)>, Typ),
     ) -> Self {
         Self {
             name,
@@ -52,7 +58,7 @@ impl Function {
     pub fn new_mut(
         name: String,
         f: Box<dyn FnMut(Vec<&dyn any::Any>) -> Result<Box<dyn any::Any>, RuntimeError>>,
-        typ: (Vec<Typ>, Typ),
+        typ: (Vec<(Typ, ParamMode)>, Typ),
     ) -> Self {
         Self {
             name,

@@ -41,6 +41,7 @@ pub mod template {
             xs: Vec<I>,
             ys: Vec<I>,
         },
+        Blind(I, usize),
         Array(Vec<I>),
         AssmblePoly(u64, I),
         Msm {
@@ -54,7 +55,8 @@ pub mod template {
         },
         SqueezeScalar(I),
         TupleGet(I, usize),
-        External(E, Vec<I>),
+        ArrayGet(I, usize),
+        UserFunction(E, Vec<I>),
     }
 }
 
@@ -85,7 +87,9 @@ impl<'s> Vertex<'s> {
             } => Box::new([*transcript, *value].into_iter()),
             SqueezeScalar(x) => Box::new([*x].into_iter()),
             TupleGet(x, _) => Box::new([*x].into_iter()),
-            External(_, es) => Box::new(es.iter().copied()),
+            Blind(x, _) => Box::new([*x].into_iter()),
+            ArrayGet(x, _) => Box::new([*x].into_iter()),
+            UserFunction(_, es) => Box::new(es.iter().copied()),
             _ => Box::new([].into_iter()),
         }
     }
@@ -104,7 +108,9 @@ impl<'s> Vertex<'s> {
             } => Box::new([transcript, value].into_iter()),
             SqueezeScalar(x) => Box::new([x].into_iter()),
             TupleGet(x, _) => Box::new([x].into_iter()),
-            External(_, es) => Box::new(es.iter_mut()),
+            Blind(x, _) => Box::new([x].into_iter()),
+            ArrayGet(x, _) => Box::new([x].into_iter()),
+            UserFunction(_, es) => Box::new(es.iter_mut()),
             _ => Box::new([].into_iter()),
         }
     }
