@@ -2,6 +2,9 @@ use std::env;
 use std::path::PathBuf;
 
 fn main() {
+    let cuda_path = env::var("CUDA_PATH").unwrap_or("/usr/local/cuda".to_string());
+    let cuda_lib_path = format!("{}/lib64", cuda_path);
+
     // This is the directory where the `c` library is located.
     let libdir_path = PathBuf::from(".")
         .canonicalize()
@@ -41,12 +44,11 @@ fn main() {
 
     // Tell cargo to look for libraries in the specified directory
     println!("cargo:rustc-link-search={}", libdir_path.to_str().unwrap());
-    println!("cargo:rustc-link-search=/usr/local/cuda/lib64");
+    println!("cargo:rustc-link-search={}", cuda_lib_path);
 
     println!("cargo:rustc-link-lib=static=memory_pool");
     println!("cargo:rustc-link-lib=dylib=cudart"); // 使用动态链接
     println!("cargo:rustc-link-lib=dylib=cudadevrt");
-    println!("cargo:rustc-link-search=native=/usr/local/cuda/lib64/stub");
     println!("cargo:rustc-link-lib=dylib=cuda");
     println!("cargo:rustc-link-lib=dylib=stdc++");
 

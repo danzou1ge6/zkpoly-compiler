@@ -2,9 +2,9 @@ use std::any;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PolyRepr {
-    Coef(u64),
-    Lagrange(u64),
-    ExtendedLagrange(u64),
+    Coef{log_n: u32},
+    Lagrange{log_n: u32},
+    ExtendedLagrange{log_n: u32},
 }
 
 #[derive(Debug, Clone)]
@@ -19,15 +19,15 @@ pub enum Typ {
 }
 
 impl Typ {
-    pub fn coef(n: u64) -> Self {
-        Typ::Poly(PolyRepr::Coef(n))
+    pub fn coef(log_n: u32) -> Self {
+        Typ::Poly(PolyRepr::Coef{log_n})
     }
 
-    pub fn lagrange(n: u64) -> Self {
-        Typ::Poly(PolyRepr::Lagrange(n))
+    pub fn lagrange(log_n: u32) -> Self {
+        Typ::Poly(PolyRepr::Lagrange{log_n})
     }
 
-    pub fn extended_lagrange(n: u64) -> Self {
-        Typ::Poly(PolyRepr::ExtendedLagrange(n))
+    pub fn extended_lagrange(log_n: u32) -> Self {
+        Typ::Poly(PolyRepr::ExtendedLagrange{log_n})
     }
 }

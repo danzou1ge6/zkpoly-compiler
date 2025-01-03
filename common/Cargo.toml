@@ -1,5 +1,5 @@
 [package]
-name = "zkpoly-common"
+name = "zkpoly_common"
 version = "0.1.0"
 edition = "2021"
 

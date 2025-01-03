@@ -1,5 +1,5 @@
 [package]
-name = "zkpoly_memory_pool"
+name = "zkpoly_cuda_api"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,6 +7,3 @@ edition = "2021"
 
 [build-dependencies]
 bindgen = "0.70"
-
-[dev-dependencies]
-rand = "0.8"

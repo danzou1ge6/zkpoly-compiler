@@ -1,7 +1,9 @@
 [package]
-name = "zkpoly-runtime"
+name = "zkpoly_runtime"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-zkpoly-common = { path = "../common" }
+zkpoly_common = { path = "../common" }
+zkpoly_memory_pool = { path = "src/memory_pool" }
+zkpoly_cuda_api = { path = "src/cuda_api" }
