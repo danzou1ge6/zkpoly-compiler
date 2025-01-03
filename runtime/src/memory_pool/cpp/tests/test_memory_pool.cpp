@@ -1,7 +1,7 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include <doctest/doctest.h>
 #include "../src/memory_pool.h"
-#include <iostream>
+#include <random>
 
 TEST_CASE("test simple alloc and free") {
     memory_pool::slab_manager slab_manager(5, sizeof(int));
@@ -104,21 +104,26 @@ TEST_CASE("test clear") {
 }
 
 TEST_CASE("test complex") {
-    memory_pool::slab_manager slab_manager(5, sizeof(int));
-    std::vector<int*> ptrs;
-    int rounds = 100;
-    for (int i = 0; i < rounds; i++) {
-        int size = rand() % 5 + 1;
-        int* ptr = (int*)slab_manager.allocate(size);
-        REQUIRE(ptr != nullptr);
-        for (int j = 0; j < (1 << size); j++) {
-            ptr[j] = j;
+    int large_size = 16;
+    int rounds = 1000;
+    int items = 1000;
+    memory_pool::slab_manager slab_manager(large_size, sizeof(int));
+    for (int k = 0; k < rounds; k++) {
+        std::vector<int*> ptrs;
+        for (int i = 0; i < items; i++) {
+            int size = rand() % large_size + 1;
+            int* ptr = (int*)slab_manager.allocate(size);
+            REQUIRE(ptr != nullptr);
+            for (int j = 0; j < (1 << size); j++) {
+                ptr[j] = j;
+            }
+            ptrs.push_back(ptr);
         }
-        ptrs.push_back(ptr);
-    }
-    random_shuffle(ptrs.begin(), ptrs.end());
-    for (int i = 0; i < rounds; i++) {
-        slab_manager.deallocate(ptrs[i]);
+        std::shuffle(ptrs.begin(), ptrs.end(), std::default_random_engine());
+        for (int i = 0; i < items; i++) {
+            slab_manager.deallocate(ptrs[i]);
+        }
     }
     slab_manager.shrink();
+    slab_manager.clear();
 }
