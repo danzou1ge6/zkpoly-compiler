@@ -1,6 +1,6 @@
+use crate::typ::Typ;
 use std::any;
 use zkpoly_common::heap;
-use crate::typ::Typ;
 
 zkpoly_common::define_usize_id!(ConstantId);
 

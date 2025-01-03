@@ -1,2 +1,2 @@
-pub mod heap;
 pub mod digraph;
+pub mod heap;

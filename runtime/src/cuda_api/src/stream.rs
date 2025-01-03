@@ -5,6 +5,7 @@
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 use crate::cuda_check;
 
+#[derive(Clone)]
 pub struct CudaEvent {
     event: cudaEvent_t,
 }
@@ -43,6 +44,7 @@ impl Drop for CudaEvent {
     }
 }
 
+#[derive(Clone)]
 pub struct CudaStream {
     stream: cudaStream_t,
     gpu_id: i32,
@@ -79,7 +81,11 @@ impl CudaStream {
         let mut ptr: *mut T = std::ptr::null_mut();
         let size = std::mem::size_of::<T>() * len as usize;
         unsafe {
-            cuda_check!(cudaMallocAsync(&mut ptr as *mut *mut T as *mut *mut std::ffi::c_void, size, self.stream));
+            cuda_check!(cudaMallocAsync(
+                &mut ptr as *mut *mut T as *mut *mut std::ffi::c_void,
+                size,
+                self.stream
+            ));
         }
         ptr
     }
@@ -98,10 +104,39 @@ impl CudaStream {
 
     pub fn wait(&self, event: &CudaEvent) {
         unsafe {
-            cuda_check!(cudaStreamWaitEvent(self.stream, event.as_ptr(), cudaEventWaitDefault));
+            cuda_check!(cudaStreamWaitEvent(
+                self.stream,
+                event.as_ptr(),
+                cudaEventWaitDefault
+            ));
         }
     }
 
+    pub fn memcpy_h2d<T: Sized>(&self, dst: *mut T, src: *const T, len: u64) {
+        let size = std::mem::size_of::<T>() * len as usize;
+        unsafe {
+            cuda_check!(cudaMemcpyAsync(
+                dst as *mut std::ffi::c_void,
+                src as *const std::ffi::c_void,
+                size,
+                cudaMemcpyKind_cudaMemcpyHostToDevice,
+                self.stream,
+            ));
+        }
+    }
+
+    pub fn memcpy_d2h<T: Sized>(&self, dst: *mut T, src: *const T, len: u64) {
+        let size = std::mem::size_of::<T>() * len as usize;
+        unsafe {
+            cuda_check!(cudaMemcpyAsync(
+                dst as *mut std::ffi::c_void,
+                src as *const std::ffi::c_void,
+                size,
+                cudaMemcpyKind_cudaMemcpyDeviceToHost,
+                self.stream,
+            ));
+        }
+    }
 }
 
 impl Drop for CudaStream {
@@ -119,7 +154,7 @@ fn test_cuda_stream() {
     stream.record(&event);
     stream.wait(&event);
     stream.sync();
-    let ptr = stream.allocate::<u32>(1024*1024*1024);
+    let ptr = stream.allocate::<u32>(1024 * 1024 * 1024);
     stream.sync();
     stream.deallocate(ptr);
 }

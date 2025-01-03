@@ -7,6 +7,8 @@ fn main() {
     let cuda_lib_path = format!("{}/lib64", cuda_path);
     let cuda_header_path = format!("{}/include/cuda_runtime.h", cuda_path);
 
+    println!("cargo:rerun-if-env-changed=CUDA_PATH");
+
     // Tell cargo to look for libraries in the specified directory
     println!("cargo:rustc-link-search={}", cuda_lib_path);
     println!("cargo:rustc-link-lib=dylib=cudart"); // 使用动态链接

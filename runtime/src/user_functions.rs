@@ -13,7 +13,7 @@ pub enum FunctionValue {
 #[derive(Debug, Clone, Copy)]
 pub enum ParamMode {
     In,
-    InOut
+    InOut,
 }
 
 pub struct Function {

@@ -21,7 +21,7 @@ fn main() {
         .output()
         .expect("could not spawn `xmake`")
         .status
-        .success() 
+        .success()
     {
         // Panic if the command was not successful.
         panic!("could not build the library");
@@ -33,7 +33,7 @@ fn main() {
         .output()
         .expect("could not spawn `xmake`")
         .status
-        .success() 
+        .success()
     {
         // Panic if the command was not successful.
         panic!("could not build the library");
@@ -41,6 +41,7 @@ fn main() {
 
     println!("cargo:rerun-if-changed={}", "cpp/src/*");
     println!("cargo:rerun-if-changed={}", "cpp/wrapper/*");
+    println!("cargo:rerun-if-env-changed=CUDA_PATH");
 
     // Tell cargo to look for libraries in the specified directory
     println!("cargo:rustc-link-search={}", libdir_path.to_str().unwrap());

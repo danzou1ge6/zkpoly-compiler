@@ -7,7 +7,7 @@ use crate::transit::{self, BinOp, SourceInfo, UnrOp};
 use std::any;
 use zkpoly_common::{digraph, heap};
 pub use zkpoly_runtime::constants::{Constant, ConstantId};
-pub use zkpoly_runtime::typ::{PolyRepr, Typ};
+pub use zkpoly_runtime::typ::{PolyType, Typ};
 pub use zkpoly_runtime::user_functions::{Function, FunctionId as UFunctionId};
 
 zkpoly_common::define_usize_id!(ExprId);
@@ -34,8 +34,8 @@ pub mod template {
         /// Convert a local from one representation to another
         Ntt {
             s: I,
-            to: PolyRepr,
-            from: PolyRepr,
+            to: PolyType,
+            from: PolyType,
         },
         Interplote {
             xs: Vec<I>,

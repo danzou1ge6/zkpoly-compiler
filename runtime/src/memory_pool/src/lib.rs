@@ -17,7 +17,9 @@ impl PinnedMemoryPool {
 
     pub fn allocate<T: Sized>(&self, log_len: u32) -> *mut T {
         assert!(std::mem::size_of::<T>() % self.base_size == 0);
-        let factor: u32 = (std::mem::size_of::<T>() / self.base_size).try_into().unwrap();
+        let factor: u32 = (std::mem::size_of::<T>() / self.base_size)
+            .try_into()
+            .unwrap();
         assert!(factor.is_power_of_two());
         let log_factor = log_len + factor.ilog2();
         assert!(log_factor <= self.max_log_factor);
@@ -35,8 +37,6 @@ impl PinnedMemoryPool {
     pub fn shrink(&self) {
         unsafe { shrink(self.handle) }
     }
-
-
 }
 
 impl Drop for PinnedMemoryPool {
@@ -48,8 +48,8 @@ impl Drop for PinnedMemoryPool {
 #[cfg(test)]
 mod test {
     use super::*;
-    use rand::Rng;
     use rand::seq::SliceRandom;
+    use rand::Rng;
 
     #[test]
     fn test_memory_pool() {
@@ -60,12 +60,13 @@ mod test {
 
         for _ in 0..iters {
             let mut rng = rand::thread_rng();
-            let mut slices: Vec<&mut [u32]> = (0..items).map(|_| 
-                unsafe{
+            let mut slices: Vec<&mut [u32]> = (0..items)
+                .map(|_| unsafe {
                     let log_len = rng.gen_range(0..=range);
                     let ptr = pool.allocate::<u32>(log_len);
                     std::slice::from_raw_parts_mut(ptr, 1 << log_len)
-                }).collect();
+                })
+                .collect();
             for slice in slices.iter_mut() {
                 for (x, id) in slice.iter_mut().zip(0..) {
                     *x = id
