@@ -1,6 +1,6 @@
 use std::any;
 use zkpoly_runtime::constants::{Constant, ConstantTable};
-use zkpoly_runtime::user_functions as uf;
+use zkpoly_runtime::functions as uf;
 
 use super::*;
 

@@ -8,7 +8,7 @@ use std::any;
 use zkpoly_common::{digraph, heap};
 pub use zkpoly_runtime::constants::{Constant, ConstantId};
 pub use zkpoly_runtime::typ::{PolyType, Typ};
-pub use zkpoly_runtime::user_functions::{Function, FunctionId as UFunctionId};
+pub use zkpoly_runtime::functions::{Function, FunctionId as UFunctionId};
 
 zkpoly_common::define_usize_id!(ExprId);
 

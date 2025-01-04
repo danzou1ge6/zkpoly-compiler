@@ -1,6 +1,6 @@
 use crate::devices::{DeviceType, Event, Stream};
 use crate::typ::Typ;
-use crate::user_functions::Function;
+use crate::functions::Function;
 
 pub enum Instruction {
     Allocate {
@@ -26,7 +26,8 @@ pub enum Instruction {
     FuncCall {
         device: DeviceType,
         stream: Stream,
-        func: Function,
+        func_id: u32,
+        arg_ids: Vec<u32>,
     },
 
     Sync {
