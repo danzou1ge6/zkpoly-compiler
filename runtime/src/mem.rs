@@ -36,7 +36,6 @@ impl<T: Sized> Allocator<T> for CudaStream {
     fn device_type(&self) -> DeviceType {
         DeviceType::GPU {
             device_id: self.get_gpu_id() as u32,
-            stream: self.clone(),
         }
     }
 }

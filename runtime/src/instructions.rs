@@ -1,0 +1,45 @@
+use crate::devices::{DeviceType, Event, Stream};
+use crate::typ::Typ;
+use crate::user_functions::Function;
+
+pub enum Instruction {
+    Allocate {
+        device: DeviceType,
+        stream: Stream,
+        typ: Typ,
+        id: u32,
+    },
+
+    Deallocate {
+        stream: Stream,
+        id: u32,
+    },
+
+    Transfer {
+        src_device: DeviceType,
+        dst_device: DeviceType,
+        stream: Stream,
+        src_id: u32,
+        dst_id: u32,
+    },
+
+    FuncCall {
+        device: DeviceType,
+        stream: Stream,
+        func: Function,
+    },
+
+    Sync {
+        stream: Stream,
+    },
+
+    Wait {
+        stream: Stream,
+        event: Event,
+    },
+
+    Record {
+        stream: Stream,
+        event: Event,
+    },
+}
