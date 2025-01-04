@@ -42,4 +42,10 @@ pub enum Instruction {
         stream: Stream,
         event: Event,
     },
+
+    Fork {
+        new_stream: Stream,
+        parent_stream: Stream,
+        instructions: Vec<Instruction>,
+    }
 }
