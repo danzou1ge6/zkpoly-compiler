@@ -6,9 +6,10 @@
 use crate::transit::{self, BinOp, SourceInfo, UnrOp};
 use std::any;
 use zkpoly_common::{digraph, heap};
-pub use zkpoly_runtime::constants::{Constant, ConstantId};
-pub use zkpoly_runtime::typ::{PolyType, Typ};
+pub use zkpoly_runtime::args::{Constant, ConstantId};
 pub use zkpoly_runtime::functions::{Function, FunctionId as UFunctionId};
+pub use zkpoly_runtime::poly::PolyType;
+pub use zkpoly_runtime::typ::Typ;
 
 zkpoly_common::define_usize_id!(ExprId);
 

@@ -3,7 +3,7 @@ pub use crate::transit::{
     type2::{template, Typ},
 };
 use std::{panic::Location, rc::Rc};
-pub use zkpoly_runtime::constants::{Constant, ConstantId};
+pub use zkpoly_runtime::args::{Constant, ConstantId};
 pub use zkpoly_runtime::functions::{Function, FunctionId as UFunctionId};
 
 zkpoly_common::define_usize_id!(ExprId);

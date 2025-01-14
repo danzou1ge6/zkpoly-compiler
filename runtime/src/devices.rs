@@ -1,19 +1,23 @@
-use zkpoly_cuda_api::stream::CudaStream;
+use std::sync::{
+    mpsc::{Receiver, Sender},
+    Condvar, Mutex,
+};
+use zkpoly_common::heap;
+use zkpoly_cuda_api::stream::{CudaEvent, CudaStream};
 
+zkpoly_common::define_usize_id!(EventId);
+zkpoly_common::define_usize_id!(StreamId);
+zkpoly_common::define_usize_id!(ThreadId);
+
+pub type StreamTable = heap::Heap<StreamId, CudaStream>;
+pub type EventTable = heap::Heap<EventId, Event>;
+pub type ThreadTable = heap::Heap<ThreadId, Mutex<Option<Receiver<i32>>>>;
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum DeviceType {
     CPU,
-    GPU { device_id: u32 },
+    GPU { device_id: i32 },
     Disk,
-}
-
-pub enum StreamType {
-    GpuStream { stream_id: u32 },
-    Thread { thread_id: u32 },
-}
-
-pub struct Stream {
-    typ: StreamType,
-    stream_id: u32,
 }
 
 pub enum EventType {
@@ -21,7 +25,29 @@ pub enum EventType {
     ThreadEvent,
 }
 
-pub struct Event {
-    typ: EventType,
-    event_id: u32,
+pub enum Event {
+    GpuEvent(CudaEvent),
+    ThreadEvent { cond: Condvar, lock: Mutex<bool> },
+}
+
+#[test]
+fn test_threadpool() {
+    use std::sync::mpsc::channel;
+    use threadpool::ThreadPool;
+
+    let n_workers = 4;
+    let n_jobs = 8;
+    let pool = ThreadPool::new(n_workers);
+
+    let (tx, rx) = channel();
+    for _ in 0..n_jobs {
+        let tx = tx.clone();
+        pool.execute(move || {
+            println!("Hello, world!");
+            tx.send(1)
+                .expect("channel will be there waiting for the pool");
+        });
+    }
+
+    assert_eq!(rx.iter().take(n_jobs).fold(0, |a, b| a + b), 8);
 }

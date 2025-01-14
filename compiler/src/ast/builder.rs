@@ -1,5 +1,5 @@
 use std::any;
-use zkpoly_runtime::constants::{Constant, ConstantTable};
+use zkpoly_runtime::args::{Constant, ConstantTable};
 use zkpoly_runtime::functions as uf;
 
 use super::*;

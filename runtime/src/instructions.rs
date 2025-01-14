@@ -1,52 +1,52 @@
-use crate::devices::{DeviceType, Event, Stream};
+use crate::args::{ArgId, VariableId};
+use crate::devices::{DeviceType, EventId, StreamId, ThreadId};
+use crate::functions::FunctionId;
 use crate::typ::Typ;
-use crate::functions::Function;
 
 pub enum Instruction {
     Allocate {
         device: DeviceType,
-        stream: Stream,
         typ: Typ,
-        id: u32,
+        id: VariableId,
+        offset: Option<usize>, // for gpu allocation
     },
 
     Deallocate {
-        stream: Stream,
-        id: u32,
+        id: VariableId,
     },
 
     Transfer {
         src_device: DeviceType,
         dst_device: DeviceType,
-        stream: Stream,
-        src_id: u32,
-        dst_id: u32,
+        stream: Option<StreamId>,
+        src_id: VariableId,
+        dst_id: VariableId,
     },
 
     FuncCall {
         device: DeviceType,
-        stream: Stream,
-        func_id: u32,
-        arg_ids: Vec<u32>,
-    },
-
-    Sync {
-        stream: Stream,
+        stream: StreamId,
+        func_id: FunctionId,
+        arg_ids: Vec<VariableId>,
     },
 
     Wait {
-        stream: Stream,
-        event: Event,
+        slave: DeviceType,
+        stream: Option<StreamId>,
+        event: EventId,
     },
 
     Record {
-        stream: Stream,
-        event: Event,
+        stream: Option<StreamId>,
+        event: EventId,
     },
 
     Fork {
-        new_stream: Stream,
-        parent_stream: Stream,
+        new_thread: ThreadId,
         instructions: Vec<Instruction>,
-    }
+    },
+
+    Join {
+        thread: ThreadId,
+    },
 }

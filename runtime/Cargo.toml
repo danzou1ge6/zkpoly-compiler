@@ -8,3 +8,4 @@ zkpoly_common = { path = "../common" }
 zkpoly_memory_pool = { path = "src/memory_pool" }
 zkpoly_cuda_api = { path = "src/cuda_api" }
 group = "0.13"
+threadpool = "1.8.0"

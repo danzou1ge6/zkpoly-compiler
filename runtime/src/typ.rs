@@ -1,11 +1,5 @@
+use crate::poly::PolyType;
 use std::any;
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum PolyType {
-    Coef,
-    Lagrange,
-    ExtendedLagrange,
-}
 
 #[derive(Debug, Clone)]
 pub enum Typ {

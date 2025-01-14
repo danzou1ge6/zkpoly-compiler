@@ -73,7 +73,7 @@ impl CudaStream {
         self.stream
     }
 
-    pub fn get_gpu_id(&self) -> i32 {
+    pub fn get_device(&self) -> i32 {
         self.gpu_id
     }
 
@@ -137,6 +137,19 @@ impl CudaStream {
             ));
         }
     }
+
+    pub fn memcpy_d2d<T: Sized>(&self, dst: *mut T, src: *const T, len: u64) {
+        let size = std::mem::size_of::<T>() * len as usize;
+        unsafe {
+            cuda_check!(cudaMemcpyAsync(
+                dst as *mut std::ffi::c_void,
+                src as *const std::ffi::c_void,
+                size,
+                cudaMemcpyKind_cudaMemcpyDeviceToDevice,
+                self.stream,
+            ));
+        }
+    }
 }
 
 impl Drop for CudaStream {
@@ -146,6 +159,12 @@ impl Drop for CudaStream {
         }
     }
 }
+
+unsafe impl Send for CudaStream {}
+unsafe impl Sync for CudaStream {}
+
+unsafe impl Send for CudaEvent {}
+unsafe impl Sync for CudaEvent {}
 
 #[test]
 fn test_cuda_stream() {
