@@ -11,6 +11,7 @@ use crate::{
         FunctionValue::{Fn, FnMut, FnOnce},
     },
     instructions::Instruction,
+    transfer::transfer,
     transport::Transport,
 };
 
@@ -75,70 +76,7 @@ pub fn run<T: RuntimeType>(
                 let mut dst_guard = info.variable[dst_id].write().unwrap();
                 let src: &Variable<T> = src_guard.as_ref().unwrap();
                 let dst: &mut Variable<T> = dst_guard.as_mut().unwrap();
-                match src_device {
-                    DeviceType::CPU => match dst_device {
-                        DeviceType::CPU => match src {
-                            Variable::Poly(src) => {
-                                if let Variable::Poly(dst) = dst {
-                                    src.cpu2cpu(dst);
-                                } else {
-                                    panic!("cannot transfer to non-poly variable");
-                                }
-                            }
-                            _ => todo!(),
-                        },
-                        DeviceType::GPU { .. } => match src {
-                            Variable::Poly(src) => {
-                                if let Variable::Poly(dst) = dst {
-                                    let stream_guard =
-                                        info.variable[stream.unwrap()].read().unwrap();
-                                    src.cpu2gpu(
-                                        dst,
-                                        stream_guard.as_ref().unwrap().unwrap_stream(),
-                                    );
-                                } else {
-                                    panic!("cannot transfer to non-poly variable");
-                                }
-                            }
-                            _ => todo!(),
-                        },
-                        DeviceType::Disk => todo!(),
-                    },
-                    DeviceType::GPU { .. } => match dst_device {
-                        DeviceType::CPU => match src {
-                            Variable::Poly(src) => {
-                                if let Variable::Poly(dst) = dst {
-                                    let stream_guard =
-                                        info.variable[stream.unwrap()].read().unwrap();
-                                    src.gpu2cpu(
-                                        dst,
-                                        stream_guard.as_ref().unwrap().unwrap_stream(),
-                                    );
-                                } else {
-                                    panic!("cannot transfer to non-poly variable");
-                                }
-                            }
-                            _ => todo!(),
-                        },
-                        DeviceType::GPU { .. } => match src {
-                            Variable::Poly(src) => {
-                                if let Variable::Poly(dst) = dst {
-                                    let stream_guard =
-                                        info.variable[stream.unwrap()].read().unwrap();
-                                    src.gpu2gpu(
-                                        dst,
-                                        stream_guard.as_ref().unwrap().unwrap_stream(),
-                                    );
-                                } else {
-                                    panic!("cannot transfer to non-poly variable");
-                                }
-                            }
-                            _ => todo!(),
-                        },
-                        DeviceType::Disk => todo!(),
-                    },
-                    DeviceType::Disk => todo!(),
-                }
+                transfer::<T>(src, dst, src_device, dst_device, stream, &info);
             }
             Instruction::FuncCall {
                 func_id,
