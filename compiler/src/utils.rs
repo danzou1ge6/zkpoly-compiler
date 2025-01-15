@@ -1,4 +1,3 @@
-
 /// Computes smallest k such that
 ///   2^k >= [`x`]
 fn min_power_of_2_above(n: usize) -> usize {

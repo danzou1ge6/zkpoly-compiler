@@ -8,12 +8,13 @@ zkpoly_common::define_usize_id!(FunctionId);
 pub enum FunctionValue {
     FnOnce(Box<dyn FnOnce(Vec<&dyn any::Any>) -> Result<Box<dyn any::Any>, RuntimeError>>),
     FnMut(Box<dyn FnMut(Vec<&dyn any::Any>) -> Result<Box<dyn any::Any>, RuntimeError>>),
+    Fn(Box<dyn Fn(Vec<&dyn any::Any>) -> Result<Box<dyn any::Any>, RuntimeError>>),
 }
 
 #[derive(Debug, Clone, Copy)]
 pub enum ParamMode {
     In,
-    InOut
+    InOut,
 }
 
 pub struct Function {

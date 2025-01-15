@@ -1,0 +1,12 @@
+[package]
+name = "zkpoly_memory_pool"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+[build-dependencies]
+bindgen = "0.70"
+
+[dev-dependencies]
+rand = "0.8"

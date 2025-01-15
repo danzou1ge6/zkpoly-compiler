@@ -1,6 +1,9 @@
 [workspace]
+resolver = "2"
 members = [
     "compiler",
     "runtime",
-    "common"
+    "common",
+    "runtime/src/memory_pool",
+    "runtime/src/cuda_api",
 ]
