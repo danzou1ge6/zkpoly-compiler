@@ -1,3 +1,4 @@
+use core::panic;
 use std::any;
 use zkpoly_runtime::args::{Constant, ConstantTable, RuntimeType, Variable};
 use zkpoly_runtime::functions as uf;
@@ -63,6 +64,26 @@ impl<T: RuntimeType> Builder<T> {
         VertexInner {
             node: VertexNode::Constant(constant_id),
             typ: Some(Typ::Scalar),
+            src: SourceInfo::new(*Location::caller(), name),
+        }
+        .into()
+    }
+
+    #[track_caller]
+    pub fn constant_poly<T: 'static>(
+        &mut self,
+        name: String,
+        repr: PolyRepr,
+        value: Vec<T>,
+    ) -> Vertex {
+        let constant_id = self.constants.push(Constant::new(
+            name.clone(),
+            Typ::Poly(repr.clone()),
+            Box::new(value),
+        ));
+        VertexInner {
+            node: VertexNode::Constant(constant_id),
+            typ: Some(Typ::Poly(repr)),
             src: SourceInfo::new(*Location::caller(), name),
         }
         .into()
@@ -137,7 +158,21 @@ impl<T: RuntimeType> Builder<T> {
     }
 
     #[track_caller]
-    pub fn constant(&mut self, name: String, value: Variable<T>) -> Vertex {
+    pub fn scatter_array(&self, name: &str, n: usize, value: Vertex) -> Vec<Vertex> {
+        (0..n)
+            .map(|i| {
+                VertexInner {
+                    node: VertexNode::ArrayGet(value.clone(), i),
+                    typ: None,
+                    src: SourceInfo::new(*Location::caller(), format!("{}_{}", name, i)),
+                }
+                .into()
+            })
+            .collect()
+    }
+
+    #[track_caller]
+    pub fn constant<T: 'static>(&mut self, name: String, value: T) -> Vertex {
         let typ = Typ::Any(any::TypeId::of::<T>(), std::mem::size_of::<T>());
         let constant_id = self.constants.push(Constant::new(name.clone(), value));
         VertexInner {
@@ -193,6 +228,54 @@ impl<T: RuntimeType> Builder<T> {
             Typ::Scalar,
             transcript_scalar,
         )
+    }
+
+    #[track_caller]
+    pub fn lagrange_to_coef(&self, name: String, value: Vertex, n: u64) -> Vertex {
+        VertexInner {
+            node: VertexNode::Ntt {
+                s: value,
+                to: PolyRepr::Coef(n),
+                from: PolyRepr::Lagrange(n),
+            },
+            typ: Some(Typ::coef(n)),
+            src: SourceInfo::new(*Location::caller(), name),
+        }
+        .into()
+    }
+
+    #[track_caller]
+    pub fn coef_to_extended(&self, name: String, value: Vertex, n: u64, n_extended: u64) -> Vertex {
+        VertexInner {
+            node: VertexNode::Ntt {
+                s: value,
+                to: PolyRepr::ExtendedLagrange(n_extended),
+                from: PolyRepr::Coef(n),
+            },
+            typ: Some(Typ::extended_lagrange(n_extended)),
+            src: SourceInfo::new(*Location::caller(), name),
+        }
+        .into()
+    }
+
+    #[track_caller]
+    pub fn rotate_idx(&self, name: String, value: Vertex, shift: i32) -> Vertex {
+        VertexInner {
+            node: VertexNode::RotateIdx(value, shift),
+            typ: None,
+            src: SourceInfo::new(*Location::caller(), name),
+        }
+        .into()
+    }
+
+    #[track_caller]
+    pub fn lagrange_zeros(&self, name: String, n: u64) -> Vertex {
+        VertexInner {
+            node: VertexNode::NewPoly(n, PolyInit::Zeros),
+            typ: Some(Typ::lagrange(n)),
+            src: SourceInfo::new(*Location::caller(), name),
+        }
+        .into()
     }
 }
 
