@@ -3,6 +3,7 @@ use group::ff::Field;
 use std::fmt::Debug;
 use std::{any::Any, sync::RwLock};
 use zkpoly_common::heap;
+use zkpoly_cuda_api::stream::CudaStream;
 
 zkpoly_common::define_usize_id!(VariableId);
 zkpoly_common::define_usize_id!(ConstantId);
@@ -23,7 +24,108 @@ pub enum Variable<T: RuntimeType> {
     Point,
     Tuple(Vec<Variable<T>>),
     Array(Box<[Variable<T>]>),
+    Stream(CudaStream),
     Any(Box<dyn Any + Send + Sync>),
+}
+
+impl<T: RuntimeType> Variable<T> {
+    pub fn unwrap_poly(&self) -> &Polynomial<T::Field> {
+        match self {
+            Variable::Poly(poly) => poly,
+            _ => panic!("unwrap_poly: not a polynomial"),
+        }
+    }
+
+    pub fn unwrap_poly_mut(&mut self) -> &mut Polynomial<T::Field> {
+        match self {
+            Variable::Poly(poly) => poly,
+            _ => panic!("unwrap_poly_mut: not a polynomial"),
+        }
+    }
+
+    pub fn unwrap_point_base(&self) {
+        match self {
+            Variable::PointBase => (),
+            _ => panic!("unwrap_point_base: not a point base"),
+        }
+    }
+
+    pub fn unwrap_scalar(&self) -> &T::Field {
+        match self {
+            Variable::Scalar(scalar) => scalar,
+            _ => panic!("unwrap_scalar: not a scalar"),
+        }
+    }
+
+    pub fn unwrap_scalar_mut(&mut self) -> &mut T::Field {
+        match self {
+            Variable::Scalar(scalar) => scalar,
+            _ => panic!("unwrap_scalar_mut: not a scalar"),
+        }
+    }
+
+    pub fn unwrap_transcript(&self) {
+        match self {
+            Variable::Transcript => (),
+            _ => panic!("unwrap_transcript: not a transcript"),
+        }
+    }
+
+    pub fn unwrap_point(&self) {
+        match self {
+            Variable::Point => (),
+            _ => panic!("unwrap_point: not a point"),
+        }
+    }
+
+    pub fn unwrap_tuple(&self) -> &[Variable<T>] {
+        match self {
+            Variable::Tuple(tuple) => tuple,
+            _ => panic!("unwrap_tuple: not a tuple"),
+        }
+    }
+
+    pub fn unwrap_tuple_mut(&mut self) -> &mut [Variable<T>] {
+        match self {
+            Variable::Tuple(tuple) => tuple,
+            _ => panic!("unwrap_tuple_mut: not a tuple"),
+        }
+    }
+
+    pub fn unwrap_array(&self) -> &[Variable<T>] {
+        match self {
+            Variable::Array(array) => array,
+            _ => panic!("unwrap_array: not an array"),
+        }
+    }
+
+    pub fn unwrap_array_mut(&mut self) -> &mut [Variable<T>] {
+        match self {
+            Variable::Array(array) => array,
+            _ => panic!("unwrap_array_mut: not an array"),
+        }
+    }
+
+    pub fn unwrap_stream(&self) -> &CudaStream {
+        match self {
+            Variable::Stream(stream) => stream,
+            _ => panic!("unwrap_stream: not a stream"),
+        }
+    }
+
+    pub fn unwrap_any(&self) -> &dyn Any {
+        match self {
+            Variable::Any(any) => any.as_ref(),
+            _ => panic!("unwrap_any: not an any"),
+        }
+    }
+
+    pub fn unwrap_any_mut(&mut self) -> &mut dyn Any {
+        match self {
+            Variable::Any(any) => any.as_mut(),
+            _ => panic!("unwrap_any_mut: not an any"),
+        }
+    }
 }
 
 #[derive(Debug)]

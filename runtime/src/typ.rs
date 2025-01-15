@@ -11,6 +11,7 @@ pub enum Typ {
     Tuple(Vec<Typ>),
     Array(Box<Typ>, usize),
     Any(any::TypeId, usize),
+    Stream,
 }
 
 impl Typ {

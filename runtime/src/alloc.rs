@@ -5,7 +5,6 @@ use zkpoly_memory_pool::PinnedMemoryPool;
 use crate::{
     args::{RuntimeType, Variable, VariableId},
     devices::DeviceType,
-    only_cpu,
     poly::Polynomial,
     run::RuntimeInfo,
     typ::Typ,
@@ -45,7 +44,7 @@ pub fn allocate<T: RuntimeType>(
         }
         Typ::PointBase { log_n } => todo!(),
         Typ::Scalar => {
-            only_cpu!(device.clone());
+            assert!(device.is_cpu());
             *target = Some(Variable::Scalar(T::Field::ZERO));
         }
         Typ::Transcript => todo!(),
@@ -53,6 +52,7 @@ pub fn allocate<T: RuntimeType>(
         Typ::Tuple(vec) => todo!(),
         Typ::Array(typ, _) => todo!(),
         Typ::Any(type_id, _) => todo!(),
+        Typ::Stream => todo!(),
     };
 }
 
@@ -81,6 +81,7 @@ pub fn deallocate<T: RuntimeType>(
             Variable::Tuple(vec) => todo!(),
             Variable::Array(_) => todo!(),
             Variable::Any(any) => todo!(),
+            Variable::Stream(cuda_stream) => todo!(),
         }
     }
 }

@@ -6,7 +6,11 @@ use threadpool::ThreadPool;
 use crate::{
     alloc::{allocate, deallocate},
     args::{RuntimeType, Variable, VariableTable},
-    devices::{DeviceType, Event, EventTable, StreamTable, ThreadTable},
+    devices::{DeviceType, Event, EventTable, ThreadTable},
+    functions::{
+        FunctionTable,
+        FunctionValue::{Fn, FnMut, FnOnce},
+    },
     instructions::Instruction,
     poly::Polynomial,
     transport::Transport,
@@ -17,20 +21,10 @@ use zkpoly_cuda_api::mem::CudaAllocator;
 
 use zkpoly_memory_pool::PinnedMemoryPool;
 
-#[macro_export]
-macro_rules! only_cpu {
-    ($device:expr) => {
-        match $device {
-            DeviceType::CPU => {}
-            _ => panic!("only cpu device can do this"),
-        }
-    };
-}
-
 pub struct RuntimeInfo<T: RuntimeType> {
     pub variable: Arc<VariableTable<T>>,
     pub pool: Arc<ThreadPool>,
-    pub streams: Arc<StreamTable>,
+    pub funcs: Arc<FunctionTable<T>>,
     pub events: Arc<EventTable>,
     pub threads: Arc<ThreadTable>,
     pub main_thread: bool,
@@ -94,7 +88,12 @@ pub fn run<T: RuntimeType>(
                         DeviceType::GPU { .. } => match src {
                             Variable::Poly(src) => {
                                 if let Variable::Poly(dst) = dst {
-                                    src.cpu2gpu(dst, &info.streams[stream.unwrap()]);
+                                    let stream_guard =
+                                        info.variable[stream.unwrap()].read().unwrap();
+                                    src.cpu2gpu(
+                                        dst,
+                                        stream_guard.as_ref().unwrap().unwrap_stream(),
+                                    );
                                 } else {
                                     panic!("cannot transfer to non-poly variable");
                                 }
@@ -107,7 +106,12 @@ pub fn run<T: RuntimeType>(
                         DeviceType::CPU => match src {
                             Variable::Poly(src) => {
                                 if let Variable::Poly(dst) = dst {
-                                    src.gpu2cpu(dst, &info.streams[stream.unwrap()]);
+                                    let stream_guard =
+                                        info.variable[stream.unwrap()].read().unwrap();
+                                    src.gpu2cpu(
+                                        dst,
+                                        stream_guard.as_ref().unwrap().unwrap_stream(),
+                                    );
                                 } else {
                                     panic!("cannot transfer to non-poly variable");
                                 }
@@ -117,7 +121,12 @@ pub fn run<T: RuntimeType>(
                         DeviceType::GPU { .. } => match src {
                             Variable::Poly(src) => {
                                 if let Variable::Poly(dst) = dst {
-                                    src.gpu2gpu(dst, &info.streams[stream.unwrap()]);
+                                    let stream_guard =
+                                        info.variable[stream.unwrap()].read().unwrap();
+                                    src.gpu2gpu(
+                                        dst,
+                                        stream_guard.as_ref().unwrap().unwrap_stream(),
+                                    );
                                 } else {
                                     panic!("cannot transfer to non-poly variable");
                                 }
@@ -130,12 +139,43 @@ pub fn run<T: RuntimeType>(
                 }
             }
             Instruction::FuncCall {
-                device,
-                stream,
                 func_id,
-                arg_ids,
+                arg_mut,
+                arg,
             } => {
-                // let func =
+                let mut arg_mut_guards: Vec<_> = arg_mut
+                    .iter()
+                    .map(|id| info.variable[*id].write().unwrap())
+                    .collect();
+                let arg_guards: Vec<_> = arg
+                    .iter()
+                    .map(|id| info.variable[*id].read().unwrap())
+                    .collect();
+
+                let args_mut: Vec<_> = arg_mut_guards
+                    .iter_mut()
+                    .map(|guard| guard.as_mut().unwrap())
+                    .collect();
+                let args: Vec<_> = arg_guards
+                    .iter()
+                    .map(|guard| guard.as_ref().unwrap())
+                    .collect();
+
+                let ref target = info.funcs[func_id].f;
+                match target {
+                    FnOnce(mutex) => {
+                        let mut f_guard = mutex.lock().unwrap();
+                        let f = f_guard.take().unwrap();
+                        f(args_mut, args).unwrap();
+                    }
+                    FnMut(mutex) => {
+                        let mut f_guard = mutex.lock().unwrap();
+                        f_guard(args_mut, args).unwrap();
+                    }
+                    Fn(f) => {
+                        f(args_mut, args).unwrap();
+                    }
+                }
             }
             Instruction::Wait {
                 slave,
@@ -149,8 +189,12 @@ pub fn run<T: RuntimeType>(
                             cuda_event.sync();
                         }
                         DeviceType::GPU { .. } => {
-                            let stream = &info.streams[stream.unwrap()];
-                            stream.wait(cuda_event);
+                            let stream_guard = info.variable[stream.unwrap()].read().unwrap();
+                            stream_guard
+                                .as_ref()
+                                .unwrap()
+                                .unwrap_stream()
+                                .wait(cuda_event);
                         }
                         DeviceType::Disk => unreachable!(),
                     },
@@ -166,8 +210,12 @@ pub fn run<T: RuntimeType>(
                 let ref event = info.events[event];
                 match event {
                     Event::GpuEvent(cuda_event) => {
-                        let stream = &info.streams[stream.unwrap()];
-                        stream.record(cuda_event);
+                        let stream_guard = info.variable[stream.unwrap()].read().unwrap();
+                        stream_guard
+                            .as_ref()
+                            .unwrap()
+                            .unwrap_stream()
+                            .record(cuda_event);
                     }
                     Event::ThreadEvent { cond, lock } => {
                         let mut started = lock.lock().unwrap();
@@ -185,7 +233,7 @@ pub fn run<T: RuntimeType>(
                 let info_clone = RuntimeInfo {
                     variable: info.variable.clone(),
                     pool: info.pool.clone(),
-                    streams: info.streams.clone(),
+                    funcs: info.funcs.clone(),
                     events: info.events.clone(),
                     threads: info.threads.clone(),
                     main_thread: false,

@@ -9,14 +9,41 @@ use zkpoly_common::heap;
 zkpoly_common::define_usize_id!(FunctionId);
 
 pub enum FunctionValue<T: RuntimeType> {
-    FnOnce(Mutex<Option<Box<dyn FnOnce(Vec<&mut Variable<T>>, Vec<&Variable<T>>) -> Result<(), RuntimeError>>>>),
-    FnMut(Mutex<Box<dyn FnMut(Vec<&mut Variable<T>>, Vec<&Variable<T>>) -> Result<(), RuntimeError>>>),
-    Fn(Box<dyn Fn(Vec<&mut Variable<T>>, Vec<&Variable<T>>) -> Result<(), RuntimeError>>),
+    FnOnce(
+        Mutex<
+            Option<
+                Box<
+                    dyn FnOnce(Vec<&mut Variable<T>>, Vec<&Variable<T>>) -> Result<(), RuntimeError>
+                        + Sync
+                        + Send
+                        + 'static,
+                >,
+            >,
+        >,
+    ),
+    FnMut(
+        Mutex<
+            Box<
+                dyn FnMut(Vec<&mut Variable<T>>, Vec<&Variable<T>>) -> Result<(), RuntimeError>
+                    + Sync
+                    + Send
+                    + 'static,
+            >,
+        >,
+    ),
+    Fn(
+        Box<
+            dyn Fn(Vec<&mut Variable<T>>, Vec<&Variable<T>>) -> Result<(), RuntimeError>
+                + Sync
+                + Send
+                + 'static,
+        >,
+    ),
 }
 
 pub struct Function<T: RuntimeType> {
-    name: String,
-    f: FunctionValue<T>,
+    pub name: String,
+    pub f: FunctionValue<T>,
     typ_mut: Vec<Typ>,
     typ: Vec<Typ>,
 }
@@ -38,7 +65,12 @@ impl<T: RuntimeType> std::fmt::Debug for Function<T> {
 impl<T: RuntimeType> Function<T> {
     pub fn new_once(
         name: String,
-        f: Box<dyn FnOnce(Vec<&mut Variable<T>>, Vec<&Variable<T>>) -> Result<(), RuntimeError>>,
+        f: Box<
+            dyn FnOnce(Vec<&mut Variable<T>>, Vec<&Variable<T>>) -> Result<(), RuntimeError>
+                + Sync
+                + Send
+                + 'static,
+        >,
         typ_mut: Vec<Typ>,
         typ: Vec<Typ>,
     ) -> Self {
@@ -52,7 +84,12 @@ impl<T: RuntimeType> Function<T> {
 
     pub fn new_mut(
         name: String,
-        f: Box<dyn FnMut(Vec<&mut Variable<T>>, Vec<&Variable<T>>) -> Result<(), RuntimeError>>,
+        f: Box<
+            dyn FnMut(Vec<&mut Variable<T>>, Vec<&Variable<T>>) -> Result<(), RuntimeError>
+                + Sync
+                + Send
+                + 'static,
+        >,
         typ_mut: Vec<Typ>,
         typ: Vec<Typ>,
     ) -> Self {
@@ -66,7 +103,12 @@ impl<T: RuntimeType> Function<T> {
 
     pub fn new(
         name: String,
-        f: Box<dyn Fn(Vec<&mut Variable<T>>, Vec<&Variable<T>>) -> Result<(), RuntimeError>>,
+        f: Box<
+            dyn Fn(Vec<&mut Variable<T>>, Vec<&Variable<T>>) -> Result<(), RuntimeError>
+                + Sync
+                + Send
+                + 'static,
+        >,
         typ_mut: Vec<Typ>,
         typ: Vec<Typ>,
     ) -> Self {

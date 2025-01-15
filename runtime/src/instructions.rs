@@ -1,5 +1,5 @@
 use crate::args::VariableId;
-use crate::devices::{DeviceType, EventId, StreamId, ThreadId};
+use crate::devices::{DeviceType, EventId, ThreadId};
 use crate::functions::FunctionId;
 use crate::typ::Typ;
 
@@ -18,26 +18,25 @@ pub enum Instruction {
     Transfer {
         src_device: DeviceType,
         dst_device: DeviceType,
-        stream: Option<StreamId>,
+        stream: Option<VariableId>,
         src_id: VariableId,
         dst_id: VariableId,
     },
 
     FuncCall {
-        device: DeviceType,
-        stream: StreamId,
         func_id: FunctionId,
-        arg_ids: Vec<VariableId>,
+        arg_mut: Vec<VariableId>,
+        arg: Vec<VariableId>,
     },
 
     Wait {
         slave: DeviceType,
-        stream: Option<StreamId>,
+        stream: Option<VariableId>,
         event: EventId,
     },
 
     Record {
-        stream: Option<StreamId>,
+        stream: Option<VariableId>,
         event: EventId,
     },
 

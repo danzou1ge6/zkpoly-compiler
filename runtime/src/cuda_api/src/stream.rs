@@ -44,7 +44,7 @@ impl Drop for CudaEvent {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct CudaStream {
     stream: cudaStream_t,
     gpu_id: i32,
