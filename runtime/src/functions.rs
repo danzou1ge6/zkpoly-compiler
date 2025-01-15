@@ -1,13 +1,18 @@
 use crate::error::RuntimeError;
 use crate::typ::Typ;
 use std::any;
+use std::sync::Mutex;
 use zkpoly_common::heap;
 
 zkpoly_common::define_usize_id!(FunctionId);
 
 pub enum FunctionValue {
-    FnOnce(Box<dyn FnOnce(Vec<&dyn any::Any>) -> Result<Box<dyn any::Any>, RuntimeError>>),
-    FnMut(Box<dyn FnMut(Vec<&dyn any::Any>) -> Result<Box<dyn any::Any>, RuntimeError>>),
+    FnOnce(
+        Mutex<
+            Option<Box<dyn FnOnce(Vec<&dyn any::Any>) -> Result<Box<dyn any::Any>, RuntimeError>>>,
+        >,
+    ),
+    FnMut(Mutex<Box<dyn FnMut(Vec<&dyn any::Any>) -> Result<Box<dyn any::Any>, RuntimeError>>>),
     Fn(Box<dyn Fn(Vec<&dyn any::Any>) -> Result<Box<dyn any::Any>, RuntimeError>>),
 }
 
@@ -51,7 +56,7 @@ impl Function {
     ) -> Self {
         Self {
             name,
-            f: FunctionValue::FnOnce(f),
+            f: FunctionValue::FnOnce(Mutex::new(Some(f))),
             typ,
         }
     }
@@ -63,7 +68,19 @@ impl Function {
     ) -> Self {
         Self {
             name,
-            f: FunctionValue::FnMut(f),
+            f: FunctionValue::FnMut(Mutex::new(f)),
+            typ,
+        }
+    }
+
+    pub fn new(
+        name: String,
+        f: Box<dyn Fn(Vec<&dyn any::Any>) -> Result<Box<dyn any::Any>, RuntimeError>>,
+        typ: (Vec<(Typ, ParamMode)>, Typ),
+    ) -> Self {
+        Self {
+            name,
+            f: FunctionValue::Fn(f),
             typ,
         }
     }

@@ -1,15 +1,15 @@
 use std::any;
-use zkpoly_runtime::args::{Constant, ConstantTable};
+use zkpoly_runtime::args::{Constant, ConstantTable, RuntimeType, Variable};
 use zkpoly_runtime::functions as uf;
 
 use super::*;
 
-pub struct Builder {
-    constants: ConstantTable,
+pub struct Builder<T: RuntimeType> {
+    constants: ConstantTable<T>,
     functions: uf::FunctionTable,
 }
 
-impl Builder {
+impl<T: RuntimeType> Builder<T> {
     pub fn new() -> Self {
         Self {
             constants: ConstantTable::new(),
@@ -58,10 +58,8 @@ impl Builder {
     }
 
     #[track_caller]
-    pub fn constant_scaler<T: 'static>(&mut self, name: String, value: T) -> Vertex {
-        let constant_id =
-            self.constants
-                .push(Constant::new(name.clone(), Typ::Scalar, Box::new(value)));
+    pub fn constant_scaler(&mut self, name: String, value: Variable<T>) -> Vertex {
+        let constant_id = self.constants.push(Constant::new(name.clone(), value));
         VertexInner {
             node: VertexNode::Constant(constant_id),
             typ: Some(Typ::Scalar),
@@ -139,11 +137,9 @@ impl Builder {
     }
 
     #[track_caller]
-    pub fn constant<T: 'static>(&mut self, name: String, value: T) -> Vertex {
+    pub fn constant(&mut self, name: String, value: Variable<T>) -> Vertex {
         let typ = Typ::Any(any::TypeId::of::<T>(), std::mem::size_of::<T>());
-        let constant_id =
-            self.constants
-                .push(Constant::new(name.clone(), typ.clone(), Box::new(value)));
+        let constant_id = self.constants.push(Constant::new(name.clone(), value));
         VertexInner {
             node: VertexNode::Constant(constant_id),
             typ: Some(typ),
