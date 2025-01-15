@@ -22,7 +22,7 @@ impl ExprId {
 #[derive(Debug, Clone)]
 pub enum PolyInit {
     Zeros,
-    Ones
+    Ones,
 }
 
 pub type Arith = transit::Arith<ExprId>;

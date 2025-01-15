@@ -1,5 +1,7 @@
+use crate::point_base::PointBase;
 use crate::poly::Polynomial;
 use group::ff::Field;
+use pasta_curves::arithmetic::CurveAffine;
 use std::fmt::Debug;
 use std::{any::Any, sync::RwLock};
 use zkpoly_common::heap;
@@ -13,15 +15,16 @@ pub type ConstantTable<T> = heap::Heap<ConstantId, Constant<T>>;
 
 pub trait RuntimeType: 'static {
     type Field: Field;
+    type Point: CurveAffine;
 }
 
 #[derive(Debug)]
 pub enum Variable<T: RuntimeType> {
     Poly(Polynomial<T::Field>),
-    PointBase,
+    PointBase(PointBase<T::Point>),
     Scalar(T::Field),
     Transcript,
-    Point,
+    Point(T::Point),
     Tuple(Vec<Variable<T>>),
     Array(Box<[Variable<T>]>),
     Stream(CudaStream),
@@ -43,10 +46,17 @@ impl<T: RuntimeType> Variable<T> {
         }
     }
 
-    pub fn unwrap_point_base(&self) {
+    pub fn unwrap_point_base(&self) -> &PointBase<T::Point> {
         match self {
-            Variable::PointBase => (),
+            Variable::PointBase(point_base) => point_base,
             _ => panic!("unwrap_point_base: not a point base"),
+        }
+    }
+
+    pub fn unwrap_point_base_mut(&mut self) -> &mut PointBase<T::Point> {
+        match self {
+            Variable::PointBase(point_base) => point_base,
+            _ => panic!("unwrap_point_base_mut: not a point base"),
         }
     }
 
@@ -71,10 +81,17 @@ impl<T: RuntimeType> Variable<T> {
         }
     }
 
-    pub fn unwrap_point(&self) {
+    pub fn unwrap_point(&self) -> &T::Point {
         match self {
-            Variable::Point => (),
+            Variable::Point(point) => point,
             _ => panic!("unwrap_point: not a point"),
+        }
+    }
+
+    pub fn unwrap_point_mut(&mut self) -> &mut T::Point {
+        match self {
+            Variable::Point(point) => point,
+            _ => panic!("unwrap_point_mut: not a point"),
         }
     }
 

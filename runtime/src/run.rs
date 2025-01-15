@@ -1,6 +1,5 @@
 use std::sync::{mpsc::Sender, Arc};
 
-use group::ff::Field;
 use threadpool::ThreadPool;
 
 use crate::{
@@ -12,9 +11,7 @@ use crate::{
         FunctionValue::{Fn, FnMut, FnOnce},
     },
     instructions::Instruction,
-    poly::Polynomial,
     transport::Transport,
-    typ::Typ,
 };
 
 use zkpoly_cuda_api::mem::CudaAllocator;
@@ -47,20 +44,25 @@ pub fn run<T: RuntimeType>(
             } => {
                 // only main thread can allocate memory
                 assert!(info.main_thread);
-                allocate::<T>(
+                let mut guard = info.variable[id].write().unwrap();
+                assert!(guard.is_none());
+                *guard = Some(allocate::<T>(
                     &info,
                     device,
                     typ,
-                    id,
                     offset,
                     &mem_allocator,
                     &gpu_allocator,
-                );
+                ));
             }
             Instruction::Deallocate { id } => {
                 // only main thread can deallocate memory
                 assert!(info.main_thread);
-                deallocate::<T>(&info, id, &mem_allocator);
+                let mut guard = info.variable[id].write().unwrap();
+                if let Some(var) = guard.as_mut() {
+                    deallocate::<T>(&info, var, &mem_allocator);
+                    *guard = None;
+                }
             }
             Instruction::Transfer {
                 src_device,
@@ -71,8 +73,8 @@ pub fn run<T: RuntimeType>(
             } => {
                 let src_guard = info.variable[src_id].read().unwrap();
                 let mut dst_guard = info.variable[dst_id].write().unwrap();
-                let src = src_guard.as_ref().unwrap();
-                let dst = dst_guard.as_mut().unwrap();
+                let src: &Variable<T> = src_guard.as_ref().unwrap();
+                let dst: &mut Variable<T> = dst_guard.as_mut().unwrap();
                 match src_device {
                     DeviceType::CPU => match dst_device {
                         DeviceType::CPU => match src {

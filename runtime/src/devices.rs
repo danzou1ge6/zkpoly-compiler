@@ -1,9 +1,6 @@
-use std::sync::{
-    mpsc::{Receiver, Sender},
-    Condvar, Mutex,
-};
+use std::sync::{mpsc::Receiver, Condvar, Mutex};
 use zkpoly_common::heap;
-use zkpoly_cuda_api::stream::{CudaEvent, CudaStream};
+use zkpoly_cuda_api::stream::CudaEvent;
 
 zkpoly_common::define_usize_id!(EventId);
 zkpoly_common::define_usize_id!(ThreadId);

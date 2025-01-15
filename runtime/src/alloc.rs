@@ -1,10 +1,11 @@
-use group::ff::Field;
-use zkpoly_cuda_api::mem::CudaAllocator;
+use group::{ff::Field, prime::PrimeCurveAffine};
+use zkpoly_cuda_api::{mem::CudaAllocator, stream::CudaStream};
 use zkpoly_memory_pool::PinnedMemoryPool;
 
 use crate::{
-    args::{RuntimeType, Variable, VariableId},
+    args::{RuntimeType, Variable},
     devices::DeviceType,
+    point_base::PointBase,
     poly::Polynomial,
     run::RuntimeInfo,
     typ::Typ,
@@ -14,12 +15,10 @@ pub fn allocate<T: RuntimeType>(
     info: &RuntimeInfo<T>,
     device: DeviceType,
     typ: Typ,
-    id: VariableId,
     offset: Option<usize>,
     mem_allocator: &Option<PinnedMemoryPool>,
     gpu_allocator: &Option<Vec<CudaAllocator>>,
-) {
-    let mut target = info.variable[id].write().unwrap();
+) -> Variable<T> {
     match typ {
         Typ::Poly {
             typ: ref poly_typ,
@@ -40,48 +39,102 @@ pub fn allocate<T: RuntimeType>(
                 ),
                 DeviceType::Disk => todo!(),
             };
-            *target = Some(Variable::Poly(poly));
+            Variable::Poly(poly)
         }
-        Typ::PointBase { log_n } => todo!(),
+        Typ::PointBase { log_n } => {
+            let point_base = match device {
+                DeviceType::CPU => PointBase::<T::Point>::new(
+                    log_n,
+                    mem_allocator.as_ref().unwrap().allocate(log_n),
+                    device.clone(),
+                ),
+                DeviceType::GPU { device_id } => PointBase::<T::Point>::new(
+                    log_n,
+                    gpu_allocator.as_ref().unwrap()[device_id as usize].allocate(offset.unwrap()),
+                    device.clone(),
+                ),
+                DeviceType::Disk => todo!(),
+            };
+            Variable::PointBase(point_base)
+        }
         Typ::Scalar => {
             assert!(device.is_cpu());
-            *target = Some(Variable::Scalar(T::Field::ZERO));
+            Variable::Scalar(T::Field::ZERO)
         }
-        Typ::Transcript => todo!(),
-        Typ::Point => todo!(),
-        Typ::Tuple(vec) => todo!(),
-        Typ::Array(typ, _) => todo!(),
-        Typ::Any(type_id, _) => todo!(),
-        Typ::Stream => todo!(),
-    };
+        Typ::Transcript => unreachable!(),
+        Typ::Point => {
+            assert!(device.is_cpu());
+            Variable::Point(T::Point::identity())
+        }
+        Typ::Tuple(vec) => {
+            let mut vars = Vec::new();
+            for typ in vec {
+                vars.push(allocate(
+                    info,
+                    device.clone(),
+                    typ,
+                    offset,
+                    mem_allocator,
+                    gpu_allocator,
+                ));
+            }
+            Variable::Tuple(vars)
+        }
+        Typ::Array(typ, len) => {
+            let typ = *typ;
+            let mut vars = Vec::new();
+            for _ in 0..len {
+                vars.push(allocate(
+                    info,
+                    device.clone(),
+                    typ.clone(),
+                    offset,
+                    mem_allocator,
+                    gpu_allocator,
+                ));
+            }
+            Variable::Array(vars.into_boxed_slice())
+        }
+        Typ::Any(_, _) => unreachable!(),
+        Typ::Stream => {
+            let device = device.unwrap_gpu();
+            Variable::Stream(CudaStream::new(device))
+        }
+        Typ::Rng => todo!(),
+    }
 }
 
 pub fn deallocate<T: RuntimeType>(
     info: &RuntimeInfo<T>,
-    id: VariableId,
+    var: &mut Variable<T>,
     mem_allocator: &Option<PinnedMemoryPool>,
 ) {
-    let mut target = info.variable[id].write().unwrap();
-    if let Some(var) = target.as_ref() {
-        match var {
-            Variable::Poly(poly) => match poly.device {
-                DeviceType::CPU => {
-                    mem_allocator.as_ref().unwrap().deallocate(poly.values);
-                    *target = None;
-                }
-                DeviceType::GPU { device_id } => {
-                    *target = None;
-                }
-                DeviceType::Disk => todo!(),
-            },
-            Variable::PointBase => todo!(),
-            Variable::Scalar(_) => todo!(),
-            Variable::Transcript => todo!(),
-            Variable::Point => todo!(),
-            Variable::Tuple(vec) => todo!(),
-            Variable::Array(_) => todo!(),
-            Variable::Any(any) => todo!(),
-            Variable::Stream(cuda_stream) => todo!(),
+    match var {
+        Variable::Poly(poly) => match poly.device {
+            DeviceType::CPU => {
+                mem_allocator.as_ref().unwrap().deallocate(poly.values);
+            }
+            _ => {}
+        },
+        Variable::PointBase(point_base) => match point_base.device {
+            DeviceType::CPU => {
+                mem_allocator
+                    .as_ref()
+                    .unwrap()
+                    .deallocate(point_base.values);
+            }
+            _ => {}
+        },
+        Variable::Tuple(vec) => {
+            for var in vec {
+                deallocate(info, var, mem_allocator);
+            }
         }
+        Variable::Array(array) => {
+            for var in array.iter_mut() {
+                deallocate(info, var, mem_allocator);
+            }
+        }
+        _ => {}
     }
 }

@@ -1,9 +1,6 @@
 use crate::args::{RuntimeType, Variable};
 use crate::error::RuntimeError;
-use crate::typ::{self, Typ};
-use std::any;
 use std::sync::Mutex;
-use zkpoly_common::digraph::external::VertexId;
 use zkpoly_common::heap;
 
 zkpoly_common::define_usize_id!(FunctionId);
@@ -44,14 +41,11 @@ pub enum FunctionValue<T: RuntimeType> {
 pub struct Function<T: RuntimeType> {
     pub name: String,
     pub f: FunctionValue<T>,
-    typ_mut: Vec<Typ>,
-    typ: Vec<Typ>,
 }
 
 impl<T: RuntimeType> std::fmt::Debug for Function<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut st = f.debug_struct("Function");
-        st.field("name", &self.name).field("typ", &self.typ);
 
         if let FunctionValue::FnOnce(_) = &self.f {
             st.field("mutability", &"FnOnce");
@@ -71,14 +65,10 @@ impl<T: RuntimeType> Function<T> {
                 + Send
                 + 'static,
         >,
-        typ_mut: Vec<Typ>,
-        typ: Vec<Typ>,
     ) -> Self {
         Self {
             name,
             f: FunctionValue::FnOnce(Mutex::new(Some(f))),
-            typ_mut,
-            typ,
         }
     }
 
@@ -90,14 +80,10 @@ impl<T: RuntimeType> Function<T> {
                 + Send
                 + 'static,
         >,
-        typ_mut: Vec<Typ>,
-        typ: Vec<Typ>,
     ) -> Self {
         Self {
             name,
             f: FunctionValue::FnMut(Mutex::new(f)),
-            typ_mut,
-            typ,
         }
     }
 
@@ -109,14 +95,10 @@ impl<T: RuntimeType> Function<T> {
                 + Send
                 + 'static,
         >,
-        typ_mut: Vec<Typ>,
-        typ: Vec<Typ>,
     ) -> Self {
         Self {
             name,
             f: FunctionValue::Fn(f),
-            typ_mut,
-            typ,
         }
     }
 }
