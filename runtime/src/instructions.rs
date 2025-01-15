@@ -1,4 +1,4 @@
-use crate::args::{ArgId, VariableId};
+use crate::args::VariableId;
 use crate::devices::{DeviceType, EventId, StreamId, ThreadId};
 use crate::functions::FunctionId;
 use crate::typ::Typ;

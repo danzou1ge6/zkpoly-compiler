@@ -4,6 +4,7 @@ use std::any;
 #[derive(Debug, Clone)]
 pub enum Typ {
     Poly { typ: PolyType, log_n: u32 },
+    PointBase { log_n: u32 },
     Scalar,
     Transcript,
     Point,

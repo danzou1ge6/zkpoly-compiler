@@ -9,6 +9,7 @@ pub enum PolyType {
     ExtendedLagrange,
 }
 
+#[derive(Debug)]
 pub struct Polynomial<F: Field> {
     pub values: *mut F,
     pub typ: PolyType,
@@ -16,6 +17,9 @@ pub struct Polynomial<F: Field> {
     pub rotate: u64,
     pub device: DeviceType,
 }
+
+unsafe impl<F: Field> Send for Polynomial<F> {}
+unsafe impl<F: Field> Sync for Polynomial<F> {}
 
 impl<F: Field> Polynomial<F> {
     pub fn new(typ: PolyType, log_n: u32, ptr: *mut F, device: DeviceType) -> Self {

@@ -1,3 +1,4 @@
+pub mod alloc;
 pub mod args;
 pub mod devices;
 pub mod error;

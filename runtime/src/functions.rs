@@ -1,35 +1,27 @@
+use crate::args::{RuntimeType, Variable};
 use crate::error::RuntimeError;
-use crate::typ::Typ;
+use crate::typ::{self, Typ};
 use std::any;
+use std::sync::Mutex;
+use zkpoly_common::digraph::external::VertexId;
 use zkpoly_common::heap;
 
 zkpoly_common::define_usize_id!(FunctionId);
 
-pub enum FunctionValue {
-    FnOnce(Box<dyn FnOnce(Vec<&dyn any::Any>) -> Result<Box<dyn any::Any>, RuntimeError>>),
-    FnMut(Box<dyn FnMut(Vec<&dyn any::Any>) -> Result<Box<dyn any::Any>, RuntimeError>>),
-    Fn(Box<dyn Fn(Vec<&dyn any::Any>) -> Result<Box<dyn any::Any>, RuntimeError>>),
+pub enum FunctionValue<T: RuntimeType> {
+    FnOnce(Mutex<Option<Box<dyn FnOnce(Vec<&mut Variable<T>>, Vec<&Variable<T>>) -> Result<(), RuntimeError>>>>),
+    FnMut(Mutex<Box<dyn FnMut(Vec<&mut Variable<T>>, Vec<&Variable<T>>) -> Result<(), RuntimeError>>>),
+    Fn(Box<dyn Fn(Vec<&mut Variable<T>>, Vec<&Variable<T>>) -> Result<(), RuntimeError>>),
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum ParamMode {
-    In,
-    InOut,
-}
-
-pub struct Function {
+pub struct Function<T: RuntimeType> {
     name: String,
-    f: FunctionValue,
-    typ: (Vec<(Typ, ParamMode)>, Typ),
+    f: FunctionValue<T>,
+    typ_mut: Vec<Typ>,
+    typ: Vec<Typ>,
 }
 
-impl Function {
-    pub fn ret_typ(&self) -> &Typ {
-        &self.typ.1
-    }
-}
-
-impl std::fmt::Debug for Function {
+impl<T: RuntimeType> std::fmt::Debug for Function<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut st = f.debug_struct("Function");
         st.field("name", &self.name).field("typ", &self.typ);
@@ -43,30 +35,48 @@ impl std::fmt::Debug for Function {
     }
 }
 
-impl Function {
+impl<T: RuntimeType> Function<T> {
     pub fn new_once(
         name: String,
-        f: Box<dyn FnOnce(Vec<&dyn any::Any>) -> Result<Box<dyn any::Any>, RuntimeError>>,
-        typ: (Vec<(Typ, ParamMode)>, Typ),
+        f: Box<dyn FnOnce(Vec<&mut Variable<T>>, Vec<&Variable<T>>) -> Result<(), RuntimeError>>,
+        typ_mut: Vec<Typ>,
+        typ: Vec<Typ>,
     ) -> Self {
         Self {
             name,
-            f: FunctionValue::FnOnce(f),
+            f: FunctionValue::FnOnce(Mutex::new(Some(f))),
+            typ_mut,
             typ,
         }
     }
 
     pub fn new_mut(
         name: String,
-        f: Box<dyn FnMut(Vec<&dyn any::Any>) -> Result<Box<dyn any::Any>, RuntimeError>>,
-        typ: (Vec<(Typ, ParamMode)>, Typ),
+        f: Box<dyn FnMut(Vec<&mut Variable<T>>, Vec<&Variable<T>>) -> Result<(), RuntimeError>>,
+        typ_mut: Vec<Typ>,
+        typ: Vec<Typ>,
     ) -> Self {
         Self {
             name,
-            f: FunctionValue::FnMut(f),
+            f: FunctionValue::FnMut(Mutex::new(f)),
+            typ_mut,
+            typ,
+        }
+    }
+
+    pub fn new(
+        name: String,
+        f: Box<dyn Fn(Vec<&mut Variable<T>>, Vec<&Variable<T>>) -> Result<(), RuntimeError>>,
+        typ_mut: Vec<Typ>,
+        typ: Vec<Typ>,
+    ) -> Self {
+        Self {
+            name,
+            f: FunctionValue::Fn(f),
+            typ_mut,
             typ,
         }
     }
 }
 
-pub type FunctionTable = heap::Heap<FunctionId, Function>;
+pub type FunctionTable<T> = heap::Heap<FunctionId, Function<T>>;
