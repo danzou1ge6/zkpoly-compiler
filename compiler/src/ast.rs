@@ -1,6 +1,6 @@
 pub use crate::transit::{
     self,
-    type2::{template, Typ},
+    type2::{template, Typ, PolyInit},
 };
 use std::{panic::Location, rc::Rc};
 pub use zkpoly_runtime::constants::{Constant, ConstantId};

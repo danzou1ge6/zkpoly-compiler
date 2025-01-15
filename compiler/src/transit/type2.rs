@@ -18,6 +18,12 @@ impl ExprId {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum PolyInit {
+    Zeros,
+    Ones
+}
+
 pub type Arith = transit::Arith<ExprId>;
 
 pub mod template {
@@ -25,6 +31,7 @@ pub mod template {
 
     #[derive(Debug, Clone)]
     pub enum VertexNode<I, A, C, E> {
+        NewPoly(u64, PolyInit),
         Constant(C),
         Arith(A),
         Entry,
@@ -37,6 +44,7 @@ pub mod template {
             to: PolyRepr,
             from: PolyRepr,
         },
+        RotateIdx(I, i32),
         Interplote {
             xs: Vec<I>,
             ys: Vec<I>,
@@ -53,6 +61,7 @@ pub mod template {
             value: I,
             typ: transit::HashTyp,
         },
+        /// Returns (transcript, scalar)
         SqueezeScalar(I),
         TupleGet(I, usize),
         ArrayGet(I, usize),
@@ -78,6 +87,7 @@ impl<'s> Vertex<'s> {
             Arith(transit::Arith::Bin(_, lhs, rhs)) => Box::new([*lhs, *rhs].into_iter()),
             Arith(transit::Arith::Unr(_, x)) => Box::new([*x].into_iter()),
             Ntt { s, .. } => Box::new([*s].into_iter()),
+            RotateIdx(x, _) => Box::new([*x].into_iter()),
             Interplote { xs, ys } => Box::new(xs.iter().copied().chain(ys.iter().copied())),
             Array(es) => Box::new(es.iter().copied()),
             AssmblePoly(_, es) => Box::new([*es].into_iter()),
@@ -99,6 +109,7 @@ impl<'s> Vertex<'s> {
             Arith(transit::Arith::Bin(_, lhs, rhs)) => Box::new([lhs, rhs].into_iter()),
             Arith(transit::Arith::Unr(_, x)) => Box::new([x].into_iter()),
             Ntt { s, .. } => Box::new([s].into_iter()),
+            RotateIdx(x, _) => Box::new([x].into_iter()),
             Interplote { xs, ys } => Box::new(xs.iter_mut().chain(ys.iter_mut())),
             Array(es) => Box::new(es.iter_mut()),
             AssmblePoly(_, es) => Box::new([es].into_iter()),

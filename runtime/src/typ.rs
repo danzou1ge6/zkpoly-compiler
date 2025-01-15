@@ -13,6 +13,7 @@ pub enum Typ {
     Scalar,
     Transcript,
     Point,
+    Rng,
     Tuple(Vec<Typ>),
     Array(Box<Typ>, usize),
     Any(any::TypeId, usize),
