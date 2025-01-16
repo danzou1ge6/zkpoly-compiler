@@ -1,5 +1,7 @@
+use crate::gpu_buffer::GpuBuffer;
 use crate::point_base::PointBase;
 use crate::poly::Polynomial;
+use crate::scaler::Scalar;
 use group::ff::Field;
 use pasta_curves::arithmetic::CurveAffine;
 use std::fmt::Debug;
@@ -22,13 +24,14 @@ pub trait RuntimeType: 'static {
 pub enum Variable<T: RuntimeType> {
     Poly(Polynomial<T::Field>),
     PointBase(PointBase<T::Point>),
-    Scalar(T::Field),
+    Scalar(Scalar<T::Field>),
     Transcript,
     Point(T::Point),
     Tuple(Vec<Variable<T>>),
     Array(Box<[Variable<T>]>),
     Stream(CudaStream),
     Any(Box<dyn Any + Send + Sync>),
+    GpuBuffer(GpuBuffer),
 }
 
 impl<T: RuntimeType> Variable<T> {
@@ -60,14 +63,14 @@ impl<T: RuntimeType> Variable<T> {
         }
     }
 
-    pub fn unwrap_scalar(&self) -> &T::Field {
+    pub fn unwrap_scalar(&self) -> &Scalar<T::Field> {
         match self {
             Variable::Scalar(scalar) => scalar,
             _ => panic!("unwrap_scalar: not a scalar"),
         }
     }
 
-    pub fn unwrap_scalar_mut(&mut self) -> &mut T::Field {
+    pub fn unwrap_scalar_mut(&mut self) -> &mut Scalar<T::Field> {
         match self {
             Variable::Scalar(scalar) => scalar,
             _ => panic!("unwrap_scalar_mut: not a scalar"),

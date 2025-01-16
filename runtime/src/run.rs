@@ -12,7 +12,6 @@ use crate::{
     },
     instructions::Instruction,
     transfer::transfer,
-    transport::Transport,
 };
 
 use zkpoly_cuda_api::mem::CudaAllocator;

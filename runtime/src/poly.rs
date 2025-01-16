@@ -1,4 +1,4 @@
-use crate::{devices::DeviceType, transport::Transport};
+use crate::{devices::DeviceType, transfer::Transfer};
 use group::ff::Field;
 use zkpoly_cuda_api::stream::CudaStream;
 
@@ -33,7 +33,7 @@ impl<F: Field> Polynomial<F> {
     }
 }
 
-impl<F: Field> Transport for Polynomial<F> {
+impl<F: Field> Transfer for Polynomial<F> {
     fn cpu2cpu(&self, target: &mut Self) {
         assert!(self.log_n <= target.log_n);
         assert!(self.device == DeviceType::CPU);

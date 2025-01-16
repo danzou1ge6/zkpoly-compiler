@@ -13,6 +13,7 @@ pub enum Typ {
     Array(Box<Typ>, usize),
     Any(any::TypeId, usize),
     Stream,
+    GpuBuffer(usize),
 }
 
 impl Typ {

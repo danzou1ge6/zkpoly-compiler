@@ -5,9 +5,11 @@ use zkpoly_memory_pool::PinnedMemoryPool;
 use crate::{
     args::{RuntimeType, Variable},
     devices::DeviceType,
+    gpu_buffer::GpuBuffer,
     point_base::PointBase,
     poly::Polynomial,
     run::RuntimeInfo,
+    scaler::Scalar,
     typ::Typ,
 };
 
@@ -57,10 +59,14 @@ pub fn allocate<T: RuntimeType>(
             };
             Variable::PointBase(point_base)
         }
-        Typ::Scalar => {
-            assert!(device.is_cpu());
-            Variable::Scalar(T::Field::ZERO)
-        }
+        Typ::Scalar => match device {
+            DeviceType::CPU => Variable::Scalar(Scalar::new_cpu()),
+            DeviceType::GPU { device_id } => Variable::Scalar(Scalar::new_gpu(
+                gpu_allocator.as_ref().unwrap()[device_id as usize].allocate(offset.unwrap()),
+                device_id,
+            )),
+            DeviceType::Disk => unreachable!(),
+        },
         Typ::Transcript => unreachable!(),
         Typ::Point => {
             assert!(device.is_cpu());
@@ -99,6 +105,13 @@ pub fn allocate<T: RuntimeType>(
         Typ::Stream => {
             let device = device.unwrap_gpu();
             Variable::Stream(CudaStream::new(device))
+        }
+        Typ::GpuBuffer(size) => {
+            let device = device.unwrap_gpu();
+            Variable::GpuBuffer(GpuBuffer {
+                ptr: gpu_allocator.as_ref().unwrap()[device as usize].allocate(offset.unwrap()),
+                size,
+            })
         }
         Typ::Rng => todo!(),
     }
