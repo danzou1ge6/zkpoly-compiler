@@ -12,6 +12,12 @@ pub struct SourceInfo<'s> {
     _marker: PhantomData<&'s str>,
 }
 
+#[derive(Debug, Clone)]
+pub enum PolyInit {
+    Zeros,
+    Ones
+}
+
 /// Computation Graph of a Transit IR function.
 /// [`V`]: vertex
 /// [`I`]: vertex ID

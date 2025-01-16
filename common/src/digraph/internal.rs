@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, HashSet, VecDeque};
 
 use crate::heap::{Heap, UsizeId};
 
@@ -97,7 +97,11 @@ where
     pub fn dfs_from<'g>(&'g self, i: I) -> DfsIterator<'g, I, V> {
         self.dfs().add_begin(i)
     }
-    fn degrees(&self) -> Heap<I, usize> {
+    pub fn degrees_in(&self) -> Heap<I, usize> {
+        let deg: Heap<I, usize> = self.0.map_by_ref(&mut |_, v| v.predecessors().count());
+        deg
+    }
+    pub fn degrees_out(&self) -> Heap<I, usize> {
         let mut deg = Heap::repeat(0, self.order());
         for v in self.0.iter() {
             for succ in v.predecessors() {
@@ -107,7 +111,7 @@ where
         deg
     }
     pub fn topology_sort<'g>(&'g self) -> TopologyIterator<'g, I, V> {
-        let deg = self.degrees();
+        let deg = self.degrees_in();
         let queue: VecDeque<I> = deg
             .iter_with_id()
             .filter_map(|(id, d)| if *d == 0 { Some(id) } else { None })
@@ -117,6 +121,15 @@ where
             deg,
             queue,
         }
+    }
+    pub fn successors(&self) -> Heap<I, BTreeSet<I>> {
+        let mut succ = Heap::repeat(BTreeSet::new(), self.order());
+        for (vid, v) in self.0.iter_with_id() {
+            for succ_id in v.predecessors() {
+                succ[succ_id].insert(vid);
+            }
+        }
+        succ
     }
 }
 

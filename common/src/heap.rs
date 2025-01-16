@@ -2,12 +2,12 @@
 
 use std::marker::PhantomData;
 
-pub trait UsizeId: From<usize> + Into<usize> + Copy {}
+pub trait UsizeId: From<usize> + Into<usize> + Eq + PartialOrd + Ord + std::hash::Hash + Copy {}
 
 #[macro_export]
 macro_rules! define_usize_id {
     ($name:ident) => {
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
         pub struct $name(usize);
         impl From<usize> for $name {
             fn from(value: usize) -> Self {
@@ -72,6 +72,16 @@ impl<I: UsizeId, T> Heap<I, T> {
                 .enumerate()
                 .map(|(i, x)| f(i.into(), x))
                 .collect(),
+            PhantomData,
+        )
+    }
+    pub fn map_by_ref<I1, T1>(&self, f: &mut impl FnMut(I, &T) -> T1) -> Heap<I1, T1> {
+        Heap(
+            self.0
+             .iter()
+             .enumerate()
+             .map(|(i, x)| f(i.into(), x))
+             .collect(),
             PhantomData,
         )
     }

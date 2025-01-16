@@ -20,40 +20,41 @@ pub fn allocate<T: RuntimeType>(
     gpu_allocator: &Option<Vec<CudaAllocator>>,
 ) {
     let mut target = info.variable[id].write().unwrap();
-    match typ {
-        Typ::Poly {
-            typ: ref poly_typ,
-            log_n,
-        } => {
-            let poly = match device {
-                DeviceType::CPU => Polynomial::<T::Field>::new(
-                    poly_typ.clone(),
-                    log_n,
-                    mem_allocator.as_ref().unwrap().allocate(log_n.clone()),
-                    device.clone(),
-                ),
-                DeviceType::GPU { device_id } => Polynomial::<T::Field>::new(
-                    poly_typ.clone(),
-                    log_n,
-                    gpu_allocator.as_ref().unwrap()[device_id as usize].allocate(offset.unwrap()),
-                    device.clone(),
-                ),
-                DeviceType::Disk => todo!(),
-            };
-            *target = Some(Variable::Poly(poly));
-        }
-        Typ::PointBase { log_n } => todo!(),
-        Typ::Scalar => {
-            assert!(device.is_cpu());
-            *target = Some(Variable::Scalar(T::Field::ZERO));
-        }
-        Typ::Transcript => todo!(),
-        Typ::Point => todo!(),
-        Typ::Tuple(vec) => todo!(),
-        Typ::Array(typ, _) => todo!(),
-        Typ::Any(type_id, _) => todo!(),
-        Typ::Stream => todo!(),
-    };
+    unimplemented!()
+    // match typ {
+    //     Typ::Poly {
+    //         typ: ref poly_typ,
+    //         log_n,
+    //     } => {
+    //         let poly = match device {
+    //             DeviceType::CPU => Polynomial::<T::Field>::new(
+    //                 poly_typ.clone(),
+    //                 log_n,
+    //                 mem_allocator.as_ref().unwrap().allocate(log_n.clone()),
+    //                 device.clone(),
+    //             ),
+    //             DeviceType::GPU { device_id } => Polynomial::<T::Field>::new(
+    //                 poly_typ.clone(),
+    //                 log_n,
+    //                 gpu_allocator.as_ref().unwrap()[device_id as usize].allocate(offset.unwrap()),
+    //                 device.clone(),
+    //             ),
+    //             DeviceType::Disk => todo!(),
+    //         };
+    //         *target = Some(Variable::Poly(poly));
+    //     }
+    //     Typ::PointBase { log_n } => todo!(),
+    //     Typ::Scalar => {
+    //         assert!(device.is_cpu());
+    //         *target = Some(Variable::Scalar(T::Field::ZERO));
+    //     }
+    //     Typ::Transcript => todo!(),
+    //     Typ::Point => todo!(),
+    //     Typ::Tuple(vec) => todo!(),
+    //     Typ::Array(typ, _) => todo!(),
+    //     Typ::Any(type_id, _) => todo!(),
+    //     Typ::Stream => todo!(),
+    // };
 }
 
 pub fn deallocate<T: RuntimeType>(

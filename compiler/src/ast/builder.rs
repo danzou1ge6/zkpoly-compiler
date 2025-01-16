@@ -76,11 +76,7 @@ impl<T: RuntimeType> Builder<T> {
         repr: PolyRepr,
         value: Vec<T>,
     ) -> Vertex {
-        let constant_id = self.constants.push(Constant::new(
-            name.clone(),
-            Typ::Poly(repr.clone()),
-            Box::new(value),
-        ));
+        let constant_id = self.constants.push(unimplemented!());
         VertexInner {
             node: VertexNode::Constant(constant_id),
             typ: Some(Typ::Poly(repr)),

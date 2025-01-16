@@ -1,8 +1,10 @@
 pub use crate::transit::{
     self,
-    type2::{template, Typ, PolyInit},
+    type2::{template, Typ},
+    PolyInit,
 };
 use std::{panic::Location, rc::Rc};
+use zkpoly_runtime::args::RuntimeType;
 pub use zkpoly_runtime::args::{Constant, ConstantId};
 pub use zkpoly_runtime::functions::{Function, FunctionId as UFunctionId};
 
@@ -21,34 +23,36 @@ impl SourceInfo {
 }
 
 #[derive(Debug, Clone)]
-pub enum Arith {
-    Bin(transit::ArithBinOp, Vertex, Vertex),
-    Unr(transit::ArithUnrOp, Vertex),
+pub enum Arith<Rt: RuntimeType> {
+    Bin(transit::ArithBinOp, Vertex<Rt>, Vertex<Rt>),
+    Unr(transit::ArithUnrOp, Vertex<Rt>),
 }
 
-pub type VertexNode = template::VertexNode<Vertex, Arith, ConstantId, UFunctionId>;
+pub type VertexNode<Rt: RuntimeType> =
+    template::VertexNode<Vertex<Rt>, Arith<Rt>, ConstantId, UFunctionId>;
 pub use transit::HashTyp;
 
 #[derive(Debug, Clone)]
-pub struct VertexInner {
-    node: VertexNode,
-    typ: Option<Typ>,
+pub struct VertexInner<Rt: RuntimeType> {
+    node: VertexNode<Rt>,
+    typ: Option<Typ<Rt>>,
     src: SourceInfo,
 }
 
 #[derive(Debug, Clone)]
-pub struct Vertex(Rc<VertexInner>);
+pub struct Vertex<Rt: RuntimeType>(Rc<VertexInner<Rt>>);
 
-impl From<VertexInner> for Vertex {
-    fn from(inner: VertexInner) -> Self {
+impl<Rt: RuntimeType> From<VertexInner<Rt>> for Vertex<Rt> {
+    fn from(inner: VertexInner<Rt>) -> Self {
         Self(Rc::new(inner))
     }
 }
 
-impl Vertex {
-    pub fn inner(&self) -> &VertexInner {
+impl<Rt: RuntimeType> Vertex<Rt> {
+    pub fn inner(&self) -> &VertexInner<Rt> {
         &self.0
     }
 }
 
 pub mod builder;
+pub mod typing;
