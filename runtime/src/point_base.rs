@@ -1,4 +1,4 @@
-use crate::{devices::DeviceType, transfer::Transfer};
+use crate::{devices::DeviceType, runtime::transfer::Transfer};
 use pasta_curves::arithmetic::CurveAffine;
 use zkpoly_cuda_api::stream::CudaStream;
 

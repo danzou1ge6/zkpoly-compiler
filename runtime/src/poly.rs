@@ -1,4 +1,4 @@
-use crate::{devices::DeviceType, transfer::Transfer};
+use crate::{devices::DeviceType, runtime::transfer::Transfer};
 use group::ff::Field;
 use zkpoly_cuda_api::stream::CudaStream;
 

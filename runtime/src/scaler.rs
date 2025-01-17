@@ -1,12 +1,10 @@
-use std::ptr::null_mut;
-
 use group::ff::Field;
 use zkpoly_cuda_api::{
     mem::{alloc_pinned, free_pinned},
     stream::CudaStream,
 };
 
-use crate::{devices::DeviceType, transfer::Transfer};
+use crate::{devices::DeviceType, runtime::transfer::Transfer};
 
 #[derive(Debug)]
 pub struct Scalar<F: Field> {
@@ -30,6 +28,14 @@ impl<F: Field> Scalar<F> {
             value,
             device: DeviceType::GPU { device_id },
         }
+    }
+
+    pub fn as_ref(&self) -> &F {
+        unsafe { &*self.value }
+    }
+
+    pub fn as_mut(&mut self) -> &mut F {
+        unsafe { &mut *self.value }
     }
 }
 

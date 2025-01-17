@@ -1,9 +1,21 @@
 use crate::args::{RuntimeType, Variable};
 use crate::error::RuntimeError;
+use load_dynamic::Libs;
 use std::sync::Mutex;
 use zkpoly_common::heap;
 
+pub mod load_dynamic;
+pub mod resolve_type;
+mod run_xmake;
+pub mod tutorial;
+
 zkpoly_common::define_usize_id!(FunctionId);
+pub type FunctionTable<T> = heap::Heap<FunctionId, Function<T>>;
+
+pub trait RegisteredFunction<T: RuntimeType> {
+    fn new(libs: &mut Libs) -> Self;
+    fn get_fn(&self) -> Function<T>;
+}
 
 pub enum FunctionValue<T: RuntimeType> {
     FnOnce(
@@ -102,5 +114,3 @@ impl<T: RuntimeType> Function<T> {
         }
     }
 }
-
-pub type FunctionTable<T> = heap::Heap<FunctionId, Function<T>>;

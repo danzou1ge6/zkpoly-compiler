@@ -1,4 +1,3 @@
-pub mod alloc;
 pub mod args;
 pub mod devices;
 pub mod error;
@@ -7,8 +6,7 @@ pub mod gpu_buffer;
 pub mod instructions;
 pub mod point_base;
 pub mod poly;
-pub mod run;
+pub mod runtime;
 pub mod scaler;
 pub mod transcript;
-pub mod transfer;
 pub mod typ;

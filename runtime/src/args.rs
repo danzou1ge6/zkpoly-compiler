@@ -15,7 +15,7 @@ zkpoly_common::define_usize_id!(ConstantId);
 pub type VariableTable<T> = heap::Heap<VariableId, RwLock<Option<Variable<T>>>>;
 pub type ConstantTable<T> = heap::Heap<ConstantId, Constant<T>>;
 
-pub trait RuntimeType: 'static {
+pub trait RuntimeType: 'static + Debug + Clone + Send + Sync {
     type Field: Field;
     type Point: CurveAffine;
 }
