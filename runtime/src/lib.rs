@@ -4,7 +4,7 @@ pub mod error;
 pub mod functions;
 pub mod gpu_buffer;
 pub mod instructions;
-pub mod point_base;
+pub mod point;
 pub mod poly;
 pub mod runtime;
 pub mod scaler;

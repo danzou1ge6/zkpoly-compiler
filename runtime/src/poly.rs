@@ -88,12 +88,4 @@ impl<F: Field> Transfer for Polynomial<F> {
         target.rotate = self.rotate;
         stream.memcpy_d2d(target.values, self.values, 1 << self.log_n);
     }
-
-    fn cpu2disk(&self, target: &mut Self) {
-        todo!();
-    }
-
-    fn disk2cpu(&self, target: &mut Self) {
-        todo!();
-    }
 }

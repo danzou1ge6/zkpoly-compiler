@@ -4,9 +4,8 @@ use load_dynamic::Libs;
 use std::sync::Mutex;
 use zkpoly_common::heap;
 
+pub mod build_func;
 pub mod load_dynamic;
-pub mod resolve_type;
-mod run_xmake;
 pub mod tutorial;
 
 zkpoly_common::define_usize_id!(FunctionId);

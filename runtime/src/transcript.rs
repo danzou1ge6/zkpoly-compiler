@@ -38,15 +38,14 @@ const KECCAK256_PREFIX_POINT: u8 = 1;
 const KECCAK256_PREFIX_SCALAR: u8 = 2;
 
 /// Generic transcript view (from either the prover or verifier's perspective)
-pub trait Transcript<C: CurveAffine, E: EncodedChallenge<C>> {
+pub trait Transcript<C: CurveAffine, E: EncodedChallenge<C>>: Send + Sync {
     /// Squeeze an encoded verifier challenge from the transcript.
     fn squeeze_challenge(&mut self) -> E;
 
     /// Squeeze a typed challenge (in the scalar field) from the transcript.
-    fn squeeze_challenge_scalar<T>(&mut self) -> ChallengeScalar<C, T> {
+    fn squeeze_challenge_scalar(&mut self) -> ChallengeScalar<C> {
         ChallengeScalar {
             inner: self.squeeze_challenge().get_scalar(),
-            _marker: PhantomData,
         }
     }
 
@@ -114,7 +113,7 @@ pub struct Keccak256Read<R: Read, C: CurveAffine, E: EncodedChallenge<C>> {
     _marker: PhantomData<(C, E)>,
 }
 
-impl<R: Read, C: CurveAffine> TranscriptReadBuffer<R, C, Challenge255<C>>
+impl<R: Read + Sync + Send, C: CurveAffine> TranscriptReadBuffer<R, C, Challenge255<C>>
     for Blake2bRead<R, C, Challenge255<C>>
 where
     C::Scalar: FromUniformBytes<64>,
@@ -132,7 +131,7 @@ where
     }
 }
 
-impl<R: Read, C: CurveAffine> TranscriptReadBuffer<R, C, Challenge255<C>>
+impl<R: Read + Sync + Send, C: CurveAffine> TranscriptReadBuffer<R, C, Challenge255<C>>
     for Keccak256Read<R, C, Challenge255<C>>
 where
     C::Scalar: FromUniformBytes<64>,
@@ -149,7 +148,7 @@ where
     }
 }
 
-impl<R: Read, C: CurveAffine> TranscriptRead<C, Challenge255<C>>
+impl<R: Read + Sync + Send, C: CurveAffine> TranscriptRead<C, Challenge255<C>>
     for Blake2bRead<R, C, Challenge255<C>>
 where
     C::Scalar: FromUniformBytes<64>,
@@ -180,7 +179,7 @@ where
     }
 }
 
-impl<R: Read, C: CurveAffine> TranscriptRead<C, Challenge255<C>>
+impl<R: Read + Sync + Send, C: CurveAffine> TranscriptRead<C, Challenge255<C>>
     for Keccak256Read<R, C, Challenge255<C>>
 where
     C::Scalar: FromUniformBytes<64>,
@@ -211,7 +210,7 @@ where
     }
 }
 
-impl<R: Read, C: CurveAffine> Transcript<C, Challenge255<C>> for Blake2bRead<R, C, Challenge255<C>>
+impl<R: Read + Sync + Send, C: CurveAffine> Transcript<C, Challenge255<C>> for Blake2bRead<R, C, Challenge255<C>>
 where
     C::Scalar: FromUniformBytes<64>,
 {
@@ -244,7 +243,7 @@ where
     }
 }
 
-impl<R: Read, C: CurveAffine> Transcript<C, Challenge255<C>>
+impl<R: Read + Sync + Send, C: CurveAffine> Transcript<C, Challenge255<C>>
     for Keccak256Read<R, C, Challenge255<C>>
 where
     C::Scalar: FromUniformBytes<64>,
@@ -304,7 +303,7 @@ pub struct Keccak256Write<W: Write, C: CurveAffine, E: EncodedChallenge<C>> {
     _marker: PhantomData<(C, E)>,
 }
 
-impl<W: Write, C: CurveAffine> TranscriptWriterBuffer<W, C, Challenge255<C>>
+impl<W: Write + Sync + Send, C: CurveAffine> TranscriptWriterBuffer<W, C, Challenge255<C>>
     for Blake2bWrite<W, C, Challenge255<C>>
 where
     C::Scalar: FromUniformBytes<64>,
@@ -327,7 +326,7 @@ where
     }
 }
 
-impl<W: Write, C: CurveAffine> TranscriptWriterBuffer<W, C, Challenge255<C>>
+impl<W: Write + Sync + Send, C: CurveAffine> TranscriptWriterBuffer<W, C, Challenge255<C>>
     for Keccak256Write<W, C, Challenge255<C>>
 where
     C::Scalar: FromUniformBytes<64>,
@@ -350,7 +349,7 @@ where
     }
 }
 
-impl<W: Write, C: CurveAffine> TranscriptWrite<C, Challenge255<C>>
+impl<W: Write + Sync + Send, C: CurveAffine> TranscriptWrite<C, Challenge255<C>>
     for Blake2bWrite<W, C, Challenge255<C>>
 where
     C::Scalar: FromUniformBytes<64>,
@@ -367,7 +366,7 @@ where
     }
 }
 
-impl<W: Write, C: CurveAffine> TranscriptWrite<C, Challenge255<C>>
+impl<W: Write + Sync + Send, C: CurveAffine> TranscriptWrite<C, Challenge255<C>>
     for Keccak256Write<W, C, Challenge255<C>>
 where
     C::Scalar: FromUniformBytes<64>,
@@ -384,7 +383,7 @@ where
     }
 }
 
-impl<W: Write, C: CurveAffine> Transcript<C, Challenge255<C>>
+impl<W: Write + Sync + Send, C: CurveAffine> Transcript<C, Challenge255<C>>
     for Blake2bWrite<W, C, Challenge255<C>>
 where
     C::Scalar: FromUniformBytes<64>,
@@ -418,7 +417,7 @@ where
     }
 }
 
-impl<W: Write, C: CurveAffine> Transcript<C, Challenge255<C>>
+impl<W: Write + Sync + Send, C: CurveAffine> Transcript<C, Challenge255<C>>
     for Keccak256Write<W, C, Challenge255<C>>
 where
     C::Scalar: FromUniformBytes<64>,
@@ -467,12 +466,11 @@ where
 /// The `Type` type can be used to scope the challenge to a specific context, or
 /// set to `()` if no context is required.
 #[derive(Copy, Clone, Debug)]
-pub struct ChallengeScalar<C: CurveAffine, T> {
+pub struct ChallengeScalar<C: CurveAffine> {
     inner: C::Scalar,
-    _marker: PhantomData<T>,
 }
 
-impl<C: CurveAffine, T> std::ops::Deref for ChallengeScalar<C, T> {
+impl<C: CurveAffine> std::ops::Deref for ChallengeScalar<C> {
     type Target = C::Scalar;
 
     fn deref(&self) -> &Self::Target {
@@ -496,10 +494,9 @@ pub trait EncodedChallenge<C: CurveAffine> {
     fn get_scalar(&self) -> C::Scalar;
 
     /// Cast an encoded challenge as a typed `ChallengeScalar`.
-    fn as_challenge_scalar<T>(&self) -> ChallengeScalar<C, T> {
+    fn as_challenge_scalar(&self) -> ChallengeScalar<C> {
         ChallengeScalar {
             inner: self.get_scalar(),
-            _marker: PhantomData,
         }
     }
 }

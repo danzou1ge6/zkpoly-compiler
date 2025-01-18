@@ -3,6 +3,23 @@ use pasta_curves::arithmetic::CurveAffine;
 use zkpoly_cuda_api::stream::CudaStream;
 
 #[derive(Debug)]
+pub struct Point<P: CurveAffine> {
+    pub value: P,
+}
+
+impl<P: CurveAffine> Point<P> {
+    pub fn new(value: P) -> Self {
+        Self { value }
+    }
+}
+
+impl<P: CurveAffine> Transfer for Point<P> {
+    fn cpu2cpu(&self, target: &mut Self) {
+        target.value = self.value.clone();
+    }
+}
+
+#[derive(Debug)]
 pub struct PointBase<P: CurveAffine> {
     pub values: *mut P,
     pub log_n: u32,
@@ -75,13 +92,5 @@ impl<P: CurveAffine> Transfer for PointBase<P> {
                 }
         );
         stream.memcpy_d2d(target.values, self.values, 1 << self.log_n);
-    }
-
-    fn cpu2disk(&self, target: &mut Self) {
-        todo!();
-    }
-
-    fn disk2cpu(&self, target: &mut Self) {
-        todo!();
     }
 }

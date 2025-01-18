@@ -1,3 +1,5 @@
+use std::any::type_name;
+
 use zkpoly_cuda_api::stream::CudaStream;
 
 use crate::{
@@ -7,12 +9,49 @@ use crate::{
 };
 
 pub trait Transfer {
-    fn cpu2gpu(&self, target: &mut Self, stream: &CudaStream);
-    fn gpu2cpu(&self, target: &mut Self, stream: &CudaStream);
-    fn gpu2gpu(&self, target: &mut Self, stream: &CudaStream);
-    fn cpu2cpu(&self, target: &mut Self);
-    fn cpu2disk(&self, target: &mut Self);
-    fn disk2cpu(&self, target: &mut Self);
+    fn cpu2gpu(&self, _: &mut Self, _: &CudaStream) {
+        unimplemented!("cpu2gpu not implemented for {:?}", type_name::<Self>());
+    }
+    fn gpu2cpu(&self, _: &mut Self, _: &CudaStream) {
+        unimplemented!("gpu2cpu not implemented for {:?}", type_name::<Self>());
+    }
+    fn gpu2gpu(&self, _: &mut Self, _: &CudaStream) {
+        unimplemented!("gpu2gpu not implemented for {:?}", type_name::<Self>());
+    }
+    fn cpu2cpu(&self, _: &mut Self) {
+        unimplemented!("cpu2cpu not implemented for {:?}", type_name::<Self>());
+    }
+    fn cpu2disk(&self, _: &mut Self) {
+        unimplemented!("cpu2disk not implemented for {:?}", type_name::<Self>());
+    }
+    fn disk2cpu(&self, _: &mut Self) {
+        unimplemented!("disk2cpu not implemented for {:?}", type_name::<Self>());
+    }
+}
+
+macro_rules! match_transfer {
+    ($dst:expr, $src:expr, $method:ident, $($variant:ident => $unwrap_fn:ident),+) => {
+        match $src {
+            $(Variable::$variant(src) => {
+                let dst = $dst.$unwrap_fn();
+                src.$method(dst);
+            })+
+            _ => unreachable!(),
+        }
+    };
+}
+
+macro_rules! match_transfer_stream {
+    ($self:expr, $dst:expr, $src:expr, $stream:expr, $method:ident, $($variant:ident => $unwrap_fn:ident),+) => {
+        match $src {
+            $(Variable::$variant(src) => {
+                let dst = $dst.$unwrap_fn();
+                let stream_guard = $self.variable[$stream.unwrap()].read().unwrap();
+                src.$method(dst, stream_guard.as_ref().unwrap().unwrap_stream());
+            })+
+            _ => unreachable!(),
+        }
+    };
 }
 
 impl<T: RuntimeType> RuntimeInfo<T> {
@@ -26,187 +65,56 @@ impl<T: RuntimeType> RuntimeInfo<T> {
     ) {
         match src_device {
             DeviceType::CPU => match dst_device {
-                DeviceType::CPU => match src {
-                    Variable::Poly(src) => {
-                        let dst = dst.unwrap_poly_mut();
-                        src.cpu2cpu(dst);
-                    }
-                    Variable::PointBase(src) => {
-                        let dst = dst.unwrap_point_base_mut();
-                        src.cpu2cpu(dst);
-                    }
-                    Variable::Scalar(src) => {
-                        let dst = dst.unwrap_scalar_mut();
-                        src.cpu2cpu(dst);
-                    }
-                    Variable::Transcript => unreachable!(),
-                    Variable::Point(src) => {
-                        let dst = dst.unwrap_point_mut();
-                        *dst = src.clone();
-                    }
-                    Variable::Tuple(src) => {
-                        let dst = dst.unwrap_tuple_mut();
-                        assert_eq!(src.len(), dst.len());
-                        for (src, dst) in src.iter().zip(dst.iter_mut()) {
-                            self.transfer(
-                                src,
-                                dst,
-                                src_device.clone(),
-                                dst_device.clone(),
-                                stream.clone(),
-                            );
-                        }
-                    }
-                    Variable::Array(src) => {
-                        let dst = dst.unwrap_array_mut();
-                        assert_eq!(src.len(), dst.len());
-                        for (src, dst) in src.iter().zip(dst.iter_mut()) {
-                            self.transfer(
-                                src,
-                                dst,
-                                src_device.clone(),
-                                dst_device.clone(),
-                                stream.clone(),
-                            );
-                        }
-                    }
-                    _ => unreachable!(),
-                },
-                DeviceType::GPU { .. } => match src {
-                    Variable::Poly(src) => {
-                        let dst = dst.unwrap_poly_mut();
-                        let stream_guard = self.variable[stream.unwrap()].read().unwrap();
-                        src.cpu2gpu(dst, stream_guard.as_ref().unwrap().unwrap_stream());
-                    }
-                    Variable::PointBase(src) => {
-                        let dst = dst.unwrap_point_base_mut();
-                        let stream_guard = self.variable[stream.unwrap()].read().unwrap();
-                        src.cpu2gpu(dst, stream_guard.as_ref().unwrap().unwrap_stream());
-                    }
-                    Variable::Scalar(src) => {
-                        let dst = dst.unwrap_scalar_mut();
-                        let stream_guard = self.variable[stream.unwrap()].read().unwrap();
-                        src.cpu2gpu(dst, stream_guard.as_ref().unwrap().unwrap_stream());
-                    }
-                    Variable::Array(src) => {
-                        let dst = dst.unwrap_array_mut();
-                        assert_eq!(src.len(), dst.len());
-                        for (src, dst) in src.iter().zip(dst.iter_mut()) {
-                            self.transfer(
-                                src,
-                                dst,
-                                src_device.clone(),
-                                dst_device.clone(),
-                                stream.clone(),
-                            );
-                        }
-                    }
-                    Variable::Tuple(src) => {
-                        let dst = dst.unwrap_tuple_mut();
-                        assert_eq!(src.len(), dst.len());
-                        for (src, dst) in src.iter().zip(dst.iter_mut()) {
-                            self.transfer(
-                                src,
-                                dst,
-                                src_device.clone(),
-                                dst_device.clone(),
-                                stream.clone(),
-                            );
-                        }
-                    }
-                    _ => unreachable!(),
-                },
+                DeviceType::CPU => {
+                    match_transfer!(
+                        dst,
+                        src,
+                        cpu2cpu,
+                        Poly => unwrap_poly_mut,
+                        PointBase => unwrap_point_base_mut,
+                        Scalar => unwrap_scalar_mut,
+                        Point => unwrap_point_mut
+                    );
+                }
+                DeviceType::GPU { .. } => {
+                    match_transfer_stream!(
+                        self,
+                        dst,
+                        src,
+                        stream,
+                        cpu2gpu,
+                        Poly => unwrap_poly_mut,
+                        PointBase => unwrap_point_base_mut,
+                        Scalar => unwrap_scalar_mut
+                    );
+                }
                 DeviceType::Disk => todo!(),
             },
             DeviceType::GPU { .. } => match dst_device {
-                DeviceType::CPU => match src {
-                    Variable::Poly(src) => {
-                        let dst = dst.unwrap_poly_mut();
-                        let stream_guard = self.variable[stream.unwrap()].read().unwrap();
-                        src.gpu2cpu(dst, stream_guard.as_ref().unwrap().unwrap_stream());
-                    }
-                    Variable::PointBase(src) => {
-                        let dst = dst.unwrap_point_base_mut();
-                        let stream_guard = self.variable[stream.unwrap()].read().unwrap();
-                        src.gpu2cpu(dst, stream_guard.as_ref().unwrap().unwrap_stream());
-                    }
-                    Variable::Scalar(src) => {
-                        let dst = dst.unwrap_scalar_mut();
-                        let stream_guard = self.variable[stream.unwrap()].read().unwrap();
-                        src.gpu2cpu(dst, stream_guard.as_ref().unwrap().unwrap_stream());
-                    }
-                    Variable::Array(src) => {
-                        let dst = dst.unwrap_array_mut();
-                        assert_eq!(src.len(), dst.len());
-                        for (src, dst) in src.iter().zip(dst.iter_mut()) {
-                            self.transfer(
-                                src,
-                                dst,
-                                src_device.clone(),
-                                dst_device.clone(),
-                                stream.clone(),
-                            );
-                        }
-                    }
-                    Variable::Tuple(src) => {
-                        let dst = dst.unwrap_tuple_mut();
-                        assert_eq!(src.len(), dst.len());
-                        for (src, dst) in src.iter().zip(dst.iter_mut()) {
-                            self.transfer(
-                                src,
-                                dst,
-                                src_device.clone(),
-                                dst_device.clone(),
-                                stream.clone(),
-                            );
-                        }
-                    }
-                    _ => unreachable!(),
-                },
-                DeviceType::GPU { .. } => match src {
-                    Variable::Poly(src) => {
-                        let dst = dst.unwrap_poly_mut();
-                        let stream_guard = self.variable[stream.unwrap()].read().unwrap();
-                        src.gpu2gpu(dst, stream_guard.as_ref().unwrap().unwrap_stream());
-                    }
-                    Variable::PointBase(src) => {
-                        let dst = dst.unwrap_point_base_mut();
-                        let stream_guard = self.variable[stream.unwrap()].read().unwrap();
-                        src.gpu2gpu(dst, stream_guard.as_ref().unwrap().unwrap_stream());
-                    }
-                    Variable::Scalar(src) => {
-                        let dst = dst.unwrap_scalar_mut();
-                        let stream_guard = self.variable[stream.unwrap()].read().unwrap();
-                        src.gpu2gpu(dst, stream_guard.as_ref().unwrap().unwrap_stream());
-                    }
-                    Variable::Array(src) => {
-                        let dst = dst.unwrap_array_mut();
-                        assert_eq!(src.len(), dst.len());
-                        for (src, dst) in src.iter().zip(dst.iter_mut()) {
-                            self.transfer(
-                                src,
-                                dst,
-                                src_device.clone(),
-                                dst_device.clone(),
-                                stream.clone(),
-                            );
-                        }
-                    }
-                    Variable::Tuple(src) => {
-                        let dst = dst.unwrap_tuple_mut();
-                        assert_eq!(src.len(), dst.len());
-                        for (src, dst) in src.iter().zip(dst.iter_mut()) {
-                            self.transfer(
-                                src,
-                                dst,
-                                src_device.clone(),
-                                dst_device.clone(),
-                                stream.clone(),
-                            );
-                        }
-                    }
-                    _ => unreachable!(),
-                },
+                DeviceType::CPU => {
+                    match_transfer_stream!(
+                        self,
+                        dst,
+                        src,
+                        stream,
+                        gpu2cpu,
+                        Poly => unwrap_poly_mut,
+                        PointBase => unwrap_point_base_mut,
+                        Scalar => unwrap_scalar_mut
+                    );
+                }
+                DeviceType::GPU { .. } => {
+                    match_transfer_stream!(
+                        self,
+                        dst,
+                        src,
+                        stream,
+                        gpu2gpu,
+                        Poly => unwrap_poly_mut,
+                        PointBase => unwrap_point_base_mut,
+                        Scalar => unwrap_scalar_mut
+                    );
+                }
                 DeviceType::Disk => todo!(),
             },
             DeviceType::Disk => todo!(),

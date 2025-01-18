@@ -6,11 +6,11 @@ use libloading::Symbol;
 
 use crate::{
     args::{RuntimeType, Variable},
-    error::RuntimeError,
+    error::RuntimeError, transcript::{Blake2bWrite, Challenge255}, typ,
 };
 
 use super::{
-    load_dynamic::Libs, resolve_type::resolve_type, run_xmake::run_xmake, Function, FunctionValue,
+    build_func::resolve_type, build_func::run_xmake, load_dynamic::Libs, Function, FunctionValue,
     RegisteredFunction,
 };
 
@@ -77,7 +77,9 @@ fn test_simple_func() {
 
     impl RuntimeType for MyRuntimeType {
         type Field = bn256::Fr;
-        type Point = bn256::G1Affine;
+        type PointAffine = bn256::G1Affine;
+        type Challenge = Challenge255<bn256::G1Affine>;
+        type Trans = Blake2bWrite<Vec<u8>, bn256::G1Affine, Challenge255<bn256::G1Affine>>;
     }
 
     type MyField = <MyRuntimeType as RuntimeType>::Field;
@@ -86,9 +88,9 @@ fn test_simple_func() {
     let simple_func = SimpleFunc::<MyRuntimeType>::new(&mut libs);
     let f = simple_func.get_fn();
 
-    let mut a = Variable::Scalar(Scalar::new_cpu());
-    let mut b = Variable::Scalar(Scalar::new_cpu());
-    let mut c = Variable::Scalar(Scalar::new_cpu());
+    let mut a = Variable::Scalar(Scalar::new_cpu(1));
+    let mut b = Variable::Scalar(Scalar::new_cpu(1));
+    let mut c = Variable::Scalar(Scalar::new_cpu(1));
 
     let f = match f.f {
         FunctionValue::Fn(f) => f,
@@ -99,11 +101,11 @@ fn test_simple_func() {
         let a_in = MyField::random(rand_core::OsRng);
         let b_in = MyField::random(rand_core::OsRng);
 
-        *a.unwrap_scalar_mut().as_mut() = a_in.clone();
-        *b.unwrap_scalar_mut().as_mut() = b_in.clone();
+        a.unwrap_scalar_mut().as_mut()[0] = a_in.clone();
+        b.unwrap_scalar_mut().as_mut()[0] = b_in.clone();
 
         f(vec![&mut c], vec![&a, &b]).unwrap();
 
-        assert_eq!(*c.unwrap_scalar().as_ref(), a_in + b_in);
+        assert_eq!(c.unwrap_scalar().as_ref()[0], a_in + b_in);
     }
 }

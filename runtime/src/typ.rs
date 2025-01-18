@@ -5,7 +5,7 @@ use std::any;
 pub enum Typ {
     Poly { typ: PolyType, log_n: u32 },
     PointBase { log_n: u32 },
-    Scalar,
+    Scalar(usize),
     Transcript,
     Point,
     Rng,

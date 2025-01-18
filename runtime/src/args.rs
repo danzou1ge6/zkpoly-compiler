@@ -1,7 +1,8 @@
 use crate::gpu_buffer::GpuBuffer;
-use crate::point_base::PointBase;
+use crate::point::{Point, PointBase};
 use crate::poly::Polynomial;
 use crate::scaler::Scalar;
+use crate::transcript::{EncodedChallenge, Transcript};
 use group::ff::Field;
 use pasta_curves::arithmetic::CurveAffine;
 use std::fmt::Debug;
@@ -15,23 +16,24 @@ zkpoly_common::define_usize_id!(ConstantId);
 pub type VariableTable<T> = heap::Heap<VariableId, RwLock<Option<Variable<T>>>>;
 pub type ConstantTable<T> = heap::Heap<ConstantId, Constant<T>>;
 
-pub trait RuntimeType: 'static + Debug + Clone + Send + Sync {
+pub trait RuntimeType: 'static + Clone + Send + Sync {
     type Field: Field;
-    type Point: CurveAffine;
+    type PointAffine: CurveAffine;
+    type Challenge: EncodedChallenge<Self::PointAffine>;
+    type Trans: Transcript<Self::PointAffine, Self::Challenge>;
 }
 
-#[derive(Debug)]
 pub enum Variable<T: RuntimeType> {
     Poly(Polynomial<T::Field>),
-    PointBase(PointBase<T::Point>),
-    Scalar(Scalar<T::Field>),
-    Transcript,
-    Point(T::Point),
-    Tuple(Vec<Variable<T>>),
-    Array(Box<[Variable<T>]>),
-    Stream(CudaStream),
-    Any(Box<dyn Any + Send + Sync>),
-    GpuBuffer(GpuBuffer),
+    PointBase(PointBase<T::PointAffine>),
+    Scalar(Scalar<T::Field>), // one or more field elements
+    Transcript(T::Trans), // cpu only
+    Point(Point<T::PointAffine>), // cpu only
+    Tuple(Vec<Variable<T>>),  // cpu only
+    Array(Box<[Variable<T>]>), // cpu only
+    Stream(CudaStream),       // cpu only
+    Any(Box<dyn Any + Send + Sync>), // cpu only
+    GpuBuffer(GpuBuffer),     // gpu only
 }
 
 impl<T: RuntimeType> Variable<T> {
@@ -49,14 +51,14 @@ impl<T: RuntimeType> Variable<T> {
         }
     }
 
-    pub fn unwrap_point_base(&self) -> &PointBase<T::Point> {
+    pub fn unwrap_point_base(&self) -> &PointBase<T::PointAffine> {
         match self {
             Variable::PointBase(point_base) => point_base,
             _ => panic!("unwrap_point_base: not a point base"),
         }
     }
 
-    pub fn unwrap_point_base_mut(&mut self) -> &mut PointBase<T::Point> {
+    pub fn unwrap_point_base_mut(&mut self) -> &mut PointBase<T::PointAffine> {
         match self {
             Variable::PointBase(point_base) => point_base,
             _ => panic!("unwrap_point_base_mut: not a point base"),
@@ -77,21 +79,30 @@ impl<T: RuntimeType> Variable<T> {
         }
     }
 
-    pub fn unwrap_transcript(&self) {
+    pub fn unwrap_transcript(&self) -> &T::Trans {
         match self {
-            Variable::Transcript => (),
+            Variable::Transcript(transcript) => transcript,
             _ => panic!("unwrap_transcript: not a transcript"),
         }
     }
 
-    pub fn unwrap_point(&self) -> &T::Point {
+    pub fn unwrap_transcript_mut(
+        &mut self,
+    ) -> &mut T::Trans {
+        match self {
+            Variable::Transcript(transcript) => transcript,
+            _ => panic!("unwrap_transcript_mut: not a transcript"),
+        }
+    }
+
+    pub fn unwrap_point(&self) -> &Point<T::PointAffine> {
         match self {
             Variable::Point(point) => point,
             _ => panic!("unwrap_point: not a point"),
         }
     }
 
-    pub fn unwrap_point_mut(&mut self) -> &mut T::Point {
+    pub fn unwrap_point_mut(&mut self) -> &mut Point<T::PointAffine> {
         match self {
             Variable::Point(point) => point,
             _ => panic!("unwrap_point_mut: not a point"),
@@ -148,7 +159,6 @@ impl<T: RuntimeType> Variable<T> {
     }
 }
 
-#[derive(Debug)]
 pub struct Constant<T: RuntimeType> {
     name: String,
     value: Variable<T>,

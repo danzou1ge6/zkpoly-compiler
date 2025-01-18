@@ -112,8 +112,8 @@ impl CudaStream {
         }
     }
 
-    pub fn memcpy_h2d<T: Sized>(&self, dst: *mut T, src: *const T, len: u64) {
-        let size = std::mem::size_of::<T>() * len as usize;
+    pub fn memcpy_h2d<T: Sized>(&self, dst: *mut T, src: *const T, len: usize) {
+        let size = std::mem::size_of::<T>() * len;
         unsafe {
             cuda_check!(cudaMemcpyAsync(
                 dst as *mut std::ffi::c_void,
@@ -125,8 +125,8 @@ impl CudaStream {
         }
     }
 
-    pub fn memcpy_d2h<T: Sized>(&self, dst: *mut T, src: *const T, len: u64) {
-        let size = std::mem::size_of::<T>() * len as usize;
+    pub fn memcpy_d2h<T: Sized>(&self, dst: *mut T, src: *const T, len: usize) {
+        let size = std::mem::size_of::<T>() * len;
         unsafe {
             cuda_check!(cudaMemcpyAsync(
                 dst as *mut std::ffi::c_void,
@@ -138,8 +138,8 @@ impl CudaStream {
         }
     }
 
-    pub fn memcpy_d2d<T: Sized>(&self, dst: *mut T, src: *const T, len: u64) {
-        let size = std::mem::size_of::<T>() * len as usize;
+    pub fn memcpy_d2d<T: Sized>(&self, dst: *mut T, src: *const T, len: usize) {
+        let size = std::mem::size_of::<T>() * len;
         unsafe {
             cuda_check!(cudaMemcpyAsync(
                 dst as *mut std::ffi::c_void,

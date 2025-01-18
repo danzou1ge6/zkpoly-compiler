@@ -6,7 +6,7 @@ use crate::{
     args::{RuntimeType, Variable},
     devices::DeviceType,
     gpu_buffer::GpuBuffer,
-    point_base::PointBase,
+    point::PointBase,
     poly::Polynomial,
     runtime::RuntimeInfo,
     scaler::Scalar,
@@ -47,12 +47,12 @@ impl<T: RuntimeType> RuntimeInfo<T> {
             }
             Typ::PointBase { log_n } => {
                 let point_base = match device {
-                    DeviceType::CPU => PointBase::<T::Point>::new(
+                    DeviceType::CPU => PointBase::<T::PointAffine>::new(
                         log_n,
                         mem_allocator.as_ref().unwrap().allocate(log_n),
                         device.clone(),
                     ),
-                    DeviceType::GPU { device_id } => PointBase::<T::Point>::new(
+                    DeviceType::GPU { device_id } => PointBase::<T::PointAffine>::new(
                         log_n,
                         gpu_allocator.as_ref().unwrap()[device_id as usize]
                             .allocate(offset.unwrap()),
@@ -62,18 +62,19 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                 };
                 Variable::PointBase(point_base)
             }
-            Typ::Scalar => match device {
-                DeviceType::CPU => Variable::Scalar(Scalar::new_cpu()),
+            Typ::Scalar(len) => match device {
+                DeviceType::CPU => Variable::Scalar(Scalar::new_cpu(len)),
                 DeviceType::GPU { device_id } => Variable::Scalar(Scalar::new_gpu(
                     gpu_allocator.as_ref().unwrap()[device_id as usize].allocate(offset.unwrap()),
                     device_id,
+                    len,
                 )),
                 DeviceType::Disk => unreachable!(),
             },
             Typ::Transcript => unreachable!(),
             Typ::Point => {
                 assert!(device.is_cpu());
-                Variable::Point(T::Point::identity())
+                Variable::Point(crate::point::Point::new(T::PointAffine::identity()))
             }
             Typ::Tuple(vec) => {
                 let mut vars = Vec::new();
