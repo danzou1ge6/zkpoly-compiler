@@ -1,8 +1,4 @@
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
-#![allow(non_camel_case_types)]
-#![allow(unused)]
-include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+use crate::bindings::*;
 use std::ffi::c_void;
 
 use crate::cuda_check;
@@ -45,6 +41,7 @@ impl CudaAllocator {
     }
 
     pub fn allocate<F: Sized>(&self, offset: usize) -> *mut F {
+        assert!(offset < self.max_size);
         unsafe { self.base_ptr.offset(offset.try_into().unwrap()) as *mut F }
     }
 }

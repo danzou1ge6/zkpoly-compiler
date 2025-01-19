@@ -1,7 +1,6 @@
 use crate::gpu_buffer::GpuBuffer;
-use crate::point::{Point, PointBase};
-use crate::poly::Polynomial;
-use crate::scaler::Scalar;
+use crate::point::{Point, PointArray};
+use crate::scalar::{Scalar, ScalarArray};
 use crate::transcript::{EncodedChallenge, Transcript};
 use group::ff::Field;
 use pasta_curves::arithmetic::CurveAffine;
@@ -24,44 +23,44 @@ pub trait RuntimeType: 'static + Clone + Send + Sync {
 }
 
 pub enum Variable<T: RuntimeType> {
-    Poly(Polynomial<T::Field>),
-    PointBase(PointBase<T::PointAffine>),
-    Scalar(Scalar<T::Field>), // one or more field elements
-    Transcript(T::Trans), // cpu only
-    Point(Point<T::PointAffine>), // cpu only
-    Tuple(Vec<Variable<T>>),  // cpu only
-    Array(Box<[Variable<T>]>), // cpu only
-    Stream(CudaStream),       // cpu only
+    ScalarArray(ScalarArray<T::Field>),
+    PointArray(PointArray<T::PointAffine>),
+    Scalar(Scalar<T::Field>),
+    Transcript(T::Trans),            // cpu only
+    Point(Point<T::PointAffine>),    // cpu only
+    Tuple(Vec<Variable<T>>),         // cpu only
+    Array(Box<[Variable<T>]>),       // cpu only
+    Stream(CudaStream),              // cpu only
     Any(Box<dyn Any + Send + Sync>), // cpu only
-    GpuBuffer(GpuBuffer),     // gpu only
+    GpuBuffer(GpuBuffer),            // gpu only
 }
 
 impl<T: RuntimeType> Variable<T> {
-    pub fn unwrap_poly(&self) -> &Polynomial<T::Field> {
+    pub fn unwrap_scalar_array(&self) -> &ScalarArray<T::Field> {
         match self {
-            Variable::Poly(poly) => poly,
-            _ => panic!("unwrap_poly: not a polynomial"),
+            Variable::ScalarArray(poly) => poly,
+            _ => panic!("unwrap_scalar_array: not a polynomial"),
         }
     }
 
-    pub fn unwrap_poly_mut(&mut self) -> &mut Polynomial<T::Field> {
+    pub fn unwrap_scalar_array_mut(&mut self) -> &mut ScalarArray<T::Field> {
         match self {
-            Variable::Poly(poly) => poly,
-            _ => panic!("unwrap_poly_mut: not a polynomial"),
+            Variable::ScalarArray(poly) => poly,
+            _ => panic!("unwrap_scalar_array_mut: not a polynomial"),
         }
     }
 
-    pub fn unwrap_point_base(&self) -> &PointBase<T::PointAffine> {
+    pub fn unwrap_point_array(&self) -> &PointArray<T::PointAffine> {
         match self {
-            Variable::PointBase(point_base) => point_base,
-            _ => panic!("unwrap_point_base: not a point base"),
+            Variable::PointArray(point_array) => point_array,
+            _ => panic!("unwrap_point_array: not a point base"),
         }
     }
 
-    pub fn unwrap_point_base_mut(&mut self) -> &mut PointBase<T::PointAffine> {
+    pub fn unwrap_point_array_mut(&mut self) -> &mut PointArray<T::PointAffine> {
         match self {
-            Variable::PointBase(point_base) => point_base,
-            _ => panic!("unwrap_point_base_mut: not a point base"),
+            Variable::PointArray(point_array) => point_array,
+            _ => panic!("unwrap_point_array_mut: not a point base"),
         }
     }
 
@@ -86,9 +85,7 @@ impl<T: RuntimeType> Variable<T> {
         }
     }
 
-    pub fn unwrap_transcript_mut(
-        &mut self,
-    ) -> &mut T::Trans {
+    pub fn unwrap_transcript_mut(&mut self) -> &mut T::Trans {
         match self {
             Variable::Transcript(transcript) => transcript,
             _ => panic!("unwrap_transcript_mut: not a transcript"),

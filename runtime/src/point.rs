@@ -20,38 +20,38 @@ impl<P: CurveAffine> Transfer for Point<P> {
 }
 
 #[derive(Debug)]
-pub struct PointBase<P: CurveAffine> {
+pub struct PointArray<P: CurveAffine> {
     pub values: *mut P,
-    pub log_n: u32,
+    pub len: usize,
     pub device: DeviceType,
 }
 
-unsafe impl<P: CurveAffine> Send for PointBase<P> {}
-unsafe impl<P: CurveAffine> Sync for PointBase<P> {}
+unsafe impl<P: CurveAffine> Send for PointArray<P> {}
+unsafe impl<P: CurveAffine> Sync for PointArray<P> {}
 
-impl<P: CurveAffine> PointBase<P> {
-    pub fn new(log_n: u32, ptr: *mut P, device: DeviceType) -> Self {
+impl<P: CurveAffine> PointArray<P> {
+    pub fn new(len: usize, ptr: *mut P, device: DeviceType) -> Self {
         Self {
             values: ptr,
-            log_n,
+            len,
             device,
         }
     }
 }
 
-impl<P: CurveAffine> Transfer for PointBase<P> {
+impl<P: CurveAffine> Transfer for PointArray<P> {
     fn cpu2cpu(&self, target: &mut Self) {
-        assert!(self.log_n == target.log_n);
+        assert!(self.len == target.len);
         assert!(self.device == DeviceType::CPU);
         assert!(target.device == DeviceType::CPU);
 
         unsafe {
-            std::ptr::copy_nonoverlapping(self.values, target.values, 1 << self.log_n);
+            std::ptr::copy_nonoverlapping(self.values, target.values, self.len);
         }
     }
 
     fn cpu2gpu(&self, target: &mut Self, stream: &CudaStream) {
-        assert!(self.log_n == target.log_n);
+        assert!(self.len == target.len);
         assert!(self.device == DeviceType::CPU);
         assert!(
             target.device
@@ -60,11 +60,11 @@ impl<P: CurveAffine> Transfer for PointBase<P> {
                 }
         );
 
-        stream.memcpy_h2d(target.values, self.values, 1 << self.log_n);
+        stream.memcpy_h2d(target.values, self.values, self.len);
     }
 
     fn gpu2cpu(&self, target: &mut Self, stream: &CudaStream) {
-        assert!(self.log_n == target.log_n);
+        assert!(self.len == target.len);
         assert!(target.device == DeviceType::CPU);
         assert!(
             self.device
@@ -73,12 +73,12 @@ impl<P: CurveAffine> Transfer for PointBase<P> {
                 }
         );
 
-        stream.memcpy_d2h(target.values, self.values, 1 << self.log_n);
+        stream.memcpy_d2h(target.values, self.values, self.len);
     }
 
     fn gpu2gpu(&self, target: &mut Self, stream: &CudaStream) {
         // currently, we do not support copying between two different GPUs
-        assert!(self.log_n == target.log_n);
+        assert!(self.len == target.len);
         assert!(
             self.device
                 == DeviceType::GPU {
@@ -91,6 +91,6 @@ impl<P: CurveAffine> Transfer for PointBase<P> {
                     device_id: stream.get_device()
                 }
         );
-        stream.memcpy_d2d(target.values, self.values, 1 << self.log_n);
+        stream.memcpy_d2d(target.values, self.values, self.len);
     }
 }

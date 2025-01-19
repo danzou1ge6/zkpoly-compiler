@@ -6,10 +6,10 @@ use crate::{
     args::{RuntimeType, Variable},
     devices::DeviceType,
     gpu_buffer::GpuBuffer,
-    point::PointBase,
-    poly::Polynomial,
+    point::PointArray,
     runtime::RuntimeInfo,
-    scaler::Scalar,
+    scalar::Scalar,
+    scalar::ScalarArray,
     typ::Typ,
 };
 
@@ -23,51 +23,45 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         gpu_allocator: &Option<Vec<CudaAllocator>>,
     ) -> Variable<T> {
         match typ {
-            Typ::Poly {
-                typ: ref poly_typ,
-                log_n,
-            } => {
+            Typ::ScalarArray { typ: _, len } => {
                 let poly = match device {
-                    DeviceType::CPU => Polynomial::<T::Field>::new(
-                        poly_typ.clone(),
-                        log_n,
-                        mem_allocator.as_ref().unwrap().allocate(log_n.clone()),
+                    DeviceType::CPU => ScalarArray::<T::Field>::new(
+                        len,
+                        mem_allocator.as_ref().unwrap().allocate(len.clone()),
                         device.clone(),
                     ),
-                    DeviceType::GPU { device_id } => Polynomial::<T::Field>::new(
-                        poly_typ.clone(),
-                        log_n,
+                    DeviceType::GPU { device_id } => ScalarArray::<T::Field>::new(
+                        len,
                         gpu_allocator.as_ref().unwrap()[device_id as usize]
                             .allocate(offset.unwrap()),
                         device.clone(),
                     ),
                     DeviceType::Disk => todo!(),
                 };
-                Variable::Poly(poly)
+                Variable::ScalarArray(poly)
             }
-            Typ::PointBase { log_n } => {
+            Typ::PointBase { len } => {
                 let point_base = match device {
-                    DeviceType::CPU => PointBase::<T::PointAffine>::new(
-                        log_n,
-                        mem_allocator.as_ref().unwrap().allocate(log_n),
+                    DeviceType::CPU => PointArray::<T::PointAffine>::new(
+                        len,
+                        mem_allocator.as_ref().unwrap().allocate(len),
                         device.clone(),
                     ),
-                    DeviceType::GPU { device_id } => PointBase::<T::PointAffine>::new(
-                        log_n,
+                    DeviceType::GPU { device_id } => PointArray::<T::PointAffine>::new(
+                        len,
                         gpu_allocator.as_ref().unwrap()[device_id as usize]
                             .allocate(offset.unwrap()),
                         device.clone(),
                     ),
                     DeviceType::Disk => todo!(),
                 };
-                Variable::PointBase(point_base)
+                Variable::PointArray(point_base)
             }
-            Typ::Scalar(len) => match device {
-                DeviceType::CPU => Variable::Scalar(Scalar::new_cpu(len)),
+            Typ::Scalar => match device {
+                DeviceType::CPU => Variable::Scalar(Scalar::new_cpu()),
                 DeviceType::GPU { device_id } => Variable::Scalar(Scalar::new_gpu(
                     gpu_allocator.as_ref().unwrap()[device_id as usize].allocate(offset.unwrap()),
                     device_id,
-                    len,
                 )),
                 DeviceType::Disk => unreachable!(),
             },
@@ -125,13 +119,13 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         mem_allocator: &Option<PinnedMemoryPool>,
     ) {
         match var {
-            Variable::Poly(poly) => match poly.device {
+            Variable::ScalarArray(poly) => match poly.device {
                 DeviceType::CPU => {
                     mem_allocator.as_ref().unwrap().deallocate(poly.values);
                 }
                 _ => {}
             },
-            Variable::PointBase(point_base) => match point_base.device {
+            Variable::PointArray(point_base) => match point_base.device {
                 DeviceType::CPU => {
                     mem_allocator
                         .as_ref()

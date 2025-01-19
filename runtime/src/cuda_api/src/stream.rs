@@ -1,8 +1,4 @@
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
-#![allow(non_camel_case_types)]
-#![allow(unused)]
-include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+use crate::bindings::*;
 use crate::cuda_check;
 
 #[derive(Clone)]
@@ -21,7 +17,7 @@ impl CudaEvent {
 
     pub fn record(&self, stream: &CudaStream) {
         unsafe {
-            cuda_check!(cudaEventRecord(self.event, stream.as_ptr()));
+            cuda_check!(cudaEventRecord(self.event, stream.raw()));
         }
     }
 
@@ -44,7 +40,7 @@ impl Drop for CudaEvent {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct CudaStream {
     stream: cudaStream_t,
     gpu_id: i32,
@@ -69,7 +65,7 @@ impl CudaStream {
         }
     }
 
-    pub fn as_ptr(&self) -> cudaStream_t {
+    pub fn raw(&self) -> cudaStream_t {
         self.stream
     }
 
@@ -115,6 +111,7 @@ impl CudaStream {
     pub fn memcpy_h2d<T: Sized>(&self, dst: *mut T, src: *const T, len: usize) {
         let size = std::mem::size_of::<T>() * len;
         unsafe {
+            cuda_check!(cudaSetDevice(self.gpu_id));
             cuda_check!(cudaMemcpyAsync(
                 dst as *mut std::ffi::c_void,
                 src as *const std::ffi::c_void,
@@ -128,6 +125,7 @@ impl CudaStream {
     pub fn memcpy_d2h<T: Sized>(&self, dst: *mut T, src: *const T, len: usize) {
         let size = std::mem::size_of::<T>() * len;
         unsafe {
+            cuda_check!(cudaSetDevice(self.gpu_id));
             cuda_check!(cudaMemcpyAsync(
                 dst as *mut std::ffi::c_void,
                 src as *const std::ffi::c_void,
@@ -141,6 +139,7 @@ impl CudaStream {
     pub fn memcpy_d2d<T: Sized>(&self, dst: *mut T, src: *const T, len: usize) {
         let size = std::mem::size_of::<T>() * len;
         unsafe {
+            cuda_check!(cudaSetDevice(self.gpu_id));
             cuda_check!(cudaMemcpyAsync(
                 dst as *mut std::ffi::c_void,
                 src as *const std::ffi::c_void,

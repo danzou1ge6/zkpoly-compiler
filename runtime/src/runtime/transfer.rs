@@ -70,8 +70,8 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                         dst,
                         src,
                         cpu2cpu,
-                        Poly => unwrap_poly_mut,
-                        PointBase => unwrap_point_base_mut,
+                        ScalarArray => unwrap_scalar_array_mut,
+                        PointArray => unwrap_point_array_mut,
                         Scalar => unwrap_scalar_mut,
                         Point => unwrap_point_mut
                     );
@@ -83,8 +83,8 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                         src,
                         stream,
                         cpu2gpu,
-                        Poly => unwrap_poly_mut,
-                        PointBase => unwrap_point_base_mut,
+                        ScalarArray => unwrap_scalar_array_mut,
+                        PointArray => unwrap_point_array_mut,
                         Scalar => unwrap_scalar_mut
                     );
                 }
@@ -98,8 +98,8 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                         src,
                         stream,
                         gpu2cpu,
-                        Poly => unwrap_poly_mut,
-                        PointBase => unwrap_point_base_mut,
+                        ScalarArray => unwrap_scalar_array_mut,
+                        PointArray => unwrap_point_array_mut,
                         Scalar => unwrap_scalar_mut
                     );
                 }
@@ -110,8 +110,8 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                         src,
                         stream,
                         gpu2gpu,
-                        Poly => unwrap_poly_mut,
-                        PointBase => unwrap_point_base_mut,
+                        ScalarArray => unwrap_scalar_array_mut,
+                        PointArray => unwrap_point_array_mut,
                         Scalar => unwrap_scalar_mut
                     );
                 }

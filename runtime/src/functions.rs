@@ -6,6 +6,7 @@ use zkpoly_common::heap;
 
 pub mod build_func;
 pub mod load_dynamic;
+pub mod ntt;
 pub mod tutorial;
 
 zkpoly_common::define_usize_id!(FunctionId);

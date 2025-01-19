@@ -210,7 +210,8 @@ where
     }
 }
 
-impl<R: Read + Sync + Send, C: CurveAffine> Transcript<C, Challenge255<C>> for Blake2bRead<R, C, Challenge255<C>>
+impl<R: Read + Sync + Send, C: CurveAffine> Transcript<C, Challenge255<C>>
+    for Blake2bRead<R, C, Challenge255<C>>
 where
     C::Scalar: FromUniformBytes<64>,
 {

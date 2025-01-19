@@ -15,13 +15,11 @@ impl PinnedMemoryPool {
         }
     }
 
-    pub fn allocate<T: Sized>(&self, log_len: u32) -> *mut T {
-        assert!(std::mem::size_of::<T>() % self.base_size == 0);
-        let factor: u32 = (std::mem::size_of::<T>() / self.base_size)
-            .try_into()
-            .unwrap();
-        assert!(factor.is_power_of_two());
-        let log_factor = log_len + factor.ilog2();
+    pub fn allocate<T: Sized>(&self, len: usize) -> *mut T {
+        let size = std::mem::size_of::<T>() * len;
+        let log_factor = (size.div_ceil(self.base_size))
+            .next_power_of_two()
+            .trailing_zeros();
         assert!(log_factor <= self.max_log_factor);
         unsafe { allocate(self.handle, log_factor) as *mut T }
     }
@@ -62,9 +60,9 @@ mod test {
             let mut rng = rand::thread_rng();
             let mut slices: Vec<&mut [u32]> = (0..items)
                 .map(|_| unsafe {
-                    let log_len = rng.gen_range(0..=range);
-                    let ptr = pool.allocate::<u32>(log_len);
-                    std::slice::from_raw_parts_mut(ptr, 1 << log_len)
+                    let len: usize = rng.gen_range(0..=(1 << range));
+                    let ptr = pool.allocate::<u32>(len);
+                    std::slice::from_raw_parts_mut(ptr, len)
                 })
                 .collect();
             for slice in slices.iter_mut() {

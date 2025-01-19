@@ -1,34 +1,36 @@
 // this file is used to show how to insert a new function into the runtime
 
-use std::{any::type_name, env::set_var, marker::PhantomData, os::raw::c_uint};
+use std::{any::type_name, marker::PhantomData, os::raw::c_uint};
 
 use libloading::Symbol;
 
 use crate::{
     args::{RuntimeType, Variable},
-    error::RuntimeError, transcript::{Blake2bWrite, Challenge255}, typ,
+    error::RuntimeError,
 };
 
 use super::{
-    build_func::resolve_type, build_func::run_xmake, load_dynamic::Libs, Function, FunctionValue,
-    RegisteredFunction,
+    build_func::{resolve_type, xmake_config, xmake_run},
+    load_dynamic::Libs,
+    Function, FunctionValue, RegisteredFunction,
 };
 
 // c = a + b
 pub struct SimpleFunc<T: RuntimeType> {
     _marker: PhantomData<T>,
-    c_func: Symbol<'static, unsafe extern "C" fn(*const c_uint, *const c_uint, *mut c_uint)>,
+    c_func:
+        Symbol<'static, unsafe extern "C" fn(a: *const c_uint, b: *const c_uint, c: *mut c_uint)>,
 }
 
 impl<T: RuntimeType> RegisteredFunction<T> for SimpleFunc<T> {
-    fn new(lib: &mut Libs) -> Self {
+    fn new(libs: &mut Libs) -> Self {
         // compile the dynamic library according to the template
         let field_type = resolve_type(type_name::<T::Field>());
-        set_var("SIMPLE_ADD_FIELD", field_type);
-        run_xmake("simple_add");
+        xmake_config("SIMPLE_ADD_FIELD", field_type);
+        xmake_run("simple_add");
 
         // load the dynamic library
-        let lib = lib.load("../lib/libsimple_add.so");
+        let lib = libs.load("../lib/libsimple_add.so");
         // get the function pointer
         let c_func = unsafe { lib.get(b"simple_add\0") }.unwrap();
         Self {
@@ -68,7 +70,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for SimpleFunc<T> {
 #[test]
 fn test_simple_func() {
     use crate::args::Variable;
-    use crate::scaler::Scalar;
+    use crate::scalar::Scalar;
+    use crate::transcript::{Blake2bWrite, Challenge255};
     use group::ff::Field;
     use halo2curves::bn256;
 
@@ -88,9 +91,9 @@ fn test_simple_func() {
     let simple_func = SimpleFunc::<MyRuntimeType>::new(&mut libs);
     let f = simple_func.get_fn();
 
-    let mut a = Variable::Scalar(Scalar::new_cpu(1));
-    let mut b = Variable::Scalar(Scalar::new_cpu(1));
-    let mut c = Variable::Scalar(Scalar::new_cpu(1));
+    let mut a = Variable::Scalar(Scalar::new_cpu());
+    let mut b = Variable::Scalar(Scalar::new_cpu());
+    let mut c = Variable::Scalar(Scalar::new_cpu());
 
     let f = match f.f {
         FunctionValue::Fn(f) => f,
@@ -101,11 +104,11 @@ fn test_simple_func() {
         let a_in = MyField::random(rand_core::OsRng);
         let b_in = MyField::random(rand_core::OsRng);
 
-        a.unwrap_scalar_mut().as_mut()[0] = a_in.clone();
-        b.unwrap_scalar_mut().as_mut()[0] = b_in.clone();
+        *a.unwrap_scalar_mut().as_mut() = a_in.clone();
+        *b.unwrap_scalar_mut().as_mut() = b_in.clone();
 
         f(vec![&mut c], vec![&a, &b]).unwrap();
 
-        assert_eq!(c.unwrap_scalar().as_ref()[0], a_in + b_in);
+        assert_eq!(*c.unwrap_scalar().as_ref(), a_in + b_in);
     }
 }
