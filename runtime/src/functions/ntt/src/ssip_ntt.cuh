@@ -1,6 +1,5 @@
 #pragma once
 #include "common.cuh"
-#include <algorithm>
 
 namespace detail {
 

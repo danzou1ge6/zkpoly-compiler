@@ -24,7 +24,7 @@ impl PinnedMemoryPool {
         unsafe { allocate(self.handle, log_factor) as *mut T }
     }
 
-    pub fn deallocate<T: Sized>(&self, ptr: *mut T) {
+    pub fn free<T: Sized>(&self, ptr: *mut T) {
         unsafe { deallocate(self.handle, ptr as *mut std::ffi::c_void) }
     }
 
@@ -77,7 +77,7 @@ mod test {
                 }
             }
             for slice in slices.iter_mut() {
-                pool.deallocate(slice.as_mut_ptr());
+                pool.free(slice.as_mut_ptr());
             }
         }
     }

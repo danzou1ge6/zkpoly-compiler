@@ -121,16 +121,13 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         match var {
             Variable::ScalarArray(poly) => match poly.device {
                 DeviceType::CPU => {
-                    mem_allocator.as_ref().unwrap().deallocate(poly.values);
+                    mem_allocator.as_ref().unwrap().free(poly.values);
                 }
                 _ => {}
             },
             Variable::PointArray(point_base) => match point_base.device {
                 DeviceType::CPU => {
-                    mem_allocator
-                        .as_ref()
-                        .unwrap()
-                        .deallocate(point_base.values);
+                    mem_allocator.as_ref().unwrap().free(point_base.values);
                 }
                 _ => {}
             },

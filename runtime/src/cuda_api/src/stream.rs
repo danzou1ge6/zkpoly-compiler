@@ -73,7 +73,7 @@ impl CudaStream {
         self.gpu_id
     }
 
-    pub fn allocate<T: Sized>(&self, len: u64) -> *mut T {
+    pub fn allocate<T: Sized>(&self, len: usize) -> *mut T {
         let mut ptr: *mut T = std::ptr::null_mut();
         let size = std::mem::size_of::<T>() * len as usize;
         unsafe {
@@ -86,7 +86,7 @@ impl CudaStream {
         ptr
     }
 
-    pub fn deallocate<T: Sized>(&self, ptr: *mut T) {
+    pub fn free<T: Sized>(&self, ptr: *mut T) {
         unsafe {
             cuda_check!(cudaFreeAsync(ptr as *mut std::ffi::c_void, self.stream));
         }
@@ -174,5 +174,5 @@ fn test_cuda_stream() {
     stream.sync();
     let ptr = stream.allocate::<u32>(1024 * 1024 * 1024);
     stream.sync();
-    stream.deallocate(ptr);
+    stream.free(ptr);
 }

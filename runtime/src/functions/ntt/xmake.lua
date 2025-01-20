@@ -18,3 +18,8 @@ target("test_ssip")
     set_kind("binary")
     add_cugencodes("native")
     add_files("tests/test_ssip.cu")
+
+target("test_recompute")
+    set_kind("binary")
+    add_cugencodes("native")
+    add_files("tests/test_recompute.cu")

@@ -2,6 +2,7 @@
 #include "../../common/mont/src/field_impls.cuh"
 #include <cuda/barrier>
 #include <cub/cub.cuh>
+#include <algorithm>
 
 namespace detail {
 using mont::u32;
