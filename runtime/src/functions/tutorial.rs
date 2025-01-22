@@ -22,7 +22,7 @@ pub struct SimpleFunc<T: RuntimeType> {
         Symbol<'static, unsafe extern "C" fn(a: *const c_uint, b: *const c_uint, c: *mut c_uint)>,
 }
 
-impl<T: RuntimeType> RegisteredFunction<T> for SimpleFunc<T> {
+impl<T: RuntimeType> SimpleFunc<T> {
     fn new(libs: &mut Libs) -> Self {
         // compile the dynamic library according to the template
         let field_type = resolve_type(type_name::<T::Field>());
@@ -38,7 +38,9 @@ impl<T: RuntimeType> RegisteredFunction<T> for SimpleFunc<T> {
             c_func,
         }
     }
+}
 
+impl<T: RuntimeType> RegisteredFunction<T> for SimpleFunc<T> {
     fn get_fn(&self) -> super::Function<T> {
         let c_func = self.c_func.clone();
 

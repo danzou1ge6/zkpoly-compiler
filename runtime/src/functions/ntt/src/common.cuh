@@ -1,5 +1,6 @@
 #pragma once
 #include "../../common/mont/src/field_impls.cuh"
+#include "../../common/error/src/check.cuh"
 #include <cuda/barrier>
 #include <cub/cub.cuh>
 #include <algorithm>
@@ -8,15 +9,6 @@ namespace detail {
 using mont::u32;
 using mont::u64;
 using mont::usize;
-
-#define CUDA_CHECK(call)                                                                                             \
-{                                                                                                                    \
-    cudaError_t err = call;                                                                                          \
-    if (err != cudaSuccess) {                                                                                        \
-        std::cerr << "CUDA Error [" << __FILE__ << ":" << __LINE__ << "]: " << cudaGetErrorString(err) << std::endl; \
-        return err;                                                                                                  \
-    }                                                                                                                \
-}
 
 static __host__ __device__ __forceinline__ constexpr u32 log2_int(u32 x) {
     u32 ans = 0;

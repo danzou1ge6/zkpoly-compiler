@@ -77,7 +77,7 @@ pub struct GenPqOmegas<T: RuntimeType> {
     >,
 }
 
-impl<T: RuntimeType> RegisteredFunction<T> for SsipNtt<T> {
+impl<T: RuntimeType> SsipNtt<T> {
     fn new(libs: &mut Libs) -> Self {
         let field_type = resolve_type(type_name::<T::Field>());
         xmake_config("NTT_FIELD", field_type);
@@ -92,7 +92,9 @@ impl<T: RuntimeType> RegisteredFunction<T> for SsipNtt<T> {
             c_func,
         }
     }
+}
 
+impl<T: RuntimeType> RegisteredFunction<T> for SsipNtt<T> {
     fn get_fn(&self) -> Function<T> {
         let c_func = self.c_func.clone();
 
@@ -167,7 +169,7 @@ impl<T: RuntimeType> SsipPrecompute<T> {
     }
 }
 
-impl<T: RuntimeType> RegisteredFunction<T> for RecomputeNtt<T> {
+impl<T: RuntimeType> RecomputeNtt<T> {
     fn new(libs: &mut Libs) -> Self {
         let field_type = resolve_type(type_name::<T::Field>());
         xmake_config("NTT_FIELD", field_type);
@@ -182,7 +184,9 @@ impl<T: RuntimeType> RegisteredFunction<T> for RecomputeNtt<T> {
             c_func,
         }
     }
+}
 
+impl<T: RuntimeType> RegisteredFunction<T> for RecomputeNtt<T> {
     fn get_fn(&self) -> Function<T> {
         let c_func = self.c_func.clone();
 
@@ -316,7 +320,7 @@ fn get_stage_threads<T: RuntimeType>() -> (u32, u32) {
 }
 
 #[cfg(test)]
-mod test_ntt {
+mod tests {
     static MAX_K: u32 = 20;
 
     use crate::args::RuntimeType;

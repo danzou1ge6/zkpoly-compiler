@@ -126,6 +126,14 @@ impl<F: Field> ScalarArray<F> {
             device,
         }
     }
+
+    pub fn as_ref(&self) -> &[F] {
+        unsafe { std::slice::from_raw_parts(self.values, self.len) }
+    }
+
+    pub fn as_mut(&mut self) -> &mut [F] {
+        unsafe { std::slice::from_raw_parts_mut(self.values, self.len) }
+    }
 }
 
 impl<F: Field> Transfer for ScalarArray<F> {

@@ -1,19 +1,18 @@
 use crate::args::{RuntimeType, Variable};
 use crate::error::RuntimeError;
-use load_dynamic::Libs;
 use std::sync::Mutex;
 use zkpoly_common::heap;
 
 pub mod build_func;
 pub mod load_dynamic;
 pub mod ntt;
+pub mod poly;
 pub mod tutorial;
 
 zkpoly_common::define_usize_id!(FunctionId);
 pub type FunctionTable<T> = heap::Heap<FunctionId, Function<T>>;
 
 pub trait RegisteredFunction<T: RuntimeType> {
-    fn new(libs: &mut Libs) -> Self;
     fn get_fn(&self) -> Function<T>;
 }
 
