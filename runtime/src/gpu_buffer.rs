@@ -6,3 +6,9 @@ pub struct GpuBuffer {
 
 unsafe impl Send for GpuBuffer {}
 unsafe impl Sync for GpuBuffer {}
+
+impl GpuBuffer {
+    pub fn new(ptr: *mut u8, size: usize) -> Self {
+        Self { ptr, size }
+    }
+}

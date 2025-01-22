@@ -25,7 +25,7 @@ TEST_CASE("naive poly add") {
 
     u32 block = 1024;
     u32 grid = (len - 1) / block + 1;
-    detail::NaiveAdd<Field><<<grid, block >>>(a_d, a_d, a_d, len);
+    detail::poly_add<Field><<<grid, block >>>(a_d, a_d, a_d, len);
 
     cudaMemcpy(a_d, a, len * Field::LIMBS * sizeof(u32), cudaMemcpyHostToDevice);
 
@@ -34,7 +34,7 @@ TEST_CASE("naive poly add") {
     cudaEventCreate(&end);
     cudaEventRecord(start);
 
-    detail::NaiveAdd<Field><<<grid, block >>>(a_d, a_d, a_d, len);
+    detail::poly_add<Field><<<grid, block >>>(a_d, a_d, a_d, len);
 
     cudaEventRecord(end);
     cudaEventSynchronize(end);
@@ -76,7 +76,7 @@ TEST_CASE("naive poly mul") {
     cudaEventCreate(&end);
     cudaEventRecord(start);
 
-    detail::NaiveMul<Field><<<grid, block >>>(a_d, a_d, a_d, len);
+    detail::poly_mul<Field><<<grid, block >>>(a_d, a_d, a_d, len);
 
     cudaEventRecord(end);
     cudaEventSynchronize(end);

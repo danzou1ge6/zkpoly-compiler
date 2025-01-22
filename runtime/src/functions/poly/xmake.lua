@@ -4,9 +4,14 @@ option("POLY_FIELD")
     set_description("Choose a field for poly") -- 设置选项的描述信息
 
 target("test_poly_basic")
-    add_files("tests/test_poly_basic.cu")
+    add_files("tests/test_basic.cu")
     add_cugencodes("native")
     add_packages("doctest")
+
+target("test_poly_eval")
+    add_files("tests/test_eval.cu")
+    add_cugencodes("native")
+    add_cuflags("--extended-lambda")
 
 target("poly")
     set_kind("shared")
@@ -17,3 +22,4 @@ target("poly")
     end
     add_cugencodes("native")
     set_optimize("fastest")
+    add_cuflags("--extended-lambda")

@@ -154,6 +154,20 @@ impl<T: RuntimeType> Variable<T> {
             _ => panic!("unwrap_any_mut: not an any"),
         }
     }
+
+    pub fn unwrap_gpu_buffer(&self) -> &GpuBuffer {
+        match self {
+            Variable::GpuBuffer(buffer) => buffer,
+            _ => panic!("unwrap_gpu_buffer: not a gpu buffer"),
+        }
+    }
+
+    pub fn unwrap_gpu_buffer_mut(&mut self) -> &mut GpuBuffer {
+        match self {
+            Variable::GpuBuffer(buffer) => buffer,
+            _ => panic!("unwrap_gpu_buffer_mut: not a gpu buffer"),
+        }
+    }
 }
 
 pub struct Constant<T: RuntimeType> {

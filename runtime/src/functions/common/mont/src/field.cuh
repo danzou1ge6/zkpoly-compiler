@@ -747,6 +747,17 @@ namespace mont
     {
       return *this * *this;
     }
+
+    __device__ __forceinline__ Number shuffle_down(const u32 delta) const &
+    {
+      Number res;
+      #pragma unroll
+      for (usize i = 0; i < LIMBS; i++)
+      {
+        res.limbs[i] = __shfl_down_sync(0xFFFFFFFF, limbs[i], delta);
+      }
+      return res;
+    }
   };
 
   // An element on field defined by `Params`
@@ -1022,6 +1033,13 @@ namespace mont
       host_arith::random<LIMBS>(r.n.limbs, Params::m().limbs);
       return r;
     }
+
+    __device__ __forceinline__ Element shuffle_down(const u32 delta) const &
+    {
+      Element res;
+      res.n = n.shuffle_down(delta);
+      return res;
+    }
   };
 
   template <usize LIMBS> 
@@ -1055,129 +1073,7 @@ namespace mont
     auto n = e.to_number();
     os << n;
     return os;
-    }
-  
-  template <typename Field, u32 io_group>
-  __forceinline__ __device__ auto load_exchange(u32 * data, typename cub::WarpExchange<u32, io_group, io_group>::TempStorage temp_storage[]) -> Field {
-    using WarpExchangeT = cub::WarpExchange<u32, io_group, io_group>;
-    const static usize WORDS = Field::LIMBS;
-    const u32 io_id = threadIdx.x & (io_group - 1);
-    const u32 lid_start = threadIdx.x - io_id;
-    const int warp_id = static_cast<int>(threadIdx.x) / io_group;
-    u32 thread_data[io_group];
-    #pragma unroll
-    for (u64 i = lid_start; i != lid_start + io_group; i ++) {
-      if (io_id < WORDS) {
-        thread_data[i - lid_start] = data[i * WORDS + io_id];
-      }
-    }
-    WarpExchangeT(temp_storage[warp_id]).StripedToBlocked(thread_data, thread_data);
-    __syncwarp();
-    return Field::load(thread_data);
   }
-  template <typename Field, u32 io_group>
-  __forceinline__ __device__ void store_exchange(Field ans, u32 * dst, typename cub::WarpExchange<u32, io_group, io_group>::TempStorage temp_storage[]) {
-    using WarpExchangeT = cub::WarpExchange<u32, io_group, io_group>;
-    const static usize WORDS = Field::LIMBS;
-    const u32 io_id = threadIdx.x & (io_group - 1);
-    const u32 lid_start = threadIdx.x - io_id;
-    const int warp_id = static_cast<int>(threadIdx.x) / io_group;
-    u32 thread_data[io_group];
-    ans.store(thread_data);
-    WarpExchangeT(temp_storage[warp_id]).BlockedToStriped(thread_data, thread_data);
-    __syncwarp();
-    #pragma unroll
-    for (u64 i = lid_start; i != lid_start + io_group; i ++) {
-      if (io_id < WORDS) {
-        dst[i * WORDS + io_id] = thread_data[i - lid_start];
-      }
-    }
-  }
-
-  __forceinline__ constexpr u32 pow2_ceiling(u32 x)
-  {
-    u32 r = 2;
-    while (r < x)
-      r *= 2;
-    return r;
-  }
-
-//   // For an array of field elements layouted like
-//   // [0].0    [0].1    ...    [0].N
-//   // [1].0    [1].1    ...    [1].N
-//   // ...
-//   // [M].0    [M].1    ...    [M].N
-//   // where N is LIMBS of each element and M is blockSize.x,
-//   // load the i-th scalar to i-th thread's `dst`
-//   //
-//   // Invariants:
-//   // - `data` must be the same across each `io_group` threads
-//   template <u32 WORDS, u32 io_group = pow2_ceiling(WORDS), typename GetId>
-//   __forceinline__ __device__ void load_exchange_raw(
-//       u32 dst[WORDS],
-//       u32 *data,
-//       GetId gpos,
-//       typename cub::WarpExchange<u32, io_group, io_group>::TempStorage temp_storage[])
-//   {
-
-//     using WarpExchangeT = cub::WarpExchange<u32, io_group, io_group>;
-//     const u32 io_id = threadIdx.x & (io_group - 1);
-//     const u32 lid_start = threadIdx.x - io_id;
-//     const int warp_id = static_cast<int>(threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z * blockDim.x * blockDim.y) / io_group;
-// #pragma unroll
-//     for (u32 i = lid_start; i != lid_start + io_group; i++)
-//     {
-//       if (io_id < WORDS)
-//       {
-//         dst[i - lid_start] = data[gpos(i) * WORDS + io_id];
-//       }
-//     }
-//     WarpExchangeT(temp_storage[warp_id]).StripedToBlocked(dst, dst);
-//     __syncwarp();
-//   }
-
-//   template <typename Field, u32 io_group = pow2_ceiling(Field::LIMBS), typename GetId>
-//   __forceinline__ __device__ auto load_exchange(u32 *data, GetId gpos, typename cub::WarpExchange<u32, io_group, io_group>::TempStorage temp_storage[]) -> Field
-//   {
-//     u32 thread_data[io_group];
-//     load_exchange_raw<Field::LIMBS>(thread_data, data, gpos, temp_storage);
-//     return Field::load(thread_data);
-//   }
-
-//   // The reversed effect of `load_exchange_raw`
-//   template <u32 WORDS, u32 io_group = pow2_ceiling(WORDS), typename GetId>
-//   __forceinline__ __device__ void store_exchange_raw(
-//       u32 *dst,
-//       u32 from[WORDS],
-//       GetId get_gpos,
-//       typename cub::WarpExchange<u32, io_group, io_group>::TempStorage temp_storage[])
-//   {
-//     using WarpExchangeT = cub::WarpExchange<u32, io_group, io_group>;
-//     // const static usize WORDS = Field::LIMBS;
-//     const u32 io_id = threadIdx.x & (io_group - 1);
-//     const u32 lid_start = threadIdx.x - io_id;
-//     const int warp_id = static_cast<int>(threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z * blockDim.x * blockDim.y) / io_group;
-//     WarpExchangeT(temp_storage[warp_id]).BlockedToStriped(from, from);
-//     __syncwarp();
-// #pragma unroll
-//     for (u64 i = lid_start; i != lid_start + io_group; i++)
-//     {
-//       u64 gpos = get_gpos(i);
-//       if (io_id < WORDS)// && gpos < dst_len)
-//       {
-//         dst[gpos * WORDS + io_id] = from[i - lid_start];
-//       }
-//     }
-//   }
-
-//   template <typename Field, u32 io_group = pow2_ceiling(Field::LIMBS), typename GetId>
-//   __forceinline__ __device__ void store_exchange(Field &ans, u32 *dst, GetId gpos, typename cub::WarpExchange<u32, io_group, io_group>::TempStorage temp_storage[])
-//   {
-//     u32 thread_data[io_group];
-//     ans.store(thread_data);
-//     store_exchange_raw<Field::LIMBS>(dst, thread_data, gpos, temp_storage);
-//   }
-
 }
 
 

@@ -1,13 +1,8 @@
 #pragma once
-#include "../../common/mont/src/field_impls.cuh"
-
+#include "common.cuh"
 namespace detail {
-    using mont::u32;
-    using mont::u64;
-    using mont::usize;
-    
     template <typename Field>
-    __global__ void NaiveAdd(const u32 * a, const u32 * b, u32 * dst, u64 len) {
+    __global__ void poly_add(const u32 * a, const u32 * b, u32 * dst, u64 len) {
         u64 index = blockIdx.x * blockDim.x + threadIdx.x;
         if (index >= len) return;
         auto a_val = Field::load(a + index * Field::LIMBS);
@@ -16,7 +11,7 @@ namespace detail {
     }
 
     template <typename Field>
-    __global__ void NaiveMul(const u32 * a, const u32 * b, u32 * dst, u64 len) {
+    __global__ void poly_mul(const u32 * a, const u32 * b, u32 * dst, u64 len) {
         u64 index = blockIdx.x * blockDim.x + threadIdx.x;
         if (index >= len) return;
         auto a_val = Field::load(a + index * Field::LIMBS);
@@ -25,7 +20,7 @@ namespace detail {
     }
 
     template <typename Field>
-    __global__ void NaiveSub(const u32 * a, const u32 * b, u32 * dst, u64 len) {
+    __global__ void poly_sub(const u32 * a, const u32 * b, u32 * dst, u64 len) {
         u64 index = blockIdx.x * blockDim.x + threadIdx.x;
         if (index >= len) return;
         auto a_val = Field::load(a + index * Field::LIMBS);
