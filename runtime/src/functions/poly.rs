@@ -83,6 +83,97 @@ pub struct PolyEval<T: RuntimeType> {
     >,
 }
 
+pub struct KateDivision<T: RuntimeType> {
+    _marker: PhantomData<T>,
+    c_func: Symbol<
+        'static,
+        unsafe extern "C" fn(
+            temp_buf: *mut c_void,
+            temp_buf_size: *mut c_ulong,
+            log_p: c_uint,
+            p: *const c_uint,
+            b: *const c_uint,
+            q: *mut c_uint,
+            stream: cudaStream_t,
+        ) -> cudaError_t,
+    >,
+}
+
+impl<T: RuntimeType> KateDivision<T> {
+    pub fn new(libs: &mut Libs) -> Self {
+        // compile the dynamic library according to the template
+        let field_type = resolve_type(type_name::<T::Field>());
+        xmake_config("POLY_FIELD", field_type);
+        xmake_run("poly");
+
+        // load the dynamic library
+        let lib = libs.load("../lib/libpoly.so");
+        // get the function pointer
+        let c_func = unsafe { lib.get(b"kate_division\0") }.unwrap();
+        Self {
+            _marker: PhantomData,
+            c_func,
+        }
+    }
+
+    pub fn get_buffer_size(&self, log_p: u32) -> usize {
+        let mut buf_size: usize = 0;
+        unsafe {
+            cuda_check!((self.c_func)(
+                std::ptr::null_mut(),
+                &mut buf_size as *mut usize as *mut c_ulong,
+                log_p,
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            ));
+        }
+        buf_size
+    }
+}
+
+impl<T: RuntimeType> RegisteredFunction<T> for KateDivision<T> {
+    fn get_fn(&self) -> Function<T> {
+        let c_func = self.c_func.clone();
+        let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
+                              var: Vec<&Variable<T>>|
+              -> Result<(), RuntimeError> {
+            assert!(mut_var.len() == 2);
+            assert!(var.len() == 3);
+            let (temp_buf_var, res_var) = mut_var.split_at_mut(1);
+            let temp_buf = temp_buf_var[0].unwrap_gpu_buffer_mut();
+            let res = res_var[0].unwrap_scalar_array_mut();
+
+            let p = var[0].unwrap_scalar_array();
+            assert_eq!(res.len, p.len);
+            assert!(p.len.is_power_of_two());
+            let log_p = p.len.trailing_zeros();
+
+            let b = var[1].unwrap_scalar();
+            let stream = var[2].unwrap_stream();
+
+            unsafe {
+                cuda_check!(c_func(
+                    temp_buf.ptr as *mut c_void,
+                    null_mut() as *mut c_ulong,
+                    log_p,
+                    p.values as *const c_uint,
+                    b.value as *const c_uint,
+                    res.values as *mut c_uint,
+                    stream.raw(),
+                ));
+            }
+            Ok(())
+        };
+
+        Function {
+            name: "kate_division".to_string(),
+            f: FunctionValue::Fn(Box::new(rust_func)),
+        }
+    }
+}
+
 impl<T: RuntimeType> PolyEval<T> {
     pub fn new(libs: &mut Libs) -> Self {
         // compile the dynamic library according to the template
@@ -319,6 +410,7 @@ mod test {
     use crate::scalar::ScalarArray;
     use crate::transcript::{Blake2bWrite, Challenge255};
     use group::ff::Field;
+    use halo2_proofs::arithmetic::kate_division;
     use halo2curves::bn256;
     use rand_core::SeedableRng;
     use rand_xorshift::XorShiftRng;
@@ -494,5 +586,71 @@ mod test {
             truth = truth * *x.as_ref() + poly.as_ref()[i];
         }
         assert_eq!(*res.as_ref(), truth);
+    }
+
+    #[test]
+    fn test_kate() {
+        let log_len = K;
+        let len = 1 << K;
+        let mut libs = Libs::new();
+        let kate = KateDivision::<MyRuntimeType>::new(&mut libs);
+        let func = match kate.get_fn() {
+            Function {
+                f: FunctionValue::Fn(func),
+                ..
+            } => func,
+            _ => unreachable!(),
+        };
+        let cpu_pool = PinnedMemoryPool::new(K, size_of::<MyField>());
+        let stream = Variable::Stream(CudaStream::new(0));
+        let mut poly = ScalarArray::new(len, cpu_pool.allocate(len), DeviceType::CPU);
+        let mut b = Scalar::new_cpu();
+        let mut res = ScalarArray::new(len, cpu_pool.allocate(len), DeviceType::CPU);
+        let mut rng = XorShiftRng::from_seed([0; 16]);
+        for i in 0..len {
+            poly.as_mut()[i] = MyField::random(&mut rng);
+        }
+        *b.as_mut() = MyField::random(&mut rng);
+        let mut poly_d = Variable::ScalarArray(ScalarArray::new(
+            len,
+            stream.unwrap_stream().allocate(len),
+            DeviceType::GPU { device_id: 0 },
+        ));
+        let mut b_d = Variable::Scalar(Scalar::new_gpu(stream.unwrap_stream().allocate(1), 0));
+        let mut res_d = Variable::ScalarArray(ScalarArray::new(
+            len,
+            stream.unwrap_stream().allocate(len),
+            DeviceType::GPU { device_id: 0 },
+        ));
+        let buf_size = kate.get_buffer_size(log_len);
+        let mut temp_buf = Variable::GpuBuffer(GpuBuffer::new(
+            stream.unwrap_stream().allocate(buf_size),
+            buf_size,
+        ));
+
+        poly.cpu2gpu(poly_d.unwrap_scalar_array_mut(), stream.unwrap_stream());
+        b.cpu2gpu(b_d.unwrap_scalar_mut(), stream.unwrap_stream());
+        func(
+            vec![&mut temp_buf, &mut res_d],
+            vec![&poly_d, &b_d, &stream],
+        )
+        .unwrap();
+        res_d
+            .unwrap_scalar_array()
+            .gpu2cpu(&mut res, stream.unwrap_stream());
+        stream
+            .unwrap_stream()
+            .free(poly_d.unwrap_scalar_array().values);
+        stream.unwrap_stream().free(b_d.unwrap_scalar().value);
+        stream.unwrap_stream().free(res_d.unwrap_scalar_array().values);
+        stream
+            .unwrap_stream()
+            .free(temp_buf.unwrap_gpu_buffer().ptr);
+        stream.unwrap_stream().sync();
+
+        let truth = kate_division(poly.as_ref(), *b.as_ref());
+        for i in 0..len - 1 {
+            assert_eq!(res.as_ref()[i], truth[i]);
+        }
     }
 }
