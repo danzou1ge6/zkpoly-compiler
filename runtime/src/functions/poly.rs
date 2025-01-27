@@ -5,7 +5,7 @@ use std::{
     ffi::c_ulong,
     marker::PhantomData,
     os::raw::{c_uint, c_ulonglong, c_void},
-    ptr::null_mut,
+    ptr::{null, null_mut},
 };
 
 use libloading::Symbol;
@@ -67,6 +67,30 @@ pub struct PolyMul<T: RuntimeType> {
     >,
 }
 
+pub struct PolyZero<T: RuntimeType> {
+    _marker: PhantomData<T>,
+    c_func: Symbol<
+        'static,
+        unsafe extern "C" fn(
+            target: *mut c_uint,
+            len: c_ulonglong,
+            stream: cudaStream_t,
+        ) -> cudaError_t,
+    >,
+}
+
+pub struct PolyOne<T: RuntimeType> {
+    _marker: PhantomData<T>,
+    c_func: Symbol<
+        'static,
+        unsafe extern "C" fn(
+            target: *mut c_uint,
+            len: c_ulonglong,
+            stream: cudaStream_t,
+        ) -> cudaError_t,
+    >,
+}
+
 pub struct PolyEval<T: RuntimeType> {
     _marker: PhantomData<T>,
     c_func: Symbol<
@@ -97,6 +121,182 @@ pub struct KateDivision<T: RuntimeType> {
             stream: cudaStream_t,
         ) -> cudaError_t,
     >,
+}
+
+pub struct PolyScan<T: RuntimeType> {
+    _marker: PhantomData<T>,
+    c_func: Symbol<
+        'static,
+        unsafe extern "C" fn(
+            temp_buffer: *mut c_void,
+            buffer_size: *mut c_ulong,
+            poly: *const c_uint,
+            target: *mut c_uint,
+            x0: *const c_uint,
+            len: c_ulonglong,
+            stream: cudaStream_t,
+        ) -> cudaError_t,
+    >,
+}
+
+impl<T: RuntimeType> PolyScan<T> {
+    pub fn new(libs: &mut Libs) -> Self {
+        // compile the dynamic library according to the template
+        let field_type = resolve_type(type_name::<T::Field>());
+        xmake_config("POLY_FIELD", field_type);
+        xmake_run("poly");
+
+        // load the dynamic library
+        let lib = libs.load("../lib/libpoly.so");
+        // get the function pointer
+        let c_func = unsafe { lib.get(b"scan_mul\0") }.unwrap();
+        Self {
+            _marker: PhantomData,
+            c_func,
+        }
+    }
+
+    pub fn get_buffer_size(&self, len: u64) -> usize {
+        let mut buf_size: usize = 0;
+        unsafe {
+            cuda_check!((self.c_func)(
+                std::ptr::null_mut(),
+                &mut buf_size as *mut usize as *mut c_ulong,
+                null(),
+                null_mut(),
+                null(),
+                len,
+                null_mut(),
+            ));
+        }
+        buf_size
+    }
+}
+
+impl<T: RuntimeType> RegisteredFunction<T> for PolyScan<T> {
+    fn get_fn(&self) -> Function<T> {
+        let c_func = self.c_func.clone();
+        let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
+                              var: Vec<&Variable<T>>|
+              -> Result<(), RuntimeError> {
+            assert_eq!(mut_var.len(), 2);
+            assert_eq!(var.len(), 3);
+            let (temp_buf_var, target) = mut_var.split_at_mut(1);
+            let temp_buf = temp_buf_var[0].unwrap_gpu_buffer_mut();
+            let target = target[0].unwrap_scalar_array_mut();
+
+            let p = var[0].unwrap_scalar_array();
+            assert_eq!(target.len, p.len);
+            let x0 = var[1].unwrap_scalar();
+            let stream = var[2].unwrap_stream();
+            unsafe {
+                cuda_check!(c_func(
+                    temp_buf.ptr as *mut c_void,
+                    null_mut(),
+                    p.values as *const u32,
+                    target.values as *mut u32,
+                    x0.value as *const u32,
+                    p.len.try_into().unwrap(),
+                    stream.raw(),
+                ));
+            }
+            Ok(())
+        };
+        Function {
+            name: "PolyScan".to_string(),
+            f: FunctionValue::Fn(Box::new(rust_func)),
+        }
+    }
+}
+
+impl<T: RuntimeType> PolyOne<T> {
+    pub fn new(libs: &mut Libs) -> Self {
+        // compile the dynamic library according to the template
+        let field_type = resolve_type(type_name::<T::Field>());
+        xmake_config("POLY_FIELD", field_type);
+        xmake_run("poly");
+
+        // load the dynamic library
+        let lib = libs.load("../lib/libpoly.so");
+        // get the function pointer
+        let c_func = unsafe { lib.get(b"poly_one\0") }.unwrap();
+        Self {
+            _marker: PhantomData,
+            c_func,
+        }
+    }
+}
+
+impl<T: RuntimeType> RegisteredFunction<T> for PolyOne<T> {
+    fn get_fn(&self) -> Function<T> {
+        let c_func = self.c_func.clone();
+        let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
+                              var: Vec<&Variable<T>>|
+              -> Result<(), RuntimeError> {
+            assert_eq!(mut_var.len(), 1);
+            assert_eq!(var.len(), 1);
+            let target = mut_var[0].unwrap_scalar_array_mut();
+            let stream = var[0].unwrap_stream();
+            unsafe {
+                cuda_check!(c_func(
+                    target.values as *mut c_uint,
+                    target.len.try_into().unwrap(),
+                    stream.raw()
+                ));
+            }
+            Ok(())
+        };
+
+        Function {
+            name: "poly_one".to_string(),
+            f: FunctionValue::Fn(Box::new(rust_func)),
+        }
+    }
+}
+
+impl<T: RuntimeType> PolyZero<T> {
+    pub fn new(libs: &mut Libs) -> Self {
+        // compile the dynamic library according to the template
+        let field_type = resolve_type(type_name::<T::Field>());
+        xmake_config("POLY_FIELD", field_type);
+        xmake_run("poly");
+
+        // load the dynamic library
+        let lib = libs.load("../lib/libpoly.so");
+        // get the function pointer
+        let c_func = unsafe { lib.get(b"poly_zero\0") }.unwrap();
+        Self {
+            _marker: PhantomData,
+            c_func,
+        }
+    }
+}
+
+impl<T: RuntimeType> RegisteredFunction<T> for PolyZero<T> {
+    fn get_fn(&self) -> Function<T> {
+        let c_func = self.c_func.clone();
+        let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
+                              var: Vec<&Variable<T>>|
+              -> Result<(), RuntimeError> {
+            assert_eq!(mut_var.len(), 1);
+            assert_eq!(var.len(), 1);
+            let target = mut_var[0].unwrap_scalar_array_mut();
+            let stream = var[0].unwrap_stream();
+            unsafe {
+                cuda_check!(c_func(
+                    target.values as *mut c_uint,
+                    target.len.try_into().unwrap(),
+                    stream.raw()
+                ));
+            }
+            Ok(())
+        };
+
+        Function {
+            name: "poly_zero".to_string(),
+            f: FunctionValue::Fn(Box::new(rust_func)),
+        }
+    }
 }
 
 impl<T: RuntimeType> KateDivision<T> {
@@ -642,7 +842,9 @@ mod test {
             .unwrap_stream()
             .free(poly_d.unwrap_scalar_array().values);
         stream.unwrap_stream().free(b_d.unwrap_scalar().value);
-        stream.unwrap_stream().free(res_d.unwrap_scalar_array().values);
+        stream
+            .unwrap_stream()
+            .free(res_d.unwrap_scalar_array().values);
         stream
             .unwrap_stream()
             .free(temp_buf.unwrap_gpu_buffer().ptr);
@@ -651,6 +853,141 @@ mod test {
         let truth = kate_division(poly.as_ref(), *b.as_ref());
         for i in 0..len - 1 {
             assert_eq!(res.as_ref()[i], truth[i]);
+        }
+    }
+
+    #[test]
+    fn test_zero_one() {
+        let len = 1 << K;
+        let mut libs = Libs::new();
+        let zero = PolyZero::<MyRuntimeType>::new(&mut libs);
+        let func = match zero.get_fn() {
+            Function {
+                f: FunctionValue::Fn(func),
+                ..
+            } => func,
+            _ => unreachable!(),
+        };
+        let cpu_pool = PinnedMemoryPool::new(K, size_of::<MyField>());
+        let stream = Variable::Stream(CudaStream::new(0));
+        let mut poly = ScalarArray::new(len, cpu_pool.allocate(len), DeviceType::CPU);
+
+        let mut poly_d = Variable::ScalarArray(ScalarArray::new(
+            len,
+            stream.unwrap_stream().allocate(len),
+            DeviceType::GPU { device_id: 0 },
+        ));
+        
+        func(
+            vec![&mut poly_d,],
+            vec![&stream],
+        )
+        .unwrap();
+        poly_d
+            .unwrap_scalar_array()
+            .gpu2cpu(&mut poly, stream.unwrap_stream());
+        
+        stream.unwrap_stream().sync();
+
+        let truth: Vec<_> = (0..len).into_iter().map(|_| {MyField::ZERO}).collect();
+        for i in 0..len {
+            assert_eq!(poly.as_ref()[i], truth[i]);
+        }
+
+        let one = PolyOne::<MyRuntimeType>::new(&mut libs);
+        let func = match one.get_fn() {
+            Function {
+                f: FunctionValue::Fn(func),
+                ..
+            } => func,
+            _ => unreachable!(),
+        };
+
+        func(
+            vec![&mut poly_d,],
+            vec![&stream],
+        )
+        .unwrap();
+        poly_d
+            .unwrap_scalar_array()
+            .gpu2cpu(&mut poly, stream.unwrap_stream());
+        
+        stream.unwrap_stream().sync();
+
+        let truth: Vec<_> = (0..len).into_iter().map(|_| {MyField::ONE}).collect();
+        for i in 0..len {
+            assert_eq!(poly.as_ref()[i], truth[i]);
+        }
+
+        stream
+            .unwrap_stream()
+            .free(poly_d.unwrap_scalar_array().values);
+    }
+
+    #[test]
+    fn test_scan() {
+        let len = 1 << K;
+        let mut libs = Libs::new();
+        let scan = PolyScan::<MyRuntimeType>::new(&mut libs);
+        let func = match scan.get_fn() {
+            Function {
+                f: FunctionValue::Fn(func),
+                ..
+            } => func,
+            _ => unreachable!(),
+        };
+        let cpu_pool = PinnedMemoryPool::new(K, size_of::<MyField>());
+        let stream = Variable::Stream(CudaStream::new(0));
+        let mut poly = ScalarArray::new(len, cpu_pool.allocate(len), DeviceType::CPU);
+        let mut x0 = Scalar::new_cpu();
+        let mut res = ScalarArray::new(len, cpu_pool.allocate(len), DeviceType::CPU);
+        let mut rng = XorShiftRng::from_seed([0; 16]);
+        for i in 0..len {
+            poly.as_mut()[i] = MyField::random(&mut rng);
+        }
+        *x0.as_mut() = MyField::random(&mut rng);
+        let mut poly_d = Variable::ScalarArray(ScalarArray::new(
+            len,
+            stream.unwrap_stream().allocate(len),
+            DeviceType::GPU { device_id: 0 },
+        ));
+        let mut x0_d = Variable::Scalar(Scalar::new_gpu(stream.unwrap_stream().allocate(1), 0));
+        let mut res_d = Variable::ScalarArray(ScalarArray::new(
+            len,
+            stream.unwrap_stream().allocate(len),
+            DeviceType::GPU { device_id: 0 },
+        ));
+        let buf_size = scan.get_buffer_size(len.try_into().unwrap());
+        let mut temp_buf = Variable::GpuBuffer(GpuBuffer::new(
+            stream.unwrap_stream().allocate(buf_size),
+            buf_size,
+        ));
+
+        poly.cpu2gpu(poly_d.unwrap_scalar_array_mut(), stream.unwrap_stream());
+        x0.cpu2gpu(x0_d.unwrap_scalar_mut(), stream.unwrap_stream());
+        func(
+            vec![&mut temp_buf, &mut res_d],
+            vec![&poly_d, &x0_d, &stream],
+        )
+        .unwrap();
+        res_d
+            .unwrap_scalar_array()
+            .gpu2cpu(&mut res, stream.unwrap_stream());
+        stream
+            .unwrap_stream()
+            .free(poly_d.unwrap_scalar_array().values);
+        stream.unwrap_stream().free(x0_d.unwrap_scalar().value);
+        stream
+            .unwrap_stream()
+            .free(res_d.unwrap_scalar_array().values);
+        stream
+            .unwrap_stream()
+            .free(temp_buf.unwrap_gpu_buffer().ptr);
+        stream.unwrap_stream().sync();
+
+        assert_eq!(res.as_ref()[0], *x0.as_ref());
+        for i in 1..len {
+            assert_eq!(res.as_ref()[i], res.as_ref()[i - 1] * poly.as_ref()[i - 1]);
         }
     }
 }

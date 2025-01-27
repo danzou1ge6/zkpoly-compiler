@@ -19,6 +19,12 @@ target("test_kate_division")
     add_cuflags("--extended-lambda")
     add_packages("doctest")
 
+target("test_scan")
+    add_files("tests/test_scan.cu")
+    add_cugencodes("native")
+    add_cuflags("--extended-lambda")
+    add_packages("doctest")
+
 target("poly")
     set_kind("shared")
     set_targetdir(os.projectdir().."/lib")
