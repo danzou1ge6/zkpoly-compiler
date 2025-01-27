@@ -3,7 +3,6 @@ use crate::error::RuntimeError;
 use crate::typ::{self, Typ};
 use std::any;
 use std::sync::Mutex;
-use zkpoly_common::digraph::external::VertexId;
 use zkpoly_common::heap;
 
 zkpoly_common::define_usize_id!(FunctionId);

@@ -24,8 +24,8 @@ impl SourceInfo {
 
 #[derive(Debug, Clone)]
 pub enum Arith<Rt: RuntimeType> {
-    Bin(transit::ArithBinOp, Vertex<Rt>, Vertex<Rt>),
-    Unr(transit::ArithUnrOp, Vertex<Rt>),
+    Bin(transit::arith::ArithBinOp, Vertex<Rt>, Vertex<Rt>),
+    Unr(transit::arith::ArithUnrOp, Vertex<Rt>),
 }
 
 pub type VertexNode<Rt: RuntimeType> =
@@ -54,5 +54,5 @@ impl<Rt: RuntimeType> Vertex<Rt> {
     }
 }
 
-pub mod builder;
+// pub mod builder;
 pub mod typing;

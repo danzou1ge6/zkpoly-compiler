@@ -1,11 +1,8 @@
 //! Common data structures for Transit IR's
 
-use std::collections::BTreeMap;
 use std::marker::PhantomData;
 
-use std::collections::BTreeSet;
-use zkpoly_common::digraph::internal::{Digraph, Predecessors};
-use zkpoly_common::heap::{Heap, UsizeId};
+use zkpoly_common::{digraph::internal::Digraph, heap::Heap};
 
 #[derive(Debug, Clone)]
 pub struct SourceInfo<'s> {
@@ -15,7 +12,7 @@ pub struct SourceInfo<'s> {
 #[derive(Debug, Clone)]
 pub enum PolyInit {
     Zeros,
-    Ones
+    Ones,
 }
 
 /// Computation Graph of a Transit IR function.
@@ -42,70 +39,6 @@ impl<I, V> Default for Cg<I, V> {
     fn default() -> Self {
         Self::new()
     }
-}
-
-#[derive(Debug, Clone)]
-pub enum ArithBinOp {
-    Add,
-    Sub,
-    Mul,
-    Div,
-}
-
-#[derive(Debug, Clone)]
-pub enum ArithUnrOp {
-    Neg,
-    Inv,
-}
-
-/// Scalar-Polynomial operator
-#[derive(Debug, Clone)]
-pub enum SpOp {
-    Add,
-    Sub,
-    SubBy,
-    Mul,
-    Div,
-    DivBy,
-    Eval,
-}
-
-/// Unary polynomial operator
-#[derive(Debug, Clone)]
-pub enum POp {
-    Neg,
-    Inv,
-    Roatate(isize),
-}
-
-mod op_template {
-
-    /// Binary operator.
-    /// [`P`]: polynomial-Polynomial opertor
-    #[derive(Debug, Clone)]
-    pub enum BinOp<Pp, Ss, Sp> {
-        Pp(Pp),
-        Ss(Ss),
-        Sp(Sp),
-    }
-
-    /// Unary operator.
-    /// [`Po`]: polynomial unary operator
-    #[derive(Debug, Clone)]
-    pub enum UnrOp<Po, So> {
-        P(Po),
-        S(So),
-    }
-}
-
-pub type BinOp = op_template::BinOp<ArithBinOp, ArithBinOp, SpOp>;
-pub type UnrOp = op_template::UnrOp<POp, ArithUnrOp>;
-
-/// Kind-specific data of expressions.
-#[derive(Debug, Clone)]
-pub enum Arith<I> {
-    Bin(BinOp, I, I),
-    Unr(UnrOp, I),
 }
 
 #[derive(Debug, Clone)]
@@ -141,5 +74,6 @@ impl<N, T, S> Vertex<N, T, S> {
     }
 }
 
-pub mod type1;
+// pub mod type1;
+pub mod arith;
 pub mod type2;

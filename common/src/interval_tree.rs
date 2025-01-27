@@ -84,7 +84,7 @@ impl<I: Ord + Copy> Node<I> {
             }
         }
     }
-    
+
     pub fn query_interval(&self, interval: Interval<I>) -> bool {
         match &self.children {
             None => !(interval.begin > self.interval.end || interval.end < self.interval.begin),
@@ -99,23 +99,69 @@ impl<I: Ord + Copy> Node<I> {
             }
         }
     }
+
+    pub fn iter<'s>(&'s self) -> Iter<'s, I> {
+        let mut stack = Vec::new();
+        stack.push(self);
+        Iter { stack }
+    }
+}
+
+pub struct Iter<'s, I> {
+    stack: Vec<&'s Node<I>>,
+}
+
+impl<'s, I> Iterator for Iter<'s, I>
+where
+    I: Ord + Copy,
+{
+    type Item = &'s Interval<I>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some(node) = self.stack.pop() {
+            match &node.children {
+                None => return Some(&node.interval),
+                Some((left, right)) => {
+                    self.stack.push(right);
+                    self.stack.push(left);
+                }
+            }
+        }
+        None
+    }
 }
 
 #[derive(Debug, Clone)]
-pub struct Tree<I>(Option<Node<I>>);
+pub struct Tree<I>(Option<Node<I>>, usize);
 
 impl<I: Ord + Copy> Tree<I> {
     pub fn new() -> Self {
-        Self(None)
+        Self(None, 0)
     }
 
     pub fn insert(&mut self, interval: Interval<I>) -> Result<(), OverlappingError> {
         match &mut self.0 {
             None => {
                 self.0 = Some(Node::leaf(interval));
+                self.1 = 1;
                 Ok(())
             }
-            Some(node) => node.insert(interval),
+            Some(node) => {
+                node.insert(interval)?;
+                self.1 += 1;
+                Ok(())
+            }
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.1
+    }
+
+    pub fn iter<'s>(&'s self) -> Iter<'s, I> {
+        match &self.0 {
+            None => Iter { stack: Vec::new() },
+            Some(node) => node.iter(),
         }
     }
 
@@ -131,6 +177,36 @@ impl<I: Ord + Copy> Tree<I> {
             None => false,
             Some(node) => node.query_interval(interval),
         }
+    }
+
+    pub fn query_tree(&self, rhs: &Self) -> bool {
+        let (lhs, rhs) = if self.len() > rhs.len() {
+            (self, rhs)
+        } else {
+            (rhs, self)
+        };
+
+        rhs.iter().any(|interval| lhs.query_interval(*interval))
+    }
+}
+
+impl<I> std::ops::Add<Tree<I>> for Tree<I>
+where
+    I: Ord + Copy,
+{
+    type Output = Result<Tree<I>, OverlappingError>;
+
+    fn add(self, rhs: Tree<I>) -> Self::Output {
+        let (mut lhs, rhs) = if self.len() > rhs.len() {
+            (self, rhs)
+        } else {
+            (rhs, self)
+        };
+
+        for interval in rhs.iter() {
+            lhs.insert(*interval)?;
+        }
+        Ok(lhs)
     }
 }
 
@@ -163,4 +239,3 @@ mod tests {
         assert!(!tree.query_interval(Interval::new(10, 14)));
     }
 }
-

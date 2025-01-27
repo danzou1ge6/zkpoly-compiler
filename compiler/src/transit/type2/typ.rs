@@ -1,5 +1,5 @@
-use std::{any, marker::PhantomData};
 use std::mem::size_of;
+use std::{any, marker::PhantomData};
 use zkpoly_runtime::{args::RuntimeType, poly::PolyType};
 
 #[derive(Debug, Clone)]
@@ -13,22 +13,63 @@ pub enum Typ<Rt: RuntimeType> {
     Tuple(Vec<Typ<Rt>>),
     Array(Box<Typ<Rt>>, usize),
     Any(any::TypeId, usize),
-    _Phantom(PhantomData<Rt>)
+    _Phantom(PhantomData<Rt>),
 }
 
-impl<Rt> Typ<Rt> where Rt: RuntimeType {
-    pub fn size(&self) -> u64 {
+pub enum Size {
+    Single(u64),
+    Tuple(Vec<u64>),
+    Array(u64, usize),
+}
+
+impl Size {
+    pub fn total(&self) -> u64 {
+        use Size::*;
+        match self {
+            Single(s) => *s,
+            Tuple(ss) => ss.iter().sum(),
+            Array(s, len) => *s * *len as u64,
+        }
+    }
+
+    pub fn iter<'s>(&'s self) -> Box<dyn Iterator<Item = &u64> + 's> {
+        use Size::*;
+        match self {
+            Single(s) => Box::new(std::iter::once(s)),
+            Tuple(ss) => Box::new(ss.iter()),
+            Array(s, len) => Box::new(std::iter::repeat(s).take(*len)),
+        }
+    }
+}
+
+impl<Rt> Typ<Rt>
+where
+    Rt: RuntimeType,
+{
+    pub fn size(&self) -> Size {
         use Typ::*;
         match self {
-            Poly { deg, .. } => *deg * size_of::<Rt::Field>() as u64,
-            PointBase { log_n } => (1 << log_n) * 2 * size_of::<Rt::Field>() as u64,
-            Scalar => size_of::<Rt::Field>() as u64,
-            Transcript => 0,
-            Point => 2 * size_of::<Rt::Field>() as u64,
-            Rng => 0,
-            Tuple(ts) => ts.iter().map(|t| t.size()).sum(),
-            Array(t, len) => t.size() * *len as u64,
-            Any(_, size) => *size as u64,
+            Poly { deg, .. } => Size::Single(*deg * size_of::<Rt::Field>() as u64),
+            PointBase { log_n } => Size::Single((1 << log_n) * 2 * size_of::<Rt::Field>() as u64),
+            Scalar => Size::Single(size_of::<Rt::Field>() as u64),
+            Transcript => unimplemented!(),
+            Point => Size::Single(2 * size_of::<Rt::Field>() as u64),
+            Rng => unimplemented!(),
+            Tuple(ts) => Size::Tuple(
+                ts.iter()
+                    .map(|t| match t.size() {
+                        Size::Single(s) => s,
+                        Size::Tuple(_) => panic!("tuple of tuple is not supported"),
+                        Size::Array(_, _) => panic!("tuple of array is not supported"),
+                    })
+                    .collect(),
+            ),
+            Array(t, len) => match t.size() {
+                Size::Single(s) => Size::Array(s, *len),
+                Size::Tuple(_) => panic!("array of tuple is not supported"),
+                Size::Array(_, _) => panic!("array of array is not supported"),
+            },
+            Any(_, size) => Size::Single(*size as u64),
             _Phantom(_) => unreachable!(),
         }
     }
