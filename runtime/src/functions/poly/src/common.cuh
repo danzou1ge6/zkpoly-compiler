@@ -7,6 +7,10 @@ using mont::u32;
 using mont::u64;
 using mont::usize;
 
+constexpr u32 div_ceil(u32 a, u32 b) {
+    return (a + b - 1) / b;
+}
+
 template <typename Field>
 __global__ void init_pow_series(u32 *temp_buf, const Field *x, u64 len) {
     u64 index = blockIdx.x * blockDim.x + threadIdx.x;
@@ -28,7 +32,7 @@ cudaError_t get_pow_series(void *temp_buf, usize *temp_buf_size, u32 *pow_series
         *temp_buf_size = temp_scan_size;
     } else {
         u32 threads = 256;
-        u32 blocks = (len + threads - 1) / threads;
+        u32 blocks = div_ceil(len, threads);
 
         // 1, x, x, ..., x
         init_pow_series<Field><<<blocks, threads, 0, stream>>>(reinterpret_cast<u32*>(pow_series), x, len);

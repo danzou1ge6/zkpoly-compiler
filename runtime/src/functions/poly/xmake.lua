@@ -25,6 +25,12 @@ target("test_scan")
     add_cuflags("--extended-lambda")
     add_packages("doctest")
 
+target("test_invert")
+    add_files("tests/test_invert.cu")
+    add_cugencodes("native")
+    add_cuflags("--extended-lambda")
+    add_packages("doctest")
+
 target("poly")
     set_kind("shared")
     set_targetdir(os.projectdir().."/lib")
