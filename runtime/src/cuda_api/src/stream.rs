@@ -1,8 +1,4 @@
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
-#![allow(non_camel_case_types)]
-#![allow(unused)]
-include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+use crate::bindings::*;
 use crate::cuda_check;
 
 #[derive(Clone)]
@@ -21,7 +17,7 @@ impl CudaEvent {
 
     pub fn record(&self, stream: &CudaStream) {
         unsafe {
-            cuda_check!(cudaEventRecord(self.event, stream.as_ptr()));
+            cuda_check!(cudaEventRecord(self.event, stream.raw()));
         }
     }
 
@@ -44,7 +40,7 @@ impl Drop for CudaEvent {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct CudaStream {
     stream: cudaStream_t,
     gpu_id: i32,
@@ -69,7 +65,7 @@ impl CudaStream {
         }
     }
 
-    pub fn as_ptr(&self) -> cudaStream_t {
+    pub fn raw(&self) -> cudaStream_t {
         self.stream
     }
 
@@ -77,7 +73,7 @@ impl CudaStream {
         self.gpu_id
     }
 
-    pub fn allocate<T: Sized>(&self, len: u64) -> *mut T {
+    pub fn allocate<T: Sized>(&self, len: usize) -> *mut T {
         let mut ptr: *mut T = std::ptr::null_mut();
         let size = std::mem::size_of::<T>() * len as usize;
         unsafe {
@@ -90,7 +86,7 @@ impl CudaStream {
         ptr
     }
 
-    pub fn deallocate<T: Sized>(&self, ptr: *mut T) {
+    pub fn free<T: Sized>(&self, ptr: *mut T) {
         unsafe {
             cuda_check!(cudaFreeAsync(ptr as *mut std::ffi::c_void, self.stream));
         }
@@ -112,9 +108,10 @@ impl CudaStream {
         }
     }
 
-    pub fn memcpy_h2d<T: Sized>(&self, dst: *mut T, src: *const T, len: u64) {
-        let size = std::mem::size_of::<T>() * len as usize;
+    pub fn memcpy_h2d<T: Sized>(&self, dst: *mut T, src: *const T, len: usize) {
+        let size = std::mem::size_of::<T>() * len;
         unsafe {
+            cuda_check!(cudaSetDevice(self.gpu_id));
             cuda_check!(cudaMemcpyAsync(
                 dst as *mut std::ffi::c_void,
                 src as *const std::ffi::c_void,
@@ -125,9 +122,10 @@ impl CudaStream {
         }
     }
 
-    pub fn memcpy_d2h<T: Sized>(&self, dst: *mut T, src: *const T, len: u64) {
-        let size = std::mem::size_of::<T>() * len as usize;
+    pub fn memcpy_d2h<T: Sized>(&self, dst: *mut T, src: *const T, len: usize) {
+        let size = std::mem::size_of::<T>() * len;
         unsafe {
+            cuda_check!(cudaSetDevice(self.gpu_id));
             cuda_check!(cudaMemcpyAsync(
                 dst as *mut std::ffi::c_void,
                 src as *const std::ffi::c_void,
@@ -138,9 +136,10 @@ impl CudaStream {
         }
     }
 
-    pub fn memcpy_d2d<T: Sized>(&self, dst: *mut T, src: *const T, len: u64) {
-        let size = std::mem::size_of::<T>() * len as usize;
+    pub fn memcpy_d2d<T: Sized>(&self, dst: *mut T, src: *const T, len: usize) {
+        let size = std::mem::size_of::<T>() * len;
         unsafe {
+            cuda_check!(cudaSetDevice(self.gpu_id));
             cuda_check!(cudaMemcpyAsync(
                 dst as *mut std::ffi::c_void,
                 src as *const std::ffi::c_void,
@@ -175,5 +174,5 @@ fn test_cuda_stream() {
     stream.sync();
     let ptr = stream.allocate::<u32>(1024 * 1024 * 1024);
     stream.sync();
-    stream.deallocate(ptr);
+    stream.free(ptr);
 }

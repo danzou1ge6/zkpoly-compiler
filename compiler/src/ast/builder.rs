@@ -76,10 +76,14 @@ impl<T: RuntimeType> Builder<T> {
         repr: PolyRepr,
         value: Vec<T>,
     ) -> Vertex {
-        let constant_id = self.constants.push(unimplemented!());
+        let constant_id = self.constants.push(Constant::new(
+            name.clone(),
+            Typ::ScalarArray(repr.clone()),
+            Box::new(value),
+        ));
         VertexInner {
             node: VertexNode::Constant(constant_id),
-            typ: Some(Typ::Poly(repr)),
+            typ: Some(Typ::ScalarArray(repr)),
             src: SourceInfo::new(*Location::caller(), name),
         }
         .into()

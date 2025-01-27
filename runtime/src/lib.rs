@@ -1,10 +1,11 @@
-pub mod alloc;
 pub mod args;
 pub mod devices;
 pub mod error;
 pub mod functions;
+pub mod gpu_buffer;
 pub mod instructions;
-pub mod poly;
-pub mod run;
-pub mod transport;
+pub mod point;
+pub mod runtime;
+pub mod scalar;
+pub mod transcript;
 pub mod typ;

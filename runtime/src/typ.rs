@@ -1,10 +1,16 @@
-use crate::poly::PolyType;
 use std::any;
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum PolyType {
+    Coef,
+    Lagrange,
+    ExtendedLagrange,
+}
 
 #[derive(Debug, Clone)]
 pub enum Typ {
-    Poly { typ: PolyType, log_n: u32 },
-    PointBase { log_n: u32 },
+    ScalarArray { typ: PolyType, len: usize },
+    PointBase { len: usize },
     Scalar,
     Transcript,
     Point,
@@ -13,27 +19,28 @@ pub enum Typ {
     Array(Box<Typ>, usize),
     Any(any::TypeId, usize),
     Stream,
+    GpuBuffer(usize),
 }
 
 impl Typ {
-    pub fn coef(log_n: u32) -> Self {
-        Typ::Poly {
+    pub fn coef(len: usize) -> Self {
+        Typ::ScalarArray {
             typ: PolyType::Coef,
-            log_n,
+            len,
         }
     }
 
-    pub fn lagrange(log_n: u32) -> Self {
-        Typ::Poly {
+    pub fn lagrange(len: usize) -> Self {
+        Typ::ScalarArray {
             typ: PolyType::Lagrange,
-            log_n,
+            len,
         }
     }
 
-    pub fn extended_lagrange(log_n: u32) -> Self {
-        Typ::Poly {
+    pub fn extended_lagrange(len: usize) -> Self {
+        Typ::ScalarArray {
             typ: PolyType::ExtendedLagrange,
-            log_n,
+            len,
         }
     }
 }
