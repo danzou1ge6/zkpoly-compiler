@@ -1,6 +1,7 @@
 pub use crate::transit::{
     self,
-    type2::{template, PolyInit, Typ},
+    type2::{template, Typ},
+    PolyInit,
 };
 use std::{panic::Location, rc::Rc};
 use zkpoly_runtime::args::RuntimeType;
@@ -27,8 +28,7 @@ pub enum Arith<Rt: RuntimeType> {
     Unr(transit::arith::ArithUnrOp, Vertex<Rt>),
 }
 
-pub type VertexNode<Rt: RuntimeType> =
-    template::VertexNode<Vertex<Rt>, Arith<Rt>, ConstantId, UFunctionId>;
+pub type VertexNode<Rt> = template::VertexNode<Vertex<Rt>, Arith<Rt>, ConstantId, UFunctionId>;
 pub use transit::HashTyp;
 
 #[derive(Debug, Clone)]

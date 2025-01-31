@@ -4,7 +4,7 @@ use std::{
     any::type_name,
     ffi::c_ulong,
     marker::PhantomData,
-    os::raw::{c_uint, c_ulonglong, c_void},
+    os::raw::{c_longlong, c_uint, c_ulonglong, c_void},
     ptr::{null, null_mut},
 };
 
@@ -154,23 +154,82 @@ pub struct PolyInvert<T: RuntimeType> {
     >,
 }
 
-impl<T: RuntimeType> PolyInvert<T> {
-    pub fn new(libs: &mut Libs) -> Self {
-        // compile the dynamic library according to the template
-        let field_type = resolve_type(type_name::<T::Field>());
-        xmake_config("POLY_FIELD", field_type);
-        xmake_run("poly");
+pub struct PolyRotate<T: RuntimeType> {
+    _marker: PhantomData<T>,
+    c_func: Symbol<
+        'static,
+        unsafe extern "C" fn(
+            src: *const c_uint,
+            dst: *mut c_uint,
+            len: c_ulonglong,
+            shift: c_longlong,
+            stream: cudaStream_t,
+        ) -> cudaError_t,
+    >,
+}
 
-        // load the dynamic library
-        let lib = libs.load("../lib/libpoly.so");
-        // get the function pointer
-        let c_func = unsafe { lib.get(b"batched_invert\0") }.unwrap();
-        Self {
-            _marker: PhantomData,
-            c_func,
+macro_rules! impl_poly_new {
+    ($struct_name:ident, $symbol_name:literal) => {
+        impl<T: RuntimeType> $struct_name<T> {
+            pub fn new(libs: &mut Libs) -> Self {
+                let field_type = resolve_type(type_name::<T::Field>());
+                xmake_config("POLY_FIELD", field_type);
+                xmake_run("poly");
+                let lib = libs.load("../lib/libpoly.so");
+                let c_func = unsafe { lib.get(concat!($symbol_name, "\0").as_bytes()) }.unwrap();
+                Self {
+                    _marker: PhantomData,
+                    c_func,
+                }
+            }
+        }
+    };
+}
+
+impl_poly_new!(PolyInvert, "batched_invert");
+impl_poly_new!(PolyScan, "scan_mul");
+impl_poly_new!(PolyOne, "poly_one");
+impl_poly_new!(PolyZero, "poly_zero");
+impl_poly_new!(KateDivision, "kate_division");
+impl_poly_new!(PolyEval, "poly_eval");
+impl_poly_new!(PolyAdd, "poly_add");
+impl_poly_new!(PolySub, "poly_sub");
+impl_poly_new!(PolyMul, "poly_mul");
+impl_poly_new!(PolyRotate, "poly_rotate");
+
+impl<T: RuntimeType> RegisteredFunction<T> for PolyRotate<T> {
+    fn get_fn(&self) -> Function<T> {
+        let c_func = self.c_func.clone();
+        let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
+                              var: Vec<&Variable<T>>|
+              -> Result<(), RuntimeError> {
+            assert_eq!(mut_var.len(), 1);
+            assert_eq!(var.len(), 2);
+            let dst = mut_var[0].unwrap_scalar_array_mut();
+            let src = var[0].unwrap_scalar_array();
+            assert_eq!(dst.len, src.len);
+            let stream = var[1].unwrap_stream();
+            let shift = dst.rotate - src.rotate;
+            let len = src.len;
+            unsafe {
+                cuda_check!(c_func(
+                    src.values as *const c_uint,
+                    dst.values as *mut c_uint,
+                    len as c_ulonglong,
+                    shift as c_longlong,
+                    stream.raw(),
+                ));
+            }
+            Ok(())
+        };
+        Function {
+            name: "poly_rotate".to_string(),
+            f: FunctionValue::Fn(Box::new(rust_func)),
         }
     }
+}
 
+impl<T: RuntimeType> PolyInvert<T> {
     pub fn get_buffer_size(&self, len: u64) -> usize {
         let mut buf_size: usize = 0;
         unsafe {
@@ -223,22 +282,6 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyInvert<T> {
 }
 
 impl<T: RuntimeType> PolyScan<T> {
-    pub fn new(libs: &mut Libs) -> Self {
-        // compile the dynamic library according to the template
-        let field_type = resolve_type(type_name::<T::Field>());
-        xmake_config("POLY_FIELD", field_type);
-        xmake_run("poly");
-
-        // load the dynamic library
-        let lib = libs.load("../lib/libpoly.so");
-        // get the function pointer
-        let c_func = unsafe { lib.get(b"scan_mul\0") }.unwrap();
-        Self {
-            _marker: PhantomData,
-            c_func,
-        }
-    }
-
     pub fn get_buffer_size(&self, len: u64) -> usize {
         let mut buf_size: usize = 0;
         unsafe {
@@ -292,24 +335,6 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyScan<T> {
     }
 }
 
-impl<T: RuntimeType> PolyOne<T> {
-    pub fn new(libs: &mut Libs) -> Self {
-        // compile the dynamic library according to the template
-        let field_type = resolve_type(type_name::<T::Field>());
-        xmake_config("POLY_FIELD", field_type);
-        xmake_run("poly");
-
-        // load the dynamic library
-        let lib = libs.load("../lib/libpoly.so");
-        // get the function pointer
-        let c_func = unsafe { lib.get(b"poly_one\0") }.unwrap();
-        Self {
-            _marker: PhantomData,
-            c_func,
-        }
-    }
-}
-
 impl<T: RuntimeType> RegisteredFunction<T> for PolyOne<T> {
     fn get_fn(&self) -> Function<T> {
         let c_func = self.c_func.clone();
@@ -333,24 +358,6 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyOne<T> {
         Function {
             name: "poly_one".to_string(),
             f: FunctionValue::Fn(Box::new(rust_func)),
-        }
-    }
-}
-
-impl<T: RuntimeType> PolyZero<T> {
-    pub fn new(libs: &mut Libs) -> Self {
-        // compile the dynamic library according to the template
-        let field_type = resolve_type(type_name::<T::Field>());
-        xmake_config("POLY_FIELD", field_type);
-        xmake_run("poly");
-
-        // load the dynamic library
-        let lib = libs.load("../lib/libpoly.so");
-        // get the function pointer
-        let c_func = unsafe { lib.get(b"poly_zero\0") }.unwrap();
-        Self {
-            _marker: PhantomData,
-            c_func,
         }
     }
 }
@@ -383,22 +390,6 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyZero<T> {
 }
 
 impl<T: RuntimeType> KateDivision<T> {
-    pub fn new(libs: &mut Libs) -> Self {
-        // compile the dynamic library according to the template
-        let field_type = resolve_type(type_name::<T::Field>());
-        xmake_config("POLY_FIELD", field_type);
-        xmake_run("poly");
-
-        // load the dynamic library
-        let lib = libs.load("../lib/libpoly.so");
-        // get the function pointer
-        let c_func = unsafe { lib.get(b"kate_division\0") }.unwrap();
-        Self {
-            _marker: PhantomData,
-            c_func,
-        }
-    }
-
     pub fn get_buffer_size(&self, log_p: u32) -> usize {
         let mut buf_size: usize = 0;
         unsafe {
@@ -458,21 +449,6 @@ impl<T: RuntimeType> RegisteredFunction<T> for KateDivision<T> {
 }
 
 impl<T: RuntimeType> PolyEval<T> {
-    pub fn new(libs: &mut Libs) -> Self {
-        // compile the dynamic library according to the template
-        let field_type = resolve_type(type_name::<T::Field>());
-        xmake_config("POLY_FIELD", field_type);
-        xmake_run("poly");
-
-        // load the dynamic library
-        let lib = libs.load("../lib/libpoly.so");
-        // get the function pointer
-        let c_func = unsafe { lib.get(b"poly_eval\0") }.unwrap();
-        Self {
-            _marker: PhantomData,
-            c_func,
-        }
-    }
     pub fn get_buffer_size(&self, len: usize) -> usize {
         let mut buf_size: usize = 0;
         unsafe {
@@ -526,24 +502,6 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyEval<T> {
     }
 }
 
-impl<T: RuntimeType> PolyAdd<T> {
-    fn new(libs: &mut Libs) -> Self {
-        // compile the dynamic library according to the template
-        let field_type = resolve_type(type_name::<T::Field>());
-        xmake_config("POLY_FIELD", field_type);
-        xmake_run("poly");
-
-        // load the dynamic library
-        let lib = libs.load("../lib/libpoly.so");
-        // get the function pointer
-        let c_func = unsafe { lib.get(b"poly_add\0") }.unwrap();
-        Self {
-            _marker: PhantomData,
-            c_func,
-        }
-    }
-}
-
 impl<T: RuntimeType> RegisteredFunction<T> for PolyAdd<T> {
     fn get_fn(&self) -> super::Function<T> {
         let c_func = self.c_func.clone();
@@ -573,24 +531,6 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyAdd<T> {
         Function {
             name: "poly_add".to_string(),
             f: FunctionValue::Fn(Box::new(rust_func)),
-        }
-    }
-}
-
-impl<T: RuntimeType> PolySub<T> {
-    fn new(libs: &mut Libs) -> Self {
-        // compile the dynamic library according to the template
-        let field_type = resolve_type(type_name::<T::Field>());
-        xmake_config("POLY_FIELD", field_type);
-        xmake_run("poly");
-
-        // load the dynamic library
-        let lib = libs.load("../lib/libpoly.so");
-        // get the function pointer
-        let c_func = unsafe { lib.get(b"poly_sub\0") }.unwrap();
-        Self {
-            _marker: PhantomData,
-            c_func,
         }
     }
 }
@@ -628,23 +568,6 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolySub<T> {
     }
 }
 
-impl<T: RuntimeType> PolyMul<T> {
-    fn new(libs: &mut Libs) -> Self {
-        // compile the dynamic library according to the template
-        let field_type = resolve_type(type_name::<T::Field>());
-        xmake_config("POLY_FIELD", field_type);
-        xmake_run("poly");
-
-        // load the dynamic library
-        let lib = libs.load("../lib/libpoly.so");
-        // get the function pointer
-        let c_func = unsafe { lib.get(b"poly_mul\0") }.unwrap();
-        Self {
-            _marker: PhantomData,
-            c_func,
-        }
-    }
-}
 impl<T: RuntimeType> RegisteredFunction<T> for PolyMul<T> {
     fn get_fn(&self) -> super::Function<T> {
         let c_func = self.c_func.clone();
@@ -1127,6 +1050,60 @@ mod test {
 
         for i in 0..len - 1 {
             assert_eq!(res.as_ref()[i], poly.as_ref()[i]);
+        }
+    }
+
+    #[test]
+    fn test_rotate() {
+        let len = 1 << K;
+        let mut libs = Libs::new();
+        let rotate = PolyRotate::<MyRuntimeType>::new(&mut libs);
+        let func = match rotate.get_fn() {
+            Function {
+                f: FunctionValue::Fn(func),
+                ..
+            } => func,
+            _ => unreachable!(),
+        };
+        let cpu_pool = PinnedMemoryPool::new(K, size_of::<MyField>());
+        let stream = Variable::Stream(CudaStream::new(0));
+        let mut src = ScalarArray::new(len, cpu_pool.allocate(len), DeviceType::CPU);
+        let mut dst = ScalarArray::new(len, cpu_pool.allocate(len), DeviceType::CPU);
+        let mut rng = XorShiftRng::from_seed([0; 16]);
+        for i in 0..len {
+            src.as_mut()[i] = MyField::random(&mut rng);
+        }
+        let mut src_d = Variable::ScalarArray(ScalarArray::new(
+            len,
+            stream.unwrap_stream().allocate(len),
+            DeviceType::GPU { device_id: 0 },
+        ));
+        let mut dst_d = Variable::ScalarArray(ScalarArray::new(
+            len,
+            stream.unwrap_stream().allocate(len),
+            DeviceType::GPU { device_id: 0 },
+        ));
+
+        let shift: i64 = (len / 2).try_into().unwrap();
+
+        dst_d.unwrap_scalar_array_mut().rotate = shift;
+
+        src.cpu2gpu(src_d.unwrap_scalar_array_mut(), stream.unwrap_stream());
+        func(vec![&mut dst_d], vec![&src_d, &stream]).unwrap();
+
+        dst_d
+            .unwrap_scalar_array()
+            .gpu2cpu(&mut dst, stream.unwrap_stream());
+        stream
+            .unwrap_stream()
+            .free(src_d.unwrap_scalar_array().values);
+        stream
+            .unwrap_stream()
+            .free(dst_d.unwrap_scalar_array().values);
+        stream.unwrap_stream().sync();
+
+        for i in 0..len {
+            assert_eq!(dst.as_ref()[(i + shift as usize) % len], src.as_ref()[i]);
         }
     }
 }

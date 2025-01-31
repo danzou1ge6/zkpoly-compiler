@@ -6,6 +6,7 @@ namespace detail {
 using mont::u32;
 using mont::u64;
 using mont::usize;
+using mont::i64;
 
 constexpr u32 div_ceil(u32 a, u32 b) {
     return (a + b - 1) / b;

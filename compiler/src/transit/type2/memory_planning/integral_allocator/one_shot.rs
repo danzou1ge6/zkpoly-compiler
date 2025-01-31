@@ -204,10 +204,7 @@ impl Allocator {
 
     /// Decide some victim blocks and deallocate them so that a space at least of `size` can be allocated.
     /// Returns the list of victim blocks.
-    pub fn decide_and_dealloc_victim(
-        &mut self,
-        size: IntegralSize,
-    ) -> Vec<(IntegralSize, Addr)> {
+    pub fn decide_and_dealloc_victim(&mut self, size: IntegralSize) -> Vec<(IntegralSize, Addr)> {
         let log2_size = size.0;
 
         // First try find a occupied block of exact size, choosing the one that die latest

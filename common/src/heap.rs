@@ -2,7 +2,10 @@
 
 use std::marker::PhantomData;
 
-pub trait UsizeId: From<usize> + Into<usize> + Eq + PartialOrd + Ord + std::hash::Hash + Copy {}
+pub trait UsizeId:
+    From<usize> + Into<usize> + Eq + PartialOrd + Ord + std::hash::Hash + Copy
+{
+}
 
 #[macro_export]
 macro_rules! define_usize_id {
@@ -78,10 +81,10 @@ impl<I: UsizeId, T> Heap<I, T> {
     pub fn map_by_ref<I1, T1>(&self, f: &mut impl FnMut(I, &T) -> T1) -> Heap<I1, T1> {
         Heap(
             self.0
-             .iter()
-             .enumerate()
-             .map(|(i, x)| f(i.into(), x))
-             .collect(),
+                .iter()
+                .enumerate()
+                .map(|(i, x)| f(i.into(), x))
+                .collect(),
             PhantomData,
         )
     }

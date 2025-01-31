@@ -69,7 +69,7 @@ mod tests {
     #[test]
     fn basic_operations() {
         let mut bijection = Bijection::new();
-        
+
         // 测试插入和获取
         bijection.insert(1, "a");
         assert_eq!(bijection.get_forward(&1), Some(&"a"));
@@ -90,7 +90,7 @@ mod tests {
         let mut bijection = Bijection::new();
         bijection.insert(1, "a");
         bijection.insert(2, "b");
-        
+
         // 测试通过反向键删除
         assert_eq!(bijection.remove_backward(&"a"), Some(1));
         assert_eq!(bijection.len(), 1);
@@ -102,7 +102,7 @@ mod tests {
         let mut bijection = Bijection::new();
         bijection.insert(1, "a");
         bijection.insert(2, "b");
-        
+
         // 插入冲突键值对 (1, "b")
         // 预期行为：
         // 1. 移除旧映射 1 -> "a"

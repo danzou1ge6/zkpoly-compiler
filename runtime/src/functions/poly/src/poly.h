@@ -17,3 +17,5 @@ extern "C" cudaError_t kate_division(void* temp_buf, unsigned long *temp_buf_siz
 extern "C" cudaError_t scan_mul(void * temp_buffer, unsigned long *buffer_size, const unsigned int *poly, unsigned int *target, const unsigned int *x0, unsigned long long len, cudaStream_t stream);
 
 extern "C" cudaError_t batched_invert(void *temp_buffer, unsigned long *buffer_size, unsigned int *poly, unsigned int *inv, unsigned long long len, cudaStream_t stream);
+
+extern "C" cudaError_t poly_rotate(const unsigned int *src, unsigned int *dst, unsigned long long len, long long shift, cudaStream_t stream);

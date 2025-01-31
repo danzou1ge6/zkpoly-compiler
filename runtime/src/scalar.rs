@@ -110,7 +110,7 @@ impl<F: Field> Transfer for Scalar<F> {
 pub struct ScalarArray<F: Field> {
     pub values: *mut F,
     pub len: usize,
-    pub rotate: u64,
+    pub rotate: i64,
     pub device: DeviceType,
 }
 

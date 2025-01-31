@@ -1,6 +1,6 @@
 use std::mem::size_of;
 use std::{any, marker::PhantomData};
-use zkpoly_runtime::{args::RuntimeType, poly::PolyType};
+use zkpoly_runtime::{args::RuntimeType, typ::PolyType};
 
 #[derive(Debug, Clone)]
 pub enum Typ<Rt: RuntimeType> {

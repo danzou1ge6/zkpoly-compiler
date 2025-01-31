@@ -46,7 +46,11 @@ impl Allocator {
         Some(*addr)
     }
 
-    pub fn allocate(&mut self, size: SmithereenSize, mapping: &mut impl AddrMappingHandler) -> Option<AddrId> {
+    pub fn allocate(
+        &mut self,
+        size: SmithereenSize,
+        mapping: &mut impl AddrMappingHandler,
+    ) -> Option<AddrId> {
         let size = size.0;
         let addr = self.find_best_fit(size)?;
         let mut chunk = self.chunks.remove(&addr).unwrap();

@@ -75,5 +75,5 @@ pub enum Vertex<I, Ai> {
 pub struct Ag<I, Ai> {
     output: Ai,
     inputs: Vec<Ai>,
-    heap: Heap<Ai, Vertex<I, Ai>>
+    heap: Heap<Ai, Vertex<I, Ai>>,
 }
