@@ -139,6 +139,7 @@ pub mod template {
 // - Inplace correction before scheduling
 // - Take inplace into consideration in scheduling and memory planning
 // - Twiddle factor precomputing
+// - AddrId should be unique for each data on at each physical block
 
 pub type VertexNode = template::VertexNode<VertexId, Arith, ConstantId, user_function::Id>;
 
@@ -291,3 +292,4 @@ pub mod memory_planning;
 pub mod mut_correction;
 pub mod typ;
 pub mod user_function;
+pub mod rotation_fusion;

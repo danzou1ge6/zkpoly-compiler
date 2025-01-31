@@ -15,16 +15,16 @@ enum BlockStatus {
     /// The block is splitted. `.0` holds the live_at of the block, `.1` holds the next use of children.
     /// This next_use information is for deciding which block to eject.
     /// A block becomes nonfree before the live_at of the block.
-    Splitted(usize, MmHeap<u64, usize>),
+    Splitted(AddrId, usize, MmHeap<u64, usize>),
     /// The block is occupied. `.0` holds the live_at of the block, `.1` holds the next_use of the block.
-    Occupied(usize, usize),
+    Occupied(AddrId, usize, usize),
 }
 
 impl BlockStatus {
     pub fn unwrap_splitted(&self) -> &MmHeap<u64, usize> {
         match self {
             BlockStatus::Free(..) => panic!("free block does not have splitted"),
-            BlockStatus::Splitted(_, heap) => heap,
+            BlockStatus::Splitted(_, _, heap) => heap,
             BlockStatus::Occupied(..) => panic!("occupied block does not have splitted"),
         }
     }
@@ -32,14 +32,14 @@ impl BlockStatus {
     pub fn unwrap_splitted_mut(&mut self) -> &mut MmHeap<u64, usize> {
         match self {
             BlockStatus::Free(..) => panic!("free block does not have splitted"),
-            BlockStatus::Splitted(_, heap) => heap,
+            BlockStatus::Splitted(_, _, heap) => heap,
             BlockStatus::Occupied(..) => panic!("occupied block does not have splitted"),
         }
     }
 
     pub fn nonfree_child_addrs<'a>(&'a self) -> impl Iterator<Item = u64> + 'a {
         match self {
-            BlockStatus::Splitted(_, heap) => heap.keys().copied(),
+            BlockStatus::Splitted(_, _, heap) => heap.keys().copied(),
             _ => panic!("only splitted block has children"),
         }
     }
@@ -70,8 +70,8 @@ impl BlockStatus {
     pub fn next_use(&self) -> usize {
         match self {
             BlockStatus::Free(..) => panic!("free block does not have next_use"),
-            BlockStatus::Splitted(_, children_next_use) => children_next_use.max().unwrap().0,
-            BlockStatus::Occupied(_, next_use) => *next_use,
+            BlockStatus::Splitted(_, _, children_next_use) => children_next_use.max().unwrap().0,
+            BlockStatus::Occupied(_, _, next_use) => *next_use,
         }
     }
 
@@ -79,18 +79,24 @@ impl BlockStatus {
         match self {
             BlockStatus::Free(..) => panic!("free block does not have next_use"),
             BlockStatus::Splitted(..) => panic!("splitted block does not have next_use"),
-            BlockStatus::Occupied(_, nu) => *nu = next_use,
+            BlockStatus::Occupied(_, _, nu) => *nu = next_use,
+        }
+    }
+
+    pub fn addr_id(&self) -> AddrId {
+        match self {
+            BlockStatus::Free(..) => panic!("free block does not have addr_id"),
+            BlockStatus::Splitted(addr_id, ..) | BlockStatus::Occupied(addr_id, ..) => *addr_id,
         }
     }
 }
 
 #[derive(Debug, Clone)]
 struct Block {
-    status: BlockStatus,
-    /// Identifies the underlying data of the block, regardless of the block's status.
+    /// [`AddrId`] Identifies the underlying data of the block, regardless of the block's status.
     /// This is useful when the allocator wants to regret a previous allocation, where it can alter the actual address
     /// associated with the ID without notifying the upper software layer.
-    addr: AddrId,
+    status: BlockStatus,
 }
 
 #[derive(Debug, Clone)]
@@ -160,7 +166,7 @@ impl Allocator {
             let parent_lbs = self.parent_lbs(lbs).unwrap();
             let parent_block = self.block_mut(parent_addr, parent_lbs);
 
-            if let BlockStatus::Splitted(_, ref mut children_next_use) = parent_block.status {
+            if let BlockStatus::Splitted(_, _, ref mut children_next_use) = parent_block.status {
                 children_next_use.insert(addr, next_use);
                 self.update_next_use_in_parent(
                     parent_addr,
@@ -192,7 +198,7 @@ impl Allocator {
             let parent_lbs = self.parent_lbs(lbs).unwrap();
             let parent_block = self.block_mut(parent_addr, parent_lbs);
 
-            if let BlockStatus::Splitted(_, ref mut children_next_use) = parent_block.status {
+            if let BlockStatus::Splitted(_, _, ref mut children_next_use) = parent_block.status {
                 children_next_use.remove(&addr);
                 self.update_next_use_in_parent(
                     parent_addr,
@@ -205,11 +211,7 @@ impl Allocator {
         }
     }
 
-    fn new_addr_id(
-        addr: u64,
-        lbs: u32,
-        mapping: &mut impl AddrMappingHandler,
-    ) -> AddrId {
+    fn new_addr_id(addr: u64, lbs: u32, mapping: &mut impl AddrMappingHandler) -> AddrId {
         mapping.add(Addr(addr), Size::Integral(IntegralSize(lbs)))
     }
 
@@ -351,7 +353,7 @@ impl Allocator {
             let n_nonfree_blocks: Vec<(u64, usize)> = self.blocks[&lbs]
                 .iter()
                 .filter_map(|(addr, block)| {
-                    if let BlockStatus::Splitted(_, ref children_next_use) = &block.status {
+                    if let BlockStatus::Splitted(_, _, ref children_next_use) = &block.status {
                         Some((*addr, children_next_use.len()))
                     } else {
                         None
@@ -396,9 +398,10 @@ impl Allocator {
             })
             .flatten()
         {
-            block.status = BlockStatus::Occupied(self.now, next_use);
-            let addr_id = block.addr;
             let addr = *addr;
+            let addr_id = Self::new_addr_id(addr, lbs, mapping);
+
+            block.status = BlockStatus::Occupied(addr_id, self.now, next_use);
             self.update_next_use_in_parent(addr, lbs, next_use);
             return Some((vec![], addr_id));
         }
@@ -419,8 +422,7 @@ impl Allocator {
             let addr_id = Self::new_addr_id(self.next_new_biggest_block_addr, lbs, mapping);
 
             let block = Block {
-                addr: addr_id,
-                status: BlockStatus::Occupied(self.now, next_use),
+                status: BlockStatus::Occupied(addr_id, self.now, next_use),
             };
 
             self.blocks
@@ -445,17 +447,20 @@ impl Allocator {
             let (Addr(parent_addr), _) = mapping.get(parent_addr);
 
             let now = self.now;
-            self.block_mut(parent_addr, parent_lbs).status = BlockStatus::Splitted(now, MmHeap::new());
+            let parent_addr_id = self.blocks[&parent_lbs][&parent_addr].status.addr_id();
+            self.block_mut(parent_addr, parent_lbs).status =
+                BlockStatus::Splitted(parent_addr_id, now, MmHeap::new());
 
             for addr in self.child_addrs(parent_addr, parent_lbs).unwrap() {
                 let block = Block {
-                    addr: Self::new_addr_id(addr, lbs, mapping),
                     status: BlockStatus::Free(self.now - 1),
                 };
                 self.blocks.get_mut(&lbs).unwrap().insert(addr, block);
             }
 
-            self.block_mut(parent_addr, lbs).status = BlockStatus::Occupied(self.now, next_use);
+            let addr_id = Self::new_addr_id(parent_addr, lbs, mapping);
+            self.block_mut(parent_addr, lbs).status =
+                BlockStatus::Occupied(addr_id, self.now, next_use);
             self.update_next_use_in_parent(parent_addr, lbs, next_use);
             let addr_id = self.addr_id_of(parent_addr, lbs);
 
@@ -487,7 +492,7 @@ impl Allocator {
             BlockStatus::Occupied(..) => {
                 append(self.blocks[&lbs][&addr].addr);
             }
-            BlockStatus::Splitted(_, children_next_use) => {
+            BlockStatus::Splitted(_, _, children_next_use) => {
                 for addr in children_next_use.keys().copied() {
                     self.gather_occupied_child_blocks(addr, lbs, append);
                 }
@@ -500,7 +505,7 @@ impl Allocator {
         &mut self,
         size: IntegralSize,
         next_use: Instant,
-        mapping: &mut impl AddrMappingHandler
+        mapping: &mut impl AddrMappingHandler,
     ) -> (AddrId, Vec<AddrId>) {
         let lbs = size.0;
 
@@ -512,7 +517,7 @@ impl Allocator {
                 blocks
                     .iter()
                     .filter_map(|(addr, block)| {
-                        if let BlockStatus::Occupied(_, next_use) = block.status {
+                        if let BlockStatus::Occupied(_, _, next_use) = block.status {
                             Some((addr, next_use))
                         } else {
                             None
@@ -526,8 +531,8 @@ impl Allocator {
             let now = self.now;
             let block = self.block_mut(addr, lbs);
             let old_addr_id = block.addr;
-            block.addr = Self::new_addr_id(addr, lbs, mapping);
-            block.status = BlockStatus::Occupied(now, next_use.0);
+            let addr_id = Self::new_addr_id(addr, lbs, mapping);
+            block.status = BlockStatus::Occupied(addr_id, now, next_use.0);
 
             return (block.addr, vec![old_addr_id]);
         }
@@ -540,7 +545,7 @@ impl Allocator {
                 blocks
                     .iter()
                     .filter_map(|(addr, block)| {
-                        if let BlockStatus::Splitted(_, children_next_use) = &block.status {
+                        if let BlockStatus::Splitted(_, _, children_next_use) = &block.status {
                             Some((addr, children_next_use.max().unwrap()))
                         } else {
                             None
@@ -557,8 +562,8 @@ impl Allocator {
 
             let now = self.now;
             let block = self.block_mut(addr, lbs);
-            block.addr = Self::new_addr_id(addr, lbs, mapping);
-            block.status = BlockStatus::Occupied(now, next_use.0);
+            let addr_id = Self::new_addr_id(addr, lbs, mapping);
+            block.status = BlockStatus::Occupied(addr_id, now, next_use.0);
 
             return (block.addr, occupied_blocks);
         }
