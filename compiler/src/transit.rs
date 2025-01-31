@@ -75,5 +75,4 @@ impl<N, T, S> Vertex<N, T, S> {
 }
 
 // pub mod type1;
-pub mod arith;
 pub mod type2;

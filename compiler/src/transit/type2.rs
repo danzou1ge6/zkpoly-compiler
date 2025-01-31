@@ -3,12 +3,13 @@
 //! therefore polynomial operations are transformed into vector expressions.
 //! Also, vertices of the computation graph still contain expression trees.
 
-use crate::transit::{self, arith, PolyInit, SourceInfo};
+use crate::transit::{self, PolyInit, SourceInfo};
 pub use typ::Typ;
 use zkpoly_common::digraph;
+pub use zkpoly_common::typ::PolyType;
 pub use zkpoly_runtime::args::{Constant, ConstantId, RuntimeType, Variable};
 pub use zkpoly_runtime::error::RuntimeError;
-pub use zkpoly_runtime::typ::PolyType;
+use zkpoly_common::arith;
 
 zkpoly_common::define_usize_id!(VertexId);
 
@@ -155,8 +156,8 @@ impl<'s, Rt: RuntimeType> Vertex<'s, Rt> {
     pub fn uses<'a>(&'a self) -> Box<dyn Iterator<Item = VertexId> + 'a> {
         use template::VertexNode::*;
         match self.node() {
-            Arith(transit::arith::Arith::Bin(_, lhs, rhs)) => Box::new([*lhs, *rhs].into_iter()),
-            Arith(transit::arith::Arith::Unr(_, x)) => Box::new([*x].into_iter()),
+            Arith(arith::Arith::Bin(_, lhs, rhs)) => Box::new([*lhs, *rhs].into_iter()),
+            Arith(arith::Arith::Unr(_, x)) => Box::new([*x].into_iter()),
             Ntt { s, .. } => Box::new([*s].into_iter()),
             RotateIdx(x, _) => Box::new([*x].into_iter()),
             Interplote { xs, ys } => Box::new(xs.iter().copied().chain(ys.iter().copied())),
@@ -180,8 +181,8 @@ impl<'s, Rt: RuntimeType> Vertex<'s, Rt> {
     pub fn uses_mut<'a>(&'a mut self) -> Box<dyn Iterator<Item = &'a mut VertexId> + 'a> {
         use template::VertexNode::*;
         match self.node_mut() {
-            Arith(transit::arith::Arith::Bin(_, lhs, rhs)) => Box::new([lhs, rhs].into_iter()),
-            Arith(transit::arith::Arith::Unr(_, x)) => Box::new([x].into_iter()),
+            Arith(arith::Arith::Bin(_, lhs, rhs)) => Box::new([lhs, rhs].into_iter()),
+            Arith(arith::Arith::Unr(_, x)) => Box::new([x].into_iter()),
             Ntt { s, .. } => Box::new([s].into_iter()),
             RotateIdx(x, _) => Box::new([x].into_iter()),
             Interplote { xs, ys } => Box::new(xs.iter_mut().chain(ys.iter_mut())),

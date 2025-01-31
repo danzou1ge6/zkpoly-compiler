@@ -1,4 +1,4 @@
-use zkpoly_common::{define_usize_id, heap::Heap};
+use crate::{define_usize_id, heap::Heap};
 
 /// Scalar-Polynomial operator
 #[derive(Debug, Clone)]

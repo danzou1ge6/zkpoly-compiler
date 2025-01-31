@@ -4,6 +4,7 @@ members = [
     "compiler",
     "runtime",
     "common",
-    "runtime/src/memory_pool",
-    "runtime/src/cuda_api",
+    "memory_pool",
+    "cuda_api",
+    "core",
 ]

@@ -3,12 +3,6 @@ use crate::error::RuntimeError;
 use std::sync::Mutex;
 use zkpoly_common::heap;
 
-pub mod build_func;
-pub mod load_dynamic;
-pub mod ntt;
-pub mod poly;
-pub mod tutorial;
-
 zkpoly_common::define_usize_id!(FunctionId);
 pub type FunctionTable<T> = heap::Heap<FunctionId, Function<T>>;
 

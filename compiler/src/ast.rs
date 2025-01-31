@@ -7,6 +7,7 @@ use std::{panic::Location, rc::Rc};
 use zkpoly_runtime::args::RuntimeType;
 pub use zkpoly_runtime::args::{Constant, ConstantId};
 pub use zkpoly_runtime::functions::{Function, FunctionId as UFunctionId};
+use zkpoly_common::arith;
 
 zkpoly_common::define_usize_id!(ExprId);
 
@@ -24,8 +25,8 @@ impl SourceInfo {
 
 #[derive(Debug, Clone)]
 pub enum Arith<Rt: RuntimeType> {
-    Bin(transit::arith::ArithBinOp, Vertex<Rt>, Vertex<Rt>),
-    Unr(transit::arith::ArithUnrOp, Vertex<Rt>),
+    Bin(arith::ArithBinOp, Vertex<Rt>, Vertex<Rt>),
+    Unr(arith::ArithUnrOp, Vertex<Rt>),
 }
 
 pub type VertexNode<Rt> = template::VertexNode<Vertex<Rt>, Arith<Rt>, ConstantId, UFunctionId>;

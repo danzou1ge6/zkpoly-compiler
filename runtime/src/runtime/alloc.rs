@@ -1,4 +1,5 @@
 use group::prime::PrimeCurveAffine;
+use zkpoly_common::typ::Typ;
 use zkpoly_cuda_api::{mem::CudaAllocator, stream::CudaStream};
 use zkpoly_memory_pool::PinnedMemoryPool;
 
@@ -10,7 +11,6 @@ use crate::{
     runtime::RuntimeInfo,
     scalar::Scalar,
     scalar::ScalarArray,
-    typ::Typ,
 };
 
 impl<T: RuntimeType> RuntimeInfo<T> {

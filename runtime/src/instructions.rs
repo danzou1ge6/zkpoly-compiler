@@ -1,7 +1,7 @@
 use crate::args::VariableId;
 use crate::devices::{DeviceType, EventId, ThreadId};
 use crate::functions::FunctionId;
-use crate::typ::Typ;
+use zkpoly_common::typ::Typ;
 
 pub enum Instruction {
     Allocate {

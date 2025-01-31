@@ -2,11 +2,12 @@ use std::sync::{mpsc::Sender, Arc};
 
 use threadpool::ThreadPool;
 
+use zkpoly_common::load_dynamic::Libs;
+
 use crate::{
     args::{RuntimeType, Variable, VariableTable},
     devices::{DeviceType, Event, EventTable, ThreadTable},
     functions::{
-        load_dynamic::Libs,
         FunctionTable,
         FunctionValue::{Fn, FnMut, FnOnce},
     },
