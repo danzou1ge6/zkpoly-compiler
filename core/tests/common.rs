@@ -13,3 +13,4 @@ impl RuntimeType for MyRuntimeType {
 }
 
 pub type MyField = <MyRuntimeType as RuntimeType>::Field;
+pub type MyCurve = <MyRuntimeType as RuntimeType>::PointAffine;

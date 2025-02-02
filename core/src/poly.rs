@@ -10,7 +10,9 @@ use std::{
 
 use libloading::Symbol;
 use zkpoly_cuda_api::{
-    bindings::{cudaError_cudaSuccess, cudaError_t, cudaGetErrorString, cudaStream_t},
+    bindings::{
+        cudaError_cudaSuccess, cudaError_t, cudaGetErrorString, cudaSetDevice, cudaStream_t,
+    },
     cuda_check,
 };
 
@@ -212,6 +214,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyRotate<T> {
             let shift = dst.rotate - src.rotate;
             let len = src.len;
             unsafe {
+                cuda_check!(cudaSetDevice(stream.get_device()));
                 cuda_check!(c_func(
                     src.values as *const c_uint,
                     dst.values as *mut c_uint,
@@ -263,6 +266,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyInvert<T> {
             let stream = var[0].unwrap_stream();
 
             unsafe {
+                cuda_check!(cudaSetDevice(stream.get_device()));
                 cuda_check!(c_func(
                     temp_buf.ptr as *mut c_void,
                     null_mut(),
@@ -316,6 +320,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyScan<T> {
             let x0 = var[1].unwrap_scalar();
             let stream = var[2].unwrap_stream();
             unsafe {
+                cuda_check!(cudaSetDevice(stream.get_device()));
                 cuda_check!(c_func(
                     temp_buf.ptr as *mut c_void,
                     null_mut(),
@@ -346,6 +351,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyOne<T> {
             let target = mut_var[0].unwrap_scalar_array_mut();
             let stream = var[0].unwrap_stream();
             unsafe {
+                cuda_check!(cudaSetDevice(stream.get_device()));
                 cuda_check!(c_func(
                     target.values as *mut c_uint,
                     target.len.try_into().unwrap(),
@@ -373,6 +379,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyZero<T> {
             let target = mut_var[0].unwrap_scalar_array_mut();
             let stream = var[0].unwrap_stream();
             unsafe {
+                cuda_check!(cudaSetDevice(stream.get_device()));
                 cuda_check!(c_func(
                     target.values as *mut c_uint,
                     target.len.try_into().unwrap(),
@@ -428,6 +435,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for KateDivision<T> {
             let stream = var[2].unwrap_stream();
 
             unsafe {
+                cuda_check!(cudaSetDevice(stream.get_device()));
                 cuda_check!(c_func(
                     temp_buf.ptr as *mut c_void,
                     null_mut() as *mut c_ulong,
@@ -482,6 +490,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyEval<T> {
             let len = poly.len;
             let stream = var[2].unwrap_stream();
             unsafe {
+                cuda_check!(cudaSetDevice(stream.get_device()));
                 cuda_check!(c_func(
                     temp_buf.ptr as *mut c_void,
                     null_mut() as *mut c_ulong,
@@ -518,6 +527,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyAdd<T> {
             let len = a.len;
             let stream = var[2].unwrap_stream();
             unsafe {
+                cuda_check!(cudaSetDevice(stream.get_device()));
                 cuda_check!(c_func(
                     res.values as *mut c_uint,
                     a.values as *const c_uint,
@@ -551,6 +561,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolySub<T> {
             let len = a.len;
             let stream = var[2].unwrap_stream();
             unsafe {
+                cuda_check!(cudaSetDevice(stream.get_device()));
                 cuda_check!(c_func(
                     res.values as *mut c_uint,
                     a.values as *const c_uint,
@@ -584,6 +595,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyMul<T> {
             let len = a.len;
             let stream = var[2].unwrap_stream();
             unsafe {
+                cuda_check!(cudaSetDevice(stream.get_device()));
                 cuda_check!(c_func(
                     res.values as *mut c_uint,
                     a.values as *const c_uint,

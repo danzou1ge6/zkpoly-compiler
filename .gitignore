@@ -4,3 +4,4 @@ Cargo.lock
 **/build
 /.xmake
 **/lib
+*.input

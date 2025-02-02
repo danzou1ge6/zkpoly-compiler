@@ -5,11 +5,11 @@
 
 use crate::transit::{self, PolyInit, SourceInfo};
 pub use typ::Typ;
+use zkpoly_common::arith;
 use zkpoly_common::digraph;
 pub use zkpoly_common::typ::PolyType;
 pub use zkpoly_runtime::args::{Constant, ConstantId, RuntimeType, Variable};
 pub use zkpoly_runtime::error::RuntimeError;
-use zkpoly_common::arith;
 
 zkpoly_common::define_usize_id!(VertexId);
 

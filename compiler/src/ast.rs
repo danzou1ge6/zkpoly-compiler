@@ -4,10 +4,10 @@ pub use crate::transit::{
     PolyInit,
 };
 use std::{panic::Location, rc::Rc};
+use zkpoly_common::arith;
 use zkpoly_runtime::args::RuntimeType;
 pub use zkpoly_runtime::args::{Constant, ConstantId};
 pub use zkpoly_runtime::functions::{Function, FunctionId as UFunctionId};
-use zkpoly_common::arith;
 
 zkpoly_common::define_usize_id!(ExprId);
 

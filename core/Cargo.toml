@@ -16,3 +16,4 @@ zkpoly_memory_pool = { path = "../memory_pool" }
 group = "0.13"
 halo2curves = { version = "0.6.0", default-features = false }
 rand_core = { version = "0.6", default-features = false }
+rayon = "1.5.1"
