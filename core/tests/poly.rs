@@ -470,13 +470,9 @@ fn test_rotate() {
 
     src.cpu2gpu(src_d.unwrap_scalar_array_mut(), stream.unwrap_stream());
 
-    dst_d
-        .unwrap_scalar_array_mut()
-        .rotate(shift);
+    dst_d.unwrap_scalar_array_mut().rotate(shift);
     func(vec![&mut dst_d], vec![&src_d, &stream]).unwrap();
-    dst_d
-        .unwrap_scalar_array_mut()
-        .rotate(-shift);
+    dst_d.unwrap_scalar_array_mut().rotate(-shift);
 
     dst_d
         .unwrap_scalar_array()

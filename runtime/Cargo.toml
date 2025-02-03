@@ -14,3 +14,6 @@ blake2b_simd = "1" # MSRV 1.66.0
 sha3 = "0.9.1"
 halo2curves = { version = "0.6.0", default-features = false }
 rand_core = { version = "0.6", default-features = false }
+
+[dev-dependencies]
+zkpoly_core = { path = "../core" }

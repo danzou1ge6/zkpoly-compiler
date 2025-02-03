@@ -30,7 +30,50 @@ pub struct Runtime<T: RuntimeType> {
     threads: ThreadTable,
     mem_allocator: PinnedMemoryPool,
     gpu_allocator: Vec<CudaAllocator>,
-    libs: Libs,
+    _libs: Libs,
+}
+
+impl<T: RuntimeType> Runtime<T> {
+    pub fn new(
+        instructions: Vec<Instruction>,
+        variable: VariableTable<T>,
+        pool: ThreadPool,
+        funcs: FunctionTable<T>,
+        events: EventTable,
+        threads: ThreadTable,
+        mem_allocator: PinnedMemoryPool,
+        gpu_allocator: Vec<CudaAllocator>,
+        libs: Libs,
+    ) -> Self {
+        Self {
+            instructions,
+            variable,
+            pool,
+            funcs,
+            events,
+            threads,
+            mem_allocator,
+            gpu_allocator,
+            _libs: libs,
+        }
+    }
+    pub fn run(self) -> RuntimeInfo<T> {
+        let info = RuntimeInfo {
+            variable: Arc::new(self.variable),
+            pool: Arc::new(self.pool),
+            funcs: Arc::new(self.funcs),
+            events: Arc::new(self.events),
+            threads: Arc::new(self.threads),
+            main_thread: true,
+        };
+        info.run(
+            self.instructions,
+            Some(self.mem_allocator),
+            Some(self.gpu_allocator),
+            None,
+        );
+        info
+    }
 }
 
 #[derive(Clone)]

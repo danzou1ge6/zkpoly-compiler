@@ -23,7 +23,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         gpu_allocator: &Option<Vec<CudaAllocator>>,
     ) -> Variable<T> {
         match typ {
-            Typ::ScalarArray { typ: _, len } => {
+            Typ::ScalarArray { len } => {
                 let poly = match device {
                     DeviceType::CPU => ScalarArray::<T::Field>::new(
                         len,

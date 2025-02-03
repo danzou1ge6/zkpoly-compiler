@@ -9,7 +9,7 @@ pub enum PolyType {
 
 #[derive(Debug, Clone)]
 pub enum Typ {
-    ScalarArray { typ: PolyType, len: usize },
+    ScalarArray { len: usize },
     PointBase { len: usize },
     Scalar,
     Transcript,
@@ -20,27 +20,4 @@ pub enum Typ {
     Any(any::TypeId, usize),
     Stream,
     GpuBuffer(usize),
-}
-
-impl Typ {
-    pub fn coef(len: usize) -> Self {
-        Typ::ScalarArray {
-            typ: PolyType::Coef,
-            len,
-        }
-    }
-
-    pub fn lagrange(len: usize) -> Self {
-        Typ::ScalarArray {
-            typ: PolyType::Lagrange,
-            len,
-        }
-    }
-
-    pub fn extended_lagrange(len: usize) -> Self {
-        Typ::ScalarArray {
-            typ: PolyType::ExtendedLagrange,
-            len,
-        }
-    }
 }
