@@ -48,4 +48,9 @@ pub enum Instruction {
     Join {
         thread: ThreadId,
     },
+
+    Rotation {
+        id: VariableId,
+        shift: i64,
+    },
 }

@@ -201,6 +201,7 @@ impl_poly_new!(PolyRotate, "poly_rotate");
 
 impl<T: RuntimeType> RegisteredFunction<T> for PolyRotate<T> {
     fn get_fn(&self) -> Function<T> {
+        eprintln!("Notice: This function can be replaced by transport gpu2gpu, so it is not recommended to use it.");
         let c_func = self.c_func.clone();
         let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
                               var: Vec<&Variable<T>>|

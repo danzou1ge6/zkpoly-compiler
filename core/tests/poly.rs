@@ -466,13 +466,17 @@ fn test_rotate() {
         stream.unwrap_stream().allocate(len),
         DeviceType::GPU { device_id: 0 },
     ));
-
-    let shift: i64 = (len / 2).try_into().unwrap();
-
-    dst_d.unwrap_scalar_array_mut().rotate = shift;
+    let shift: i64 = -1;
 
     src.cpu2gpu(src_d.unwrap_scalar_array_mut(), stream.unwrap_stream());
+
+    dst_d
+        .unwrap_scalar_array_mut()
+        .rotate(shift);
     func(vec![&mut dst_d], vec![&src_d, &stream]).unwrap();
+    dst_d
+        .unwrap_scalar_array_mut()
+        .rotate(-shift);
 
     dst_d
         .unwrap_scalar_array()
@@ -486,6 +490,10 @@ fn test_rotate() {
     stream.unwrap_stream().sync();
 
     for i in 0..len {
-        assert_eq!(dst.as_ref()[(i + shift as usize) % len], src.as_ref()[i]);
+        let mut srcid = (i as i64 + shift) % len as i64;
+        if srcid < 0 {
+            srcid += len as i64;
+        }
+        assert_eq!(dst.as_ref()[i], src.as_ref()[srcid as usize]);
     }
 }

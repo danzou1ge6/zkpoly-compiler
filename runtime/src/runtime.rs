@@ -190,6 +190,11 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     let rx = self.threads[thread].lock().unwrap().take().unwrap();
                     rx.recv().unwrap();
                 }
+                Instruction::Rotation { id, shift } => {
+                    let mut guard = self.variable[id].write().unwrap();
+                    let poly = guard.as_mut().unwrap().unwrap_scalar_array_mut();
+                    poly.rotate(shift);
+                }
             }
         }
         if !self.main_thread {

@@ -69,6 +69,9 @@ TEST_CASE("gpu rotation") {
         for (u64 i = 0; i < len; i++) {
             INFO("Mismatch at index ", i, " with shift ", shift);
             CHECK(dst[i] == dst_truth[i]);
+            i64 j = (i + shift) % len;
+            if (j < 0) j += len;
+            CHECK(dst[i] == src[j]);
         }
 
         // Cleanup GPU resources
