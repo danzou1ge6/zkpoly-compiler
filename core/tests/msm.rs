@@ -9,7 +9,10 @@ use common::*;
 static MAX_K: u8 = 20;
 static BATCHES: u32 = 4;
 
-use group::{ff::{Field, PrimeField}, prime::PrimeCurveAffine};
+use group::{
+    ff::{Field, PrimeField},
+    prime::PrimeCurveAffine,
+};
 use halo2_proofs::{arithmetic, *};
 use halo2curves::bn256::{Fr as Scalar, G1Affine as Point};
 use rand_core::{RngCore, SeedableRng};
@@ -21,7 +24,10 @@ use zkpoly_core::build_func::resolve_curve;
 use zkpoly_core::msm::*;
 use zkpoly_cuda_api::bindings::{cudaFree, cudaMalloc};
 use zkpoly_memory_pool::PinnedMemoryPool;
-use zkpoly_runtime::{args::Variable, devices::DeviceType, functions::*, gpu_buffer::GpuBuffer, point::PointArray, scalar::ScalarArray};
+use zkpoly_runtime::{
+    args::Variable, devices::DeviceType, functions::*, gpu_buffer::GpuBuffer, point::PointArray,
+    scalar::ScalarArray,
+};
 
 const SEED: [u8; 16] = [
     0x59, 0x62, 0xbe, 0x5d, 0x76, 0x3d, 0x31, 0x8d, 0x17, 0xdb, 0x37, 0x32, 0x54, 0x06, 0xbc, 0xe5,

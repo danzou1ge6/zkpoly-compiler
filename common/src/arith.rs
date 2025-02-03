@@ -59,21 +59,43 @@ define_usize_id!(ExprId);
 
 /// Kind-specific data of expressions.
 #[derive(Debug, Clone)]
-pub enum Arith<I> {
-    Bin(BinOp, I, I),
-    Unr(UnrOp, I),
+pub enum Arith<Index> {
+    Bin(BinOp, Index, Index),
+    Unr(UnrOp, Index),
 }
 
 #[derive(Debug, Clone)]
-pub enum Vertex<I, Ai> {
-    A(Arith<Ai>),
-    /// Input from computation graph. `.1` is rotation of the input polynomial.
-    Input(I, i32),
+pub enum Operation<VarType, ArithIndex> {
+    Arith(Arith<ArithIndex>),
+    Input(VarType),
+    Output(VarType, ArithIndex),
 }
 
 #[derive(Debug, Clone)]
-pub struct Ag<I, Ai> {
-    output: Ai,
-    inputs: Vec<Ai>,
-    heap: Heap<Ai, Vertex<I, Ai>>,
+pub struct Vertex<VarType, ArithIndex> {
+    pub op: Operation<VarType, ArithIndex>,
+    pub target: Vec<ArithIndex>,
+}
+
+impl<VarType, ArithIndex> Operation<VarType, ArithIndex> {
+    pub fn unwrap_temp(&self) -> &Arith<ArithIndex> {
+        match self {
+            Self::Arith(arith) => arith,
+            _ => panic!("Vertex is not an arithmetic expression"),
+        }
+    }
+    pub fn unwrap_global(&self) -> &VarType {
+        match self {
+            Self::Input(var) => var,
+            _ => panic!("Vertex is not an input"),
+        }
+    }
+}
+
+// DAG for arithmetic expressions.
+#[derive(Debug, Clone)]
+pub struct ArithGraph<VarType, ArithIndex> {
+    pub outputs: Vec<ArithIndex>, // output ids
+    pub inputs: Vec<ArithIndex>,  // input ids
+    pub heap: Heap<ArithIndex, Vertex<VarType, ArithIndex>>,
 }
