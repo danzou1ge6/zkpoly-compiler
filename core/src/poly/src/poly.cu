@@ -3,6 +3,8 @@
 #include "poly_eval.cuh"
 #include "kate_division.cuh"
 #include "scan_mul.cuh"
+#include "batched_invert.cuh"
+#include "rotate.cuh"
 
 cudaError_t poly_add(unsigned int *result, const unsigned int *a, const unsigned int *b, unsigned long long len, cudaStream_t stream) {
     unsigned int block = 256;
@@ -46,4 +48,12 @@ cudaError_t kate_division(void* temp_buf, unsigned long *temp_buf_size, unsigned
 
 cudaError_t scan_mul(void * temp_buffer, unsigned long *buffer_size, const unsigned int *poly, unsigned int *target, const unsigned int *x0, unsigned long long len, cudaStream_t stream) {
     return detail::scan_mul<POLY_FIELD>(temp_buffer, buffer_size, poly, target, x0, len, stream);
+}
+
+cudaError_t batched_invert(void *temp_buffer, unsigned long *buffer_size, unsigned int *poly, unsigned int *inv, unsigned long long len, cudaStream_t stream) {
+    return detail::batched_invert<POLY_FIELD>(temp_buffer, buffer_size, poly, inv, len, stream);
+}
+
+cudaError_t poly_rotate(const unsigned int *src, unsigned int *dst, unsigned long long len, long long shift, cudaStream_t stream) {
+    return detail::rotate<POLY_FIELD>(reinterpret_cast<const POLY_FIELD*>(src), reinterpret_cast<POLY_FIELD*>(dst), len, shift, stream);
 }

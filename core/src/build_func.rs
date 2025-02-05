@@ -8,6 +8,13 @@ pub fn resolve_type(name: &str) -> &str {
     }
 }
 
+pub fn resolve_curve(name: &str) -> (&str, u32) {
+    match name {
+        s if s.starts_with("halo2curves::bn256") => ("bn254", 254),
+        _ => unimplemented!(),
+    }
+}
+
 pub fn xmake_run(target: &str) {
     if !Command::new("xmake")
         .arg("build")

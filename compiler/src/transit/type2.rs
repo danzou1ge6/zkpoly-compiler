@@ -3,12 +3,13 @@
 //! therefore polynomial operations are transformed into vector expressions.
 //! Also, vertices of the computation graph still contain expression trees.
 
-use crate::transit::{self, arith, PolyInit, SourceInfo};
+use crate::transit::{self, PolyInit, SourceInfo};
 pub use typ::Typ;
+use zkpoly_common::arith;
 use zkpoly_common::digraph;
+pub use zkpoly_common::typ::PolyType;
 pub use zkpoly_runtime::args::{Constant, ConstantId, RuntimeType, Variable};
 pub use zkpoly_runtime::error::RuntimeError;
-pub use zkpoly_runtime::poly::PolyType;
 
 zkpoly_common::define_usize_id!(VertexId);
 
@@ -143,7 +144,7 @@ pub mod template {
 
 pub type VertexNode = template::VertexNode<VertexId, Arith, ConstantId, user_function::Id>;
 
-pub type Vertex<'s, Rt: RuntimeType> = transit::Vertex<VertexNode, Typ<Rt>, SourceInfo<'s>>;
+pub type Vertex<'s, Rt> = transit::Vertex<VertexNode, Typ<Rt>, SourceInfo<'s>>;
 
 impl<'s, Rt: RuntimeType> digraph::internal::Predecessors<VertexId> for Vertex<'s, Rt> {
     #[allow(refining_impl_trait)]
@@ -383,7 +384,7 @@ where
 }
 
 /// Invariants are same as those of [`tree::tree1::Cg`]
-pub type Cg<'s, Rt: RuntimeType> = transit::Cg<VertexId, Vertex<'s, Rt>>;
+pub type Cg<'s, Rt> = transit::Cg<VertexId, Vertex<'s, Rt>>;
 
 pub mod graph_scheduling;
 pub mod memory_planning;

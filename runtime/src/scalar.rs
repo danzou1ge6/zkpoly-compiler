@@ -1,3 +1,5 @@
+use std::ptr::copy_nonoverlapping;
+
 use group::ff::Field;
 use zkpoly_cuda_api::{
     mem::{alloc_pinned, free_pinned},
@@ -110,7 +112,7 @@ impl<F: Field> Transfer for Scalar<F> {
 pub struct ScalarArray<F: Field> {
     pub values: *mut F,
     pub len: usize,
-    pub rotate: u64,
+    pub rotate: i64,
     pub device: DeviceType,
 }
 
@@ -134,6 +136,10 @@ impl<F: Field> ScalarArray<F> {
     pub fn as_mut(&mut self) -> &mut [F] {
         unsafe { std::slice::from_raw_parts_mut(self.values, self.len) }
     }
+
+    pub fn rotate(&mut self, shift: i64) {
+        self.rotate = (self.rotate + shift) % self.len as i64;
+    }
 }
 
 impl<F: Field> Transfer for ScalarArray<F> {
@@ -141,9 +147,23 @@ impl<F: Field> Transfer for ScalarArray<F> {
         assert!(self.len <= target.len);
         assert!(self.device == DeviceType::CPU);
         assert!(target.device == DeviceType::CPU);
-        target.rotate = self.rotate;
+        let shift = target.rotate - self.rotate;
+        assert!(shift.abs() < self.len as i64);
+        let len = self.len;
+        let src = self.values;
+        let dst = target.values;
         unsafe {
-            std::ptr::copy_nonoverlapping(self.values, target.values, self.len);
+            if shift == 0 {
+                copy_nonoverlapping(src, dst, len);
+            } else if shift > 0 {
+                let shift = shift as usize;
+                copy_nonoverlapping(src.add(shift), dst, len - shift);
+                copy_nonoverlapping(src, dst.add(len - shift), shift);
+            } else {
+                let shift = (-shift) as usize;
+                copy_nonoverlapping(src.add(len - shift), dst, shift);
+                copy_nonoverlapping(src, dst.add(shift), len - shift);
+            }
         }
     }
 
@@ -156,8 +176,22 @@ impl<F: Field> Transfer for ScalarArray<F> {
                     device_id: stream.get_device()
                 }
         );
-        target.rotate = self.rotate;
-        stream.memcpy_h2d(target.values, self.values, self.len);
+        let shift = target.rotate - self.rotate;
+        assert!(shift.abs() < self.len as i64);
+        let len = self.len;
+        let src = self.values;
+        let dst = target.values;
+        if shift == 0 {
+            stream.memcpy_h2d(dst, src, len);
+        } else if shift > 0 {
+            let shift = shift as usize;
+            stream.memcpy_h2d(dst, unsafe { src.add(shift) }, len - shift);
+            stream.memcpy_h2d(unsafe { dst.add(len - shift) }, src, shift);
+        } else {
+            let shift = (-shift) as usize;
+            stream.memcpy_h2d(dst, unsafe { src.add(len - shift) }, shift);
+            stream.memcpy_h2d(unsafe { dst.add(shift) }, src, len - shift);
+        }
     }
 
     fn gpu2cpu(&self, target: &mut Self, stream: &CudaStream) {
@@ -169,8 +203,22 @@ impl<F: Field> Transfer for ScalarArray<F> {
                     device_id: stream.get_device()
                 }
         );
-        target.rotate = self.rotate;
-        stream.memcpy_d2h(target.values, self.values, self.len);
+        let shift = target.rotate - self.rotate;
+        assert!(shift.abs() < self.len as i64);
+        let len = self.len;
+        let src = self.values;
+        let dst = target.values;
+        if shift == 0 {
+            stream.memcpy_d2h(dst, src, len);
+        } else if shift > 0 {
+            let shift = shift as usize;
+            stream.memcpy_d2h(dst, unsafe { src.add(shift) }, len - shift);
+            stream.memcpy_d2h(unsafe { dst.add(len - shift) }, src, shift);
+        } else {
+            let shift = (-shift) as usize;
+            stream.memcpy_d2h(dst, unsafe { src.add(len - shift) }, shift);
+            stream.memcpy_d2h(unsafe { dst.add(shift) }, src, len - shift);
+        }
     }
 
     fn gpu2gpu(&self, target: &mut Self, stream: &CudaStream) {
@@ -188,7 +236,21 @@ impl<F: Field> Transfer for ScalarArray<F> {
                     device_id: stream.get_device()
                 }
         );
-        target.rotate = self.rotate;
-        stream.memcpy_d2d(target.values, self.values, self.len);
+        let shift = target.rotate - self.rotate;
+        assert!(shift.abs() < self.len as i64);
+        let len = self.len;
+        let src = self.values;
+        let dst = target.values;
+        if shift == 0 {
+            stream.memcpy_d2d(dst, src, len);
+        } else if shift > 0 {
+            let shift = shift as usize;
+            stream.memcpy_d2d(dst, unsafe { src.add(shift) }, len - shift);
+            stream.memcpy_d2d(unsafe { dst.add(len - shift) }, src, shift);
+        } else {
+            let shift = (-shift) as usize;
+            stream.memcpy_d2d(dst, unsafe { src.add(len - shift) }, shift);
+            stream.memcpy_d2d(unsafe { dst.add(shift) }, src, len - shift);
+        }
     }
 }

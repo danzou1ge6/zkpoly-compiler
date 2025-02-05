@@ -2,11 +2,12 @@ use std::sync::{mpsc::Sender, Arc};
 
 use threadpool::ThreadPool;
 
+use zkpoly_common::load_dynamic::Libs;
+
 use crate::{
     args::{RuntimeType, Variable, VariableTable},
     devices::{DeviceType, Event, EventTable, ThreadTable},
     functions::{
-        load_dynamic::Libs,
         FunctionTable,
         FunctionValue::{Fn, FnMut, FnOnce},
     },
@@ -29,7 +30,50 @@ pub struct Runtime<T: RuntimeType> {
     threads: ThreadTable,
     mem_allocator: PinnedMemoryPool,
     gpu_allocator: Vec<CudaAllocator>,
-    libs: Libs,
+    _libs: Libs,
+}
+
+impl<T: RuntimeType> Runtime<T> {
+    pub fn new(
+        instructions: Vec<Instruction>,
+        variable: VariableTable<T>,
+        pool: ThreadPool,
+        funcs: FunctionTable<T>,
+        events: EventTable,
+        threads: ThreadTable,
+        mem_allocator: PinnedMemoryPool,
+        gpu_allocator: Vec<CudaAllocator>,
+        libs: Libs,
+    ) -> Self {
+        Self {
+            instructions,
+            variable,
+            pool,
+            funcs,
+            events,
+            threads,
+            mem_allocator,
+            gpu_allocator,
+            _libs: libs,
+        }
+    }
+    pub fn run(self) -> RuntimeInfo<T> {
+        let info = RuntimeInfo {
+            variable: Arc::new(self.variable),
+            pool: Arc::new(self.pool),
+            funcs: Arc::new(self.funcs),
+            events: Arc::new(self.events),
+            threads: Arc::new(self.threads),
+            main_thread: true,
+        };
+        info.run(
+            self.instructions,
+            Some(self.mem_allocator),
+            Some(self.gpu_allocator),
+            None,
+        );
+        info
+    }
 }
 
 #[derive(Clone)]
@@ -188,6 +232,11 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                 Instruction::Join { thread } => {
                     let rx = self.threads[thread].lock().unwrap().take().unwrap();
                     rx.recv().unwrap();
+                }
+                Instruction::Rotation { id, shift } => {
+                    let mut guard = self.variable[id].write().unwrap();
+                    let poly = guard.as_mut().unwrap().unwrap_scalar_array_mut();
+                    poly.rotate(shift);
                 }
             }
         }

@@ -69,7 +69,6 @@ where
     pub fn keys(&self) -> impl Iterator<Item = &K> {
         self.k2s.keys()
     }
-
 }
 
 impl<K, S> std::ops::Index<&K> for MmHeap<K, S>

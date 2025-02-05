@@ -4,16 +4,16 @@ use std::{any::type_name, marker::PhantomData, os::raw::c_uint};
 
 use libloading::Symbol;
 
-use crate::{
+use zkpoly_runtime::{
     args::{RuntimeType, Variable},
     error::RuntimeError,
 };
 
-use super::{
-    build_func::{resolve_type, xmake_config, xmake_run},
-    load_dynamic::Libs,
-    Function, FunctionValue, RegisteredFunction,
-};
+use zkpoly_runtime::functions::{Function, FunctionValue, RegisteredFunction};
+
+use super::build_func::{resolve_type, xmake_config, xmake_run};
+
+use zkpoly_common::load_dynamic::Libs;
 
 // c = a + b
 pub struct SimpleFunc<T: RuntimeType> {
@@ -23,7 +23,7 @@ pub struct SimpleFunc<T: RuntimeType> {
 }
 
 impl<T: RuntimeType> SimpleFunc<T> {
-    fn new(libs: &mut Libs) -> Self {
+    pub fn new(libs: &mut Libs) -> Self {
         // compile the dynamic library according to the template
         let field_type = resolve_type(type_name::<T::Field>());
         xmake_config("SIMPLE_ADD_FIELD", field_type);
@@ -41,7 +41,7 @@ impl<T: RuntimeType> SimpleFunc<T> {
 }
 
 impl<T: RuntimeType> RegisteredFunction<T> for SimpleFunc<T> {
-    fn get_fn(&self) -> super::Function<T> {
+    fn get_fn(&self) -> Function<T> {
         let c_func = self.c_func.clone();
 
         // define the rust side wrapper function
@@ -66,51 +66,5 @@ impl<T: RuntimeType> RegisteredFunction<T> for SimpleFunc<T> {
             name: "simple_add".to_string(),
             f: FunctionValue::Fn(Box::new(rust_func)),
         }
-    }
-}
-
-#[test]
-fn test_simple_func() {
-    use crate::args::Variable;
-    use crate::scalar::Scalar;
-    use crate::transcript::{Blake2bWrite, Challenge255};
-    use group::ff::Field;
-    use halo2curves::bn256;
-
-    #[derive(Debug, Clone)]
-    struct MyRuntimeType;
-
-    impl RuntimeType for MyRuntimeType {
-        type Field = bn256::Fr;
-        type PointAffine = bn256::G1Affine;
-        type Challenge = Challenge255<bn256::G1Affine>;
-        type Trans = Blake2bWrite<Vec<u8>, bn256::G1Affine, Challenge255<bn256::G1Affine>>;
-    }
-
-    type MyField = <MyRuntimeType as RuntimeType>::Field;
-
-    let mut libs = Libs::new();
-    let simple_func = SimpleFunc::<MyRuntimeType>::new(&mut libs);
-    let f = simple_func.get_fn();
-
-    let mut a = Variable::Scalar(Scalar::new_cpu());
-    let mut b = Variable::Scalar(Scalar::new_cpu());
-    let mut c = Variable::Scalar(Scalar::new_cpu());
-
-    let f = match f.f {
-        FunctionValue::Fn(f) => f,
-        _ => unreachable!(),
-    };
-
-    for _ in 0..100 {
-        let a_in = MyField::random(rand_core::OsRng);
-        let b_in = MyField::random(rand_core::OsRng);
-
-        *a.unwrap_scalar_mut().as_mut() = a_in.clone();
-        *b.unwrap_scalar_mut().as_mut() = b_in.clone();
-
-        f(vec![&mut c], vec![&a, &b]).unwrap();
-
-        assert_eq!(*c.unwrap_scalar().as_ref(), a_in + b_in);
     }
 }

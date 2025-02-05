@@ -4,13 +4,13 @@ use zkpoly_common::heap::Heap;
 use zkpoly_runtime::args::{RuntimeType, Variable};
 use zkpoly_runtime::error::RuntimeError;
 
-pub type UserFnOnce<Rt: RuntimeType> = Box<
+pub type UserFnOnce<Rt> = Box<
     dyn FnOnce(Vec<&mut Variable<Rt>>, Vec<&Variable<Rt>>) -> Result<(), RuntimeError>
         + Sync
         + Send
         + 'static,
 >;
-pub type UserFnMut<Rt: RuntimeType> = Box<
+pub type UserFnMut<Rt> = Box<
     dyn FnMut(Vec<&mut Variable<Rt>>, Vec<&Variable<Rt>>) -> Result<(), RuntimeError>
         + Sync
         + Send
@@ -56,4 +56,4 @@ impl<Rt: RuntimeType + std::fmt::Debug> std::fmt::Debug for Function<Rt> {
 }
 
 define_usize_id!(Id);
-pub type Table<Rt: RuntimeType> = Heap<Id, Function<Rt>>;
+pub type Table<Rt> = Heap<Id, Function<Rt>>;
