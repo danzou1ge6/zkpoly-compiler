@@ -50,7 +50,7 @@ impl Allocator {
         let (addr, _) = self
             .chunks
             .iter()
-            .filter(|(&addr, &chunk)| {
+            .filter(|(&addr, chunk)| {
                 !chunk.occupied && addr + chunk.size >= aligned_addr(addr) + size
             })
             .min_by_key(|(_, chunk)| chunk.size - size)?;

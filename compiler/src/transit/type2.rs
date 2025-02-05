@@ -7,13 +7,14 @@ use crate::transit::{self, PolyInit, SourceInfo};
 pub use typ::Typ;
 use zkpoly_common::arith;
 use zkpoly_common::digraph;
+use zkpoly_common::heap::UsizeId;
 pub use zkpoly_common::typ::PolyType;
 pub use zkpoly_runtime::args::{Constant, ConstantId, RuntimeType, Variable};
 pub use zkpoly_runtime::error::RuntimeError;
 
 zkpoly_common::define_usize_id!(VertexId);
 
-pub type Arith = arith::Ag<VertexId>;
+pub type Arith = arith::ArithGraph<VertexId, arith::ExprId>;
 
 #[derive(Debug, Clone)]
 pub enum NttAlgorithm {
@@ -140,7 +141,6 @@ pub mod template {
 // - Inplace correction before scheduling
 // - Take inplace into consideration in scheduling and memory planning
 // - Twiddle factor precomputing
-// - AddrId should be unique for each data on at each physical block, except for inplace computations
 
 pub type VertexNode = template::VertexNode<VertexId, Arith, ConstantId, user_function::Id>;
 
@@ -175,30 +175,6 @@ impl<'s, Rt: RuntimeType> Vertex<'s, Rt> {
             ArrayGet(x, _) => Box::new([*x].into_iter()),
             UserFunction(_, es) => Box::new(es.iter().copied()),
             Replicate(s) => Box::new([*s].into_iter()),
-            _ => Box::new([].into_iter()),
-        }
-    }
-    pub fn uses_mut<'a>(&'a mut self) -> Box<dyn Iterator<Item = &'a mut VertexId> + 'a> {
-        use template::VertexNode::*;
-        match self.node_mut() {
-            Arith(arith) => Box::new(arith.uses_mut()),
-            Ntt { s, .. } => Box::new([s].into_iter()),
-            RotateIdx(x, _) => Box::new([x].into_iter()),
-            Interplote { xs, ys } => Box::new(xs.iter_mut().chain(ys.iter_mut())),
-            Array(es) => Box::new(es.iter_mut()),
-            AssmblePoly(_, es) => Box::new([es].into_iter()),
-            Msm {
-                scalars, points, ..
-            } => Box::new([scalars, points].into_iter()),
-            HashTranscript {
-                transcript, value, ..
-            } => Box::new([transcript, value].into_iter()),
-            SqueezeScalar(x) => Box::new([x].into_iter()),
-            TupleGet(x, _) => Box::new([x].into_iter()),
-            Blind(x, _) => Box::new([x].into_iter()),
-            ArrayGet(x, _) => Box::new([x].into_iter()),
-            UserFunction(_, es) => Box::new(es.iter_mut()),
-            Replicate(s) => Box::new([s].into_iter()),
             _ => Box::new([].into_iter()),
         }
     }
@@ -287,21 +263,29 @@ impl<'s, Rt: RuntimeType> Vertex<'s, Rt> {
             _ => Box::new([].into_iter()),
         }
     }
-    pub fn outputs_inplace(
+    pub fn outputs_inplace<'a>(
         &self,
         uf_table: &'a user_function::Table<Rt>,
     ) -> Box<dyn Iterator<Item = Option<VertexId>>> {
         use template::VertexNode::*;
         match self.node() {
-            Ntt { s, .. } => Box::new([*s].into_iter()),
-            RotateIdx(s, ..) => Box::new([*s].into_iter()),
+            Ntt { s, .. } => Box::new([Some(*s)].into_iter()),
+            RotateIdx(s, ..) => Box::new([Some(*s)].into_iter()),
             HashTranscript { transcript, .. } => Box::new([Some(*transcript)].into_iter()),
             SqueezeScalar(transcript) => Box::new([Some(*transcript), None].into_iter()),
             UserFunction(fid, args) => {
                 let f_typ = &uf_table[*fid].typ;
-                f_typ.ret_inplace.iter().map(|&i| Some(args[&(i?)])).collect()
+                let r = f_typ
+                        .ret_inplace
+                        .iter()
+                        .map(|&i| Some(args[i?]))
+                        .collect::<Vec<_>>();
+                Box::new(r.into_iter())
             }
-            _ => Box::new(self.typ().size().iter().map(|_|None))
+            _ => {
+                let len = self.typ().size().len();
+                Box::new(std::iter::repeat(None).take(len))
+            }
         }
     }
     pub fn is_virtual(&self) -> bool {
@@ -313,7 +297,7 @@ impl<'s, Rt: RuntimeType> Vertex<'s, Rt> {
     }
 }
 
-impl<I, C, E> template::VertexNode<I, arith::Ag<I>, C, E>
+impl<I, C, E> template::VertexNode<I, arith::ArithGraph<I, arith::ExprId>, C, E>
 where
     I: Copy,
     C: Clone,
@@ -322,23 +306,17 @@ where
     pub fn relabeled<I2>(
         &self,
         mut mapping: impl FnMut(I) -> I2,
-    ) -> template::VertexNode<I2, arith::Arith<I2>, C, E> {
+    ) -> template::VertexNode<I2, arith::ArithGraph<I2, arith::ExprId>, C, E> {
         use template::VertexNode::*;
 
         match self {
-            NewPoly(deg, init) => NewPoly(*deg, mapping(*init)),
-            Constant(c) => Constant(*c),
+            NewPoly(deg, init) => NewPoly(*deg, init.clone()),
+            Constant(c) => Constant(c.clone()),
             Arith(arith) => Arith(arith.relabeled(mapping)),
             Entry => Entry,
             Return => Return,
             LiteralScalar(..) => unreachable!(),
-            Ntt {
-                alg,
-                s,
-                to,
-                from,
-                alg,
-            } => Ntt {
+            Ntt { alg, s, to, from } => Ntt {
                 alg: alg.clone(),
                 s: mapping(*s),
                 to: to.clone(),
@@ -351,15 +329,13 @@ where
             },
             Blind(s, blind) => Blind(mapping(*s), *blind),
             Array(es) => Array(es.iter().map(|x| mapping(*x)).collect()),
-            AssmblePoly(s, es) => {
-                AssmblePoly(mapping(*s), es.iter().map(|x| mapping(*x)).collect())
-            }
+            AssmblePoly(s, es) => AssmblePoly(*s, mapping(*es)),
             Msm {
                 alg,
                 scalars,
                 points,
             } => Msm {
-                alg: *alg,
+                alg: alg.clone(),
                 scalars: mapping(*scalars),
                 points: mapping(*points),
             },
@@ -370,13 +346,13 @@ where
             } => HashTranscript {
                 transcript: mapping(*transcript),
                 value: mapping(*value),
-                typ: *typ,
+                typ: typ.clone(),
             },
             SqueezeScalar(transcript) => SqueezeScalar(mapping(*transcript)),
             TupleGet(s, i) => TupleGet(mapping(*s), *i),
             ArrayGet(s, i) => ArrayGet(mapping(*s), *i),
             UserFunction(fid, args) => {
-                UserFunction(*fid, args.iter().map(|x| mapping(*x)).collect())
+                UserFunction(fid.clone(), args.iter().map(|x| mapping(*x)).collect())
             }
             Replicate(s) => Replicate(mapping(*s)),
         }

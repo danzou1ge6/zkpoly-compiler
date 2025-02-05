@@ -1,4 +1,7 @@
-use crate::{define_usize_id, heap::Heap};
+use crate::{
+    define_usize_id,
+    heap::{Heap, UsizeId},
+};
 
 /// Scalar-Polynomial operator
 #[derive(Debug, Clone)]
@@ -98,4 +101,40 @@ pub struct ArithGraph<VarType, ArithIndex> {
     pub outputs: Vec<ArithIndex>, // output ids
     pub inputs: Vec<ArithIndex>,  // input ids
     pub heap: Heap<ArithIndex, Vertex<VarType, ArithIndex>>,
+}
+
+impl<VarType, ArithIndex> ArithGraph<VarType, ArithIndex>
+where
+    ArithIndex: UsizeId,
+    VarType: Copy,
+{
+    pub fn uses<'s>(&'s self) -> impl Iterator<Item = VarType> + 's {
+        self.inputs
+            .iter()
+            .map(|&i| self.heap[i].op.unwrap_global().clone())
+    }
+
+    pub fn relabeled<I2>(
+        &self,
+        mut mapping: impl FnMut(VarType) -> I2,
+    ) -> ArithGraph<I2, ArithIndex> {
+        let heap = self.heap.map_by_ref(&mut |_, v| {
+            let op = match &v.op {
+                Operation::Input(i) => Operation::Input(mapping(*i)),
+                Operation::Arith(arith) => Operation::Arith(arith.clone()),
+                Operation::Output(i, o) => Operation::Output(mapping(*i), *o),
+            };
+
+            Vertex {
+                op,
+                target: v.target.clone(),
+            }
+        });
+
+        ArithGraph {
+            outputs: self.outputs.clone(),
+            inputs: self.inputs.clone(),
+            heap,
+        }
+    }
 }

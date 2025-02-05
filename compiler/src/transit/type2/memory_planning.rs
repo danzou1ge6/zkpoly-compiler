@@ -19,7 +19,7 @@ use super::{
 };
 
 use super::{Cg, Device, VertexId};
-use object_analysis::{ObjectId, ObjectsDefUse};
+use object_analysis::{ObjectId, ObjectsDefUse, ObjectsDieAfter};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct Instant(usize);
@@ -27,7 +27,6 @@ struct Instant(usize);
 mod integral_allocator;
 mod object_analysis;
 mod smithereens_allocator;
-pub type AddrMapping = Heap<AddrId, (Addr, Size)>;
 
 trait AddrMappingHandler {
     fn add(&mut self, addr: Addr, size: Size) -> AddrId;
@@ -47,7 +46,7 @@ impl<'m> AddrMappingHandler for GpuAddrMappingHandler<'m> {
     }
 
     fn get(&self, id: AddrId) -> (Addr, Size) {
-        self.0.get(id)
+        self.0[id]
     }
 }
 
@@ -182,9 +181,9 @@ impl Context {
     }
 }
 
-struct Code(Vec<Instruction>, IdAllocator<RegisterId>);
+struct Code<'s>(Vec<Instruction<'s>>, IdAllocator<RegisterId>);
 
-impl Code {
+impl<'s> Code<'s> {
     pub fn new() -> Self {
         Self(Vec::new(), IdAllocator::new())
     }
@@ -193,7 +192,7 @@ impl Code {
         self.1.alloc()
     }
 
-    pub fn emit(&mut self, inst: Instruction) {
+    pub fn emit(&mut self, inst: Instruction<'s>) {
         self.0.push(inst);
     }
 }
@@ -211,7 +210,7 @@ fn move_victims(victims: &[AddrId], code: &mut Code, ctx: &mut Context, imctx: &
         if ctx.object_residence[&obj_id].cpu.is_none() {
             let new_reg = code.alloc_register_id();
             let size = imctx.obj_sizes[&obj_id];
-            allocate_cpu(obj_id, id, size, code, ctx);
+            allocate_cpu(obj_id, new_reg, size, code, ctx);
             code.emit(Instruction::new_no_src(InstructionNode::Transfer {
                 id: new_reg,
                 from: reg_id,
@@ -231,7 +230,11 @@ fn allocate_gpu_integral(
     ctx: &mut Context,
     imctx: &ImmutableContext,
 ) -> AddrId {
-    let addr = gpu_ialloc.allocate(size, next_use, &mut GpuAddrMappingHandler(mapping));
+    let addr = gpu_ialloc.allocate(
+        size,
+        next_use,
+        &mut GpuAddrMappingHandler(&mut ctx.gpu_addr_mapping),
+    );
 
     if let Some((transfers, addr)) = addr {
         for t in transfers {
@@ -247,8 +250,11 @@ fn allocate_gpu_integral(
         return addr;
     }
 
-    let (addr, victims) =
-        gpu_ialloc.decide_and_realloc_victim(size, next_use, &mut GpuAddrMappingHandler(mapping));
+    let (addr, victims) = gpu_ialloc.decide_and_realloc_victim(
+        size,
+        next_use,
+        &mut GpuAddrMappingHandler(&mut ctx.gpu_addr_mapping),
+    );
     move_victims(&victims, code, ctx, imctx);
 
     addr
@@ -307,7 +313,7 @@ impl GpuAllocator {
                         imctx,
                     )
                 } else {
-                    allocate_gpu_smithereen(size, gpu_salloc, &mut ctx.gpu_addr_mapping)?
+                    allocate_gpu_smithereen(size, &mut self.salloc, &mut ctx.gpu_addr_mapping)?
                 }
             }
         };
@@ -325,23 +331,29 @@ impl GpuAllocator {
     }
 
     pub fn deallocate(&mut self, obj_id: ObjectId, code: &mut Code, ctx: &mut Context) {
-        let addr = ctx.gpu_reg2addr.get_forward(&obj_id).cloned().unwrap();
+        let reg_id = ctx.object_residence[&obj_id]
+            .get_device(DeterminedDevice::Gpu)
+            .unwrap();
+        let addr = ctx.gpu_reg2addr.get_forward(&reg_id).cloned().unwrap();
 
         let (_, size) = ctx.gpu_addr_mapping[addr];
         match size {
-            Size::Integral(..) => self.ialloc.deallocate(addr, &mut ctx.gpu_addr_mapping),
-            Size::Smithereen(..) => self.salloc.deallocate(addr, &mut ctx.gpu_addr_mapping),
+            Size::Integral(..) => self
+                .ialloc
+                .deallocate(addr, &mut GpuAddrMappingHandler(&mut ctx.gpu_addr_mapping)),
+            Size::Smithereen(..) => self
+                .salloc
+                .deallocate(addr, &mut GpuAddrMappingHandler(&mut ctx.gpu_addr_mapping)),
         }
 
         let reg_id = ctx.object_residence[&obj_id]
-            .get_device(device)
-            .cloned()
+            .get_device(DeterminedDevice::Gpu)
             .unwrap();
         code.emit(Instruction::new_no_src(InstructionNode::GpuFree {
             id: reg_id,
         }));
 
-        ctx.remove_residence_for_object(obj_id, device);
+        ctx.remove_residence_for_object(obj_id, DeterminedDevice::Gpu);
     }
 
     pub fn tick(&mut self, now: Instant) {
@@ -351,11 +363,11 @@ impl GpuAllocator {
 
 fn allocate_cpu(obj_id: ObjectId, id: RegisterId, size: Size, code: &mut Code, ctx: &mut Context) {
     code.emit(Instruction::new_no_src(InstructionNode::CpuMalloc {
-        id: reg_id,
+        id,
         size,
     }));
 
-    ctx.add_residence_for_object(obj_id, reg_id, DeterminedDevice::Cpu);
+    ctx.add_residence_for_object(obj_id, id, DeterminedDevice::Cpu);
 }
 
 fn allocate_stack(
@@ -365,11 +377,9 @@ fn allocate_stack(
     code: &mut Code,
     ctx: &mut Context,
 ) {
-    code.emit(Instruction::new_no_src(InstructionNode::StackAlloc {
-        id: reg_id,
-    }));
+    code.emit(Instruction::new_no_src(InstructionNode::StackAlloc { id }));
 
-    ctx.add_residence_for_object(obj_id, reg_id, DeterminedDevice::Stack);
+    ctx.add_residence_for_object(obj_id, id, DeterminedDevice::Stack);
 }
 
 fn allocate(
@@ -384,9 +394,11 @@ fn allocate(
     imctx: &ImmutableContext,
 ) -> Result<(), InsufficientSmithereenSpace> {
     match device {
-        Device::Gpu => gpu_allocator.allocate(size, obj_id, reg_id, next_use, code, ctx, imctx)?,
-        Device::Cpu => allocate_cpu(obj_id, reg_id, size, code, ctx),
-        DeterminedDevice::Stack => allocate_stack(obj_id, id, size, code, ctx),
+        DeterminedDevice::Gpu => {
+            gpu_allocator.allocate(size, obj_id, reg_id, next_use, code, ctx, imctx)?
+        }
+        DeterminedDevice::Cpu => allocate_cpu(obj_id, reg_id, size, code, ctx),
+        DeterminedDevice::Stack => allocate_stack(obj_id, reg_id, size, code, ctx),
     };
     Ok(())
 }
@@ -394,7 +406,6 @@ fn allocate(
 fn deallocate_cpu(obj_id: ObjectId, code: &mut Code, ctx: &mut Context) {
     let reg_id = ctx.object_residence[&obj_id]
         .get_device(DeterminedDevice::Cpu)
-        .cloned()
         .unwrap();
 
     code.emit(Instruction::new_no_src(InstructionNode::CpuFree {
@@ -407,7 +418,6 @@ fn deallocate_cpu(obj_id: ObjectId, code: &mut Code, ctx: &mut Context) {
 fn deallocate_stack(obj_id: ObjectId, code: &mut Code, ctx: &mut Context) {
     let reg_id = ctx.object_residence[&obj_id]
         .get_device(DeterminedDevice::Stack)
-        .cloned()
         .unwrap();
 
     code.emit(Instruction::new_no_src(InstructionNode::StackFree {
@@ -417,9 +427,18 @@ fn deallocate_stack(obj_id: ObjectId, code: &mut Code, ctx: &mut Context) {
     ctx.remove_residence_for_object(obj_id, DeterminedDevice::Stack);
 }
 
-pub struct Planned {
-    pub works: Vec<Instruction<VertexId, GlobalAddr, ()>>,
-    pub devices: BTreeMap<ObjectId, Device>,
+fn deallocate(
+    device: DeterminedDevice,
+    obj_id: ObjectId,
+    gpu_allocator: &mut GpuAllocator,
+    code: &mut Code,
+    ctx: &mut Context,
+) {
+    match device {
+        DeterminedDevice::Gpu => gpu_allocator.deallocate(obj_id, code, ctx),
+        DeterminedDevice::Cpu => deallocate_cpu(obj_id, code, ctx),
+        DeterminedDevice::Stack => deallocate_stack(obj_id, code, ctx),
+    }
 }
 
 fn decide_device<'s, Rt: RuntimeType>(
@@ -438,7 +457,7 @@ fn decide_device<'s, Rt: RuntimeType>(
                         .g
                         .vertex(vid)
                         .predecessors()
-                        .any(|&vid| devices[&vid] == Device::Cpu)
+                        .any(|vid| devices[&vid] == DeterminedDevice::Cpu)
                 {
                     DeterminedDevice::Gpu
                 } else {
@@ -471,62 +490,70 @@ fn ensure_on_device(
     device: DeterminedDevice,
     obj_id: ObjectId,
     next_use: Instant,
+    gpu_allocator: &mut GpuAllocator,
     code: &mut Code,
     ctx: &mut Context,
     imctx: &ImmutableContext,
 ) -> Result<RegisterId, InsufficientSmithereenSpace> {
-    if let Some(reg_id) = ctx.object_residence[obj_id].get_device(device) {
-        Ok(reg_id)
+    if let Some(reg_id) = ctx.object_residence[&obj_id].get_device(device) {
+        Ok(*reg_id)
     } else {
         let new_reg = code.alloc_register_id();
         let size = imctx.obj_sizes[&obj_id];
         allocate(
             device,
             new_reg,
-            *obj_id,
+            obj_id,
             next_use,
             size,
-            &mut gpu_allocator,
-            &mut code,
-            &mut ctx,
-            &imctx,
+            gpu_allocator,
+            code,
+            ctx,
+            imctx,
         )?;
-        code.emit(Instruction::new(
-            InstructionNode::Transfer {
-                id: new_reg,
-                from: ctx.object_residence[obj_id].get_any(),
-                rot: 0,
-            },
-            cg.g.vertex(vid).src().clone(),
-        ));
+        code.emit(Instruction::new_no_src(InstructionNode::Transfer {
+            id: new_reg,
+            from: ctx.object_residence[&obj_id].get_any(),
+            rot: 0,
+        }));
         Ok(new_reg)
     }
 }
 
 fn ensure_copied(
     device: DeterminedDevice,
+    vid: VertexId,
     original_obj_id: ObjectId,
     obj_id: ObjectId,
-    next_use: Instant,
+    now: Instant,
+    gpu_allocator: &mut GpuAllocator,
     code: &mut Code,
     ctx: &mut Context,
     imctx: &ImmutableContext,
-    obj_dies_after: &BTreeMap<Device, BTreeMap<ObjectId, VertexId>>,
-) -> Result<ObjectId, InsufficientSmithereenSpace> {
-    let need_copy = obj_dies_after.get_device(device)[input_obj] != vid;
+    obj_dies_after: &ObjectsDieAfter,
+) -> Result<RegisterId, InsufficientSmithereenSpace> {
+    let need_copy = obj_dies_after.get_device(device)[&original_obj_id] != vid;
     let input_reg = if need_copy {
-        let transferred_reg =
-            ensure_on_device(device, input_obj, now, &mut code, &mut ctx, &imctx)?;
+        let transferred_reg = ensure_on_device(
+            device,
+            original_obj_id,
+            now,
+            gpu_allocator,
+            code,
+            ctx,
+            imctx,
+        )?;
         let copied_reg = code.alloc_register_id();
+        let size = imctx.obj_sizes[&original_obj_id];
         allocate(
             device,
             copied_reg,
-            ouput_obj,
+            obj_id,
             now,
             size,
-            &mut gpu_allocator,
-            &mut code,
-            &mut ctx,
+            gpu_allocator,
+            code,
+            ctx,
             &imctx,
         )?;
         code.emit(Instruction::new_no_src(InstructionNode::Transfer {
@@ -536,7 +563,7 @@ fn ensure_copied(
         }));
         copied_reg
     } else {
-        ensure_on_device(device, ouput_obj, now, &mut code, &mut ctx, &imctx)?
+        ensure_on_device(device, obj_id, now, gpu_allocator, code, ctx, imctx)?
     };
     Ok(input_reg)
 }
@@ -554,8 +581,8 @@ pub fn plan<'s, Rt: RuntimeType>(
     let successors = cg.g.successors();
     let next_ueses = collect_next_uses(&successors, seq);
     let devices = decide_device(cg, &successors);
-    let (obj_def_use, obj_id_allocator) = object_analysis::analyze_def_use(cg);
-    let obj_dies_after = object_analysis::analyze_die_after(cg, seq, &devices, &def_use);
+    let (obj_def_use, mut obj_id_allocator) = object_analysis::analyze_def_use(cg);
+    let obj_dies_after = object_analysis::analyze_die_after(cg, seq, &devices, &obj_def_use);
     let obj_dies_after_reversed = obj_dies_after.reversed();
 
     let mut gpu_allocator = GpuAllocator {
@@ -570,7 +597,7 @@ pub fn plan<'s, Rt: RuntimeType>(
         reg_device: BTreeMap::new(),
         reg2obj: BTreeMap::new(),
     };
-    let mut reg_types = BTreeMap::new();
+    let mut register_types = BTreeMap::new();
     let imctx = ImmutableContext {
         obj_sizes: &obj_def_use.sizes,
     };
@@ -619,9 +646,11 @@ pub fn plan<'s, Rt: RuntimeType>(
                     };
                     ensure_copied(
                         device,
+                        vid,
                         input_obj,
                         ouput_obj,
                         updated_next_uses[&vid],
+                        &mut gpu_allocator,
                         &mut code,
                         &mut ctx,
                         &imctx,
@@ -630,7 +659,7 @@ pub fn plan<'s, Rt: RuntimeType>(
                 } else if mutable_uses.contains(&input_vid) {
                     let input_obj = match &obj_def_use.values[&input_vid] {
                         object_analysis::Value::Single(obj_id) => *obj_id,
-                        object_analysis::Value::Tuple(obj_ids) => {
+                        object_analysis::Value::Tuple(..) => {
                             panic!("an mutable input must not be a tuple")
                         }
                     };
@@ -638,9 +667,11 @@ pub fn plan<'s, Rt: RuntimeType>(
                     let temp_obj = obj_id_allocator.alloc();
                     ensure_copied(
                         device,
+                        vid,
                         input_obj,
                         temp_obj,
                         now,
+                        &mut gpu_allocator,
                         &mut code,
                         &mut ctx,
                         &imctx,
@@ -651,17 +682,29 @@ pub fn plan<'s, Rt: RuntimeType>(
                 {
                     // The input is not mutated
                     match &obj_def_use.values[&input_vid] {
-                        object_analysis::Value::Single(obj_id) => {
-                            ensure_on_device(device, *obj_id, now, &mut code, &mut ctx, &imctx)
-                        }
+                        object_analysis::Value::Single(obj_id) => ensure_on_device(
+                            device,
+                            *obj_id,
+                            now,
+                            &mut gpu_allocator,
+                            &mut code,
+                            &mut ctx,
+                            &imctx,
+                        ),
                         object_analysis::Value::Tuple(obj_ids) => {
                             let elements = obj_ids
                                 .iter()
                                 .copied()
                                 .map(|obj_id| {
                                     ensure_on_device(
-                                        device, *obj_id, now, &mut code, &mut ctx, &imctx,
-                                    )?
+                                        device,
+                                        obj_id,
+                                        now,
+                                        &mut gpu_allocator,
+                                        &mut code,
+                                        &mut ctx,
+                                        &imctx,
+                                    )
                                 })
                                 .collect::<Result<Vec<_>, _>>()?;
                             let tuple_reg = code.alloc_register_id();
@@ -676,25 +719,26 @@ pub fn plan<'s, Rt: RuntimeType>(
                     panic!("an inplace output must use an mutable input")
                 }
             })
-            .collect()?;
+            .collect::<Result<Vec<_>, _>>()?;
 
         // Allocate outputs
-        // - Skip if inplace
+        // - Use correspounding input registe if inplace.
+        //   In this case, the object ID of the register is already the output object ID.
         let v = cg.g.vertex(vid);
         let output_registers: Vec<RegisterId> = obj_def_use.values[&vid]
             .object_ids()
             .zip(v.outputs_inplace(uf_table))
-            .map(|(obj_id, inplace)| {
+            .map(|(output_obj, inplace)| {
                 if let Some(input_vid) = inplace {
-                    let index = v.uses().position(|&x| x == input_vid).unwrap();
-                    input_registers[index]
+                    let index = v.uses().position(|x| x == input_vid).unwrap();
+                    Ok(input_registers[index])
                 } else {
                     let output_reg = code.alloc_register_id();
-                    let size = imctx.obj_sizes[&obj_id];
+                    let size = imctx.obj_sizes[&output_obj];
                     allocate(
                         device,
                         output_reg,
-                        ouput_obj,
+                        output_obj,
                         updated_next_uses[&vid],
                         size,
                         &mut gpu_allocator,
@@ -702,12 +746,12 @@ pub fn plan<'s, Rt: RuntimeType>(
                         &mut ctx,
                         &imctx,
                     )?;
-                    output_reg
+                    Ok(output_reg)
                 }
             })
-            .collect();
+            .collect::<Result<Vec<_>, _>>()?;
         let temp_space_size = v.temporary_space_needed();
-        let temp_register = if temp_space_size != 0 {
+        let temp_register_obj = if temp_space_size != 0 {
             let temp_register = code.alloc_register_id();
             let temp_obj = obj_id_allocator.alloc();
             allocate(
@@ -715,13 +759,13 @@ pub fn plan<'s, Rt: RuntimeType>(
                 temp_register,
                 temp_obj,
                 now,
-                temp_space_size,
+                Size::Smithereen(SmithereenSize(temp_space_size)),
                 &mut gpu_allocator,
                 &mut code,
                 &mut ctx,
                 &imctx,
             )?;
-            Some(temp_register)
+            Some((temp_register, temp_obj))
         } else {
             None
         };
@@ -732,55 +776,56 @@ pub fn plan<'s, Rt: RuntimeType>(
         let v3 = v.node().relabeled(|input_vid| {
             uses.iter()
                 .zip(input_registers.iter())
-                .find(|(vid, _)| *vid == input_vid)
+                .find(|(vid, _)| **vid == input_vid)
+                .map(|(_, &reg)| reg)
                 .unwrap()
-                .1
         });
 
         output_registers
             .iter()
             .zip(v.typ().iter())
             .for_each(|(&output_reg, typ)| {
-                reg_types.insert(output_reg, typ.clone());
+                register_types.insert(output_reg, typ.clone());
             });
 
         code.emit(Instruction::new(
             InstructionNode::Type2 {
                 ids: output_registers,
-                temp: temp_register,
+                temp: temp_register_obj.map(|(x, _)| x),
                 vertex: v3,
             },
             v.src().clone(),
         ));
 
+        // Deallocate temporary space
+        if let Some((_, temp_obj)) = temp_register_obj {
+            deallocate(device, temp_obj, &mut gpu_allocator, &mut code, &mut ctx);
+        }
+
         // Deallocate dead register
         // - Deallocate dead GPU register right away
         // - Non-GPU register are deallocated if they are never used by any device
-        for (&dead_obj, &device_collection) in obj_dies_after_reversed.after[&vid].iter() {
+        for (&dead_obj, device_collection) in obj_dies_after_reversed.after[&vid].iter() {
             if device_collection.gpu() {
                 gpu_allocator.deallocate(dead_obj, &mut code, &mut ctx);
             }
-            
+
             let gpu_alive = ctx.object_residence[&dead_obj]
-                .get_device(Device::Gpu)
+                .get_device(DeterminedDevice::Gpu)
                 .is_some();
             if device_collection.cpu() && gpu_alive {
-                deallocate_cpu(obj_id, &mut code, &mut ctx);
+                deallocate_cpu(dead_obj, &mut code, &mut ctx);
             }
             if device_collection.stack() && gpu_alive {
-                deallocate_stack(obj_id, &mut code, &mut ctx);
+                deallocate_stack(dead_obj, &mut code, &mut ctx);
             }
         }
     }
-
-    let outputs = outputs
-        .into_iter()
-        .map(|work| work.to_global_addr(&mapping))
-        .collect();
 
     Ok(Chunk {
         instructions: code.0,
         register_types,
         register_devices: ctx.reg_device,
+        gpu_addr_mapping: ctx.gpu_addr_mapping,
     })
 }

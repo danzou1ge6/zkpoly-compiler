@@ -16,11 +16,11 @@ pub enum Value {
 }
 
 impl Value {
-    pub fn object_ids(&self) -> Box<dyn Iterator<Item = ObjectId>> {
+    pub fn object_ids<'s>(&'s self) -> Box<dyn Iterator<Item = ObjectId> + 's> {
         use Value::*;
         match self {
-            Tuple(ss) => ss.iter().flatten().cloned(),
-            Single(s) => s.iter().cloned(),
+            Tuple(ss) => Box::new(ss.iter().cloned()),
+            Single(s) => Box::new([s.clone()].into_iter()),
         }
     }
 }
@@ -114,7 +114,7 @@ pub fn analyze_def_use<'s, Rt: RuntimeType>(
     cg: &Cg<'s, Rt>,
 ) -> (ObjectsDefUse, IdAllocator<ObjectId>) {
     let mut object_id_allocator = IdAllocator::new();
-    let mut values = BTreeMap::new();
+    let mut values: BTreeMap<VertexId, Value> = BTreeMap::new();
     let mut defs = BTreeMap::new();
     let mut sizes = BTreeMap::new();
 
@@ -128,7 +128,7 @@ pub fn analyze_def_use<'s, Rt: RuntimeType>(
                     Value::Tuple(ss) => {
                         values.insert(vid, Value::Single(ss[*i]));
                     }
-                    Value::Single(s) => panic!("expected array or tuple here"),
+                    Value::Single(..) => panic!("expected array or tuple here"),
                 }
             }
             Array(elements) => {
@@ -136,7 +136,7 @@ pub fn analyze_def_use<'s, Rt: RuntimeType>(
                     elements
                         .iter()
                         .map(|e| match values[e].clone() {
-                            Value::Tuple(ss) => {
+                            Value::Tuple(..) => {
                                 panic!("nested array or tuple not supported")
                             }
                             Value::Single(s) => s,
@@ -146,7 +146,7 @@ pub fn analyze_def_use<'s, Rt: RuntimeType>(
 
                 values.insert(vid, value);
             }
-            otherwise => {
+            _otherwise => {
                 let value = match v.typ() {
                     Typ::Array(typ, len) => {
                         let elements = vec![object_id_allocator.alloc(); *len];
@@ -158,10 +158,10 @@ pub fn analyze_def_use<'s, Rt: RuntimeType>(
                         Value::Tuple(elements)
                     }
                     Typ::Tuple(elements) => Value::Tuple(elements.iter().map(|e| {
-                        let id = object_id_allocator.alloc().collect();
+                        let id = object_id_allocator.alloc();
                         sizes.insert(id, e.size().unwrap_single());
                         id
-                    })),
+                    }).collect()),
                     otherwise => {
                         let id = object_id_allocator.alloc();
                         sizes.insert(id, otherwise.size().unwrap_single());
@@ -169,11 +169,11 @@ pub fn analyze_def_use<'s, Rt: RuntimeType>(
                     }
                 };
 
-                values.insert(vid, value);
-
                 for oid in value.object_ids() {
                     defs.insert(oid, vid);
                 }
+
+                values.insert(vid, value);
             }
         }
     }
@@ -191,21 +191,21 @@ pub fn analyze_def_use<'s, Rt: RuntimeType>(
     )
 }
 
-pub fn analyze_die_after(
+pub fn analyze_die_after<'s, Rt: RuntimeType>(
     cg: &Cg<'s, Rt>,
     seq: &[VertexId],
     devices: &BTreeMap<VertexId, Device>,
     def_use: &ObjectsDefUse,
 ) -> ObjectsDieAfter {
     let mut die_after = ObjectsDieAfter::empty();
-    for vid in seq {
+    for &vid in seq.iter() {
         cg.g.vertex(vid)
             .uses()
             .map(|input_vid| def_use.values[&input_vid].object_ids())
             .flatten()
             .for_each(|obj_id| {
-                let device = devices[vid];
-                die_after.get_device_mut(device).insert(obj_id, *vid)
+                let device = devices[&vid];
+                die_after.get_device_mut(device).insert(obj_id, vid);
             });
     }
     die_after

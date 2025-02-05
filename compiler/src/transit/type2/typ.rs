@@ -49,6 +49,15 @@ impl Size {
             _ => panic!("unwrap_single: not a single"),
         }
     }
+
+    pub fn len(&self) -> usize {
+        use Size::*;
+        match self {
+            Single(_) => 1,
+            Tuple(ss) => ss.len(),
+            Array(_, len) => *len,
+        }
+    }
 }
 
 impl<Rt> Typ<Rt>
@@ -94,7 +103,7 @@ where
     pub fn iter<'s>(&'s self) -> Box<dyn Iterator<Item = &'s Self> + 's> {
         match self {
             Typ::Tuple(ts) => Box::new(ts.iter()),
-            Typ::Array(t, n) => Box::new(std::iter::repeat(t).take(*n)),
+            Typ::Array(t, n) => Box::new(std::iter::repeat(t.as_ref()).take(*n)),
             _ => Box::new(std::iter::once(self)),
         }
     }
@@ -112,7 +121,6 @@ where
             Array(..) => true,
             Any(..) => false,
             _Phantom(_) => unreachable!(),
-            _ => false,
         }
     }
 }

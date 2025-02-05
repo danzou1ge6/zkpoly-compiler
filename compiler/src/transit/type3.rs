@@ -1,8 +1,7 @@
 use std::collections::BTreeMap;
 
-use super::arith;
 use crate::transit::{self, type2};
-use zkpoly_common::define_usize_id;
+use zkpoly_common::{define_usize_id, heap::Heap, arith};
 use zkpoly_runtime::args::RuntimeType;
 
 define_usize_id!(AddrId);
@@ -71,7 +70,7 @@ pub enum Size {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Addr(u64);
+pub struct Addr(pub(crate) u64);
 
 impl Size {
     pub fn new(s: u64) -> Self {
@@ -105,19 +104,19 @@ pub struct DeviceSpecific<T> {
 }
 
 impl<T> DeviceSpecific<T> {
-    pub fn get_device(&self, device: DeterminedDevice) -> &T {
+    pub fn get_device(&self, device: Device) -> &T {
         match device {
-            DeterminedDevice::Gpu => &self.gpu,
-            DeterminedDevice::Cpu => &self.cpu,
-            DeterminedDevice::Stack => &self.stack,
+            Device::Gpu => &self.gpu,
+            Device::Cpu => &self.cpu,
+            Device::Stack => &self.stack,
         }
     }
 
-    pub fn get_device_mut(&mut self, device: DeterminedDevice) -> &mut T {
+    pub fn get_device_mut(&mut self, device: Device) -> &mut T {
         match device {
-            DeterminedDevice::Gpu => &mut self.gpu,
-            DeterminedDevice::Cpu => &mut self.cpu,
-            DeterminedDevice::Stack => &mut self.stack,
+            Device::Gpu => &mut self.gpu,
+            Device::Cpu => &mut self.cpu,
+            Device::Stack => &mut self.stack,
         }
     }
 }
@@ -126,12 +125,13 @@ impl<T> DeviceSpecific<T> {
 define_usize_id!(RegisterId);
 
 pub mod template {
+    use super::Size;
 
     #[derive(Debug, Clone)]
     pub enum InstructionNode<I, A, R, V> {
         Type2 {
             ids: Vec<I>,
-            temp: Option<A>,
+            temp: Option<I>,
             vertex: V,
         },
         GpuMalloc {
@@ -173,7 +173,7 @@ pub mod template {
 pub type VertexNode = 
     type2::template::VertexNode<
         RegisterId,
-        arith::Arith<RegisterId>,
+        arith::ArithGraph<RegisterId, arith::ExprId>,
         type2::ConstantId,
         type2::user_function::Id,
     >;
@@ -203,4 +203,5 @@ pub struct Chunk<'s, Rt: RuntimeType> {
     pub(crate) instructions: Vec<Instruction<'s>>,
     pub(crate) register_types: BTreeMap<RegisterId, type2::Typ<Rt>>,
     pub(crate) register_devices: BTreeMap<RegisterId, Device>,
+    pub(crate) gpu_addr_mapping: AddrMapping,
 }
