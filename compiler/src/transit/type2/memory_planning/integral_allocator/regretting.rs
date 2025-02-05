@@ -161,6 +161,10 @@ impl Allocator {
         Some((addr..(addr + (1 << lbs))).step_by(1 << child_lbs))
     }
 
+    pub fn reuse_addr(&mut self, addr_id: AddrId, next_use: Instant, mapping: &impl AddrMappingHandler) {
+        self.update_next_use(addr_id, next_use, mapping);
+    }
+
     fn update_next_use_in_parent(&mut self, addr: u64, lbs: u32, next_use: usize) {
         if let Some(parent_addr) = self.parent_addr(addr, lbs) {
             let parent_lbs = self.parent_lbs(lbs).unwrap();

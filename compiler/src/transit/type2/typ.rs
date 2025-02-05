@@ -40,6 +40,14 @@ impl Size {
             Array(s, len) => Box::new(std::iter::repeat(s).take(*len)),
         }
     }
+
+    pub fn unwrap_single(&self) -> u64 {
+        use Size::*;
+        match self {
+            Single(s) => *s,
+            _ => panic!("unwrap_single: not a single"),
+        }
+    }
 }
 
 impl<Rt> Typ<Rt>
@@ -79,6 +87,31 @@ where
         match self {
             Poly { typ, deg } => (typ.clone(), *deg),
             _ => panic!("called unwrap_poly on non-poly type"),
+        }
+    }
+
+    pub fn iter<'s>(&'s self) -> Box<dyn Iterator<Item = &'s Self> + 's> {
+        match self {
+            Typ::Tuple(ts) => Box::new(ts.iter()),
+            Typ::Array(t, n) => Box::new(std::iter::repeat(t).take(*n)),
+            _ => Box::new(std::iter::once(self)),
+        }
+    }
+
+    pub fn stack_allocable(&self) -> bool {
+        use Typ::*;
+        match self {
+            Poly { .. } => false,
+            PointBase { .. } => false,
+            Scalar => true,
+            Transcript => false,
+            Point => true,
+            Rng => true,
+            Tuple(..) => true,
+            Array(..) => true,
+            Any(..) => false,
+            _Phantom(_) => unreachable!(),
+            _ => false,
         }
     }
 }

@@ -32,7 +32,7 @@ pub enum Mutability {
 pub struct FunctionType<Rt: RuntimeType> {
     pub(crate) args: Vec<(Typ<Rt>, Mutability)>,
     pub(crate) ret: Typ<Rt>,
-    pub(crate) ret_inplace: Vec<bool>,
+    pub(crate) ret_inplace: Vec<Option<usize>>,
 }
 
 pub struct Function<Rt: RuntimeType> {

@@ -12,7 +12,7 @@ pub use zkpoly_runtime::poly::PolyType;
 
 zkpoly_common::define_usize_id!(VertexId);
 
-pub type Arith = arith::Arith<VertexId>;
+pub type Arith = arith::Ag<VertexId>;
 
 #[derive(Debug, Clone)]
 pub enum NttAlgorithm {
@@ -119,7 +119,7 @@ pub mod template {
         ArrayGet(I, usize),
         UserFunction(E, Vec<I>),
         /// Clone a value to pass to a function that mutates the argument
-        Replicate(I)
+        Replicate(I),
     }
 }
 
@@ -127,7 +127,7 @@ pub mod template {
 // - A should be Ag
 // - Evaluate should be out of Ag
 // - Decide whether to use chunked Arith kernel based on k
-// - Temporary space 
+// - Temporary space
 // - Rotation merged to transfer, whenever possible
 // - Chunking of polynomial is done in Ag kernels
 // - After memory planning, for each rotation, track transfer of value before and after the rotation,
@@ -139,7 +139,7 @@ pub mod template {
 // - Inplace correction before scheduling
 // - Take inplace into consideration in scheduling and memory planning
 // - Twiddle factor precomputing
-// - AddrId should be unique for each data on at each physical block
+// - AddrId should be unique for each data on at each physical block, except for inplace computations
 
 pub type VertexNode = template::VertexNode<VertexId, Arith, ConstantId, user_function::Id>;
 
@@ -156,8 +156,7 @@ impl<'s, Rt: RuntimeType> Vertex<'s, Rt> {
     pub fn uses<'a>(&'a self) -> Box<dyn Iterator<Item = VertexId> + 'a> {
         use template::VertexNode::*;
         match self.node() {
-            Arith(transit::arith::Arith::Bin(_, lhs, rhs)) => Box::new([*lhs, *rhs].into_iter()),
-            Arith(transit::arith::Arith::Unr(_, x)) => Box::new([*x].into_iter()),
+            Arith(arith) => Box::new(arith.uses()),
             Ntt { s, .. } => Box::new([*s].into_iter()),
             RotateIdx(x, _) => Box::new([*x].into_iter()),
             Interplote { xs, ys } => Box::new(xs.iter().copied().chain(ys.iter().copied())),
@@ -181,8 +180,7 @@ impl<'s, Rt: RuntimeType> Vertex<'s, Rt> {
     pub fn uses_mut<'a>(&'a mut self) -> Box<dyn Iterator<Item = &'a mut VertexId> + 'a> {
         use template::VertexNode::*;
         match self.node_mut() {
-            Arith(transit::arith::Arith::Bin(_, lhs, rhs)) => Box::new([lhs, rhs].into_iter()),
-            Arith(transit::arith::Arith::Unr(_, x)) => Box::new([x].into_iter()),
+            Arith(arith) => Box::new(arith.uses_mut()),
             Ntt { s, .. } => Box::new([s].into_iter()),
             RotateIdx(x, _) => Box::new([x].into_iter()),
             Interplote { xs, ys } => Box::new(xs.iter_mut().chain(ys.iter_mut())),
@@ -202,12 +200,6 @@ impl<'s, Rt: RuntimeType> Vertex<'s, Rt> {
             Replicate(s) => Box::new([s].into_iter()),
             _ => Box::new([].into_iter()),
         }
-    }
-    pub fn modify_locals(&mut self, f: &mut impl FnMut(VertexId) -> VertexId) {
-        self.uses_mut().for_each(|i| *i = f(*i));
-    }
-    pub fn scalar_size() -> usize {
-        unimplemented!()
     }
     pub fn temporary_space_needed(&self) -> u64 {
         use template::VertexNode::*;
@@ -244,16 +236,22 @@ impl<'s, Rt: RuntimeType> Vertex<'s, Rt> {
             _ => Device::Cpu,
         }
     }
-    pub fn mutable_uses<'a>(&'a self, uf_table: &'a user_function::Table<Rt>) -> Box<dyn Iterator<Item = VertexId> + 'a> {
+    pub fn mutable_uses<'a>(
+        &'a self,
+        uf_table: &'a user_function::Table<Rt>,
+    ) -> Box<dyn Iterator<Item = VertexId> + 'a> {
         use template::VertexNode::*;
         match self.node() {
             Ntt { s, .. } => Box::new([*s].into_iter()),
             RotateIdx(s, ..) => Box::new([*s].into_iter()),
-            HashTranscript { transcript, ..} => Box::new([*transcript].into_iter()),
+            HashTranscript { transcript, .. } => Box::new([*transcript].into_iter()),
             SqueezeScalar(transcript) => Box::new([*transcript].into_iter()),
             UserFunction(fid, args) => {
                 let f_typ = &uf_table[*fid].typ;
-                let r = f_typ.args.iter().zip(args.iter())
+                let r = f_typ
+                    .args
+                    .iter()
+                    .zip(args.iter())
                     .filter(|((_, arg_mutability), _)| {
                         arg_mutability == &user_function::Mutability::Mutable
                     })
@@ -263,23 +261,123 @@ impl<'s, Rt: RuntimeType> Vertex<'s, Rt> {
             _ => Box::new([].into_iter()),
         }
     }
-    pub fn mutable_uses_mut<'a>(&'a mut self, uf_table: &'a user_function::Table<Rt>) -> Box<dyn Iterator<Item = &'a mut VertexId> + 'a> {
+    pub fn mutable_uses_mut<'a>(
+        &'a mut self,
+        uf_table: &'a user_function::Table<Rt>,
+    ) -> Box<dyn Iterator<Item = &'a mut VertexId> + 'a> {
         use template::VertexNode::*;
         match self.node_mut() {
-            Ntt { s,.. } => Box::new([s].into_iter()),
-            RotateIdx(s,..) => Box::new([s].into_iter()),
-            HashTranscript { transcript,..} => Box::new([transcript].into_iter()),
+            Ntt { s, .. } => Box::new([s].into_iter()),
+            RotateIdx(s, ..) => Box::new([s].into_iter()),
+            HashTranscript { transcript, .. } => Box::new([transcript].into_iter()),
             SqueezeScalar(transcript) => Box::new([transcript].into_iter()),
             UserFunction(fid, args) => {
                 let f_typ = &uf_table[*fid].typ;
-                let r = f_typ.args.iter().zip(args.iter_mut())
-                 .filter(|((_, arg_mutability), _)| {
+                let r = f_typ
+                    .args
+                    .iter()
+                    .zip(args.iter_mut())
+                    .filter(|((_, arg_mutability), _)| {
                         arg_mutability == &user_function::Mutability::Mutable
                     })
-                 .map(|(_, arg)| arg);
+                    .map(|(_, arg)| arg);
                 Box::new(r)
             }
             _ => Box::new([].into_iter()),
+        }
+    }
+    pub fn outputs_inplace(
+        &self,
+        uf_table: &'a user_function::Table<Rt>,
+    ) -> Box<dyn Iterator<Item = Option<VertexId>>> {
+        use template::VertexNode::*;
+        match self.node() {
+            Ntt { s, .. } => Box::new([*s].into_iter()),
+            RotateIdx(s, ..) => Box::new([*s].into_iter()),
+            HashTranscript { transcript, .. } => Box::new([Some(*transcript)].into_iter()),
+            SqueezeScalar(transcript) => Box::new([Some(*transcript), None].into_iter()),
+            UserFunction(fid, args) => {
+                let f_typ = &uf_table[*fid].typ;
+                f_typ.ret_inplace.iter().map(|&i| Some(args[&(i?)])).collect()
+            }
+            _ => Box::new(self.typ().size().iter().map(|_|None))
+        }
+    }
+    pub fn is_virtual(&self) -> bool {
+        use template::VertexNode::*;
+        match self.node() {
+            Array(..) | ArrayGet(..) | TupleGet(..) => true,
+            _ => false,
+        }
+    }
+}
+
+impl<I, C, E> template::VertexNode<I, arith::Ag<I>, C, E>
+where
+    I: Copy,
+    C: Clone,
+    E: Clone,
+{
+    pub fn relabeled<I2>(
+        &self,
+        mut mapping: impl FnMut(I) -> I2,
+    ) -> template::VertexNode<I2, arith::Arith<I2>, C, E> {
+        use template::VertexNode::*;
+
+        match self {
+            NewPoly(deg, init) => NewPoly(*deg, mapping(*init)),
+            Constant(c) => Constant(*c),
+            Arith(arith) => Arith(arith.relabeled(mapping)),
+            Entry => Entry,
+            Return => Return,
+            LiteralScalar(..) => unreachable!(),
+            Ntt {
+                alg,
+                s,
+                to,
+                from,
+                alg,
+            } => Ntt {
+                alg: alg.clone(),
+                s: mapping(*s),
+                to: to.clone(),
+                from: from.clone(),
+            },
+            RotateIdx(s, deg) => RotateIdx(mapping(*s), *deg),
+            Interplote { xs, ys } => Interplote {
+                xs: xs.iter().map(|x| mapping(*x)).collect(),
+                ys: ys.iter().map(|x| mapping(*x)).collect(),
+            },
+            Blind(s, blind) => Blind(mapping(*s), *blind),
+            Array(es) => Array(es.iter().map(|x| mapping(*x)).collect()),
+            AssmblePoly(s, es) => {
+                AssmblePoly(mapping(*s), es.iter().map(|x| mapping(*x)).collect())
+            }
+            Msm {
+                alg,
+                scalars,
+                points,
+            } => Msm {
+                alg: *alg,
+                scalars: mapping(*scalars),
+                points: mapping(*points),
+            },
+            HashTranscript {
+                transcript,
+                value,
+                typ,
+            } => HashTranscript {
+                transcript: mapping(*transcript),
+                value: mapping(*value),
+                typ: *typ,
+            },
+            SqueezeScalar(transcript) => SqueezeScalar(mapping(*transcript)),
+            TupleGet(s, i) => TupleGet(mapping(*s), *i),
+            ArrayGet(s, i) => ArrayGet(mapping(*s), *i),
+            UserFunction(fid, args) => {
+                UserFunction(*fid, args.iter().map(|x| mapping(*x)).collect())
+            }
+            Replicate(s) => Replicate(mapping(*s)),
         }
     }
 }
@@ -289,7 +387,5 @@ pub type Cg<'s, Rt: RuntimeType> = transit::Cg<VertexId, Vertex<'s, Rt>>;
 
 pub mod graph_scheduling;
 pub mod memory_planning;
-pub mod mut_correction;
 pub mod typ;
 pub mod user_function;
-pub mod rotation_fusion;

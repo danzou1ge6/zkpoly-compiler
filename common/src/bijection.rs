@@ -23,6 +23,14 @@ where
     }
 
     pub fn insert(&mut self, a: T1, b: T2) {
+        if let Some(b_old) = self.forward.get(&a) {
+            self.backward.remove(b_old);
+        }
+
+        if let Some(a_old) = self.backward.get(&b) {
+            self.forward.remove(a_old);
+        }
+
         self.forward.insert(a.clone(), b.clone());
         self.backward.insert(b, a);
     }

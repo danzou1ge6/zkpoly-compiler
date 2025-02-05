@@ -1,4 +1,4 @@
-use zkpoly_common::{define_usize_id, heap::Heap};
+use zkpoly_common::{define_usize_id, heap::{Heap, UsizeId}};
 
 /// Scalar-Polynomial operator
 #[derive(Debug, Clone)]
@@ -71,9 +71,55 @@ pub enum Vertex<I, Ai> {
     Input(I, i32),
 }
 
-#[derive(Debug, Clone)]
-pub struct Ag<I, Ai> {
-    output: Ai,
-    inputs: Vec<Ai>,
-    heap: Heap<Ai, Vertex<I, Ai>>
+impl<I, Ai> Vertex<I, Ai> {
+    pub fn unwrap_input(&self) -> &I {
+        match self {
+            Vertex::Input(i, _) => i,
+            _ => panic!("unwrap_input: not an input"),
+        }
+    }
+
+    pub fn unwrap_input_mut(&mut self) -> &mut I {
+        match self {
+            Vertex::Input(i, _) => i,
+            _ => panic!("unwrap_input_mut: not an input"),
+        }
+    }
+}
+
+pub mod template {
+    use super::*;
+
+    #[derive(Debug, Clone)]
+    pub struct Ag<I, Ai> {
+        pub(super) output: Vec<Ai>,
+        pub(super) inputs: Vec<Ai>,
+        pub(super) heap: Heap<Ai, Vertex<I, Ai>>
+    }
+
+}
+
+pub type Ag<I> = template::Ag<I, ExprId>;
+
+impl<I> Ag<I> where I: UsizeId {
+    pub fn uses_mut<'a>(&'a mut self) -> impl Iterator<Item = &mut I> + 'a {
+        self.inputs.iter().map(|&i| self.heap.get_mut(i).unwrap_input_mut())
+    }
+
+    pub fn uses(&self) -> impl Iterator<Item = I> {
+        self.inputs.iter().map(|&i| self.heap.get(i).unwrap_input().clone())
+    }
+
+    pub fn relabeled<I2>(&self, mut mapping: impl FnMut(I) -> I2) -> Ag<I2> {
+        let heap = self.heap.map(&mut |_, v| match v {
+            Vertex::Input(i, rot) => Vertex::Input(mapping(i), rot),
+            Vertex::A(arith) => Vertex::A(arith),
+        });
+
+        Ag {
+            output: self.output.clone(),
+            inputs: self.inputs.clone(),
+            heap,
+        }
+    }
 }
