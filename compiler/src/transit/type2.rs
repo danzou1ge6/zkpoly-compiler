@@ -85,7 +85,8 @@ pub mod template {
     pub enum VertexNode<I, A, C, E> {
         NewPoly(u64, PolyInit),
         Constant(C),
-        Arith(A),
+        /// .1 is size of each chunk, if chunking is enabled
+        Arith(A, Option<u64>),
         Entry,
         Return,
         /// A small scalar. To accomodate big scalars, use global constants.
@@ -120,8 +121,6 @@ pub mod template {
         TupleGet(I, usize),
         ArrayGet(I, usize),
         UserFunction(E, Vec<I>),
-        /// Clone a value to pass to a function that mutates the argument
-        Replicate(I),
     }
 }
 
@@ -157,7 +156,7 @@ impl<'s, Rt: RuntimeType> Vertex<'s, Rt> {
     pub fn uses<'a>(&'a self) -> Box<dyn Iterator<Item = VertexId> + 'a> {
         use template::VertexNode::*;
         match self.node() {
-            Arith(arith) => Box::new(arith.uses()),
+            Arith(arith, ..) => Box::new(arith.uses()),
             Ntt { s, .. } => Box::new([*s].into_iter()),
             RotateIdx(x, _) => Box::new([*x].into_iter()),
             Interplote { xs, ys } => Box::new(xs.iter().copied().chain(ys.iter().copied())),
@@ -174,7 +173,6 @@ impl<'s, Rt: RuntimeType> Vertex<'s, Rt> {
             Blind(x, _) => Box::new([*x].into_iter()),
             ArrayGet(x, _) => Box::new([*x].into_iter()),
             UserFunction(_, es) => Box::new(es.iter().copied()),
-            Replicate(s) => Box::new([*s].into_iter()),
             _ => Box::new([].into_iter()),
         }
     }
@@ -199,7 +197,6 @@ impl<'s, Rt: RuntimeType> Vertex<'s, Rt> {
             TupleGet(..) => 0,
             ArrayGet(..) => 0,
             UserFunction(..) => 0,
-            Replicate(..) => 0,
         }
     }
     pub fn space(&self) -> u64 {
@@ -208,8 +205,13 @@ impl<'s, Rt: RuntimeType> Vertex<'s, Rt> {
     pub fn device(&self) -> Device {
         use template::VertexNode::*;
         match self.node() {
-            NewPoly(..) | Constant(..) | RotateIdx(..) | Replicate(..) => Device::PreferGpu,
-            Arith(..) | Ntt { .. } | Msm { .. } => Device::Gpu,
+            NewPoly(..) | RotateIdx(..) => Device::PreferGpu,
+            Arith(_, chk) => if chk.is_some() {
+                Device::Cpu
+            } else {
+                Device::Gpu
+            },
+            Ntt { .. } => Device::Gpu,
             _ => Device::Cpu,
         }
     }
@@ -276,10 +278,10 @@ impl<'s, Rt: RuntimeType> Vertex<'s, Rt> {
             UserFunction(fid, args) => {
                 let f_typ = &uf_table[*fid].typ;
                 let r = f_typ
-                        .ret_inplace
-                        .iter()
-                        .map(|&i| Some(args[i?]))
-                        .collect::<Vec<_>>();
+                    .ret_inplace
+                    .iter()
+                    .map(|&i| Some(args[i?]))
+                    .collect::<Vec<_>>();
                 Box::new(r.into_iter())
             }
             _ => {
@@ -312,10 +314,10 @@ where
         match self {
             NewPoly(deg, init) => NewPoly(*deg, init.clone()),
             Constant(c) => Constant(c.clone()),
-            Arith(arith) => Arith(arith.relabeled(mapping)),
+            Arith(arith, chk) => Arith(arith.relabeled(mapping), *chk),
             Entry => Entry,
             Return => Return,
-            LiteralScalar(..) => unreachable!(),
+            LiteralScalar(s) => LiteralScalar(*s),
             Ntt { alg, s, to, from } => Ntt {
                 alg: alg.clone(),
                 s: mapping(*s),
@@ -354,7 +356,40 @@ where
             UserFunction(fid, args) => {
                 UserFunction(fid.clone(), args.iter().map(|x| mapping(*x)).collect())
             }
-            Replicate(s) => Replicate(mapping(*s)),
+        }
+    }
+
+    pub fn track(&self, device: super::type3::Device) -> super::type3::Track {
+        use super::type3::Track::*;
+        use template::VertexNode::*;
+
+        let on_device = super::type3::Track::on_device;
+
+        match self {
+            NewPoly(..) => on_device(device),
+            Constant(..) => Cpu,
+            Arith(_, chk) => {
+                if let Some(..) = chk {
+                    CoProcess
+                } else {
+                    Gpu
+                }
+            }
+            Entry => Cpu,
+            Return => Cpu,
+            LiteralScalar(..) => Cpu,
+            Ntt { .. } => CoProcess,
+            RotateIdx(..) => on_device(device),
+            Interplote { .. } => Cpu,
+            Blind(..) => Cpu,
+            Array(..) => Cpu,
+            AssmblePoly(..) => Cpu,
+            Msm { .. } => CoProcess,
+            HashTranscript { .. } => Cpu,
+            SqueezeScalar(..) => Cpu,
+            TupleGet(..) => Cpu,
+            ArrayGet(..) => Cpu,
+            UserFunction(..) => Cpu,
         }
     }
 }
