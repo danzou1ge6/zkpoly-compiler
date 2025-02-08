@@ -563,7 +563,12 @@ fn ensure_copied(
         }));
         copied_reg
     } else {
-        ensure_on_device(device, obj_id, now, gpu_allocator, code, ctx, imctx)?
+        let on_device_reg = ensure_on_device(device, original_obj_id, now, gpu_allocator, code, ctx, imctx)?;
+        let moved_reg = code.alloc_register_id();
+        code.emit(Instruction::new_no_src(InstructionNode::Move { id: moved_reg, from: on_device_reg } ));
+        ctx.remove_residence_for_object(original_obj_id, device);
+        ctx.add_residence_for_object(obj_id, moved_reg, device);
+        moved_reg
     };
     Ok(input_reg)
 }
