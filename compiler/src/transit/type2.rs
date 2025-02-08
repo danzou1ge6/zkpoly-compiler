@@ -268,11 +268,19 @@ impl<'s, Rt: RuntimeType> Vertex<'s, Rt> {
     pub fn outputs_inplace<'a>(
         &self,
         uf_table: &'a user_function::Table<Rt>,
+        device: super::type3::Device
     ) -> Box<dyn Iterator<Item = Option<VertexId>>> {
         use template::VertexNode::*;
         match self.node() {
             Ntt { s, .. } => Box::new([Some(*s)].into_iter()),
-            RotateIdx(s, ..) => Box::new([Some(*s)].into_iter()),
+            RotateIdx(s, ..) => {
+                use super::type3::Device::*;
+                match device {
+                    Cpu => Box::new([Some(*s)].into_iter()),
+                    Gpu => Box::new([None].into_iter()),
+                    Stack => panic!("RotateIdx output can't be on stack")
+                }
+            },
             HashTranscript { transcript, .. } => Box::new([Some(*transcript)].into_iter()),
             SqueezeScalar(transcript) => Box::new([Some(*transcript), None].into_iter()),
             UserFunction(fid, args) => {

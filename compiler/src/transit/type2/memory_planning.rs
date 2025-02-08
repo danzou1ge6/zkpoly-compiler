@@ -626,7 +626,7 @@ pub fn plan<'s, Rt: RuntimeType>(
         // - Build tuples, if needed
         let mutable_uses: Vec<VertexId> = cg.g.vertex(vid).mutable_uses(uf_table).collect();
         let outputs_inplace: Vec<Option<VertexId>> =
-            cg.g.vertex(vid).outputs_inplace(uf_table).collect();
+            cg.g.vertex(vid).outputs_inplace(uf_table, device).collect();
         let input_registers: Vec<RegisterId> = cg
             .g
             .vertex(vid)
@@ -732,7 +732,7 @@ pub fn plan<'s, Rt: RuntimeType>(
         let v = cg.g.vertex(vid);
         let output_registers: Vec<RegisterId> = obj_def_use.values[&vid]
             .object_ids()
-            .zip(v.outputs_inplace(uf_table))
+            .zip(v.outputs_inplace(uf_table, device))
             .map(|(output_obj, inplace)| {
                 if let Some(input_vid) = inplace {
                     let index = v.uses().position(|x| x == input_vid).unwrap();
