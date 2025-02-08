@@ -176,27 +176,28 @@ impl<'s, Rt: RuntimeType> Vertex<'s, Rt> {
             _ => Box::new([].into_iter()),
         }
     }
-    pub fn temporary_space_needed(&self) -> u64 {
+    pub fn temporary_space_needed(&self) -> Option<(u64, super::type3::Device)> {
         use template::VertexNode::*;
+        use super::type3::Device::*;
         match self.node() {
-            Arith(..) => 0,
-            NewPoly(..) => 0,
-            Constant(..) => 0,
-            Entry => 0,
-            Return => 0,
-            LiteralScalar(..) => 0,
-            Ntt { alg, .. } => alg.temporary_space_needed::<Rt::Field>(self.typ().unwrap_poly().1),
-            RotateIdx(..) => 0,
-            Interplote { .. } => 0,
-            Blind(..) => 0,
-            Array(..) => 0,
-            AssmblePoly(..) => 0,
-            Msm { alg, .. } => alg.temporary_space_needed::<Rt::Field>(self.typ().unwrap_poly().1),
-            HashTranscript { .. } => 0,
-            SqueezeScalar(..) => 0,
-            TupleGet(..) => 0,
-            ArrayGet(..) => 0,
-            UserFunction(..) => 0,
+            Arith(..) => None ,
+            NewPoly(..) => None ,
+            Constant(..) => None ,
+            Entry => None ,
+            Return => None ,
+            LiteralScalar(..) => None ,
+            Ntt { alg, .. } => Some((alg.temporary_space_needed::<Rt::Field>(self.typ().unwrap_poly().1), Gpu)),
+            RotateIdx(..) => None ,
+            Interplote { .. } => None ,
+            Blind(..) => None ,
+            Array(..) => None ,
+            AssmblePoly(..) => None ,
+            Msm { alg, .. } => Some((alg.temporary_space_needed::<Rt::Field>(self.typ().unwrap_poly().1), Gpu)),
+            HashTranscript { .. } => None ,
+            SqueezeScalar(..) => None ,
+            TupleGet(..) => None ,
+            ArrayGet(..) => None ,
+            UserFunction(..) => None ,
         }
     }
     pub fn space(&self) -> u64 {

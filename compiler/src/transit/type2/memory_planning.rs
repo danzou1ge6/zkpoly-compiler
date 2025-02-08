@@ -21,6 +21,35 @@ use super::{
 use super::{Cg, Device, VertexId};
 use object_analysis::{ObjectId, ObjectsDefUse, ObjectsDieAfter};
 
+const MIN_SMITHEREEN_SPACE: u64 = 2u64.pow(26);
+const SMITHEREEN_CEIL_TO_INTEGRAL_THRESHOLD: u64 = 2u64.pow(16);
+const LOG_MIN_INTEGRAL_SIZE: u32 = 10;
+
+fn normalize_size(size: Size) -> Size {
+    match size {
+        Size::Integral(is) => {
+            if is.0 < LOG_MIN_INTEGRAL_SIZE {
+                Size::Smithereen(SmithereenSize(2u64.pow(is.0)))
+            } else {
+                Size::Integral(is)
+            }
+        }
+        Size::Smithereen(ss) => {
+            if let Ok(is) = IntegralSize::try_from(ss) {
+                if is.0 < LOG_MIN_INTEGRAL_SIZE {
+                    Size::Smithereen(SmithereenSize(2u64.pow(is.0)))
+                } else {
+                    Size::Integral(is)
+                }
+            } else if ss.0 >= SMITHEREEN_CEIL_TO_INTEGRAL_THRESHOLD {
+                Size::Integral(IntegralSize::ceiling(ss))
+            } else {
+                Size::Smithereen(ss)
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct Instant(usize);
 
@@ -54,23 +83,21 @@ fn collect_integral_sizes<'s, Rt: RuntimeType>(cg: &Cg<'s, Rt>) -> Vec<IntegralS
     let mut integral_sizes = BTreeSet::<IntegralSize>::new();
     for vid in cg.g.vertices() {
         let v = cg.g.vertex(vid);
-        let temp_size = SmithereenSize(v.temporary_space_needed());
         for &size in v.typ().size().iter() {
             if let Ok(is) = IntegralSize::try_from(SmithereenSize(size)) {
                 integral_sizes.insert(is);
             }
         }
-        if let Ok(is) = IntegralSize::try_from(temp_size) {
-            integral_sizes.insert(is);
+        if let Some((temp_size, _)) = v.temporary_space_needed() {
+            if let Size::Integral(is) = normalize_size(Size::Smithereen(SmithereenSize(temp_size)))
+            {
+                integral_sizes.insert(is);
+            }
         }
     }
 
     integral_sizes.into_iter().collect()
 }
-
-const MIN_SMITHEREEN_SPACE: u64 = 2u64.pow(26);
-const SMITHEREEN_CEIL_TO_INTEGRAL_THRESHOLD: u64 = 2u64.pow(12);
-
 fn divide_integral_smithereens(total: u64, max_integral: IntegralSize) -> (u64, u64) {
     let max_integral = 2u64.pow(max_integral.0);
     let mut integral_space = total / max_integral * max_integral;
@@ -275,6 +302,10 @@ fn allocate_gpu_smithereen(
     Err(InsufficientSmithereenSpace)
 }
 
+fn whether_ceil_smithereen_to_integral(size: SmithereenSize) -> bool {
+    size.0 >= SMITHEREEN_CEIL_TO_INTEGRAL_THRESHOLD
+}
+
 impl GpuAllocator {
     pub fn allocate(
         &mut self,
@@ -286,7 +317,7 @@ impl GpuAllocator {
         ctx: &mut Context,
         imctx: &ImmutableContext,
     ) -> Result<(), InsufficientSmithereenSpace> {
-        let addr = match size {
+        let addr = match normalize_size(size) {
             Size::Integral(size) => allocate_gpu_integral(
                 size,
                 obj_id,
@@ -298,23 +329,7 @@ impl GpuAllocator {
                 imctx,
             ),
             Size::Smithereen(size) => {
-                if size.0 >= SMITHEREEN_CEIL_TO_INTEGRAL_THRESHOLD
-                    || IntegralSize::try_from(size).is_ok()
-                {
-                    let size = IntegralSize::ceiling(size);
-                    allocate_gpu_integral(
-                        size,
-                        obj_id,
-                        reg_id,
-                        next_use,
-                        &mut self.ialloc,
-                        code,
-                        ctx,
-                        imctx,
-                    )
-                } else {
-                    allocate_gpu_smithereen(size, &mut self.salloc, &mut ctx.gpu_addr_mapping)?
-                }
+                allocate_gpu_smithereen(size, &mut self.salloc, &mut ctx.gpu_addr_mapping)?
             }
         };
 
@@ -563,9 +578,20 @@ fn ensure_copied(
         }));
         copied_reg
     } else {
-        let on_device_reg = ensure_on_device(device, original_obj_id, now, gpu_allocator, code, ctx, imctx)?;
+        let on_device_reg = ensure_on_device(
+            device,
+            original_obj_id,
+            now,
+            gpu_allocator,
+            code,
+            ctx,
+            imctx,
+        )?;
         let moved_reg = code.alloc_register_id();
-        code.emit(Instruction::new_no_src(InstructionNode::Move { id: moved_reg, from: on_device_reg } ));
+        code.emit(Instruction::new_no_src(InstructionNode::Move {
+            id: moved_reg,
+            from: on_device_reg,
+        }));
         ctx.remove_residence_for_object(original_obj_id, device);
         ctx.add_residence_for_object(obj_id, moved_reg, device);
         moved_reg
@@ -755,25 +781,25 @@ pub fn plan<'s, Rt: RuntimeType>(
                 }
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let temp_space_size = v.temporary_space_needed();
-        let temp_register_obj = if temp_space_size != 0 {
-            let temp_register = code.alloc_register_id();
-            let temp_obj = obj_id_allocator.alloc();
-            allocate(
-                device,
-                temp_register,
-                temp_obj,
-                now,
-                Size::Smithereen(SmithereenSize(temp_space_size)),
-                &mut gpu_allocator,
-                &mut code,
-                &mut ctx,
-                &imctx,
-            )?;
-            Some((temp_register, temp_obj))
-        } else {
-            None
-        };
+        let temp_register_obj =
+            if let Some((temp_space_size, temp_space_device)) = v.temporary_space_needed() {
+                let temp_register = code.alloc_register_id();
+                let temp_obj = obj_id_allocator.alloc();
+                allocate(
+                    temp_space_device,
+                    temp_register,
+                    temp_obj,
+                    now,
+                    Size::Smithereen(SmithereenSize(temp_space_size)),
+                    &mut gpu_allocator,
+                    &mut code,
+                    &mut ctx,
+                    &imctx,
+                )?;
+                Some((temp_register, temp_obj))
+            } else {
+                None
+            };
 
         // Emit vertex
 
