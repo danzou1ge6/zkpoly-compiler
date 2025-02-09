@@ -96,7 +96,7 @@ pub enum Device {
     Stack,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct DeviceSpecific<T> {
     pub gpu: T,
     pub cpu: T,
@@ -157,6 +157,12 @@ pub mod template {
             id: I,
             oprands: Vec<I>,
         },
+        RotateAndSlice {
+            id: I,
+            operand: I,
+            rot: R,
+            slice: (u64, u64),
+        },
         Transfer {
             id: I,
             from: I,
@@ -185,6 +191,10 @@ pub mod template {
                 Tuple { id, oprands, .. } => {
                     Box::new(std::iter::once(*id).chain(oprands.iter().copied()))
                 }
+                RotateAndSlice {
+                    id,
+                    ..
+                } => Box::new(std::iter::once(*id)),
                 Transfer { id, .. } => Box::new(std::iter::once(*id)),
                 Move { id, .. } => Box::new(std::iter::once(*id)),
             }
@@ -308,6 +318,7 @@ impl<'s> Instruction<'s> {
             StackAlloc { .. } => Cpu,
             StackFree { .. } => Cpu,
             Tuple { .. } => Cpu,
+            RotateAndSlice { .. } => Cpu,
             Transfer { from, id, .. } => determine_transfer_track(devices(*from), devices(*id)),
             Move { .. } => Cpu,
         }

@@ -302,7 +302,7 @@ impl<'s, Rt: RuntimeType> Vertex<'s, Rt> {
     pub fn is_virtual(&self) -> bool {
         use template::VertexNode::*;
         match self.node() {
-            Array(..) | ArrayGet(..) | TupleGet(..) => true,
+            Array(..) | ArrayGet(..) | TupleGet(..) | RotateIdx(..) => true,
             _ => false,
         }
     }

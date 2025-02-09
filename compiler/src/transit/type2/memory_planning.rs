@@ -19,7 +19,7 @@ use super::{
 };
 
 use super::{Cg, Device, VertexId};
-use object_analysis::{ObjectId, ObjectsDefUse, ObjectsDieAfter};
+use object_analysis::{ObjectId, ObjectsDefUse, ObjectsDieAfter, Value};
 
 const MIN_SMITHEREEN_SPACE: u64 = 2u64.pow(26);
 const SMITHEREEN_CEIL_TO_INTEGRAL_THRESHOLD: u64 = 2u64.pow(16);
@@ -144,28 +144,22 @@ fn collect_next_uses(
     r
 }
 
-pub type RegisterPlaces = DeviceSpecific<Option<RegisterId>>;
+pub type RegisterPlaces = DeviceSpecific<BTreeSet<RegisterId>>;
 
 impl RegisterPlaces {
     pub fn empty() -> Self {
-        Self {
-            gpu: None,
-            cpu: None,
-            stack: None,
-        }
+        Self::default()
     }
 }
 
 impl RegisterPlaces {
     pub fn get_any(&self) -> RegisterId {
         self.gpu
-            .or_else(|| self.cpu)
-            .or_else(|| self.stack)
+            .first()
+            .or_else(|| self.cpu.first())
+            .or_else(|| self.stack.first())
+            .cloned()
             .expect("at least some register is expected to be available")
-    }
-
-    pub fn unset(&mut self, device: DeterminedDevice) {
-        *self.get_device_mut(device) = None;
     }
 }
 
@@ -191,11 +185,11 @@ impl Context {
         reg_id: RegisterId,
         device: DeterminedDevice,
     ) {
-        *self
-            .object_residence
+        self.object_residence
             .entry(obj_id)
             .or_insert_with(|| RegisterPlaces::empty())
-            .get_device_mut(device) = Some(reg_id);
+            .get_device_mut(device)
+            .insert(reg_id);
         self.reg_device.insert(reg_id, device);
         self.reg2obj.insert(reg_id, obj_id);
     }
@@ -204,7 +198,20 @@ impl Context {
         self.object_residence
             .get_mut(&obj_id)
             .unwrap()
-            .unset(device);
+            .get_device_mut(device)
+            .clear();
+    }
+
+    pub fn pop_residence_of_object(
+        &mut self,
+        obj_id: ObjectId,
+        device: DeterminedDevice,
+    ) -> Option<RegisterId> {
+        self.object_residence
+            .get_mut(&obj_id)
+            .unwrap()
+            .get_device_mut(device)
+            .pop_first()
     }
 }
 
@@ -234,7 +241,7 @@ fn move_victims(victims: &[AddrId], code: &mut Code, ctx: &mut Context, imctx: &
         let reg_id = ctx.gpu_reg2addr.get_backward(&victim).cloned().unwrap();
         let obj_id = ctx.reg2obj[&reg_id];
 
-        if ctx.object_residence[&obj_id].cpu.is_none() {
+        if ctx.object_residence[&obj_id].cpu.is_empty() {
             let new_reg = code.alloc_register_id();
             let size = imctx.obj_sizes[&obj_id];
             allocate_cpu(obj_id, new_reg, size, code, ctx);
@@ -346,8 +353,8 @@ impl GpuAllocator {
     }
 
     pub fn deallocate(&mut self, obj_id: ObjectId, code: &mut Code, ctx: &mut Context) {
-        let reg_id = ctx.object_residence[&obj_id]
-            .get_device(DeterminedDevice::Gpu)
+        let reg_id = ctx
+            .pop_residence_of_object(obj_id, DeterminedDevice::Gpu)
             .unwrap();
         let addr = ctx.gpu_reg2addr.get_forward(&reg_id).cloned().unwrap();
 
@@ -361,12 +368,15 @@ impl GpuAllocator {
                 .deallocate(addr, &mut GpuAddrMappingHandler(&mut ctx.gpu_addr_mapping)),
         }
 
-        let reg_id = ctx.object_residence[&obj_id]
-            .get_device(DeterminedDevice::Gpu)
-            .unwrap();
         code.emit(Instruction::new_no_src(InstructionNode::GpuFree {
             id: reg_id,
         }));
+
+        while let Some(reg_id) = ctx.pop_residence_of_object(obj_id, DeterminedDevice::Gpu) {
+            code.emit(Instruction::new_no_src(InstructionNode::StackFree {
+                id: reg_id,
+            }))
+        }
 
         ctx.remove_residence_for_object(obj_id, DeterminedDevice::Gpu);
     }
@@ -419,25 +429,29 @@ fn allocate(
 }
 
 fn deallocate_cpu(obj_id: ObjectId, code: &mut Code, ctx: &mut Context) {
-    let reg_id = ctx.object_residence[&obj_id]
-        .get_device(DeterminedDevice::Cpu)
+    let reg_id = ctx
+        .pop_residence_of_object(obj_id, DeterminedDevice::Cpu)
         .unwrap();
 
     code.emit(Instruction::new_no_src(InstructionNode::CpuFree {
         id: reg_id,
     }));
 
+    while let Some(reg_id) = ctx.pop_residence_of_object(obj_id, DeterminedDevice::Cpu) {
+        code.emit(Instruction::new_no_src(InstructionNode::StackFree {
+            id: reg_id,
+        }));
+    }
+
     ctx.remove_residence_for_object(obj_id, DeterminedDevice::Cpu);
 }
 
 fn deallocate_stack(obj_id: ObjectId, code: &mut Code, ctx: &mut Context) {
-    let reg_id = ctx.object_residence[&obj_id]
-        .get_device(DeterminedDevice::Stack)
-        .unwrap();
-
-    code.emit(Instruction::new_no_src(InstructionNode::StackFree {
-        id: reg_id,
-    }));
+    while let Some(reg_id) = ctx.pop_residence_of_object(obj_id, DeterminedDevice::Stack) {
+        code.emit(Instruction::new_no_src(InstructionNode::StackFree {
+            id: reg_id,
+        }));
+    }
 
     ctx.remove_residence_for_object(obj_id, DeterminedDevice::Stack);
 }
@@ -510,7 +524,7 @@ fn ensure_on_device(
     ctx: &mut Context,
     imctx: &ImmutableContext,
 ) -> Result<RegisterId, InsufficientSmithereenSpace> {
-    if let Some(reg_id) = ctx.object_residence[&obj_id].get_device(device) {
+    if let Some(reg_id) = ctx.object_residence[&obj_id].get_device(device).first() {
         Ok(*reg_id)
     } else {
         let new_reg = code.alloc_register_id();
@@ -599,6 +613,32 @@ fn ensure_copied(
     Ok(input_reg)
 }
 
+fn set_rotation_and_slice(
+    value: &Value,
+    obj_id: ObjectId,
+    device: DeterminedDevice,
+    reg_id: RegisterId,
+    code: &mut Code,
+    ctx: &mut Context,
+) -> RegisterId {
+    match value {
+        Value::Poly {
+            rotation, slice, ..
+        } => {
+            let new_reg = code.alloc_register_id();
+            code.emit(Instruction::new_no_src(InstructionNode::RotateAndSlice {
+                id: new_reg,
+                operand: reg_id,
+                rot: *rotation,
+                slice: *slice,
+            }));
+            ctx.add_residence_for_object(obj_id, new_reg, device);
+            new_reg
+        }
+        _ => reg_id,
+    }
+}
+
 pub fn plan<'s, Rt: RuntimeType>(
     capacity: u64,
     cg: &Cg<'s, Rt>,
@@ -669,16 +709,16 @@ pub fn plan<'s, Rt: RuntimeType>(
                                 .unwrap(),
                         )
                         .unwrap();
-                    let input_obj = match &obj_def_use.values[&input_vid] {
-                        object_analysis::Value::Single(obj_id) => *obj_id,
-                        object_analysis::Value::Tuple(obj_ids) => {
+                    let input_value = match &obj_def_use.values[&input_vid] {
+                        object_analysis::VertexValue::Single(input_value) => input_value.clone(),
+                        object_analysis::VertexValue::Tuple(..) => {
                             panic!("an inplace input must not be a tuple")
                         }
                     };
-                    ensure_copied(
+                    let copied_reg = ensure_copied(
                         device,
                         vid,
-                        input_obj,
+                        input_value.object_id(),
                         ouput_obj,
                         updated_next_uses[&vid],
                         &mut gpu_allocator,
@@ -686,20 +726,28 @@ pub fn plan<'s, Rt: RuntimeType>(
                         &mut ctx,
                         &imctx,
                         &obj_dies_after,
-                    )
+                    )?;
+                    Ok(set_rotation_and_slice(
+                        &input_value,
+                        ouput_obj,
+                        device,
+                        copied_reg,
+                        &mut code,
+                        &mut ctx,
+                    ))
                 } else if mutable_uses.contains(&input_vid) {
-                    let input_obj = match &obj_def_use.values[&input_vid] {
-                        object_analysis::Value::Single(obj_id) => *obj_id,
-                        object_analysis::Value::Tuple(..) => {
+                    let input_value = match &obj_def_use.values[&input_vid] {
+                        object_analysis::VertexValue::Single(input_value) => input_value.clone(),
+                        object_analysis::VertexValue::Tuple(..) => {
                             panic!("an mutable input must not be a tuple")
                         }
                     };
                     // This input is mutated
                     let temp_obj = obj_id_allocator.alloc();
-                    ensure_copied(
+                    let copied_reg = ensure_copied(
                         device,
                         vid,
-                        input_obj,
+                        input_value.object_id(),
                         temp_obj,
                         now,
                         &mut gpu_allocator,
@@ -707,29 +755,38 @@ pub fn plan<'s, Rt: RuntimeType>(
                         &mut ctx,
                         &imctx,
                         &obj_dies_after,
-                    )
+                    );
+                    Ok(set_rotation_and_slice(
+                        &input_value,
+                        temp_obj,
+                        device,
+                        copied_reg?,
+                        &mut code,
+                        &mut ctx,
+                    ))
                 } else if !mutable_uses.contains(&input_vid)
                     && !outputs_inplace.contains(&Some(input_vid))
                 {
                     // The input is not mutated
                     match &obj_def_use.values[&input_vid] {
-                        object_analysis::Value::Single(obj_id) => ensure_on_device(
-                            device,
-                            *obj_id,
-                            now,
-                            &mut gpu_allocator,
-                            &mut code,
-                            &mut ctx,
-                            &imctx,
-                        ),
-                        object_analysis::Value::Tuple(obj_ids) => {
-                            let elements = obj_ids
+                        object_analysis::VertexValue::Single(input_value) => {
+                            ensure_on_device(
+                                device,
+                                input_value.object_id(),
+                                now,
+                                &mut gpu_allocator,
+                                &mut code,
+                                &mut ctx,
+                                &imctx,
+                            )
+                        }
+                        object_analysis::VertexValue::Tuple(input_values) => {
+                            let elements = input_values
                                 .iter()
-                                .copied()
-                                .map(|obj_id| {
+                                .map(|input_value| {
                                     ensure_on_device(
                                         device,
-                                        obj_id,
+                                        input_value.object_id(),
                                         now,
                                         &mut gpu_allocator,
                                         &mut code,
@@ -841,9 +898,9 @@ pub fn plan<'s, Rt: RuntimeType>(
                 gpu_allocator.deallocate(dead_obj, &mut code, &mut ctx);
             }
 
-            let gpu_alive = ctx.object_residence[&dead_obj]
+            let gpu_alive = !ctx.object_residence[&dead_obj]
                 .get_device(DeterminedDevice::Gpu)
-                .is_some();
+                .is_empty();
             if device_collection.cpu() && gpu_alive {
                 deallocate_cpu(dead_obj, &mut code, &mut ctx);
             }
