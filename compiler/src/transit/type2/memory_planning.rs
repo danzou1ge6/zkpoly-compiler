@@ -395,18 +395,6 @@ fn allocate_cpu(obj_id: ObjectId, id: RegisterId, size: Size, code: &mut Code, c
     ctx.add_residence_for_object(obj_id, id, DeterminedDevice::Cpu);
 }
 
-fn allocate_stack(
-    obj_id: ObjectId,
-    id: RegisterId,
-    size: Size,
-    code: &mut Code,
-    ctx: &mut Context,
-) {
-    code.emit(Instruction::new_no_src(InstructionNode::StackAlloc { id }));
-
-    ctx.add_residence_for_object(obj_id, id, DeterminedDevice::Stack);
-}
-
 fn allocate(
     device: DeterminedDevice,
     reg_id: RegisterId,
@@ -423,7 +411,7 @@ fn allocate(
             gpu_allocator.allocate(size, obj_id, reg_id, next_use, code, ctx, imctx)?
         }
         DeterminedDevice::Cpu => allocate_cpu(obj_id, reg_id, size, code, ctx),
-        DeterminedDevice::Stack => allocate_stack(obj_id, reg_id, size, code, ctx),
+        DeterminedDevice::Stack => {},
     };
     Ok(())
 }

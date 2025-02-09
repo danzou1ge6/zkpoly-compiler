@@ -147,9 +147,6 @@ pub mod template {
         CpuFree {
             id: I,
         },
-        StackAlloc {
-            id: I,
-        },
         StackFree {
             id: I,
         },
@@ -186,15 +183,11 @@ pub mod template {
                 GpuFree { id, .. } => Box::new(std::iter::once(*id)),
                 CpuMalloc { id, .. } => Box::new(std::iter::once(*id)),
                 CpuFree { id, .. } => Box::new(std::iter::once(*id)),
-                StackAlloc { id, .. } => Box::new(std::iter::once(*id)),
                 StackFree { id, .. } => Box::new(std::iter::once(*id)),
                 Tuple { id, oprands, .. } => {
                     Box::new(std::iter::once(*id).chain(oprands.iter().copied()))
                 }
-                RotateAndSlice {
-                    id,
-                    ..
-                } => Box::new(std::iter::once(*id)),
+                RotateAndSlice { id, .. } => Box::new(std::iter::once(*id)),
                 Transfer { id, .. } => Box::new(std::iter::once(*id)),
                 Move { id, .. } => Box::new(std::iter::once(*id)),
             }
@@ -315,7 +308,6 @@ impl<'s> Instruction<'s> {
             GpuFree { .. } => Cpu,
             CpuMalloc { .. } => Cpu,
             CpuFree { .. } => Cpu,
-            StackAlloc { .. } => Cpu,
             StackFree { .. } => Cpu,
             Tuple { .. } => Cpu,
             RotateAndSlice { .. } => Cpu,
@@ -326,6 +318,22 @@ impl<'s> Instruction<'s> {
 
     pub fn defs<'a>(&'a self) -> Box<dyn Iterator<Item = RegisterId> + 'a> {
         self.node.ids()
+    }
+
+    pub fn uses<'a>(&'a self) -> Box<dyn Iterator<Item = RegisterId> + 'a> {
+        use template::InstructionNode::*;
+
+        match &self.node {
+            Type2 { vertex, .. } => vertex.uses(),
+            GpuFree { id } => Box::new(std::iter::once(*id)),
+            CpuFree { id } => Box::new(std::iter::once(*id)),
+            StackFree { id } => Box::new(std::iter::once(*id)),
+            Tuple { oprands, .. } => Box::new(oprands.iter().copied()),
+            RotateAndSlice { id, .. } => Box::new(std::iter::once(*id)),
+            Transfer { id, .. } => Box::new(std::iter::once(*id)),
+            Move { id, .. } => Box::new(std::iter::once(*id)),
+            _ => Box::new(std::iter::empty()),
+        }
     }
 }
 define_usize_id!(InstructionIndex);
@@ -375,6 +383,25 @@ impl<'s, Rt: RuntimeType> Chunk<'s, Rt> {
                 for id in instr.node.ids() {
                     acc.insert(id, InstructionIndex(i));
                 }
+                acc
+            })
+    }
+
+    pub fn malloc_at(&self) -> BTreeMap<RegisterId, InstructionIndex> {
+        self.instructions
+            .iter()
+            .enumerate()
+            .fold(BTreeMap::new(), |mut acc, (i, instr)| {
+                use template::InstructionNode::*;
+                match &instr.node {
+                    GpuMalloc { id, .. } => {
+                        acc.insert(*id, InstructionIndex(i));
+                    }
+                    CpuMalloc { id, .. } => {
+                        acc.insert(*id, InstructionIndex(i));
+                    }
+                    _ => {}
+                };
                 acc
             })
     }

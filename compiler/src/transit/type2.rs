@@ -79,7 +79,7 @@ impl Default for MsmAlgorithm {
 }
 
 pub mod template {
-    use super::*;
+    use super::{PolyInit, PolyType, NttAlgorithm, MsmAlgorithm, transit, arith};
 
     #[derive(Debug, Clone)]
     pub enum VertexNode<I, A, C, E> {
@@ -122,6 +122,32 @@ pub mod template {
         ArrayGet(I, usize),
         UserFunction(E, Vec<I>),
     }
+
+    impl<I, C, E> VertexNode<I, arith::ArithGraph<I, arith::ExprId>, C, E> where I: Copy {
+        pub fn uses<'a>(&'a self) -> Box<dyn Iterator<Item = I> + 'a> {
+        use VertexNode::*;
+        match self {
+            Arith(arith, ..) => Box::new(arith.uses()),
+            Ntt { s, .. } => Box::new([*s].into_iter()),
+            RotateIdx(x, _) => Box::new([*x].into_iter()),
+            Interplote { xs, ys } => Box::new(xs.iter().copied().chain(ys.iter().copied())),
+            Array(es) => Box::new(es.iter().copied()),
+            AssmblePoly(_, es) => Box::new([*es].into_iter()),
+            Msm {
+                scalars, points, ..
+            } => Box::new([*scalars, *points].into_iter()),
+            HashTranscript {
+                transcript, value, ..
+            } => Box::new([*transcript, *value].into_iter()),
+            SqueezeScalar(x) => Box::new([*x].into_iter()),
+            TupleGet(x, _) => Box::new([*x].into_iter()),
+            Blind(x, _) => Box::new([*x].into_iter()),
+            ArrayGet(x, _) => Box::new([*x].into_iter()),
+            UserFunction(_, es) => Box::new(es.iter().copied()),
+            _ => Box::new([].into_iter()),
+        }
+    }
+    }
 }
 
 // TODO
@@ -152,52 +178,45 @@ impl<'s, Rt: RuntimeType> digraph::internal::Predecessors<VertexId> for Vertex<'
     }
 }
 
-impl<'s, Rt: RuntimeType> Vertex<'s, Rt> {
-    pub fn uses<'a>(&'a self) -> Box<dyn Iterator<Item = VertexId> + 'a> {
-        use template::VertexNode::*;
-        match self.node() {
-            Arith(arith, ..) => Box::new(arith.uses()),
-            Ntt { s, .. } => Box::new([*s].into_iter()),
-            RotateIdx(x, _) => Box::new([*x].into_iter()),
-            Interplote { xs, ys } => Box::new(xs.iter().copied().chain(ys.iter().copied())),
-            Array(es) => Box::new(es.iter().copied()),
-            AssmblePoly(_, es) => Box::new([*es].into_iter()),
-            Msm {
-                scalars, points, ..
-            } => Box::new([*scalars, *points].into_iter()),
-            HashTranscript {
-                transcript, value, ..
-            } => Box::new([*transcript, *value].into_iter()),
-            SqueezeScalar(x) => Box::new([*x].into_iter()),
-            TupleGet(x, _) => Box::new([*x].into_iter()),
-            Blind(x, _) => Box::new([*x].into_iter()),
-            ArrayGet(x, _) => Box::new([*x].into_iter()),
-            UserFunction(_, es) => Box::new(es.iter().copied()),
-            _ => Box::new([].into_iter()),
-        }
+impl<'s, Rt: RuntimeType, I, C>
+    transit::Vertex<
+        template::VertexNode<I, arith::ArithGraph<I, arith::ExprId>, C, user_function::Id>,
+        Typ<Rt>,
+        SourceInfo<'s>,
+    >
+where I: Copy
+{
+    pub fn uses<'a>(&'a self) -> Box<dyn Iterator<Item = I> + 'a> {
+        self.node().uses()
     }
     pub fn temporary_space_needed(&self) -> Option<(u64, super::type3::Device)> {
-        use template::VertexNode::*;
         use super::type3::Device::*;
+        use template::VertexNode::*;
         match self.node() {
-            Arith(..) => None ,
-            NewPoly(..) => None ,
-            Constant(..) => None ,
-            Entry => None ,
-            Return => None ,
-            LiteralScalar(..) => None ,
-            Ntt { alg, .. } => Some((alg.temporary_space_needed::<Rt::Field>(self.typ().unwrap_poly().1), Gpu)),
-            RotateIdx(..) => None ,
-            Interplote { .. } => None ,
-            Blind(..) => None ,
-            Array(..) => None ,
-            AssmblePoly(..) => None ,
-            Msm { alg, .. } => Some((alg.temporary_space_needed::<Rt::Field>(self.typ().unwrap_poly().1), Gpu)),
-            HashTranscript { .. } => None ,
-            SqueezeScalar(..) => None ,
-            TupleGet(..) => None ,
-            ArrayGet(..) => None ,
-            UserFunction(..) => None ,
+            Arith(..) => None,
+            NewPoly(..) => None,
+            Constant(..) => None,
+            Entry => None,
+            Return => None,
+            LiteralScalar(..) => None,
+            Ntt { alg, .. } => Some((
+                alg.temporary_space_needed::<Rt::Field>(self.typ().unwrap_poly().1),
+                Gpu,
+            )),
+            RotateIdx(..) => None,
+            Interplote { .. } => None,
+            Blind(..) => None,
+            Array(..) => None,
+            AssmblePoly(..) => None,
+            Msm { alg, .. } => Some((
+                alg.temporary_space_needed::<Rt::Field>(self.typ().unwrap_poly().1),
+                Gpu,
+            )),
+            HashTranscript { .. } => None,
+            SqueezeScalar(..) => None,
+            TupleGet(..) => None,
+            ArrayGet(..) => None,
+            UserFunction(..) => None,
         }
     }
     pub fn space(&self) -> u64 {
@@ -207,11 +226,13 @@ impl<'s, Rt: RuntimeType> Vertex<'s, Rt> {
         use template::VertexNode::*;
         match self.node() {
             NewPoly(..) | RotateIdx(..) => Device::PreferGpu,
-            Arith(_, chk) => if chk.is_some() {
-                Device::Cpu
-            } else {
-                Device::Gpu
-            },
+            Arith(_, chk) => {
+                if chk.is_some() {
+                    Device::Cpu
+                } else {
+                    Device::Gpu
+                }
+            }
             Ntt { .. } => Device::Gpu,
             _ => Device::Cpu,
         }
@@ -219,7 +240,7 @@ impl<'s, Rt: RuntimeType> Vertex<'s, Rt> {
     pub fn mutable_uses<'a>(
         &'a self,
         uf_table: &'a user_function::Table<Rt>,
-    ) -> Box<dyn Iterator<Item = VertexId> + 'a> {
+    ) -> Box<dyn Iterator<Item = I> + 'a> {
         use template::VertexNode::*;
         match self.node() {
             Ntt { s, .. } => Box::new([*s].into_iter()),
@@ -244,7 +265,7 @@ impl<'s, Rt: RuntimeType> Vertex<'s, Rt> {
     pub fn mutable_uses_mut<'a>(
         &'a mut self,
         uf_table: &'a user_function::Table<Rt>,
-    ) -> Box<dyn Iterator<Item = &'a mut VertexId> + 'a> {
+    ) -> Box<dyn Iterator<Item = &'a mut I> + 'a> {
         use template::VertexNode::*;
         match self.node_mut() {
             Ntt { s, .. } => Box::new([s].into_iter()),
@@ -266,11 +287,11 @@ impl<'s, Rt: RuntimeType> Vertex<'s, Rt> {
             _ => Box::new([].into_iter()),
         }
     }
-    pub fn outputs_inplace<'a>(
-        &self,
+    pub fn outputs_inplace<'a, 'b>(
+        &'b self,
         uf_table: &'a user_function::Table<Rt>,
-        device: super::type3::Device
-    ) -> Box<dyn Iterator<Item = Option<VertexId>>> {
+        device: super::type3::Device,
+    ) -> Box<dyn Iterator<Item = Option<I>> + 'b> {
         use template::VertexNode::*;
         match self.node() {
             Ntt { s, .. } => Box::new([Some(*s)].into_iter()),
@@ -279,9 +300,9 @@ impl<'s, Rt: RuntimeType> Vertex<'s, Rt> {
                 match device {
                     Cpu => Box::new([Some(*s)].into_iter()),
                     Gpu => Box::new([None].into_iter()),
-                    Stack => panic!("RotateIdx output can't be on stack")
+                    Stack => panic!("RotateIdx output can't be on stack"),
                 }
-            },
+            }
             HashTranscript { transcript, .. } => Box::new([Some(*transcript)].into_iter()),
             SqueezeScalar(transcript) => Box::new([Some(*transcript), None].into_iter()),
             UserFunction(fid, args) => {
