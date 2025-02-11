@@ -3,6 +3,7 @@ use crate::devices::{DeviceType, EventId, ThreadId};
 use crate::functions::FunctionId;
 use zkpoly_common::typ::Typ;
 
+#[derive(Debug, Clone)]
 pub enum Instruction {
     Allocate {
         device: DeviceType,

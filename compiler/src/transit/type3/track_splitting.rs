@@ -1,20 +1,29 @@
+use std::collections::BTreeMap;
+
 use zkpoly_runtime::args::RuntimeType;
 
 use super::{Chunk, InstructionIndex, Track, TrackSpecific};
 
 #[derive(Debug, Clone)]
-pub enum Task {
-    Sync(Track, InstructionIndex),
-    Inst(InstructionIndex),
+pub struct TrackTasks {
+    pub inst_track: BTreeMap<InstructionIndex, Track>,
+    pub inst_depend: BTreeMap<InstructionIndex, Vec<InstructionIndex>>,
 }
 
-pub type TrackTasks = TrackSpecific<Vec<Task>>;
+impl TrackTasks {
+    pub fn new() -> Self {
+        Self {
+            inst_track: BTreeMap::new(),
+            inst_depend: BTreeMap::new(),
+        }
+    }
+}
 
 pub fn split<'s, Rt: RuntimeType>(chunk: &Chunk<'s, Rt>) -> TrackTasks {
     let assigned_at = chunk.assigned_at();
     let malloc_at = chunk.malloc_at();
 
-    let mut track_tasks = TrackTasks::default();
+    let mut track_tasks = TrackTasks::new();
 
     for (i, inst) in chunk.iter_instructions() {
         let track = inst.track(|reg_id| chunk.register_devices[&reg_id]);
@@ -43,15 +52,17 @@ pub fn split<'s, Rt: RuntimeType>(chunk: &Chunk<'s, Rt>) -> TrackTasks {
         last_of_each_track
             .iter()
             .filter(|(t, _)| *t != track)
-            .for_each(|(track, last)| {
+            .for_each(|(_, last)| {
                 if let Some(last) = *last {
                     track_tasks
-                        .get_track_mut(track)
-                        .push(Task::Sync(track, last));
+                        .inst_depend
+                        .entry(i)
+                        .or_insert_with(|| Vec::new())
+                        .push(last);
                 }
             });
 
-        track_tasks.get_track_mut(track).push(Task::Inst(i));
+        track_tasks.inst_track.insert(i, track);
     }
 
     track_tasks

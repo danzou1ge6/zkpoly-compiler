@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use crate::transit::{self, type2};
-use zkpoly_common::{arith, define_usize_id, heap::Heap};
+use zkpoly_common::{arith, define_usize_id, heap::{Heap, IdAllocator}};
 use zkpoly_runtime::args::RuntimeType;
 
 define_usize_id!(AddrId);
@@ -224,50 +224,77 @@ impl<'s> Instruction<'s> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Track {
+    MemoryManagement,
     CoProcess,
     Gpu,
     Cpu,
-    Pcie,
+    ToGpu,
+    FromGpu,
+    GpuMemory,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct TrackSpecific<T> {
+    pub(crate) memory_management: T,
     pub(crate) co_process: T,
     pub(crate) gpu: T,
     pub(crate) cpu: T,
-    pub(crate) pcie: T,
+    pub(crate) to_gpu: T,
+    pub(crate) from_gpu: T,
+    pub(crate) gpu_memory: T
 }
 
 impl<T> TrackSpecific<T> {
     pub fn get_track(&self, track: Track) -> &T {
         use Track::*;
         match track {
+            MemoryManagement => &self.memory_management,
             CoProcess => &self.co_process,
             Gpu => &self.gpu,
             Cpu => &self.cpu,
-            Pcie => &self.pcie,
+            ToGpu => &self.to_gpu,
+            FromGpu => &self.from_gpu,
+            GpuMemory => &self.gpu_memory
         }
     }
 
     pub fn get_track_mut(&mut self, track: Track) -> &mut T {
         use Track::*;
         match track {
+            MemoryManagement => &mut self.memory_management,
             CoProcess => &mut self.co_process,
             Gpu => &mut self.gpu,
             Cpu => &mut self.cpu,
-            Pcie => &mut self.pcie,
+            ToGpu => &mut self.to_gpu,
+            FromGpu => &mut self.from_gpu,
+            GpuMemory => &mut self.gpu_memory
         }
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (Track, &T)> {
         use Track::*;
         vec![
+            (MemoryManagement, &self.memory_management),
             (CoProcess, &self.co_process),
             (Gpu, &self.gpu),
             (Cpu, &self.cpu),
-            (Pcie, &self.pcie),
+            (ToGpu, &self.to_gpu),
+            (FromGpu, &self.from_gpu),
+            (GpuMemory, &self.gpu_memory)
         ]
         .into_iter()
+    }
+
+    pub fn new(t: T) -> Self where T: Clone {
+        Self {
+            memory_management: t.clone(),
+            co_process: t.clone(),
+            gpu: t.clone(),
+            cpu: t.clone(),
+            to_gpu: t.clone(),
+            from_gpu: t.clone(),
+            gpu_memory: t
+        }
     }
 }
 
@@ -285,13 +312,13 @@ impl Track {
 fn determine_transfer_track(from: Device, to: Device) -> Track {
     use Device::*;
     match (from, to) {
-        (Gpu, Cpu) => Track::Pcie,
-        (Gpu, Stack) => Track::Pcie,
-        (Gpu, Gpu) => Track::Gpu,
-        (Cpu, Gpu) => Track::Pcie,
+        (Gpu, Cpu) => Track::FromGpu,
+        (Gpu, Stack) => Track::FromGpu,
+        (Gpu, Gpu) => Track::GpuMemory,
+        (Cpu, Gpu) => Track::ToGpu,
         (Cpu, Stack) => panic!("Cpu cannot transfer to Stack"),
         (Cpu, Cpu) => Track::Cpu,
-        (Stack, Gpu) => Track::Pcie,
+        (Stack, Gpu) => Track::ToGpu,
         (Stack, Cpu) => panic!("Stack cannot transfer to Cpu"),
         (Stack, Stack) => Track::Cpu,
     }
@@ -304,11 +331,11 @@ impl<'s> Instruction<'s> {
 
         match &self.node {
             Type2 { vertex, ids, .. } => vertex.track(devices(ids[0])),
-            GpuMalloc { .. } => Cpu,
-            GpuFree { .. } => Cpu,
-            CpuMalloc { .. } => Cpu,
-            CpuFree { .. } => Cpu,
-            StackFree { .. } => Cpu,
+            GpuMalloc { .. } => MemoryManagement,
+            GpuFree { .. } => MemoryManagement,
+            CpuMalloc { .. } => MemoryManagement,
+            CpuFree { .. } => MemoryManagement,
+            StackFree { .. } => MemoryManagement,
             Tuple { .. } => Cpu,
             RotateAndSlice { .. } => Cpu,
             Transfer { from, id, .. } => determine_transfer_track(devices(*from), devices(*id)),
@@ -344,6 +371,7 @@ pub struct Chunk<'s, Rt: RuntimeType> {
     pub(crate) register_types: BTreeMap<RegisterId, type2::Typ<Rt>>,
     pub(crate) register_devices: BTreeMap<RegisterId, Device>,
     pub(crate) gpu_addr_mapping: AddrMapping,
+    pub(crate) reg_id_allocator: IdAllocator<RegisterId>
 }
 
 impl<'s, Rt: RuntimeType> std::ops::Index<InstructionIndex> for Chunk<'s, Rt> {
@@ -405,6 +433,14 @@ impl<'s, Rt: RuntimeType> Chunk<'s, Rt> {
                 acc
             })
     }
+
+    pub fn take_reg_id_allocator(&mut self) -> IdAllocator<RegisterId> {
+        let mut x = IdAllocator::new();
+        std::mem::swap(&mut self.reg_id_allocator, &mut x);
+        x
+    }
 }
 
 pub mod track_splitting;
+pub mod lowering;
+pub mod kernel_generation;

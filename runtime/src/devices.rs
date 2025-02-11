@@ -55,6 +55,19 @@ pub enum Event {
     ThreadEvent { cond: Condvar, lock: Mutex<bool> },
 }
 
+impl Event {
+    pub fn new_gpu() -> Self {
+        Self::GpuEvent(CudaEvent::new())
+    }
+
+    pub fn new_thread() -> Self {
+        Self::ThreadEvent {
+            cond: Condvar::new(),
+            lock: Mutex::new(false),
+        }
+    }
+}
+
 #[test]
 fn test_threadpool() {
     use std::sync::mpsc::channel;

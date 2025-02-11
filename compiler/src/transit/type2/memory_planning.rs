@@ -903,5 +903,6 @@ pub fn plan<'s, Rt: RuntimeType>(
         register_types,
         register_devices: ctx.reg_device,
         gpu_addr_mapping: ctx.gpu_addr_mapping,
+        reg_id_allocator: code.1
     })
 }
