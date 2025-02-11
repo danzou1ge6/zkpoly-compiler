@@ -1,5 +1,6 @@
 use crate::{
     define_usize_id,
+    digraph::internal::{Digraph, Predecessors},
     heap::{Heap, UsizeId},
 };
 
@@ -95,12 +96,25 @@ impl<VarType, ArithIndex> Operation<VarType, ArithIndex> {
     }
 }
 
+impl<VarType, ArithIndex> Vertex<VarType, ArithIndex>
+where
+    ArithIndex: Copy + 'static,
+{
+    pub fn uses(&self) -> Box<dyn Iterator<Item = ArithIndex>> {
+        match &self.op {
+            Operation::Arith(Arith::Bin(_, lhs, rhs)) => Box::new([*lhs, *rhs].into_iter()),
+            Operation::Arith(Arith::Unr(_, rhs)) => Box::new([*rhs].into_iter()),
+            _ => Box::new(std::iter::empty()),
+        }
+    }
+}
+
 // DAG for arithmetic expressions.
 #[derive(Debug, Clone)]
 pub struct ArithGraph<VarType, ArithIndex> {
     pub outputs: Vec<ArithIndex>, // output ids
     pub inputs: Vec<ArithIndex>,  // input ids
-    pub heap: Heap<ArithIndex, Vertex<VarType, ArithIndex>>,
+    pub g: Digraph<ArithIndex, Vertex<VarType, ArithIndex>>,
 }
 
 impl<VarType, ArithIndex> ArithGraph<VarType, ArithIndex>
@@ -111,14 +125,14 @@ where
     pub fn uses<'s>(&'s self) -> impl Iterator<Item = VarType> + 's {
         self.inputs
             .iter()
-            .map(|&i| self.heap[i].op.unwrap_global().clone())
+            .map(|&i| self.g.vertex(i).op.unwrap_global().clone())
     }
 
     pub fn relabeled<I2>(
         &self,
         mut mapping: impl FnMut(VarType) -> I2,
     ) -> ArithGraph<I2, ArithIndex> {
-        let heap = self.heap.map_by_ref(&mut |_, v| {
+        let heap = self.g.map_by_ref(&mut |_, v| {
             let op = match &v.op {
                 Operation::Input(i) => Operation::Input(mapping(*i)),
                 Operation::Arith(arith) => Operation::Arith(arith.clone()),
@@ -134,7 +148,27 @@ where
         ArithGraph {
             outputs: self.outputs.clone(),
             inputs: self.inputs.clone(),
-            heap,
+            g: heap,
         }
+    }
+}
+
+impl<VarType, ArithIndex> Predecessors<ArithIndex> for Vertex<VarType, ArithIndex>
+where
+    ArithIndex: Copy + 'static,
+{
+    fn predecessors(&self) -> impl Iterator<Item = ArithIndex> {
+        self.uses()
+    }
+}
+
+impl<VarType, ArithIndex> ArithGraph<VarType, ArithIndex>
+where
+    ArithIndex: UsizeId + 'static,
+{
+    pub fn topology_sort<'s>(
+        &'s self,
+    ) -> impl Iterator<Item = (ArithIndex, &'s Vertex<VarType, ArithIndex>)> + 's {
+        self.g.topology_sort()
     }
 }

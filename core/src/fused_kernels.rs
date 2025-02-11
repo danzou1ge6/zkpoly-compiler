@@ -200,9 +200,9 @@ impl<Id: UsizeId> FusedOp<Id> {
         // this is for topological ordering
         let mut deg = Vec::new();
         let mut queue = VecDeque::new();
-        deg.resize(self.graph.heap.len(), 0);
-        for node in self.graph.heap.iter_with_id() {
-            let (id, vertex) = node;
+        deg.resize(self.graph.g.order(), 0);
+        for id in self.graph.g.vertices() {
+            let vertex = self.graph.g.vertex(id);
             match &vertex.op {
                 Operation::Input(_) => {
                     queue.push_back(id);
@@ -228,7 +228,7 @@ impl<Id: UsizeId> FusedOp<Id> {
         // topological ordering
         while !queue.is_empty() {
             let head = queue.pop_front().unwrap();
-            let vertex = &self.graph.heap[head];
+            let vertex = &self.graph.g.vertex(head);
             for target in vertex.target.iter() {
                 let id: usize = target.clone().into();
                 deg[id] -= 1;
