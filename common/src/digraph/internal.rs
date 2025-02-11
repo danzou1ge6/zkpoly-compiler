@@ -55,30 +55,61 @@ impl<'g, I, V> DfsIterator<'g, I, V> {
     }
 }
 
-pub struct TopologyIterator<'g, I, V> {
+pub struct TopologyIterator<'g, 's, I, V> {
     g: &'g Digraph<I, V>,
     deg: Heap<I, usize>,
     queue: VecDeque<I>,
+    successors: &'s Heap<I, BTreeSet<I>>,
 }
 
-impl<'g, I, V> Iterator for TopologyIterator<'g, I, V>
+fn topology_sort_iterator_next<'g, I, V>(
+    g: &'g Digraph<I, V>,
+    deg: &mut Heap<I, usize>,
+    queue: &mut VecDeque<I>,
+    successors: &Heap<I, BTreeSet<I>>,
+) -> Option<(I, &'g V)>
+where 
+    I: UsizeId,
+{
+    if let Some(i) = queue.pop_front() {
+        for succ in successors[i].iter().copied() {
+            deg[succ] -= 1;
+            if deg[succ] == 0 {
+                queue.push_back(succ)
+            }
+        }
+        Some((i, &g.0[i]))
+    } else {
+        None
+    }
+}
+
+impl<'g, 's, I, V> Iterator for TopologyIterator<'g, 's, I, V>
 where
     I: UsizeId,
     V: Predecessors<I>,
 {
     type Item = (I, &'g V);
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(i) = self.queue.pop_front() {
-            for succ in self.g.0[i].predecessors() {
-                self.deg[succ] -= 1;
-                if self.deg[succ] == 0 {
-                    self.queue.push_back(succ)
-                }
-            }
-            Some((i, &self.g.0[i]))
-        } else {
-            None
-        }
+        topology_sort_iterator_next(self.g, &mut self.deg, &mut self.queue, self.successors)
+    }
+}
+
+pub struct OwnSuccessorTopologyIterator<'g, I, V> {
+    g: &'g Digraph<I, V>,
+    deg: Heap<I, usize>,
+    queue: VecDeque<I>,
+    successors: Heap<I, BTreeSet<I>>,
+}
+
+impl<'g, I, V> Iterator for OwnSuccessorTopologyIterator<'g, I, V>
+where
+    I: UsizeId,
+    V: Predecessors<I>,
+{
+    type Item = (I, &'g V);
+    fn next(&mut self) -> Option<Self::Item> {
+        topology_sort_iterator_next(self.g, &mut self.deg, &mut self.queue, &self.successors)
     }
 }
 
@@ -110,7 +141,43 @@ where
         }
         deg
     }
-    pub fn topology_sort<'g>(&'g self) -> TopologyIterator<'g, I, V> {
+
+    pub fn successors(&self) -> Heap<I, BTreeSet<I>> {
+        let mut succ = Heap::repeat(BTreeSet::new(), self.order());
+        for (vid, v) in self.0.iter_with_id() {
+            for succ_id in v.predecessors() {
+                succ[succ_id].insert(vid);
+            }
+        }
+        succ
+    }
+}
+
+impl<I, V> Digraph<I, V>
+where
+    I: UsizeId,
+    V: Predecessors<I>,
+{
+    pub fn topology_sort<'g>(&'g self) -> impl Iterator<Item = (I, &'g V)> + 'g {
+        let successors = self.successors();
+        let deg = self.degrees_in();
+        let queue: VecDeque<I> = deg
+            .iter_with_id()
+            .filter_map(|(id, d)| if *d == 0 { Some(id) } else { None })
+            .collect();
+        OwnSuccessorTopologyIterator {
+            g: self,
+            deg,
+            queue,
+            successors,
+        }
+ 
+    }
+
+    pub fn topology_sort_with_successors<'g, 's>(
+        &'g self,
+        successors: &'s Heap<I, BTreeSet<I>>,
+    ) -> TopologyIterator<'g, 's, I, V> {
         let deg = self.degrees_in();
         let queue: VecDeque<I> = deg
             .iter_with_id()
@@ -120,16 +187,8 @@ where
             g: self,
             deg,
             queue,
+            successors,
         }
-    }
-    pub fn successors(&self) -> Heap<I, BTreeSet<I>> {
-        let mut succ = Heap::repeat(BTreeSet::new(), self.order());
-        for (vid, v) in self.0.iter_with_id() {
-            for succ_id in v.predecessors() {
-                succ[succ_id].insert(vid);
-            }
-        }
-        succ
     }
 }
 
@@ -145,6 +204,9 @@ where
     }
     pub fn map<V1, I1>(self, f: &mut impl FnMut(I, V) -> V1) -> Digraph<I1, V1> {
         Digraph(self.0.map(f))
+    }
+    pub fn map_by_ref<V1, I1>(&self, f: &mut impl FnMut(I, &V) -> V1) -> Digraph<I1, V1> {
+        Digraph(self.0.map_by_ref(f))
     }
     pub fn vertices(&self) -> impl Iterator<Item = I> {
         self.0.ids()
