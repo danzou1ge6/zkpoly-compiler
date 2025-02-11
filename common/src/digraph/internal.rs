@@ -68,7 +68,7 @@ fn topology_sort_iterator_next<'g, I, V>(
     queue: &mut VecDeque<I>,
     successors: &Heap<I, BTreeSet<I>>,
 ) -> Option<(I, &'g V)>
-where 
+where
     I: UsizeId,
 {
     if let Some(i) = queue.pop_front() {
@@ -171,7 +171,6 @@ where
             queue,
             successors,
         }
- 
     }
 
     pub fn topology_sort_with_successors<'g, 's>(

@@ -18,7 +18,7 @@ namespace detail {
     }
 
     template <typename Field, u32 io_group>
-    __global__ void ssip_ntt_stage1_warp_recompute (u32 * x, const u32 * pq, u32 log_len, u32 log_stride, u32 deg, u32 max_deg, u32 group_sz, const u32 * omegas) {
+    __global__ void ssip_ntt_stage1_warp_recompute (RotatingIterator<Field> x, const u32 * pq, u32 log_len, u32 log_stride, u32 deg, u32 max_deg, u32 group_sz, const u32 * omegas) {
         const static usize WORDS = Field::LIMBS;
         extern __shared__ u32 s[];
 
@@ -39,7 +39,7 @@ namespace detail {
         
         const u32 subblock_sz = 1 << (deg - 1); // # of neighbouring butterfly in the last round
 
-        x += ((u64)(segment_start + segment_id)) * WORDS; // use u64 to avoid overflow
+        x += ((u64)(segment_start + segment_id)); // use u64 to avoid overflow
 
         const u32 io_id = lid & (io_group - 1);
         const u32 lid_start = lid - io_id;
@@ -66,8 +66,8 @@ namespace detail {
                 if (io < WORDS) {
                     u32 group_id = i & (subblock_sz - 1);
                     u64 gpos = group_id << (lgp + 1);
-                    u[(i << 1) + io * shared_read_stride] = x[gpos * WORDS + io];
-                    u[(i << 1) + 1 + io * shared_read_stride] = x[(gpos + end_stride) * WORDS + io];
+                    u[(i << 1) + io * shared_read_stride] = reinterpret_cast<u32*>(&x[gpos])[io];
+                    u[(i << 1) + 1 + io * shared_read_stride] = reinterpret_cast<u32*>(&x[(gpos + end_stride)])[io];
                 }
             }
         }
@@ -155,15 +155,15 @@ namespace detail {
                 if (io < WORDS) {
                     u32 group_id = i & (subblock_sz - 1);
                     u64 gpos = group_id << (lgp + 1);
-                    x[gpos * WORDS + io] = u[(i << 1) + io * shared_read_stride];
-                    x[(gpos + end_stride) * WORDS + io] = u[(i << 1) + 1 + io * shared_read_stride];
+                    reinterpret_cast<u32*>(&x[gpos])[io] = u[(i << 1) + io * shared_read_stride];
+                    reinterpret_cast<u32*>(&x[(gpos + end_stride)])[io] = u[(i << 1) + 1 + io * shared_read_stride];
                 }
             }
         }
     }
 
     template <typename Field, u32 io_group>
-    __global__ void SSIP_NTT_stage2_warp_recompute (u32 * data, const u32 * pq, u32 log_len, u32 log_stride, u32 deg, u32 max_deg, u32 group_sz, const u32 * omegas) {
+    __global__ void SSIP_NTT_stage2_warp_recompute (RotatingIterator<Field> data, const u32 * pq, u32 log_len, u32 log_stride, u32 deg, u32 max_deg, u32 group_sz, const u32 * omegas) {
         const static usize WORDS = Field::LIMBS;
         extern __shared__ u32 s[];
 
@@ -189,7 +189,7 @@ namespace detail {
         u32 subblock_offset = (segment_id >> log_end_stride) << (deg + log_end_stride); // subblock_offset = (segment_id / (end_stride)) * (2 * subblock_sz * end_stride);
         u32 subblock_id = segment_id & (end_stride - 1);
 
-        data += ((u64)(segment_start + subblock_offset + subblock_id)) * WORDS; // use u64 to avoid overflow
+        data += ((u64)(segment_start + subblock_offset + subblock_id)); // use u64 to avoid overflow
         auto u = s + group_id * ((1 << (deg << 1)) + 1) * WORDS;
 
         const u32 io_id = lid & (io_group - 1);
@@ -221,10 +221,10 @@ namespace detail {
                     u64 gpos = group_offset + (group_id << (log_end_stride + 1)); // group_offset + group_id * (end_stride << 1)
                     u32 offset = io * shared_read_stride;
 
-                    u[(i << 1) + offset] = data[gpos * WORDS + io];
-                    u[(i << 1) + 1 + offset] = data[(gpos + end_stride) * WORDS + io];
-                    u[(i << 1) + (lsize << 1) + offset] = data[(gpos + end_pair_stride) * WORDS + io];
-                    u[(i << 1) + (lsize << 1) + 1 + offset] = data[(gpos + end_pair_stride + end_stride) * WORDS + io];
+                    u[(i << 1) + offset] = reinterpret_cast<u32*>(&data[gpos])[io];
+                    u[(i << 1) + 1 + offset] = reinterpret_cast<u32*>(&data[(gpos + end_stride)])[io];
+                    u[(i << 1) + (lsize << 1) + offset] = reinterpret_cast<u32*>(&data[(gpos + end_pair_stride)])[io];
+                    u[(i << 1) + (lsize << 1) + 1 + offset] = reinterpret_cast<u32*>(&data[(gpos + end_pair_stride + end_stride)])[io];
 
                 }
             }
@@ -346,10 +346,10 @@ namespace detail {
                     c = __brev((i << 1) + (lsize << 1)) >> (32 - (deg << 1));
                     d = __brev((i << 1) + (lsize << 1) + 1) >> (32 - (deg << 1));
 
-                    data[gpos * WORDS + io] = u[a + offset];
-                    data[(gpos + end_stride) * WORDS + io] = u[b + offset];
-                    data[(gpos + end_pair_stride) * WORDS + io] = u[c + offset];
-                    data[(gpos + end_pair_stride + end_stride) * WORDS + io] = u[d + offset];
+                    reinterpret_cast<u32*>(&data[gpos])[io] = u[a + offset];
+                    reinterpret_cast<u32*>(&data[(gpos + end_stride)])[io] = u[b + offset];
+                    reinterpret_cast<u32*>(&data[(gpos + end_pair_stride)])[io] = u[c + offset];
+                    reinterpret_cast<u32*>(&data[(gpos + end_pair_stride + end_stride)])[io] = u[d + offset];
 
                 }
             }
@@ -357,10 +357,12 @@ namespace detail {
     }
 
     template <typename Field>
-    cudaError_t recompute_ntt(u32 *x, const u32 *pq_d, u32 pq_deg, const u32 *omegas_d, u32 log_len, cudaStream_t stream, const u32 max_threads_stage1_log, const u32 max_threads_stage2_log) {
+    cudaError_t recompute_ntt(u32 *x, i64 x_rotate, const u32 *pq_d, u32 pq_deg, const u32 *omegas_d, u32 log_len, cudaStream_t stream, const u32 max_threads_stage1_log, const u32 max_threads_stage2_log) {
         static const usize WORDS = Field::LIMBS;
         if (log_len == 0) return cudaSuccess;
         u64 len = 1 << log_len;
+
+        auto x_iter = make_rotating_iter(reinterpret_cast<Field*>(x), x_rotate, len);
 
         // plan partition for NTT stages
         u32 total_deg_stage1 = (log_len + 1) / 2;
@@ -396,7 +398,7 @@ namespace detail {
 
             CUDA_CHECK(cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, shared_size));
 
-            kernel <<< grid, block, shared_size, stream >>>(x, pq_d, log_len, log_stride, deg, pq_deg, 1 << (deg - 1), omegas_d);
+            kernel <<< grid, block, shared_size, stream >>>(x_iter, pq_d, log_len, log_stride, deg, pq_deg, 1 << (deg - 1), omegas_d);
             CUDA_CHECK(cudaGetLastError());                
 
             log_stride -= deg;
@@ -421,7 +423,7 @@ namespace detail {
 
             auto kernel = SSIP_NTT_stage2_warp_recompute <Field, io_group>;
 
-            kernel <<< grid, block, shared_size, stream >>>(x, pq_d, log_len, log_stride, deg, pq_deg, ((1 << (deg << 1)) >> 2), omegas_d);
+            kernel <<< grid, block, shared_size, stream >>>(x_iter, pq_d, log_len, log_stride, deg, pq_deg, ((1 << (deg << 1)) >> 2), omegas_d);
             CUDA_CHECK(cudaGetLastError());
 
             log_stride -= deg;

@@ -2,7 +2,6 @@ use std::{
     any::type_name,
     collections::VecDeque,
     ffi::c_longlong,
-    fmt::format,
     marker::PhantomData,
     os::raw::{c_uint, c_ulonglong},
 };
@@ -262,15 +261,10 @@ impl<Id: UsizeId> FusedOp<Id> {
                     },
                     Var::Mut(id) => match self.mut_vars[*id] {
                         FusedType::Scalar => {
-                            kernel +=
-                                &format!("auto tmp{} = *mut_var{};\n", head.into(), id);
+                            kernel += &format!("auto tmp{} = *mut_var{};\n", head.into(), id);
                         }
                         FusedType::ScalarArray => {
-                            kernel += &format!(
-                                "auto tmp{} = iter_mut_{}[idx];\n",
-                                head.into(),
-                                id
-                            );
+                            kernel += &format!("auto tmp{} = iter_mut_{}[idx];\n", head.into(), id);
                         }
                     },
                 },

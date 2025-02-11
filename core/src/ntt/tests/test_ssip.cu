@@ -118,7 +118,7 @@ int main() {
     CUDA_CHECK(cudaMalloc(&d_data, length * WORDS * sizeof(uint)));
     CUDA_CHECK(cudaMemcpy(d_data, data_gpu, length * WORDS * sizeof(uint), cudaMemcpyHostToDevice));
 
-    CUDA_CHECK(detail::ssip_ntt<Field>(d_data, d_roots, bits, 0, 8, 8));
+    CUDA_CHECK(detail::ssip_ntt<Field>(d_data, 0, d_roots, bits, 0, 8, 8));
 
     CUDA_CHECK(cudaMemcpy(data_gpu, d_data, length * WORDS * sizeof(uint), cudaMemcpyDeviceToHost));
     

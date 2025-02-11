@@ -4,7 +4,7 @@
 namespace detail {
 
 template <typename Field>
-__global__ void ssip_ntt_stage1_warp_no_twiddle (u32 * x, u32 log_len, u32 log_stride, u32 deg, u32 group_sz, const u32 * roots) {
+__global__ void ssip_ntt_stage1_warp_no_twiddle (RotatingIterator<Field> x, u32 log_len, u32 log_stride, u32 deg, u32 group_sz, const u32 * roots) {
     constexpr usize WORDS = Field::LIMBS;
     static_assert(WORDS % 4 == 0);
     constexpr u32 io_group = 1 << (log2_int(WORDS - 1) - 1);
@@ -27,7 +27,7 @@ __global__ void ssip_ntt_stage1_warp_no_twiddle (u32 * x, u32 log_len, u32 log_s
     
     const u32 subblock_sz = 1 << (deg - 1); // # of neighbouring butterfly in the last round
 
-    x += ((u64)(segment_start + segment_id)) * WORDS; // use u64 to avoid overflow
+    x += (segment_start + segment_id); // use u64 to avoid overflow
 
     const u32 io_id = lid & (io_group - 1);
     const u32 lid_start = lid - io_id;
@@ -49,8 +49,8 @@ __global__ void ssip_ntt_stage1_warp_no_twiddle (u32 * x, u32 log_len, u32 log_s
                 u32 group_id = i & (subblock_sz - 1);
                 u64 gpos = group_id << (lgp);
                 uint4 a, b;
-                a = reinterpret_cast<uint4*> (x + gpos * WORDS)[io];
-                b = reinterpret_cast<uint4*> (x + (gpos+ (end_stride << (deg - 1))) * WORDS)[io];
+                a = reinterpret_cast<uint4*> (&x[gpos])[io];
+                b = reinterpret_cast<uint4*> (&x[(gpos+ (end_stride << (deg - 1)))])[io];
 
                 u[(i) + (0 + io * 4) * shared_read_stride] = a.x;
                 u[(i) + (1 << (deg - 1)) + (0 + io * 4) * shared_read_stride] = b.x;
@@ -132,15 +132,15 @@ __global__ void ssip_ntt_stage1_warp_no_twiddle (u32 * x, u32 log_len, u32 log_s
                 u64 gpos = group_id << (lgp + 1);
                 uint4 a = make_uint4(u[(i << 1) + (0 + io * 4) * shared_read_stride], u[(i << 1) + (1 + io * 4) * shared_read_stride], u[(i << 1) + (2 + io * 4) * shared_read_stride], u[(i << 1) + (3 + io * 4) * shared_read_stride]);
                 uint4 b = make_uint4(u[(i << 1) + 1 + (0 + io * 4) * shared_read_stride], u[(i << 1) + 1 + (1 + io * 4) * shared_read_stride], u[(i << 1) + 1 + (2 + io * 4) * shared_read_stride], u[(i << 1) + 1 + (3 + io * 4) * shared_read_stride]);
-                reinterpret_cast<uint4*> (x + gpos * WORDS)[io] = a;
-                reinterpret_cast<uint4*> (x + (gpos + end_stride) * WORDS)[io] = b;
+                reinterpret_cast<uint4*> (&x[gpos])[io] = a;
+                reinterpret_cast<uint4*> (&x[(gpos + end_stride)])[io] = b;
             }
         }
     }
 }
 
 template <typename Field>
-__global__ void ssip_ntt_stage2_warp_no_share_no_twiddle (u32 * data, u32 log_len, u32 log_stride, u32 deg, u32 group_sz, const u32 * roots) {
+__global__ void ssip_ntt_stage2_warp_no_share_no_twiddle (RotatingIterator<Field> data, u32 log_len, u32 log_stride, u32 deg, u32 group_sz, const u32 * roots) {
     const static usize WORDS = Field::LIMBS;
     static_assert(WORDS % 4 == 0);
     constexpr u32 io_group = 1 << (log2_int(WORDS - 1) - 1);
@@ -185,7 +185,7 @@ __global__ void ssip_ntt_stage2_warp_no_share_no_twiddle (u32 * data, u32 log_le
     u32 subblock_offset = (segment_id >> log_end_stride) << (deg + log_end_stride); // subblock_offset = (segment_id / (end_stride)) * (2 * subblock_sz * end_stride);
     u32 subblock_id = segment_id & (end_stride - 1);
 
-    data += ((u64)(segment_start + subblock_offset + subblock_id)) * WORDS; // use u64 to avoid overflow
+    data += ((segment_start + subblock_offset + subblock_id));
 
     const u32 io_id = lid & (io_group - 1);
     const u32 lid_start = lid - io_id;
@@ -203,7 +203,7 @@ __global__ void ssip_ntt_stage2_warp_no_share_no_twiddle (u32 * data, u32 log_le
                 u32 group_id = i & (subblock_sz - 1);
                 u64 gpos = group_offset + (group_id << (log_end_stride));
 
-                thread_data[tti] = reinterpret_cast<uint4*>(data + gpos * WORDS)[io_id];
+                thread_data[tti] = reinterpret_cast<uint4*>(&data[gpos])[io_id];
             }
         }
         WarpExchangeT(temp_storage_uint4[warp_id]).StripedToBlocked(thread_data, thread_data);
@@ -218,7 +218,7 @@ __global__ void ssip_ntt_stage2_warp_no_share_no_twiddle (u32 * data, u32 log_le
                 u32 group_id = i & (subblock_sz - 1);
                 u64 gpos = group_offset + (group_id << (log_end_stride));
 
-                thread_data[tti] = reinterpret_cast<uint4*>(data + (gpos+ (end_stride << (deg - 1))) * WORDS)[io_id];
+                thread_data[tti] = reinterpret_cast<uint4*>(&data[(gpos+ (end_stride << (deg - 1)))])[io_id];
             }
         }
 
@@ -234,7 +234,7 @@ __global__ void ssip_ntt_stage2_warp_no_share_no_twiddle (u32 * data, u32 log_le
                 u32 group_id = i & (subblock_sz - 1);
                 u64 gpos = group_offset + (group_id << (log_end_stride));
 
-                thread_data[tti] = reinterpret_cast<uint4*>(data + (gpos+ end_pair_stride) * WORDS)[io_id];
+                thread_data[tti] = reinterpret_cast<uint4*>(&data[(gpos+ end_pair_stride)])[io_id];
             }
         }
 
@@ -250,7 +250,7 @@ __global__ void ssip_ntt_stage2_warp_no_share_no_twiddle (u32 * data, u32 log_le
                 u32 group_id = i & (subblock_sz - 1);
                 u64 gpos = group_offset + (group_id << (log_end_stride));
 
-                thread_data[tti] = reinterpret_cast<uint4*>(data + (gpos + (end_stride << (deg - 1)) + end_pair_stride) * WORDS)[io_id];
+                thread_data[tti] = reinterpret_cast<uint4*>(&data[(gpos + (end_stride << (deg - 1)) + end_pair_stride)])[io_id];
             }
         }
 
@@ -262,10 +262,10 @@ __global__ void ssip_ntt_stage2_warp_no_share_no_twiddle (u32 * data, u32 log_le
         u32 group_id = lid & (subblock_sz - 1);
         u64 gpos = group_offset + (group_id << (log_end_stride));
 
-        a = Field::load(data + (gpos) * WORDS);
-        b = Field::load(data + (gpos + (end_stride << (deg - 1))) * WORDS);
-        c = Field::load(data + (gpos + end_pair_stride) * WORDS);
-        d = Field::load(data + (gpos + (end_stride << (deg - 1)) + end_pair_stride) * WORDS);
+        a = data[(gpos)];
+        b = data[(gpos + (end_stride << (deg - 1)))];
+        c = data[(gpos + end_pair_stride)];
+        d = data[(gpos + (end_stride << (deg - 1)) + end_pair_stride)];
     }
     
     barrier::arrival_token token = bar.arrive(); /* this thread arrives. Arrival does not block a thread */
@@ -337,7 +337,7 @@ __global__ void ssip_ntt_stage2_warp_no_share_no_twiddle (u32 * data, u32 log_le
             gpos = group_offset + (group_id << (log_end_stride + 1));
             
             if (io_id * 4  < WORDS) {
-                reinterpret_cast<uint4*>(data + (gpos + second_half_l * end_pair_stride + gap * end_stride) * WORDS)[io_id] = thread_data[tti];
+                reinterpret_cast<uint4*>(&data[(gpos + second_half_l * end_pair_stride + gap * end_stride)])[io_id] = thread_data[tti];
             }
         }
 
@@ -367,7 +367,7 @@ __global__ void ssip_ntt_stage2_warp_no_share_no_twiddle (u32 * data, u32 log_le
             gpos = group_offset + (group_id << (log_end_stride + 1));
             
             if (io_id * 4 < WORDS) {
-                reinterpret_cast<uint4*>(data + (gpos + second_half_l * end_pair_stride + gap * end_stride) * WORDS)[io_id] = thread_data[tti];
+                reinterpret_cast<uint4*>(&data[(gpos + second_half_l * end_pair_stride + gap * end_stride)])[io_id] = thread_data[tti];
             }
         }
 
@@ -397,7 +397,7 @@ __global__ void ssip_ntt_stage2_warp_no_share_no_twiddle (u32 * data, u32 log_le
             gpos = group_offset + (group_id << (log_end_stride + 1));
             
             if (io_id * 4 < WORDS) {
-                reinterpret_cast<uint4*>(data + (gpos + second_half_l * end_pair_stride + gap * end_stride) * WORDS)[io_id] = thread_data[tti];
+                reinterpret_cast<uint4*>(&data[(gpos + second_half_l * end_pair_stride + gap * end_stride)])[io_id] = thread_data[tti];
             }
         }
 
@@ -426,7 +426,7 @@ __global__ void ssip_ntt_stage2_warp_no_share_no_twiddle (u32 * data, u32 log_le
             gpos = group_offset + (group_id << (log_end_stride + 1));
             
             if (io_id * 4 < WORDS) {
-                reinterpret_cast<uint4*>(data + (gpos + second_half_l * end_pair_stride + gap * end_stride) * WORDS)[io_id] = thread_data[tti];
+                reinterpret_cast<uint4*>(&data[(gpos + second_half_l * end_pair_stride + gap * end_stride)])[io_id] = thread_data[tti];
             }
         }
 
@@ -450,7 +450,7 @@ __global__ void ssip_ntt_stage2_warp_no_share_no_twiddle (u32 * data, u32 log_le
         group_id = lid_l & (subblock_sz - 1);
         gpos = group_offset + (group_id << (log_end_stride + 1));
         
-        a.store(data + (gpos + second_half_l * end_pair_stride + gap * end_stride) * WORDS);
+        data[(gpos + second_half_l * end_pair_stride + gap * end_stride)] = a;
 
         p = __brev((lid << 1) + 1) >> (32 - (deg << 1));
         second_half_l = (p >= lsize * 2);
@@ -464,7 +464,7 @@ __global__ void ssip_ntt_stage2_warp_no_share_no_twiddle (u32 * data, u32 log_le
         group_id = lid_l & (subblock_sz - 1);
         gpos = group_offset + (group_id << (log_end_stride + 1));
         
-        b.store(data + (gpos + second_half_l * end_pair_stride + gap * end_stride) * WORDS);
+        data[(gpos + second_half_l * end_pair_stride + gap * end_stride)] = b;
 
         p = __brev((lid << 1) + lsize * 2) >> (32 - (deg << 1));
         second_half_l = (p >= lsize * 2);
@@ -478,7 +478,7 @@ __global__ void ssip_ntt_stage2_warp_no_share_no_twiddle (u32 * data, u32 log_le
         group_id = lid_l & (subblock_sz - 1);
         gpos = group_offset + (group_id << (log_end_stride + 1));
         
-        c.store(data + (gpos + second_half_l * end_pair_stride + gap * end_stride) * WORDS);
+        data[(gpos + second_half_l * end_pair_stride + gap * end_stride)] = c;
 
         p = __brev((lid << 1) + lsize * 2 + 1) >> (32 - (deg << 1));
         second_half_l = (p >= lsize * 2);
@@ -492,18 +492,19 @@ __global__ void ssip_ntt_stage2_warp_no_share_no_twiddle (u32 * data, u32 log_le
         group_id = lid_l & (subblock_sz - 1);
         gpos = group_offset + (group_id << (log_end_stride + 1));
         
-        d.store(data + (gpos + second_half_l * end_pair_stride + gap * end_stride) * WORDS);
+        data[(gpos + second_half_l * end_pair_stride + gap * end_stride)] = d;
     }
 }
 
 template <typename Field>
-cudaError_t ssip_ntt(u32 *x, const u32 *twiddle, u32 log_len, cudaStream_t stream, const u32 max_threads_stage1_log, const u32 max_threads_stage2_log) {
+cudaError_t ssip_ntt(u32 *x, i64 x_rotate, const u32 *twiddle, u32 log_len, cudaStream_t stream, const u32 max_threads_stage1_log, const u32 max_threads_stage2_log) {
     static const usize WORDS = Field::LIMBS;
     constexpr u32 io_group = 1 << (log2_int(WORDS - 1) - 1);
 
     if (log_len == 0) return cudaSuccess;
 
     u64 len = 1 << log_len;
+    auto x_iter = make_rotating_iter(reinterpret_cast<Field*>(x), x_rotate, len);
 
     // plan partition for NTT stages
     u32 total_deg_stage1 = (log_len + 1) / 2;
@@ -530,7 +531,7 @@ cudaError_t ssip_ntt(u32 *x, const u32 *twiddle, u32 log_len, cudaStream_t strea
         auto kernel = ssip_ntt_stage1_warp_no_twiddle<Field>;
         CUDA_CHECK(cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, shared_size));
 
-        kernel <<< block_num, block_sz, shared_size, stream >>>(x, log_len, log_stride, deg, 1 << (deg - 1), twiddle);
+        kernel <<< block_num, block_sz, shared_size, stream >>>(x_iter, log_len, log_stride, deg, 1 << (deg - 1), twiddle);
         CUDA_CHECK(cudaGetLastError());
 
         log_stride -= deg;
@@ -547,7 +548,7 @@ cudaError_t ssip_ntt(u32 *x, const u32 *twiddle, u32 log_len, cudaStream_t strea
         usize shared_size = (sizeof(typename cub::WarpExchange<uint4, io_group, io_group>::TempStorage) * (block_sz / io_group)); 
 
         auto kernel = ssip_ntt_stage2_warp_no_share_no_twiddle<Field>;
-        kernel <<< block_num, block_sz, shared_size, stream >>>(x, log_len, log_stride, deg, ((1 << (deg << 1)) >> 2), twiddle);
+        kernel <<< block_num, block_sz, shared_size, stream >>>(x_iter, log_len, log_stride, deg, ((1 << (deg << 1)) >> 2), twiddle);
         CUDA_CHECK(cudaGetLastError());
 
         log_stride -= deg;
