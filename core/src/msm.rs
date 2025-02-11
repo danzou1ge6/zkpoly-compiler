@@ -5,7 +5,7 @@ use std::ptr::{null, null_mut};
 
 use libloading::Symbol;
 use zkpoly_common::load_dynamic::Libs;
-use zkpoly_common::msm_config::MSMConfig;
+use zkpoly_common::msm_config::MsmConfig;
 use zkpoly_cuda_api::bindings::{cudaError_cudaSuccess, cudaError_t, cudaGetErrorString};
 use zkpoly_cuda_api::cuda_check;
 use zkpoly_runtime::args::{RuntimeType, Variable};
@@ -35,7 +35,7 @@ pub struct MSM<T: RuntimeType> {
             h_result: *const *mut c_uint,
         ) -> cudaError_t,
     >,
-    config: MSMConfig<T::PointAffine>,
+    config: MsmConfig,
 }
 
 pub struct MSMPrecompute<T: RuntimeType> {
@@ -51,7 +51,7 @@ pub struct MSMPrecompute<T: RuntimeType> {
 }
 
 impl<T: RuntimeType> MSMPrecompute<T> {
-    pub fn new(libs: &mut Libs, config: MSMConfig<T::PointAffine>) -> Self {
+    pub fn new(libs: &mut Libs, config: MsmConfig) -> Self {
         let (curve, bits) = resolve_curve(type_name::<T::PointAffine>());
         xmake_config("MSM_BITS", bits.to_string().as_str());
         xmake_config("MSM_CURVE", curve);
@@ -97,7 +97,7 @@ impl<T: RuntimeType> MSMPrecompute<T> {
 }
 
 impl<T: RuntimeType> MSM<T> {
-    pub fn new(libs: &mut Libs, config: MSMConfig<T::PointAffine>) -> Self {
+    pub fn new(libs: &mut Libs, config: MsmConfig) -> Self {
         let (curve, bits) = resolve_curve(type_name::<T::PointAffine>());
         xmake_config("MSM_BITS", bits.to_string().as_str());
         xmake_config("MSM_CURVE", curve);

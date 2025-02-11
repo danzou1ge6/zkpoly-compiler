@@ -1,8 +1,7 @@
 use pasta_curves::arithmetic::CurveAffine;
 
 #[derive(Debug, Clone)]
-pub struct MSMConfig<P: CurveAffine> {
-    pub _marker: std::marker::PhantomData<P>,
+pub struct MsmConfig {
     pub window_size: u32,
     pub target_window: u32,
     pub cards: Vec<u32>,
@@ -14,7 +13,7 @@ pub struct MSMConfig<P: CurveAffine> {
     pub bits: u32,
 }
 
-impl<P: CurveAffine> MSMConfig<P> {
+impl MsmConfig {
     pub fn get_precompute(&self) -> u32 {
         let actual_windows = self.bits.div_ceil(self.window_size);
         let n_windows = if actual_windows < self.target_window {
@@ -37,7 +36,6 @@ impl<P: CurveAffine> MSMConfig<P> {
         bits: u32,
     ) -> Self {
         Self {
-            _marker: std::marker::PhantomData,
             window_size,
             target_window,
             cards,
@@ -48,5 +46,11 @@ impl<P: CurveAffine> MSMConfig<P> {
             stage_points,
             bits,
         }
+    }
+}
+
+impl Default for MsmConfig {
+    fn default() -> Self {
+        todo!("A not too good but a working default config")
     }
 }

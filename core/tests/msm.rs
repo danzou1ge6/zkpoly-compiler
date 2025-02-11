@@ -19,7 +19,7 @@ use rand_core::{RngCore, SeedableRng};
 use rand_xorshift::XorShiftRng;
 use rayon::{current_thread_index, prelude::*};
 use zkpoly_common::load_dynamic::Libs;
-use zkpoly_common::msm_config::MSMConfig;
+use zkpoly_common::msm_config::MsmConfig;
 use zkpoly_core::build_func::resolve_curve;
 use zkpoly_core::msm::*;
 use zkpoly_cuda_api::bindings::{cudaFree, cudaMalloc};
@@ -121,7 +121,7 @@ fn generate_coefficients(k: u8, bits: usize) -> Vec<Scalar> {
 fn test_msm() {
     let mut libs = Libs::new();
     let (_, bits) = resolve_curve(type_name::<MyCurve>());
-    let msm_config = MSMConfig::<MyCurve>::new(16, 4, vec![0], false, 2, 2, 2, 2, bits);
+    let msm_config = MsmConfig::new(16, 4, vec![0], false, 2, 2, 2, 2, bits);
     let msm = MSM::<MyRuntimeType>::new(&mut libs, msm_config.clone());
     let msm_precompute = MSMPrecompute::<MyRuntimeType>::new(&mut libs, msm_config.clone());
 

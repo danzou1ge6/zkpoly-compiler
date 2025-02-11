@@ -21,13 +21,6 @@ pub enum NttAlgorithm {
     Precomputed,
     Standard,
 }
-
-#[derive(Debug, Clone)]
-pub enum MsmAlgorithm {
-    Batched,
-    Sequential,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Device {
     Gpu,
@@ -44,12 +37,6 @@ impl NttAlgorithm {
             NttAlgorithm::Standard
         }
     }
-    pub fn temporary_space_needed<F>(&self, deg: u64) -> u64 {
-        match self {
-            NttAlgorithm::Precomputed => deg * size_of::<F>() as u64,
-            NttAlgorithm::Standard => 0,
-        }
-    }
 }
 
 impl Default for NttAlgorithm {
@@ -58,28 +45,10 @@ impl Default for NttAlgorithm {
     }
 }
 
-impl MsmAlgorithm {
-    pub fn decide(deg: u64) -> Self {
-        if deg <= 2u64.pow(20) {
-            MsmAlgorithm::Batched
-        } else {
-            MsmAlgorithm::Sequential
-        }
-    }
-    pub fn temporary_space_needed<F>(&self, deg: u64) -> u64 {
-        // WARNING placeholder here, need complete parameters to decide the temporary space needed
-        0
-    }
-}
-
-impl Default for MsmAlgorithm {
-    fn default() -> Self {
-        MsmAlgorithm::Batched
-    }
-}
-
 pub mod template {
-    use super::{PolyInit, PolyType, NttAlgorithm, MsmAlgorithm, transit, arith};
+    use zkpoly_common::msm_config::MsmConfig;
+
+    use super::{arith, transit, NttAlgorithm, PolyInit, PolyType};
 
     #[derive(Debug, Clone)]
     pub enum VertexNode<I, A, C, E> {
@@ -109,7 +78,7 @@ pub mod template {
         Msm {
             scalars: I,
             points: I,
-            alg: MsmAlgorithm,
+            alg: MsmConfig,
         },
         HashTranscript {
             transcript: I,
@@ -123,30 +92,33 @@ pub mod template {
         UserFunction(E, Vec<I>),
     }
 
-    impl<I, C, E> VertexNode<I, arith::ArithGraph<I, arith::ExprId>, C, E> where I: Copy {
+    impl<I, C, E> VertexNode<I, arith::ArithGraph<I, arith::ExprId>, C, E>
+    where
+        I: Copy,
+    {
         pub fn uses<'a>(&'a self) -> Box<dyn Iterator<Item = I> + 'a> {
-        use VertexNode::*;
-        match self {
-            Arith(arith, ..) => Box::new(arith.uses()),
-            Ntt { s, .. } => Box::new([*s].into_iter()),
-            RotateIdx(x, _) => Box::new([*x].into_iter()),
-            Interplote { xs, ys } => Box::new(xs.iter().copied().chain(ys.iter().copied())),
-            Array(es) => Box::new(es.iter().copied()),
-            AssmblePoly(_, es) => Box::new([*es].into_iter()),
-            Msm {
-                scalars, points, ..
-            } => Box::new([*scalars, *points].into_iter()),
-            HashTranscript {
-                transcript, value, ..
-            } => Box::new([*transcript, *value].into_iter()),
-            SqueezeScalar(x) => Box::new([*x].into_iter()),
-            TupleGet(x, _) => Box::new([*x].into_iter()),
-            Blind(x, _) => Box::new([*x].into_iter()),
-            ArrayGet(x, _) => Box::new([*x].into_iter()),
-            UserFunction(_, es) => Box::new(es.iter().copied()),
-            _ => Box::new([].into_iter()),
+            use VertexNode::*;
+            match self {
+                Arith(arith, ..) => Box::new(arith.uses()),
+                Ntt { s, .. } => Box::new([*s].into_iter()),
+                RotateIdx(x, _) => Box::new([*x].into_iter()),
+                Interplote { xs, ys } => Box::new(xs.iter().copied().chain(ys.iter().copied())),
+                Array(es) => Box::new(es.iter().copied()),
+                AssmblePoly(_, es) => Box::new([*es].into_iter()),
+                Msm {
+                    scalars, points, ..
+                } => Box::new([*scalars, *points].into_iter()),
+                HashTranscript {
+                    transcript, value, ..
+                } => Box::new([*transcript, *value].into_iter()),
+                SqueezeScalar(x) => Box::new([*x].into_iter()),
+                TupleGet(x, _) => Box::new([*x].into_iter()),
+                Blind(x, _) => Box::new([*x].into_iter()),
+                ArrayGet(x, _) => Box::new([*x].into_iter()),
+                UserFunction(_, es) => Box::new(es.iter().copied()),
+                _ => Box::new([].into_iter()),
+            }
         }
-    }
     }
 }
 
@@ -184,7 +156,8 @@ impl<'s, Rt: RuntimeType, I, C>
         Typ<Rt>,
         SourceInfo<'s>,
     >
-where I: Copy
+where
+    I: Copy,
 {
     pub fn uses<'a>(&'a self) -> Box<dyn Iterator<Item = I> + 'a> {
         self.node().uses()
@@ -199,19 +172,13 @@ where I: Copy
             Entry => None,
             Return => None,
             LiteralScalar(..) => None,
-            Ntt { alg, .. } => Some((
-                alg.temporary_space_needed::<Rt::Field>(self.typ().unwrap_poly().1),
-                Gpu,
-            )),
+            Ntt { alg, .. } => Some((temporary_space::ntt::<Rt>(alg), Gpu)),
             RotateIdx(..) => None,
             Interplote { .. } => None,
             Blind(..) => None,
             Array(..) => None,
             AssmblePoly(..) => None,
-            Msm { alg, .. } => Some((
-                alg.temporary_space_needed::<Rt::Field>(self.typ().unwrap_poly().1),
-                Gpu,
-            )),
+            Msm { alg, .. } => Some((temporary_space::msm::<Rt>(alg), Gpu)),
             HashTranscript { .. } => None,
             SqueezeScalar(..) => None,
             TupleGet(..) => None,
@@ -429,5 +396,6 @@ pub type Cg<'s, Rt> = transit::Cg<VertexId, Vertex<'s, Rt>>;
 
 pub mod graph_scheduling;
 pub mod memory_planning;
+pub mod temporary_space;
 pub mod typ;
 pub mod user_function;
