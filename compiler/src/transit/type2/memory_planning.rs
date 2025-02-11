@@ -411,7 +411,7 @@ fn allocate(
             gpu_allocator.allocate(size, obj_id, reg_id, next_use, code, ctx, imctx)?
         }
         DeterminedDevice::Cpu => allocate_cpu(obj_id, reg_id, size, code, ctx),
-        DeterminedDevice::Stack => {},
+        DeterminedDevice::Stack => {}
     };
     Ok(())
 }
@@ -757,17 +757,15 @@ pub fn plan<'s, Rt: RuntimeType>(
                 {
                     // The input is not mutated
                     match &obj_def_use.values[&input_vid] {
-                        object_analysis::VertexValue::Single(input_value) => {
-                            ensure_on_device(
-                                device,
-                                input_value.object_id(),
-                                now,
-                                &mut gpu_allocator,
-                                &mut code,
-                                &mut ctx,
-                                &imctx,
-                            )
-                        }
+                        object_analysis::VertexValue::Single(input_value) => ensure_on_device(
+                            device,
+                            input_value.object_id(),
+                            now,
+                            &mut gpu_allocator,
+                            &mut code,
+                            &mut ctx,
+                            &imctx,
+                        ),
                         object_analysis::VertexValue::Tuple(input_values) => {
                             let elements = input_values
                                 .iter()
@@ -903,6 +901,6 @@ pub fn plan<'s, Rt: RuntimeType>(
         register_types,
         register_devices: ctx.reg_device,
         gpu_addr_mapping: ctx.gpu_addr_mapping,
-        reg_id_allocator: code.1
+        reg_id_allocator: code.1,
     })
 }

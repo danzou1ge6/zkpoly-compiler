@@ -425,13 +425,15 @@ namespace mont
       if (k % 32 == 0)
       {
         u32 shift = k / 32;
-        #pragma unroll
-        for (usize i = N - shift; i < N; i++) {
+#pragma unroll
+        for (usize i = N - shift; i < N; i++)
+        {
           r[i] = 0;
         }
 
-        #pragma unroll
-        for (usize i = 0; i < N - shift; i++) {
+#pragma unroll
+        for (usize i = 0; i < N - shift; i++)
+        {
           r[i] = x[i + shift];
         }
         return;
@@ -445,7 +447,8 @@ namespace mont
           u32 k_lo = k - (i - 1) * 32;
           u32 k_hi = i * 32 - k;
 #pragma unroll
-          for (int j = N - 1; j > N - i; j--) {
+          for (int j = N - 1; j > N - i; j--)
+          {
             r[j] = 0;
           }
           r[N - i] = x[N - 1] >> k_lo;
@@ -516,6 +519,117 @@ namespace mont
     }
   }
 
+  namespace device_arith2
+  {
+    // Copyright Supranational LLC
+    // Licensed under the Apache License, Version 2.0, see LICENSE for details.
+    // SPDX-License-Identifier: Apache-2.0
+
+    template <usize n>
+    __device__ __forceinline__ void mul_n(uint32_t *acc, const uint32_t *a, uint32_t bi)
+    {
+      for (size_t j = 0; j < n; j += 2)
+        asm("mul.lo.u32 %0, %2, %3; mul.hi.u32 %1, %2, %3;"
+            : "=r"(acc[j]), "=r"(acc[j + 1])
+            : "r"(a[j]), "r"(bi));
+    }
+
+    template <usize n>
+    __device__ __forceinline__ void cmad_n(uint32_t *acc, const uint32_t *a, uint32_t bi)
+    {
+      asm("mad.lo.cc.u32 %0, %2, %3, %0; madc.hi.cc.u32 %1, %2, %3, %1;"
+          : "+r"(acc[0]), "+r"(acc[1])
+          : "r"(a[0]), "r"(bi));
+      for (size_t j = 2; j < n; j += 2)
+        asm("madc.lo.cc.u32 %0, %2, %3, %0; madc.hi.cc.u32 %1, %2, %3, %1;"
+            : "+r"(acc[j]), "+r"(acc[j + 1])
+            : "r"(a[j]), "r"(bi));
+      // return carry flag
+    }
+
+    template <usize n>
+    __device__ __forceinline__ void madc_n_rshift(uint32_t *odd, const uint32_t *a, uint32_t bi)
+    {
+      for (size_t j = 0; j < n - 2; j += 2)
+        asm("madc.lo.cc.u32 %0, %2, %3, %4; madc.hi.cc.u32 %1, %2, %3, %5;"
+            : "=r"(odd[j]), "=r"(odd[j + 1])
+            : "r"(a[j]), "r"(bi), "r"(odd[j + 2]), "r"(odd[j + 3]));
+      asm("madc.lo.cc.u32 %0, %2, %3, 0; madc.hi.u32 %1, %2, %3, 0;"
+          : "=r"(odd[n - 2]), "=r"(odd[n - 1])
+          : "r"(a[n - 2]), "r"(bi));
+    }
+
+    template <usize n>
+    __device__ __forceinline__ void mad_n_redc(uint32_t *even, uint32_t *odd,
+                                               const uint32_t *a, uint32_t bi, const uint32_t *m, uint32_t m_prime, bool first = false)
+    {
+      if (first)
+      {
+        mul_n<n>(odd, a + 1, bi);
+        mul_n<n>(even, a, bi);
+      }
+      else
+      {
+        asm("add.cc.u32 %0, %0, %1;" : "+r"(even[0]) : "r"(odd[1]));
+        madc_n_rshift<n>(odd, a + 1, bi);
+        cmad_n<n>(even, a, bi);
+        asm("addc.u32 %0, %0, 0;" : "+r"(odd[n - 1]));
+      }
+
+      uint32_t mi = even[0] * m_prime;
+
+      cmad_n<n>(odd, m + 1, mi);
+      cmad_n<n>(even, m, mi);
+      asm("addc.u32 %0, %0, 0;" : "+r"(odd[n - 1]));
+    }
+
+    template <usize n>
+    __device__ __forceinline__ void cadd_n(uint32_t *acc, const uint32_t *a)
+    {
+      asm("add.cc.u32 %0, %0, %1;" : "+r"(acc[0]) : "r"(a[0]));
+      for (size_t i = 1; i < n; i++)
+        asm("addc.cc.u32 %0, %0, %1;" : "+r"(acc[i]) : "r"(a[i]));
+      // return carry flag
+    }
+
+    template <usize n>
+    __device__ __forceinline__ void final_sub(uint32_t *even, uint32_t carry, uint32_t *tmp, const uint32_t *m)
+    {
+      size_t i;
+      asm volatile("{ .reg.pred %top;");
+
+      asm volatile("sub.cc.u32 %0, %1, %2;" : "=r"(tmp[0]) : "r"(even[0]), "r"(m[0]));
+      for (i = 1; i < n; i++)
+        asm volatile("subc.cc.u32 %0, %1, %2;" : "=r"(tmp[i]) : "r"(even[i]), "r"(m[i]));
+
+      asm volatile("subc.u32 %0, 0, 0; setp.eq.u32 %top, %0, 0;" : "=r"(carry));
+
+      for (i = 0; i < n; i++)
+        asm volatile("@%top mov.b32 %0, %1;" : "+r"(even[i]) : "r"(tmp[i]));
+
+      asm volatile("}");
+    }
+
+    template <usize n, bool _MODULO>
+    __device__ __forceinline__ void montgomery_multiplication(uint32_t *even, const uint32_t *a, const uint32_t *b, const uint32_t *m, uint32_t m_prime)
+    {
+      uint32_t odd[n];
+
+#pragma unroll
+      for (size_t i = 0; i < n; i += 2)
+      {
+        mad_n_redc<n>(&even[0], &odd[0], &a[0], b[i], m, m_prime, i == 0);
+        mad_n_redc<n>(&odd[0], &even[0], &a[0], b[i + 1], m, m_prime);
+      }
+
+      // merge |even| and |odd|
+      cadd_n<n - 1>(&even[0], &odd[1]);
+      asm("addc.u32 %0, %0, 0;" : "+r"(even[n - 1]));
+
+      final_sub<n>(even, 0, &odd[0], m);
+    }
+  }
+
   // A big integer
   template <usize LIMBS_>
   struct
@@ -525,7 +639,7 @@ namespace mont
     static const usize LIMBS = LIMBS_;
     u32 limbs[LIMBS];
 
-    __device__ __host__ __forceinline__ 
+    __device__ __host__ __forceinline__
     Number() {}
 
     // Constructor: `Number x = {0, 1, 2, 3, 4, 5, 6, 7}` in little endian
@@ -630,14 +744,15 @@ namespace mont
     }
 
     template <u32 windows, u32 bits_per_window>
-    __host__ __device__ __forceinline__
-    void bit_slice(int (&r)[windows]) {
+    __host__ __device__ __forceinline__ void bit_slice(int(&r)[windows])
+    {
       static_assert(bits_per_window <= 31, "Too many bits per window");
 
       // can be optimized by using hand written __funnelshift sequences
       Number t = *this;
-      #pragma unroll
-      for (u32 i = 0; i < windows; i++) {
+#pragma unroll
+      for (u32 i = 0; i < windows; i++)
+      {
         r[i] = t.limbs[0] & ((1 << bits_per_window) - 1);
         t = t.slr(bits_per_window);
       }
@@ -751,7 +866,7 @@ namespace mont
     __device__ __forceinline__ Number shuffle_down(const u32 delta) const &
     {
       Number res;
-      #pragma unroll
+#pragma unroll
       for (usize i = 0; i < LIMBS; i++)
       {
         res.limbs[i] = __shfl_down_sync(0xFFFFFFFF, limbs[i], delta);
@@ -769,7 +884,7 @@ namespace mont
 
     Number<LIMBS> n;
 
-    __host__ __device__ __forceinline__  Element() {}
+    __host__ __device__ __forceinline__ Element() {}
     constexpr __host__ __device__ __forceinline__ Element(Number<LIMBS> n) : n(n) {}
 
     static __host__ __device__ __forceinline__
@@ -787,7 +902,7 @@ namespace mont
     }
 
     // Addition identity on field
-    static __host__ __device__ __forceinline__ 
+    static __host__ __device__ __forceinline__
         Element
         zero()
     {
@@ -796,7 +911,7 @@ namespace mont
       return r;
     }
 
-    __host__ __device__ __forceinline__  constexpr bool
+    __host__ __device__ __forceinline__ constexpr bool
     is_zero() const &
     {
       return n.is_zero();
@@ -824,14 +939,14 @@ namespace mont
     }
 
     // Field multiplication
-    template<bool MODULO = true>
+    template <bool MODULO = true>
     __host__ __device__ __forceinline__
         Element
         mul(const Element &rhs) const &
     {
       Element r;
 #ifdef __CUDA_ARCH__
-      device_arith::montgomery_multiplication<LIMBS, MODULO>(r.n.limbs, n.limbs, rhs.n.limbs, Params::m().limbs, Params::m_prime);
+      device_arith2::montgomery_multiplication<LIMBS, MODULO>(r.n.limbs, n.limbs, rhs.n.limbs, Params::m().limbs, Params::m_prime);
 #else
       host_arith::montgomery_multiplication<LIMBS, MODULO>(r.n.limbs, n.limbs, rhs.n.limbs, Params::m().limbs, Params::m_prime);
 #endif
@@ -845,7 +960,7 @@ namespace mont
       return mul<true>(rhs);
     }
 
-    template<bool MODULO = true>
+    template <bool MODULO = true>
     __host__ __device__ __forceinline__
         Element
         square() const &
@@ -1012,11 +1127,11 @@ namespace mont
     {
       return this->pow(Params::m_sub2());
     }
-    
+
     __host__ __device__ __forceinline__ bool lt_2m() const &
     {
       auto m = ParamsType::mm2();
-      for (int i = LIMBS - 1; i >= 0; i --)
+      for (int i = LIMBS - 1; i >= 0; i--)
         if (n.limbs[i] < m.limbs[i])
           return true;
         else if (n.limbs[i] > m.limbs[i])
@@ -1025,7 +1140,7 @@ namespace mont
     }
 
     // Generate a random field element
-    static __host__ __forceinline__ 
+    static __host__ __forceinline__
         Element
         host_random()
     {
@@ -1042,8 +1157,8 @@ namespace mont
     }
   };
 
-  template <usize LIMBS> 
-  __forceinline__  std::istream &
+  template <usize LIMBS>
+  __forceinline__ std::istream &
   operator>>(std::istream &is, Number<LIMBS> &n)
   {
     is >> std::hex;
@@ -1056,7 +1171,7 @@ namespace mont
   }
 
   template <usize LIMBS>
-  __forceinline__  std::ostream &
+  __forceinline__ std::ostream &
   operator<<(std::ostream &os, const Number<LIMBS> &n)
   {
     os << "0x";
@@ -1067,15 +1182,141 @@ namespace mont
   }
 
   template <class Params>
-  __forceinline__  std::ostream &
+  __forceinline__ std::ostream &
   operator<<(std::ostream &os, const Element<Params> &e)
   {
     auto n = e.to_number();
     os << n;
     return os;
   }
+
+  template <typename Field, u32 io_group>
+  __forceinline__ __device__ auto load_exchange(u32 *data, typename cub::WarpExchange<u32, io_group, io_group>::TempStorage temp_storage[]) -> Field
+  {
+    using WarpExchangeT = cub::WarpExchange<u32, io_group, io_group>;
+    const static usize WORDS = Field::LIMBS;
+    const u32 io_id = threadIdx.x & (io_group - 1);
+    const u32 lid_start = threadIdx.x - io_id;
+    const int warp_id = static_cast<int>(threadIdx.x) / io_group;
+    u32 thread_data[io_group];
+#pragma unroll
+    for (u64 i = lid_start; i != lid_start + io_group; i++)
+    {
+      if (io_id < WORDS)
+      {
+        thread_data[i - lid_start] = data[i * WORDS + io_id];
+      }
+    }
+    WarpExchangeT(temp_storage[warp_id]).StripedToBlocked(thread_data, thread_data);
+    __syncwarp();
+    return Field::load(thread_data);
+  }
+  template <typename Field, u32 io_group>
+  __forceinline__ __device__ void store_exchange(Field ans, u32 *dst, typename cub::WarpExchange<u32, io_group, io_group>::TempStorage temp_storage[])
+  {
+    using WarpExchangeT = cub::WarpExchange<u32, io_group, io_group>;
+    const static usize WORDS = Field::LIMBS;
+    const u32 io_id = threadIdx.x & (io_group - 1);
+    const u32 lid_start = threadIdx.x - io_id;
+    const int warp_id = static_cast<int>(threadIdx.x) / io_group;
+    u32 thread_data[io_group];
+    ans.store(thread_data);
+    WarpExchangeT(temp_storage[warp_id]).BlockedToStriped(thread_data, thread_data);
+    __syncwarp();
+#pragma unroll
+    for (u64 i = lid_start; i != lid_start + io_group; i++)
+    {
+      if (io_id < WORDS)
+      {
+        dst[i * WORDS + io_id] = thread_data[i - lid_start];
+      }
+    }
+  }
+
+  __forceinline__ constexpr u32 pow2_ceiling(u32 x)
+  {
+    u32 r = 2;
+    while (r < x)
+      r *= 2;
+    return r;
+  }
+
+  //   // For an array of field elements layouted like
+  //   // [0].0    [0].1    ...    [0].N
+  //   // [1].0    [1].1    ...    [1].N
+  //   // ...
+  //   // [M].0    [M].1    ...    [M].N
+  //   // where N is LIMBS of each element and M is blockSize.x,
+  //   // load the i-th scalar to i-th thread's `dst`
+  //   //
+  //   // Invariants:
+  //   // - `data` must be the same across each `io_group` threads
+  //   template <u32 WORDS, u32 io_group = pow2_ceiling(WORDS), typename GetId>
+  //   __forceinline__ __device__ void load_exchange_raw(
+  //       u32 dst[WORDS],
+  //       u32 *data,
+  //       GetId gpos,
+  //       typename cub::WarpExchange<u32, io_group, io_group>::TempStorage temp_storage[])
+  //   {
+
+  //     using WarpExchangeT = cub::WarpExchange<u32, io_group, io_group>;
+  //     const u32 io_id = threadIdx.x & (io_group - 1);
+  //     const u32 lid_start = threadIdx.x - io_id;
+  //     const int warp_id = static_cast<int>(threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z * blockDim.x * blockDim.y) / io_group;
+  // #pragma unroll
+  //     for (u32 i = lid_start; i != lid_start + io_group; i++)
+  //     {
+  //       if (io_id < WORDS)
+  //       {
+  //         dst[i - lid_start] = data[gpos(i) * WORDS + io_id];
+  //       }
+  //     }
+  //     WarpExchangeT(temp_storage[warp_id]).StripedToBlocked(dst, dst);
+  //     __syncwarp();
+  //   }
+
+  //   template <typename Field, u32 io_group = pow2_ceiling(Field::LIMBS), typename GetId>
+  //   __forceinline__ __device__ auto load_exchange(u32 *data, GetId gpos, typename cub::WarpExchange<u32, io_group, io_group>::TempStorage temp_storage[]) -> Field
+  //   {
+  //     u32 thread_data[io_group];
+  //     load_exchange_raw<Field::LIMBS>(thread_data, data, gpos, temp_storage);
+  //     return Field::load(thread_data);
+  //   }
+
+  //   // The reversed effect of `load_exchange_raw`
+  //   template <u32 WORDS, u32 io_group = pow2_ceiling(WORDS), typename GetId>
+  //   __forceinline__ __device__ void store_exchange_raw(
+  //       u32 *dst,
+  //       u32 from[WORDS],
+  //       GetId get_gpos,
+  //       typename cub::WarpExchange<u32, io_group, io_group>::TempStorage temp_storage[])
+  //   {
+  //     using WarpExchangeT = cub::WarpExchange<u32, io_group, io_group>;
+  //     // const static usize WORDS = Field::LIMBS;
+  //     const u32 io_id = threadIdx.x & (io_group - 1);
+  //     const u32 lid_start = threadIdx.x - io_id;
+  //     const int warp_id = static_cast<int>(threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z * blockDim.x * blockDim.y) / io_group;
+  //     WarpExchangeT(temp_storage[warp_id]).BlockedToStriped(from, from);
+  //     __syncwarp();
+  // #pragma unroll
+  //     for (u64 i = lid_start; i != lid_start + io_group; i++)
+  //     {
+  //       u64 gpos = get_gpos(i);
+  //       if (io_id < WORDS)// && gpos < dst_len)
+  //       {
+  //         dst[gpos * WORDS + io_id] = from[i - lid_start];
+  //       }
+  //     }
+  //   }
+
+  //   template <typename Field, u32 io_group = pow2_ceiling(Field::LIMBS), typename GetId>
+  //   __forceinline__ __device__ void store_exchange(Field &ans, u32 *dst, GetId gpos, typename cub::WarpExchange<u32, io_group, io_group>::TempStorage temp_storage[])
+  //   {
+  //     u32 thread_data[io_group];
+  //     ans.store(thread_data);
+  //     store_exchange_raw<Field::LIMBS>(dst, thread_data, gpos, temp_storage);
+  //   }
+
 }
-
-
 
 #endif

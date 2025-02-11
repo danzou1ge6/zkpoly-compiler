@@ -67,7 +67,9 @@ fn choose_next_vertex<'s, Rt: RuntimeType>(
 /// Schedules a computation graph. It must be a DAG.
 ///
 /// Returns the sequence of the vertices, and the sequence number of the vertex which a vertex dies after.
-pub fn schedule<'s, Rt: RuntimeType>(cg: &Cg<'s, Rt>) -> (Vec<VertexId>, BTreeMap<VertexId, usize>) {
+pub fn schedule<'s, Rt: RuntimeType>(
+    cg: &Cg<'s, Rt>,
+) -> (Vec<VertexId>, BTreeMap<VertexId, usize>) {
     let mut active_vertices: BTreeSet<VertexId> = BTreeSet::new();
     // Number of unexecuted predecessors
     let mut deg_in = cg.g.degrees_in();

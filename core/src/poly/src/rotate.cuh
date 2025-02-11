@@ -5,6 +5,7 @@ namespace detail {
 
 template <typename Field>
 cudaError_t rotate(const Field *src, Field *dst, u64 len, i64 shift, cudaStream_t stream) {
+    assert(src != dst);
     if (shift == 0) {
         CUDA_CHECK(cudaMemcpyAsync(dst, src, sizeof(Field) * len, cudaMemcpyDeviceToDevice, stream));
         return cudaSuccess;

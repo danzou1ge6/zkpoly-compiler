@@ -205,11 +205,7 @@ impl Allocator {
         }
     }
 
-    fn new_addr_id(
-        addr: u64,
-        lbs: u32,
-        mapping: &mut impl AddrMappingHandler,
-    ) -> AddrId {
+    fn new_addr_id(addr: u64, lbs: u32, mapping: &mut impl AddrMappingHandler) -> AddrId {
         mapping.add(Addr(addr), Size::Integral(IntegralSize(lbs)))
     }
 
@@ -445,7 +441,8 @@ impl Allocator {
             let (Addr(parent_addr), _) = mapping.get(parent_addr);
 
             let now = self.now;
-            self.block_mut(parent_addr, parent_lbs).status = BlockStatus::Splitted(now, MmHeap::new());
+            self.block_mut(parent_addr, parent_lbs).status =
+                BlockStatus::Splitted(now, MmHeap::new());
 
             for addr in self.child_addrs(parent_addr, parent_lbs).unwrap() {
                 let block = Block {
@@ -500,7 +497,7 @@ impl Allocator {
         &mut self,
         size: IntegralSize,
         next_use: Instant,
-        mapping: &mut impl AddrMappingHandler
+        mapping: &mut impl AddrMappingHandler,
     ) -> (AddrId, Vec<AddrId>) {
         let lbs = size.0;
 

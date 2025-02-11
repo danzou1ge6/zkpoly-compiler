@@ -1,6 +1,7 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include <doctest/doctest.h>
 #include "../src/scan_mul.cuh"
+#include "../src/rotate.cuh"
 #include <iostream>
 #include <chrono>
 
@@ -44,12 +45,15 @@ TEST_CASE("gpu prefix product") {
     cudaMalloc(&p_d, len * sizeof(Field));
     cudaMalloc(&q_d, len * sizeof(Field));
     cudaMalloc(&x0_d, sizeof(Field));
-    cudaMemcpy(p_d, p, len * sizeof(Field), cudaMemcpyHostToDevice);
+    cudaMemcpy(q_d, p, len * sizeof(Field), cudaMemcpyHostToDevice);
     cudaMemcpy(x0_d, &x0, sizeof(Field), cudaMemcpyHostToDevice);
+
+    int rotation = 1;
+    detail::rotate<Field>(q_d, p_d, len, rotation, 0);
 
     void *temp_buffer;
     usize buffer_size = 0;
-    detail::scan_mul<Field>(nullptr, &buffer_size, reinterpret_cast<u32*>(p_d), reinterpret_cast<u32*>(q_d), reinterpret_cast<u32*>(x0_d), len, 0);
+    detail::scan_mul<Field>(nullptr, &buffer_size, reinterpret_cast<u32*>(p_d), 0, reinterpret_cast<u32*>(q_d), 0, reinterpret_cast<u32*>(x0_d), len, 0);
     cudaMalloc(&temp_buffer, buffer_size);
 
     cudaEvent_t start_gpu, end_gpu;
@@ -57,7 +61,7 @@ TEST_CASE("gpu prefix product") {
     cudaEventCreate(&end_gpu);
     cudaEventRecord(start_gpu);
 
-    detail::scan_mul<Field>(temp_buffer, nullptr,  reinterpret_cast<u32*>(p_d), reinterpret_cast<u32*>(q_d), reinterpret_cast<u32*>(x0_d), len, 0);
+    detail::scan_mul<Field>(temp_buffer, nullptr,  reinterpret_cast<u32*>(p_d), 1, reinterpret_cast<u32*>(q_d), 0, reinterpret_cast<u32*>(x0_d), len, 0);
 
     cudaEventRecord(end_gpu);
     cudaEventSynchronize(end_gpu);

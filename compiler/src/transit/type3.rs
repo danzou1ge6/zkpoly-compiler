@@ -1,7 +1,10 @@
 use std::collections::BTreeMap;
 
 use crate::transit::{self, type2};
-use zkpoly_common::{arith, define_usize_id, heap::{Heap, IdAllocator}};
+use zkpoly_common::{
+    arith, define_usize_id,
+    heap::{Heap, IdAllocator},
+};
 use zkpoly_runtime::args::RuntimeType;
 
 define_usize_id!(AddrId);
@@ -241,7 +244,7 @@ pub struct TrackSpecific<T> {
     pub(crate) cpu: T,
     pub(crate) to_gpu: T,
     pub(crate) from_gpu: T,
-    pub(crate) gpu_memory: T
+    pub(crate) gpu_memory: T,
 }
 
 impl<T> TrackSpecific<T> {
@@ -254,7 +257,7 @@ impl<T> TrackSpecific<T> {
             Cpu => &self.cpu,
             ToGpu => &self.to_gpu,
             FromGpu => &self.from_gpu,
-            GpuMemory => &self.gpu_memory
+            GpuMemory => &self.gpu_memory,
         }
     }
 
@@ -267,7 +270,7 @@ impl<T> TrackSpecific<T> {
             Cpu => &mut self.cpu,
             ToGpu => &mut self.to_gpu,
             FromGpu => &mut self.from_gpu,
-            GpuMemory => &mut self.gpu_memory
+            GpuMemory => &mut self.gpu_memory,
         }
     }
 
@@ -280,12 +283,15 @@ impl<T> TrackSpecific<T> {
             (Cpu, &self.cpu),
             (ToGpu, &self.to_gpu),
             (FromGpu, &self.from_gpu),
-            (GpuMemory, &self.gpu_memory)
+            (GpuMemory, &self.gpu_memory),
         ]
         .into_iter()
     }
 
-    pub fn new(t: T) -> Self where T: Clone {
+    pub fn new(t: T) -> Self
+    where
+        T: Clone,
+    {
         Self {
             memory_management: t.clone(),
             co_process: t.clone(),
@@ -293,7 +299,7 @@ impl<T> TrackSpecific<T> {
             cpu: t.clone(),
             to_gpu: t.clone(),
             from_gpu: t.clone(),
-            gpu_memory: t
+            gpu_memory: t,
         }
     }
 }
@@ -371,7 +377,7 @@ pub struct Chunk<'s, Rt: RuntimeType> {
     pub(crate) register_types: BTreeMap<RegisterId, type2::Typ<Rt>>,
     pub(crate) register_devices: BTreeMap<RegisterId, Device>,
     pub(crate) gpu_addr_mapping: AddrMapping,
-    pub(crate) reg_id_allocator: IdAllocator<RegisterId>
+    pub(crate) reg_id_allocator: IdAllocator<RegisterId>,
 }
 
 impl<'s, Rt: RuntimeType> std::ops::Index<InstructionIndex> for Chunk<'s, Rt> {
@@ -441,6 +447,6 @@ impl<'s, Rt: RuntimeType> Chunk<'s, Rt> {
     }
 }
 
-pub mod track_splitting;
-pub mod lowering;
 pub mod kernel_generation;
+pub mod lowering;
+pub mod track_splitting;

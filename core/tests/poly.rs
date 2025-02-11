@@ -51,16 +51,19 @@ fn test_binary(
         stream.unwrap_stream().allocate(len),
         DeviceType::GPU { device_id: 0 },
     ));
+    a_d.unwrap_scalar_array_mut().rotate(10); // test rotation
     let mut b_d = Variable::ScalarArray(ScalarArray::new(
         len,
         stream.unwrap_stream().allocate(len),
         DeviceType::GPU { device_id: 0 },
     ));
+    b_d.unwrap_scalar_array_mut().rotate(-10); // test rotation
     let mut res_d = Variable::ScalarArray(ScalarArray::new(
         len,
         stream.unwrap_stream().allocate(len),
         DeviceType::GPU { device_id: 0 },
     ));
+    res_d.unwrap_scalar_array_mut().rotate(3); // test rotation
     a.cpu2gpu(a_d.unwrap_scalar_array_mut(), stream.unwrap_stream());
     b.cpu2gpu(b_d.unwrap_scalar_array_mut(), stream.unwrap_stream());
     f(vec![&mut res_d], vec![&a_d, &b_d, &stream]).unwrap();
@@ -144,6 +147,7 @@ fn test_eval() {
         stream.unwrap_stream().allocate(len),
         DeviceType::GPU { device_id: 0 },
     ));
+    poly_d.unwrap_scalar_array_mut().rotate(10); // test rotation
     let mut x_d = Variable::Scalar(Scalar::new_gpu(stream.unwrap_stream().allocate(1), 0));
     let mut res_d = Variable::Scalar(Scalar::new_gpu(stream.unwrap_stream().allocate(1), 0));
     let buf_size = poly_eval.get_buffer_size(len);
@@ -206,12 +210,14 @@ fn test_kate() {
         stream.unwrap_stream().allocate(len),
         DeviceType::GPU { device_id: 0 },
     ));
+    poly_d.unwrap_scalar_array_mut().rotate(2);
     let mut b_d = Variable::Scalar(Scalar::new_gpu(stream.unwrap_stream().allocate(1), 0));
     let mut res_d = Variable::ScalarArray(ScalarArray::new(
         len,
         stream.unwrap_stream().allocate(len),
         DeviceType::GPU { device_id: 0 },
     ));
+    res_d.unwrap_scalar_array_mut().rotate(-2);
     let buf_size = kate.get_buffer_size(log_len);
     let mut temp_buf = Variable::GpuBuffer(GpuBuffer::new(
         stream.unwrap_stream().allocate(buf_size),
@@ -333,12 +339,14 @@ fn test_scan() {
         stream.unwrap_stream().allocate(len),
         DeviceType::GPU { device_id: 0 },
     ));
+    poly_d.unwrap_scalar_array_mut().rotate(3);
     let mut x0_d = Variable::Scalar(Scalar::new_gpu(stream.unwrap_stream().allocate(1), 0));
     let mut res_d = Variable::ScalarArray(ScalarArray::new(
         len,
         stream.unwrap_stream().allocate(len),
         DeviceType::GPU { device_id: 0 },
     ));
+    res_d.unwrap_scalar_array_mut().rotate(-5);
     let buf_size = scan.get_buffer_size(len.try_into().unwrap());
     let mut temp_buf = Variable::GpuBuffer(GpuBuffer::new(
         stream.unwrap_stream().allocate(buf_size),
@@ -433,63 +441,5 @@ fn test_invert() {
 
     for i in 0..len - 1 {
         assert_eq!(res.as_ref()[i], poly.as_ref()[i]);
-    }
-}
-
-#[test]
-fn test_rotate() {
-    let len = 1 << K;
-    let mut libs = Libs::new();
-    let rotate = PolyRotate::<MyRuntimeType>::new(&mut libs);
-    let func = match rotate.get_fn() {
-        Function {
-            f: FunctionValue::Fn(func),
-            ..
-        } => func,
-        _ => unreachable!(),
-    };
-    let cpu_pool = PinnedMemoryPool::new(K, size_of::<MyField>());
-    let stream = Variable::Stream(CudaStream::new(0));
-    let mut src = ScalarArray::new(len, cpu_pool.allocate(len), DeviceType::CPU);
-    let mut dst = ScalarArray::new(len, cpu_pool.allocate(len), DeviceType::CPU);
-    let mut rng = XorShiftRng::from_seed([0; 16]);
-    for i in 0..len {
-        src.as_mut()[i] = MyField::random(&mut rng);
-    }
-    let mut src_d = Variable::ScalarArray(ScalarArray::new(
-        len,
-        stream.unwrap_stream().allocate(len),
-        DeviceType::GPU { device_id: 0 },
-    ));
-    let mut dst_d = Variable::ScalarArray(ScalarArray::new(
-        len,
-        stream.unwrap_stream().allocate(len),
-        DeviceType::GPU { device_id: 0 },
-    ));
-    let shift: i64 = -1;
-
-    src.cpu2gpu(src_d.unwrap_scalar_array_mut(), stream.unwrap_stream());
-
-    dst_d.unwrap_scalar_array_mut().rotate(shift);
-    func(vec![&mut dst_d], vec![&src_d, &stream]).unwrap();
-    dst_d.unwrap_scalar_array_mut().rotate(-shift);
-
-    dst_d
-        .unwrap_scalar_array()
-        .gpu2cpu(&mut dst, stream.unwrap_stream());
-    stream
-        .unwrap_stream()
-        .free(src_d.unwrap_scalar_array().values);
-    stream
-        .unwrap_stream()
-        .free(dst_d.unwrap_scalar_array().values);
-    stream.unwrap_stream().sync();
-
-    for i in 0..len {
-        let mut srcid = (i as i64 + shift) % len as i64;
-        if srcid < 0 {
-            srcid += len as i64;
-        }
-        assert_eq!(dst.as_ref()[i], src.as_ref()[srcid as usize]);
     }
 }

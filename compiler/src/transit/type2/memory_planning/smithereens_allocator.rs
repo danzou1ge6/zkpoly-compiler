@@ -16,7 +16,7 @@ struct Chunk {
 pub struct Allocator {
     chunks: BTreeMap<u64, Chunk>,
     last_chunk_addr: u64,
-    aligned_addr2chunk_addr: BTreeMap<u64, u64>
+    aligned_addr2chunk_addr: BTreeMap<u64, u64>,
 }
 
 fn aligned_addr(addr: u64) -> u64 {
@@ -42,7 +42,7 @@ impl Allocator {
             .into_iter()
             .collect(),
             last_chunk_addr: 0,
-            aligned_addr2chunk_addr: BTreeMap::new()
+            aligned_addr2chunk_addr: BTreeMap::new(),
         }
     }
 
@@ -67,7 +67,7 @@ impl Allocator {
         let addr = self.find_best_fit(payload_size)?;
         let aligned_addr = aligned_addr(addr);
         let size = aligned_addr + payload_size - addr;
-        
+
         self.aligned_addr2chunk_addr.insert(aligned_addr, addr);
 
         let mut chunk = self.chunks.remove(&addr).unwrap();
@@ -75,7 +75,10 @@ impl Allocator {
         if chunk.size == size {
             chunk.occupied = true;
             self.chunks.insert(addr, chunk);
-            return Some(mapping.add(Addr(aligned_addr), Size::Smithereen(SmithereenSize(payload_size))));
+            return Some(mapping.add(
+                Addr(aligned_addr),
+                Size::Smithereen(SmithereenSize(payload_size)),
+            ));
         }
 
         let addr_splitted1 = addr;
@@ -99,7 +102,10 @@ impl Allocator {
             self.last_chunk_addr = addr_splitted2;
         }
 
-        return Some(mapping.add(Addr(aligned_addr), Size::Smithereen(SmithereenSize(payload_size))));
+        return Some(mapping.add(
+            Addr(aligned_addr),
+            Size::Smithereen(SmithereenSize(payload_size)),
+        ));
     }
 
     pub fn deallocate(&mut self, addr: AddrId, mapping: &mut impl AddrMappingHandler) {
