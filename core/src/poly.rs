@@ -33,8 +33,11 @@ pub struct PolyAdd<T: RuntimeType> {
         'static,
         unsafe extern "C" fn(
             res: *mut c_uint,
+            r_rotate: c_longlong,
             a: *const c_uint,
+            a_rotate: c_longlong,
             b: *const c_uint,
+            b_rotate: c_longlong,
             len: c_ulonglong,
             stream: cudaStream_t,
         ) -> cudaError_t,
@@ -47,8 +50,11 @@ pub struct PolySub<T: RuntimeType> {
         'static,
         unsafe extern "C" fn(
             res: *mut c_uint,
+            r_rotate: c_longlong,
             a: *const c_uint,
+            a_rotate: c_longlong,
             b: *const c_uint,
+            b_rotate: c_longlong,
             len: c_ulonglong,
             stream: cudaStream_t,
         ) -> cudaError_t,
@@ -61,8 +67,11 @@ pub struct PolyMul<T: RuntimeType> {
         'static,
         unsafe extern "C" fn(
             res: *mut c_uint,
+            r_rotate: c_longlong,
             a: *const c_uint,
+            a_rotate: c_longlong,
             b: *const c_uint,
+            b_rotate: c_longlong,
             len: c_ulonglong,
             stream: cudaStream_t,
         ) -> cudaError_t,
@@ -104,6 +113,7 @@ pub struct PolyEval<T: RuntimeType> {
             res: *mut c_uint,
             x: *const c_uint,
             len: c_ulonglong,
+            rotate: c_longlong,
             stream: cudaStream_t,
         ) -> cudaError_t,
     >,
@@ -118,8 +128,10 @@ pub struct KateDivision<T: RuntimeType> {
             temp_buf_size: *mut c_ulong,
             log_p: c_uint,
             p: *const c_uint,
+            p_rotate: c_longlong,
             b: *const c_uint,
             q: *mut c_uint,
+            q_rotate: c_longlong,
             stream: cudaStream_t,
         ) -> cudaError_t,
     >,
@@ -133,7 +145,9 @@ pub struct PolyScan<T: RuntimeType> {
             temp_buffer: *mut c_void,
             buffer_size: *mut c_ulong,
             poly: *const c_uint,
+            p_rotate: c_longlong,
             target: *mut c_uint,
+            t_rotate: c_longlong,
             x0: *const c_uint,
             len: c_ulonglong,
             stream: cudaStream_t,
@@ -151,20 +165,6 @@ pub struct PolyInvert<T: RuntimeType> {
             poly: *mut c_uint,
             inv: *mut c_uint,
             len: c_ulonglong,
-            stream: cudaStream_t,
-        ) -> cudaError_t,
-    >,
-}
-
-pub struct PolyRotate<T: RuntimeType> {
-    _marker: PhantomData<T>,
-    c_func: Symbol<
-        'static,
-        unsafe extern "C" fn(
-            src: *const c_uint,
-            dst: *mut c_uint,
-            len: c_ulonglong,
-            shift: c_longlong,
             stream: cudaStream_t,
         ) -> cudaError_t,
     >,
@@ -197,41 +197,6 @@ impl_poly_new!(PolyEval, "poly_eval");
 impl_poly_new!(PolyAdd, "poly_add");
 impl_poly_new!(PolySub, "poly_sub");
 impl_poly_new!(PolyMul, "poly_mul");
-impl_poly_new!(PolyRotate, "poly_rotate");
-
-impl<T: RuntimeType> RegisteredFunction<T> for PolyRotate<T> {
-    fn get_fn(&self) -> Function<T> {
-        eprintln!("Notice: This function can be replaced by transport gpu2gpu, so it is not recommended to use it.");
-        let c_func = self.c_func.clone();
-        let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
-                              var: Vec<&Variable<T>>|
-              -> Result<(), RuntimeError> {
-            assert_eq!(mut_var.len(), 1);
-            assert_eq!(var.len(), 2);
-            let dst = mut_var[0].unwrap_scalar_array_mut();
-            let src = var[0].unwrap_scalar_array();
-            assert_eq!(dst.len, src.len);
-            let stream = var[1].unwrap_stream();
-            let shift = dst.rotate - src.rotate;
-            let len = src.len;
-            unsafe {
-                cuda_check!(cudaSetDevice(stream.get_device()));
-                cuda_check!(c_func(
-                    src.values as *const c_uint,
-                    dst.values as *mut c_uint,
-                    len as c_ulonglong,
-                    shift as c_longlong,
-                    stream.raw(),
-                ));
-            }
-            Ok(())
-        };
-        Function {
-            name: "poly_rotate".to_string(),
-            f: FunctionValue::Fn(Box::new(rust_func)),
-        }
-    }
-}
 
 impl<T: RuntimeType> PolyInvert<T> {
     pub fn get_buffer_size(&self, len: u64) -> usize {
@@ -294,7 +259,9 @@ impl<T: RuntimeType> PolyScan<T> {
                 std::ptr::null_mut(),
                 &mut buf_size as *mut usize as *mut c_ulong,
                 null(),
+                0,
                 null_mut(),
+                0,
                 null(),
                 len,
                 null_mut(),
@@ -326,7 +293,9 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyScan<T> {
                     temp_buf.ptr as *mut c_void,
                     null_mut(),
                     p.values as *const u32,
+                    p.rotate,
                     target.values as *mut u32,
+                    target.rotate,
                     x0.value as *const u32,
                     p.len.try_into().unwrap(),
                     stream.raw(),
@@ -406,8 +375,10 @@ impl<T: RuntimeType> KateDivision<T> {
                 &mut buf_size as *mut usize as *mut c_ulong,
                 log_p,
                 std::ptr::null(),
+                0,
                 std::ptr::null(),
                 std::ptr::null_mut(),
+                0,
                 std::ptr::null_mut(),
             ));
         }
@@ -442,8 +413,10 @@ impl<T: RuntimeType> RegisteredFunction<T> for KateDivision<T> {
                     null_mut() as *mut c_ulong,
                     log_p,
                     p.values as *const c_uint,
+                    p.rotate,
                     b.value as *const c_uint,
                     res.values as *mut c_uint,
+                    res.rotate,
                     stream.raw(),
                 ));
             }
@@ -468,6 +441,7 @@ impl<T: RuntimeType> PolyEval<T> {
                 std::ptr::null_mut(),
                 std::ptr::null(),
                 len.try_into().unwrap(),
+                0,
                 std::ptr::null_mut(),
             ));
         }
@@ -499,6 +473,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyEval<T> {
                     res.value as *mut c_uint,
                     x.value as *const c_uint,
                     len.try_into().unwrap(),
+                    poly.rotate,
                     stream.raw(),
                 ))
             }
@@ -531,8 +506,11 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyAdd<T> {
                 cuda_check!(cudaSetDevice(stream.get_device()));
                 cuda_check!(c_func(
                     res.values as *mut c_uint,
+                    res.rotate,
                     a.values as *const c_uint,
+                    a.rotate,
                     b.values as *const c_uint,
+                    b.rotate,
                     len as c_ulonglong,
                     stream.raw(),
                 ));
@@ -565,8 +543,11 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolySub<T> {
                 cuda_check!(cudaSetDevice(stream.get_device()));
                 cuda_check!(c_func(
                     res.values as *mut c_uint,
+                    res.rotate,
                     a.values as *const c_uint,
+                    a.rotate,
                     b.values as *const c_uint,
+                    b.rotate,
                     len as c_ulonglong,
                     stream.raw(),
                 ));
@@ -599,8 +580,11 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyMul<T> {
                 cuda_check!(cudaSetDevice(stream.get_device()));
                 cuda_check!(c_func(
                     res.values as *mut c_uint,
+                    res.rotate,
                     a.values as *const c_uint,
+                    a.rotate,
                     b.values as *const c_uint,
+                    b.rotate,
                     len as c_ulonglong,
                     stream.raw(),
                 ));

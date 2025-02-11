@@ -16,20 +16,23 @@ pub enum Value {
         slice: (u64, u64),
         object_id: ObjectId,
     },
-    Other(ObjectId)
+    Other(ObjectId),
 }
 
 impl Value {
     pub fn object_id(&self) -> ObjectId {
         match self {
-            Value::Poly { object_id,.. } => *object_id,
+            Value::Poly { object_id, .. } => *object_id,
             Value::Other(object_id) => *object_id,
         }
     }
 
-    pub fn new<Rt: RuntimeType>(obj_id_allocator: &mut IdAllocator<ObjectId>, typ: &Typ<Rt>) -> Self {
+    pub fn new<Rt: RuntimeType>(
+        obj_id_allocator: &mut IdAllocator<ObjectId>,
+        typ: &Typ<Rt>,
+    ) -> Self {
         match typ {
-            Typ::Poly {deg, ..}  => {
+            Typ::Poly { deg, .. } => {
                 let object_id = obj_id_allocator.alloc();
                 Value::Poly {
                     rotation: 0,
@@ -38,8 +41,7 @@ impl Value {
                 }
             }
             _otherwise => {
-                let object_id = obj_id_allocator
-                   .alloc();
+                let object_id = obj_id_allocator.alloc();
                 Value::Other(object_id)
             }
         }
@@ -84,15 +86,15 @@ impl DeviceCollection {
             Device::Stack => self.stack = true,
         }
     }
-    
+
     pub fn gpu(&self) -> bool {
         self.gpu
     }
-    
+
     pub fn cpu(&self) -> bool {
         self.cpu
     }
-    
+
     pub fn stack(&self) -> bool {
         self.stack
     }
@@ -186,7 +188,12 @@ pub fn analyze_def_use<'s, Rt: RuntimeType>(
             RotateIdx(pred, delta) => {
                 let pred_value = values[pred].clone();
 
-                if let VertexValue::Single(Value::Poly { rotation, slice, object_id }) = pred_value {
+                if let VertexValue::Single(Value::Poly {
+                    rotation,
+                    slice,
+                    object_id,
+                }) = pred_value
+                {
                     let value = Value::Poly {
                         rotation: rotation + delta,
                         slice,
@@ -201,7 +208,8 @@ pub fn analyze_def_use<'s, Rt: RuntimeType>(
             _otherwise => {
                 let value = match v.typ() {
                     Typ::Array(typ, len) => {
-                        let elements = vec![Value::new(&mut object_id_allocator, typ.as_ref()); *len];
+                        let elements =
+                            vec![Value::new(&mut object_id_allocator, typ.as_ref()); *len];
 
                         elements.iter().for_each(|elem| {
                             sizes.insert(elem.object_id(), typ.size().unwrap_single());
@@ -209,12 +217,17 @@ pub fn analyze_def_use<'s, Rt: RuntimeType>(
 
                         VertexValue::Tuple(elements)
                     }
-                    Typ::Tuple(elements) => VertexValue::Tuple(elements.iter().map(|e| {
-                        let value = Value::new(&mut object_id_allocator, e);
-                        sizes.insert(value.object_id(), e.size().unwrap_single());
+                    Typ::Tuple(elements) => VertexValue::Tuple(
+                        elements
+                            .iter()
+                            .map(|e| {
+                                let value = Value::new(&mut object_id_allocator, e);
+                                sizes.insert(value.object_id(), e.size().unwrap_single());
 
-                        value
-                    }).collect()),
+                                value
+                            })
+                            .collect(),
+                    ),
                     otherwise => {
                         let value = Value::new(&mut object_id_allocator, otherwise);
                         sizes.insert(value.object_id(), otherwise.size().unwrap_single());

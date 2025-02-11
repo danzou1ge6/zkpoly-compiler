@@ -4,12 +4,12 @@
 
 namespace detail {
 
-
-
 template <typename Field>
-cudaError_t poly_eval(void* temp_buf, usize *temp_buf_size, const u32 *poly,  u32* res, const Field *x, u64 len, cudaStream_t stream) {
+cudaError_t poly_eval(void* temp_buf, usize *temp_buf_size, const Field *poly,  u32* res, const Field *x, u64 len, i64 rotate, cudaStream_t stream) {
     usize x_size = len * Field::LIMBS * sizeof(u32);
     auto add_op = [] __device__ __host__(const Field &a, const Field &b) { return a + b; };
+    auto poly_iter = make_rotating_iter(poly, rotate, len);
+    auto x_iter = make_rotating_iter(reinterpret_cast<Field*>(temp_buf), 0, len);
 
     if (temp_buf == nullptr) {
         usize temp_scan_size = 0;
@@ -35,7 +35,7 @@ cudaError_t poly_eval(void* temp_buf, usize *temp_buf_size, const u32 *poly,  u3
         CUDA_CHECK(get_pow_series(reinterpret_cast<char*>(temp_buf) + x_size, nullptr, reinterpret_cast<u32*>(temp_buf), x, len, stream));
 
         // a_i * x^i
-        poly_mul<Field><<<blocks, threads, 0, stream>>>(poly, reinterpret_cast<u32*>(temp_buf), reinterpret_cast<u32*>(temp_buf), len);
+        poly_mul<Field><<<blocks, threads, 0, stream>>>(poly_iter, x_iter, x_iter, len);
         CUDA_CHECK(cudaGetLastError());
 
         // ruduce

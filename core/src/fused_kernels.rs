@@ -136,8 +136,12 @@ impl<Id: UsizeId> FusedOp<Id> {
                     deg[id.into()] = 0;
                 }
                 Operation::Arith(arith) => match arith {
-                    Arith::Bin(..) => {
-                        deg[id.into()] = 2;
+                    Arith::Bin(_, id1, id2) => {
+                        if id1 != id2 {
+                            deg[id.into()] = 2;
+                        } else {
+                            deg[id.into()] = 1;
+                        }
                     }
                     Arith::Unr(..) => {
                         deg[id.into()] = 1;

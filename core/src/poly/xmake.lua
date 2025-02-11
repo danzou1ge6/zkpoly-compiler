@@ -7,11 +7,13 @@ target("test_poly_basic")
     add_files("tests/test_basic.cu")
     add_cugencodes("native")
     add_packages("doctest")
+    add_cuflags("--extended-lambda")
 
 target("test_poly_eval")
     add_files("tests/test_eval.cu")
     add_cugencodes("native")
     add_cuflags("--extended-lambda")
+    add_packages("doctest")
 
 target("test_kate_division")
     add_files("tests/test_kate.cu")

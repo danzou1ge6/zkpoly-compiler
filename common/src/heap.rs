@@ -40,14 +40,11 @@ impl<I: UsizeId> IdAllocator<I> {
     }
 
     pub fn decompose<I2: UsizeId>(self) -> (IdAllocator<I2>, impl Fn(I) -> I2) {
-        (
-            IdAllocator(self.0, PhantomData),
-            move |i: I| {
-                let i: usize = i.into();
-                assert!(i < self.0);
-                i.into()
-            },
-        )
+        (IdAllocator(self.0, PhantomData), move |i: I| {
+            let i: usize = i.into();
+            assert!(i < self.0);
+            i.into()
+        })
     }
 }
 

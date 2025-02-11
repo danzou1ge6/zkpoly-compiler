@@ -52,7 +52,7 @@ TEST_CASE("gpu kate division") {
 
     void *temp_buffer;
     usize buffer_size = 0;
-    detail::kate_division<Field>(nullptr, &buffer_size, log_len, p_d, b_d, q_d, 0);
+    detail::kate_division<Field>(nullptr, &buffer_size, log_len, p_d, 0, b_d, q_d, 0, 0);
     cudaMalloc(&temp_buffer, buffer_size);
 
     cudaEvent_t start_gpu, end_gpu;
@@ -60,7 +60,7 @@ TEST_CASE("gpu kate division") {
     cudaEventCreate(&end_gpu);
     cudaEventRecord(start_gpu);
 
-    detail::kate_division<Field>(temp_buffer, nullptr, log_len, p_d, b_d, q_d, 0);
+    detail::kate_division<Field>(temp_buffer, nullptr, log_len, p_d, 0, b_d, q_d, 0, 0);
 
     cudaEventRecord(end_gpu);
     cudaEventSynchronize(end_gpu);

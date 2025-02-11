@@ -20,12 +20,13 @@ TEST_CASE("naive poly add") {
         a[i] = Field::host_random();
     }
 
-    u32 *a_d;
+    Field *a_d;
     cudaMalloc(&a_d, len * Field::LIMBS * sizeof(u32));
 
     u32 block = 1024;
     u32 grid = (len - 1) / block + 1;
-    detail::poly_add<Field><<<grid, block >>>(a_d, a_d, a_d, len);
+    auto a_iter = mont::make_rotating_iter(a_d, 0, len);
+    detail::poly_add<Field><<<grid, block >>>(a_iter, a_iter, a_iter, len);
 
     cudaMemcpy(a_d, a, len * Field::LIMBS * sizeof(u32), cudaMemcpyHostToDevice);
 
@@ -34,7 +35,7 @@ TEST_CASE("naive poly add") {
     cudaEventCreate(&end);
     cudaEventRecord(start);
 
-    detail::poly_add<Field><<<grid, block >>>(a_d, a_d, a_d, len);
+    detail::poly_add<Field><<<grid, block >>>(a_iter, a_iter, a_iter, len);
 
     cudaEventRecord(end);
     cudaEventSynchronize(end);
@@ -63,7 +64,7 @@ TEST_CASE("naive poly mul") {
         a[i] = Field::host_random();
     }
 
-    u32 *a_d;
+    Field *a_d;
     cudaMalloc(&a_d, len * Field::LIMBS * sizeof(u32));
 
     u32 block = 1024;
@@ -75,8 +76,9 @@ TEST_CASE("naive poly mul") {
     cudaEventCreate(&start);
     cudaEventCreate(&end);
     cudaEventRecord(start);
+    auto a_iter = mont::make_rotating_iter(a_d, 0, len);
 
-    detail::poly_mul<Field><<<grid, block >>>(a_d, a_d, a_d, len);
+    detail::poly_mul<Field><<<grid, block >>>(a_iter, a_iter, a_iter, len);
 
     cudaEventRecord(end);
     cudaEventSynchronize(end);
