@@ -42,7 +42,7 @@ fn test_add() {
         compiler_alloc.allocate(len),
         DeviceType::CPU,
     ));
-    for iter in a_in.unwrap_scalar_array_mut().as_mut().iter_mut() {
+    for iter in a_in.unwrap_scalar_array_mut().iter_mut() {
         *iter = MyField::one();
     }
     let c_out = Variable::ScalarArray(ScalarArray::new(
@@ -180,10 +180,9 @@ fn test_add() {
     let variable = info.variable;
 
     let binding_c = variable[idc].read().unwrap();
-    let c = binding_c.as_ref().unwrap().unwrap_scalar_array().as_ref();
 
-    for i in 0..len {
-        assert_eq!(c[i], MyField::one() + MyField::one() + MyField::one());
+    for ci in binding_c.as_ref().unwrap().unwrap_scalar_array().iter() {
+        assert_eq!(*ci, MyField::one() + MyField::one() + MyField::one());
     }
 
     drop(binding_c);

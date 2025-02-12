@@ -54,4 +54,11 @@ pub enum Instruction {
         id: VariableId,
         shift: i64,
     },
+
+    Slice {
+        src: VariableId,
+        dst: VariableId,
+        start: usize,
+        end: usize,
+    },
 }

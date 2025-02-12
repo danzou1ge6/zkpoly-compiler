@@ -159,7 +159,14 @@ impl<T: RuntimeType> RegisteredFunction<T> for MSM<T> {
                 .map(|i: usize| var[i].unwrap_point_array().values as *const c_uint)
                 .collect();
             let h_scaler_batch: Vec<*const c_uint> = (n_precompute.try_into().unwrap()..var.len())
-                .map(|i: usize| var[i].unwrap_scalar_array().values as *const c_uint)
+                .map(|i: usize| {
+                    let array = var[i].unwrap_scalar_array();
+                    assert!(
+                        array.get_rotation() == 0,
+                        "currently, we don't support rotate in msm"
+                    );
+                    array.values as *const c_uint
+                })
                 .collect();
             let (buffers, answers) = mut_var.split_at_mut(config.cards.len());
             assert_eq!(buffers.len(), config.cards.len());

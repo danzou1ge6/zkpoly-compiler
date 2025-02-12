@@ -117,7 +117,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for SsipNtt<T> {
                 cuda_check!(cudaSetDevice(stream.get_device()));
                 cuda_check!((c_func)(
                     x.values as *mut c_uint,
-                    x.rotate,
+                    x.get_rotation() as i64,
                     twiddle.values as *const c_uint,
                     log_len,
                     stream.raw(),
@@ -213,7 +213,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for RecomputeNtt<T> {
                 cuda_check!(cudaSetDevice(stream.get_device()));
                 cuda_check!((c_func)(
                     x.values as *mut c_uint,
-                    x.rotate,
+                    x.get_rotation() as i64,
                     pq.values as *const c_uint,
                     pq_deg,
                     omegas.values as *const c_uint,

@@ -293,9 +293,9 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyScan<T> {
                     temp_buf.ptr as *mut c_void,
                     null_mut(),
                     p.values as *const u32,
-                    p.rotate,
+                    p.get_rotation() as i64,
                     target.values as *mut u32,
-                    target.rotate,
+                    target.get_rotation() as i64,
                     x0.value as *const u32,
                     p.len.try_into().unwrap(),
                     stream.raw(),
@@ -413,10 +413,10 @@ impl<T: RuntimeType> RegisteredFunction<T> for KateDivision<T> {
                     null_mut() as *mut c_ulong,
                     log_p,
                     p.values as *const c_uint,
-                    p.rotate,
+                    p.get_rotation() as i64,
                     b.value as *const c_uint,
                     res.values as *mut c_uint,
-                    res.rotate,
+                    res.get_rotation() as i64,
                     stream.raw(),
                 ));
             }
@@ -473,7 +473,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyEval<T> {
                     res.value as *mut c_uint,
                     x.value as *const c_uint,
                     len.try_into().unwrap(),
-                    poly.rotate,
+                    poly.get_rotation() as i64,
                     stream.raw(),
                 ))
             }
@@ -506,11 +506,11 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyAdd<T> {
                 cuda_check!(cudaSetDevice(stream.get_device()));
                 cuda_check!(c_func(
                     res.values as *mut c_uint,
-                    res.rotate,
+                    res.get_rotation() as i64,
                     a.values as *const c_uint,
-                    a.rotate,
+                    a.get_rotation() as i64,
                     b.values as *const c_uint,
-                    b.rotate,
+                    b.get_rotation() as i64,
                     len as c_ulonglong,
                     stream.raw(),
                 ));
@@ -543,11 +543,11 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolySub<T> {
                 cuda_check!(cudaSetDevice(stream.get_device()));
                 cuda_check!(c_func(
                     res.values as *mut c_uint,
-                    res.rotate,
+                    res.get_rotation() as i64,
                     a.values as *const c_uint,
-                    a.rotate,
+                    a.get_rotation() as i64,
                     b.values as *const c_uint,
-                    b.rotate,
+                    b.get_rotation() as i64,
                     len as c_ulonglong,
                     stream.raw(),
                 ));
@@ -580,11 +580,11 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyMul<T> {
                 cuda_check!(cudaSetDevice(stream.get_device()));
                 cuda_check!(c_func(
                     res.values as *mut c_uint,
-                    res.rotate,
+                    res.get_rotation() as i64,
                     a.values as *const c_uint,
-                    a.rotate,
+                    a.get_rotation() as i64,
                     b.values as *const c_uint,
-                    b.rotate,
+                    b.get_rotation() as i64,
                     len as c_ulonglong,
                     stream.raw(),
                 ));

@@ -43,8 +43,8 @@ fn test_binary(
     let mut res = ScalarArray::new(len, cpu_pool.allocate(len), DeviceType::CPU);
     let mut rng = XorShiftRng::from_seed([0; 16]);
     for i in 0..len {
-        a.as_mut()[i] = MyField::random(&mut rng);
-        b.as_mut()[i] = MyField::random(&mut rng);
+        a[i] = MyField::random(&mut rng);
+        b[i] = MyField::random(&mut rng);
     }
     let mut a_d = Variable::ScalarArray(ScalarArray::new(
         len,
@@ -80,12 +80,7 @@ fn test_binary(
         .unwrap_stream()
         .free(res_d.unwrap_scalar_array().values);
     stream.unwrap_stream().sync();
-    for ((a, b), r) in a
-        .as_ref()
-        .iter()
-        .zip(b.as_ref().iter())
-        .zip(res.as_ref().iter())
-    {
+    for ((a, b), r) in a.iter().zip(b.iter()).zip(res.iter()) {
         assert_eq!(*r, truth_func(*a, *b));
     }
 }
@@ -139,7 +134,7 @@ fn test_eval() {
     let mut res = Scalar::new_cpu();
     let mut rng = XorShiftRng::from_seed([0; 16]);
     for i in 0..len {
-        poly.as_mut()[i] = MyField::random(&mut rng);
+        poly[i] = MyField::random(&mut rng);
     }
     *x.as_mut() = MyField::random(&mut rng);
     let mut poly_d = Variable::ScalarArray(ScalarArray::new(
@@ -177,7 +172,7 @@ fn test_eval() {
     stream.unwrap_stream().sync();
     let mut truth = MyField::zero();
     for i in (0..len).rev() {
-        truth = truth * *x.as_ref() + poly.as_ref()[i];
+        truth = truth * *x.as_ref() + poly[i];
     }
     assert_eq!(*res.as_ref(), truth);
 }
@@ -202,7 +197,7 @@ fn test_kate() {
     let mut res = ScalarArray::new(len, cpu_pool.allocate(len), DeviceType::CPU);
     let mut rng = XorShiftRng::from_seed([0; 16]);
     for i in 0..len {
-        poly.as_mut()[i] = MyField::random(&mut rng);
+        poly[i] = MyField::random(&mut rng);
     }
     *b.as_mut() = MyField::random(&mut rng);
     let mut poly_d = Variable::ScalarArray(ScalarArray::new(
@@ -248,7 +243,7 @@ fn test_kate() {
 
     let truth = kate_division(poly.as_ref(), *b.as_ref());
     for i in 0..len - 1 {
-        assert_eq!(res.as_ref()[i], truth[i]);
+        assert_eq!(res[i], truth[i]);
     }
 }
 
@@ -283,7 +278,7 @@ fn test_zero_one() {
 
     let truth: Vec<_> = (0..len).into_iter().map(|_| MyField::ZERO).collect();
     for i in 0..len {
-        assert_eq!(poly.as_ref()[i], truth[i]);
+        assert_eq!(poly[i], truth[i]);
     }
 
     let one = PolyOne::<MyRuntimeType>::new(&mut libs);
@@ -304,7 +299,7 @@ fn test_zero_one() {
 
     let truth: Vec<_> = (0..len).into_iter().map(|_| MyField::ONE).collect();
     for i in 0..len {
-        assert_eq!(poly.as_ref()[i], truth[i]);
+        assert_eq!(poly[i], truth[i]);
     }
 
     stream
@@ -331,7 +326,7 @@ fn test_scan() {
     let mut res = ScalarArray::new(len, cpu_pool.allocate(len), DeviceType::CPU);
     let mut rng = XorShiftRng::from_seed([0; 16]);
     for i in 0..len {
-        poly.as_mut()[i] = MyField::random(&mut rng);
+        poly[i] = MyField::random(&mut rng);
     }
     *x0.as_mut() = MyField::random(&mut rng);
     let mut poly_d = Variable::ScalarArray(ScalarArray::new(
@@ -375,9 +370,9 @@ fn test_scan() {
         .free(temp_buf.unwrap_gpu_buffer().ptr);
     stream.unwrap_stream().sync();
 
-    assert_eq!(res.as_ref()[0], *x0.as_ref());
+    assert_eq!(res[0], *x0.as_ref());
     for i in 1..len {
-        assert_eq!(res.as_ref()[i], res.as_ref()[i - 1] * poly.as_ref()[i - 1]);
+        assert_eq!(res[i], res[i - 1] * poly[i - 1]);
     }
 }
 
@@ -400,7 +395,7 @@ fn test_invert() {
     let mut res = ScalarArray::new(len, cpu_pool.allocate(len), DeviceType::CPU);
     let mut rng = XorShiftRng::from_seed([0; 16]);
     for i in 0..len {
-        poly.as_mut()[i] = if i % 17 == 0 {
+        poly[i] = if i % 17 == 0 {
             MyField::ZERO
         } else {
             MyField::random(&mut rng)
@@ -440,6 +435,6 @@ fn test_invert() {
     assert_eq!(*inv.as_ref(), truth);
 
     for i in 0..len - 1 {
-        assert_eq!(res.as_ref()[i], poly.as_ref()[i]);
+        assert_eq!(res[i], poly[i]);
     }
 }

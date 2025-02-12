@@ -417,7 +417,10 @@ impl<T: RuntimeType> RegisteredFunction<T> for FusedKernel<T> {
                         } else {
                             assert_eq!(len, poly.len);
                         }
-                        (poly.values as *const c_uint, poly.rotate as c_longlong)
+                        (
+                            poly.values as *const c_uint,
+                            poly.get_rotation() as c_longlong,
+                        )
                     }
                     Variable::Scalar(scalar) => {
                         if len == 0 {
@@ -437,7 +440,10 @@ impl<T: RuntimeType> RegisteredFunction<T> for FusedKernel<T> {
                         } else {
                             assert_eq!(len, poly.len);
                         }
-                        (poly.values as *mut c_uint, poly.rotate as c_longlong)
+                        (
+                            poly.values as *mut c_uint,
+                            poly.get_rotation() as c_longlong,
+                        )
                     }
                     Variable::Scalar(scalar) => {
                         if len == 0 {

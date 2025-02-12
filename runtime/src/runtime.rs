@@ -238,6 +238,23 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     let poly = guard.as_mut().unwrap().unwrap_scalar_array_mut();
                     poly.rotate(shift);
                 }
+                Instruction::Slice {
+                    src,
+                    dst,
+                    start,
+                    end,
+                } => {
+                    let src_guard = self.variable[src].read().unwrap();
+                    let slice = src_guard
+                        .as_ref()
+                        .unwrap()
+                        .unwrap_scalar_array()
+                        .slice(start, end);
+                    drop(src_guard);
+                    let mut dst_guard = self.variable[dst].write().unwrap();
+                    assert!(dst_guard.is_none());
+                    *dst_guard = Some(Variable::ScalarArray(slice));
+                }
             }
         }
         if !self.main_thread {
