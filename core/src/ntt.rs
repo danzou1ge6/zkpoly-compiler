@@ -1,4 +1,5 @@
 use std::any::type_name;
+use std::ffi::c_longlong;
 use std::marker::PhantomData;
 use std::os::raw::c_uint;
 
@@ -23,6 +24,7 @@ pub struct SsipNtt<T: RuntimeType> {
         'static,
         unsafe extern "C" fn(
             x: *mut c_uint,
+            x_rotate: c_longlong,
             twiddle: *const c_uint,
             log_len: c_uint,
             stream: cudaStream_t,
@@ -52,6 +54,7 @@ pub struct RecomputeNtt<T: RuntimeType> {
         'static,
         unsafe extern "C" fn(
             x: *mut c_uint,
+            x_rotate: c_longlong,
             pq: *const c_uint,
             pq_deg: c_uint,
             omegas: *const c_uint,
@@ -114,6 +117,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for SsipNtt<T> {
                 cuda_check!(cudaSetDevice(stream.get_device()));
                 cuda_check!((c_func)(
                     x.values as *mut c_uint,
+                    x.rotate,
                     twiddle.values as *const c_uint,
                     log_len,
                     stream.raw(),
@@ -209,6 +213,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for RecomputeNtt<T> {
                 cuda_check!(cudaSetDevice(stream.get_device()));
                 cuda_check!((c_func)(
                     x.values as *mut c_uint,
+                    x.rotate,
                     pq.values as *const c_uint,
                     pq_deg,
                     omegas.values as *const c_uint,

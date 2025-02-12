@@ -9,6 +9,8 @@ use common::*;
 static MAX_K: u8 = 20;
 static BATCHES: u32 = 4;
 
+pub type MyCurve = <MyRuntimeType as RuntimeType>::PointAffine;
+
 use group::{
     ff::{Field, PrimeField},
     prime::PrimeCurveAffine,
@@ -25,7 +27,11 @@ use zkpoly_core::msm::*;
 use zkpoly_cuda_api::bindings::{cudaFree, cudaMalloc};
 use zkpoly_memory_pool::PinnedMemoryPool;
 use zkpoly_runtime::{
-    args::Variable, devices::DeviceType, functions::*, gpu_buffer::GpuBuffer, point::PointArray,
+    args::{RuntimeType, Variable},
+    devices::DeviceType,
+    functions::*,
+    gpu_buffer::GpuBuffer,
+    point::PointArray,
     scalar::ScalarArray,
 };
 

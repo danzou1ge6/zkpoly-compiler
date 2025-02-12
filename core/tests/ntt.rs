@@ -75,6 +75,7 @@ fn test_ssip_ntt() {
             ptr_data,
             DeviceType::GPU { device_id: 0 },
         ));
+        poly_gpu.unwrap_scalar_array_mut().rotate(3);
         let mut twiddle_gpu = Variable::ScalarArray(ScalarArray::<MyField>::new(
             1 << (k - 1),
             ptr_twiddle,
@@ -179,6 +180,7 @@ fn test_recompute_ntt() {
             ptr_data,
             DeviceType::GPU { device_id: 0 },
         ));
+        poly_gpu.unwrap_scalar_array_mut().rotate(-2);
         let mut pq_gpu = Variable::ScalarArray(ScalarArray::<MyField>::new(
             precompute.get_pq_len(k),
             ptr_pq,
