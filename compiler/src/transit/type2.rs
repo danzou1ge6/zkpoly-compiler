@@ -119,6 +119,14 @@ pub mod template {
                 _ => Box::new([].into_iter()),
             }
         }
+
+        pub fn is_virtual(&self) -> bool {
+        use VertexNode::*;
+        match self {
+            Array(..) | ArrayGet(..) | TupleGet(..) | RotateIdx(..) => true,
+            _ => false,
+        }
+    }
     }
 }
 
@@ -287,13 +295,11 @@ where
             }
         }
     }
+
     pub fn is_virtual(&self) -> bool {
-        use template::VertexNode::*;
-        match self.node() {
-            Array(..) | ArrayGet(..) | TupleGet(..) | RotateIdx(..) => true,
-            _ => false,
-        }
+        self.node().is_virtual()
     }
+
 }
 
 impl<I, C, E> template::VertexNode<I, arith::ArithGraph<I, arith::ExprId>, C, E>

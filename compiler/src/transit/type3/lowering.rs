@@ -317,7 +317,16 @@ fn lower_instruction<'s, Rt: RuntimeType>(
 ) {
     match &inst.node {
         super::InstructionNode::Type2 { ids, temp, vertex } => {
-            kernel_generation::generate(t3idx, inst, t3chunk, thread, reg_id2var_id, f_table, emit);
+            kernel_generation::generate(
+                ids,
+                *temp,
+                vertex,
+                t3chunk,
+                thread,
+                reg_id2var_id,
+                f_table,
+                emit,
+            );
         }
         super::InstructionNode::GpuMalloc { id, addr } => {
             let var_id = reg_id2var_id(*id);
