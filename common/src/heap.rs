@@ -117,10 +117,24 @@ impl<I, T> Heap<I, T> {
     pub fn iter(&self) -> impl Iterator<Item = &T> {
         self.0.iter()
     }
+    pub fn freeze(self) -> (RoHeap<I, T>, IdAllocator<I>) {
+        let a = IdAllocator(self.0.len(), PhantomData);
+        (RoHeap(self.0, PhantomData), a)
+    }
 }
 
 impl<I, T> Default for Heap<I, T> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RoHeap<I, T>(Vec<T>, PhantomData<I>);
+
+impl<I: UsizeId, T> std::ops::Index<I> for RoHeap<I, T> {
+    type Output = T;
+    fn index(&self, index: I) -> &Self::Output {
+        self.0.get(index.into()).expect(PANIC_MSG)
     }
 }

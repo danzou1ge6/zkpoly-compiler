@@ -286,24 +286,6 @@ fn allocate_stream(variable_id_allocator: &mut IdAllocator<VariableId>) -> Instr
     }
 }
 
-fn lower_typ<Rt: RuntimeType>(t3typ: &super::type2::Typ<Rt>) -> Typ {
-    use super::type2::Typ::*;
-    match t3typ {
-        Poly { deg, .. } => Typ::ScalarArray { len: *deg as usize },
-        PointBase { log_n } => Typ::PointBase {
-            len: 2usize.pow(*log_n),
-        },
-        Scalar => Typ::Scalar,
-        Transcript => Typ::Transcript,
-        Point => Typ::Point,
-        Rng => Typ::Rng,
-        Tuple(children) => Typ::Tuple(children.iter().map(|t| lower_typ(t)).collect()),
-        Array(elem, len) => Typ::Array(Box::new(lower_typ(elem)), *len as usize),
-        Any(type_id, size) => Typ::Any(*type_id, *size),
-        _Phantom(..) => unreachable!(),
-    }
-}
-
 fn lower_instruction<'s, Rt: RuntimeType>(
     t3idx: super::InstructionIndex,
     inst: &super::Instruction<'s>,
@@ -335,7 +317,7 @@ fn lower_instruction<'s, Rt: RuntimeType>(
 
             emit(Instruction::Allocate {
                 device: DeviceType::from(t3chunk.register_devices[id]),
-                typ: lower_typ(&t3chunk.register_types[id]),
+                typ: t3chunk.register_types[*id].clone(),
                 id: var_id,
                 offset: Some(physical_addr as usize),
             });
@@ -346,7 +328,7 @@ fn lower_instruction<'s, Rt: RuntimeType>(
 
             emit(Instruction::Allocate {
                 device: DeviceType::CPU,
-                typ: lower_typ(&t3chunk.register_types[id]),
+                typ: t3chunk.register_types[*id].clone(),
                 id: var_id,
                 offset: None,
             });
@@ -366,12 +348,8 @@ fn lower_instruction<'s, Rt: RuntimeType>(
         }),
         super::InstructionNode::Tuple { id, oprands } => todo!("Tuple Generation"),
         super::InstructionNode::Move { id, from } => unimplemented!(),
-        super::InstructionNode::RotateAndSlice {
-            id,
-            operand,
-            rot,
-            slice,
-        } => unimplemented!(),
+        super::InstructionNode::Clone { id, from } => unimplemented!()
+
     };
 }
 
