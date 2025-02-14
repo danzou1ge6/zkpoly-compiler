@@ -66,6 +66,7 @@ pub mod template {
             to: PolyType,
             from: PolyType,
             alg: NttAlgorithm,
+            twiddle_factors: I
         },
         RotateIdx(I, i32),
         Interplote {
@@ -90,6 +91,12 @@ pub mod template {
         TupleGet(I, usize),
         ArrayGet(I, usize),
         UserFunction(E, Vec<I>),
+        KateDivision(I, I),
+        EvaluatePoly {
+            poly: I,
+            at: I
+        },
+        BatchedInvert(I),
     }
 
     impl<I, C, E> VertexNode<I, arith::ArithGraph<I, arith::ExprId>, C, E>
@@ -100,7 +107,7 @@ pub mod template {
             use VertexNode::*;
             match self {
                 Arith(arith, ..) => Box::new(arith.uses()),
-                Ntt { s, .. } => Box::new([*s].into_iter()),
+                Ntt { s, twiddle_factors, .. } => Box::new([*s, *twiddle_factors].into_iter()),
                 RotateIdx(x, _) => Box::new([*x].into_iter()),
                 Interplote { xs, ys } => Box::new(xs.iter().copied().chain(ys.iter().copied())),
                 Array(es) => Box::new(es.iter().copied()),
@@ -131,21 +138,12 @@ pub mod template {
 }
 
 // TODO
-// - A should be Ag
-// - Evaluate should be out of Ag
 // - Decide whether to use chunked Arith kernel based on k
 // - Temporary space
-// - Rotation merged to transfer, whenever possible
-// - Chunking of polynomial is done in Ag kernels
-// - After memory planning, for each rotation, track transfer of value before and after the rotation,
-//   if a transfer can be found, then use latest transfer to rotate the value
-// - Problem: How is rotation performed when it cannot be merged to transfer?
-//     + Use a rotation offset
-//     + Rotate it physically
-//   Anyway, they are GPU or CPU kernels
-// - Inplace correction before scheduling
+// - Chunking of polynomial is done during compilation
 // - Take inplace into consideration in scheduling and memory planning
 // - Twiddle factor precomputing
+// - Points precomputing
 
 pub type VertexNode = template::VertexNode<VertexId, Arith, ConstantId, user_function::Id>;
 
@@ -192,6 +190,9 @@ where
             TupleGet(..) => None,
             ArrayGet(..) => None,
             UserFunction(..) => None,
+            KateDivision(..) => todo!(),
+            EvaluatePoly {.. } => todo!(),
+            BatchedInvert(..) => todo!(),
         }
     }
     pub fn space(&self) -> u64 {
@@ -320,11 +321,12 @@ where
             Entry => Entry,
             Return => Return,
             LiteralScalar(s) => LiteralScalar(*s),
-            Ntt { alg, s, to, from } => Ntt {
+            Ntt { alg, s, to, from , twiddle_factors } => Ntt {
                 alg: alg.clone(),
                 s: mapping(*s),
                 to: to.clone(),
                 from: from.clone(),
+                twiddle_factors: mapping(*twiddle_factors),
             },
             RotateIdx(s, deg) => RotateIdx(mapping(*s), *deg),
             Interplote { xs, ys } => Interplote {
@@ -357,7 +359,13 @@ where
             ArrayGet(s, i) => ArrayGet(mapping(*s), *i),
             UserFunction(fid, args) => {
                 UserFunction(fid.clone(), args.iter().map(|x| mapping(*x)).collect())
-            }
+            },
+            KateDivision(lhs, rhs) => KateDivision(mapping(*lhs), mapping(*rhs)),
+            EvaluatePoly { poly, at } => EvaluatePoly {
+                poly: mapping(*poly),
+                at: mapping(*at),
+            },
+            BatchedInvert(s) => BatchedInvert(mapping(*s)),
         }
     }
 
@@ -392,6 +400,9 @@ where
             TupleGet(..) => Cpu,
             ArrayGet(..) => Cpu,
             UserFunction(..) => Cpu,
+            KateDivision(..) => Gpu,
+            EvaluatePoly {.. } => Gpu,
+            BatchedInvert(..) => Gpu,
         }
     }
 }

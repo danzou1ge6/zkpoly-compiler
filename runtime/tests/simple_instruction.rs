@@ -3,7 +3,7 @@ use std::sync::RwLock;
 use halo2curves::bn256;
 use threadpool::ThreadPool;
 use zkpoly_common::load_dynamic::Libs;
-use zkpoly_common::typ::Typ;
+use zkpoly_common::typ::{PolyMeta, Typ};
 use zkpoly_core::poly::PolyAdd;
 use zkpoly_cuda_api::mem::CudaAllocator;
 use zkpoly_cuda_api::stream::CudaEvent;
@@ -73,25 +73,25 @@ fn test_add() {
     // allocate memory
     instructions.push(Instruction::Allocate {
         device: DeviceType::CPU,
-        typ: Typ::ScalarArray { len: len },
+        typ: Typ::ScalarArray { len: len, meta: PolyMeta::plain(len) },
         id: idb,
         offset: None,
     });
     instructions.push(Instruction::Allocate {
         device: DeviceType::GPU { device_id: 0 },
-        typ: Typ::ScalarArray { len: len },
+        typ: Typ::ScalarArray { len: len, meta: PolyMeta::plain(len) },
         id: ida_d,
         offset: Some(0),
     });
     instructions.push(Instruction::Allocate {
         device: DeviceType::GPU { device_id: 0 },
-        typ: Typ::ScalarArray { len: len },
+        typ: Typ::ScalarArray { len: len, meta: PolyMeta::plain(len) },
         id: idb_d,
         offset: Some(len * size_of::<MyField>()),
     });
     instructions.push(Instruction::Allocate {
         device: DeviceType::GPU { device_id: 0 },
-        typ: Typ::ScalarArray { len: len },
+        typ: Typ::ScalarArray { len: len, meta: PolyMeta::plain(len) },
         id: idc_d,
         offset: Some(2 * len * size_of::<MyField>()),
     });

@@ -13,7 +13,6 @@ pub enum SpOp {
     Mul,
     Div,
     DivBy,
-    Eval,
 }
 
 /// Unary polynomial operator

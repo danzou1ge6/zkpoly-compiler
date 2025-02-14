@@ -5,7 +5,7 @@ use zkpoly_runtime::args::RuntimeType;
 
 #[derive(Debug, Clone)]
 pub enum Typ<Rt: RuntimeType> {
-    Poly { typ: PolyType, deg: u64 },
+    Poly { deg: u64, meta: PolyType },
     PointBase { log_n: u32 },
     Scalar,
     Transcript,
@@ -13,7 +13,7 @@ pub enum Typ<Rt: RuntimeType> {
     Rng,
     Tuple(Vec<Typ<Rt>>),
     Array(Box<Typ<Rt>>, usize),
-    Any(any::TypeId, usize),
+    Any(any::TypeId, u64),
     _Phantom(PhantomData<Rt>),
 }
 
@@ -92,10 +92,12 @@ where
         }
     }
 
-    pub fn unwrap_poly(&self) -> (PolyType, u64) {
+    pub fn unwrap_poly(&self) -> (PolyType, u64)
+    where
+    {
         use Typ::*;
         match self {
-            Poly { typ, deg } => (typ.clone(), *deg),
+            Poly { meta, deg } => (meta.clone(), *deg),
             _ => panic!("called unwrap_poly on non-poly type"),
         }
     }

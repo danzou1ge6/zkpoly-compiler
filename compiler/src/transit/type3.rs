@@ -1,9 +1,9 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, marker::PhantomData};
 
 use crate::transit::{self, type2};
 use zkpoly_common::{
     arith, define_usize_id,
-    heap::{Heap, IdAllocator}, load_dynamic::Libs,
+    heap::{Heap, IdAllocator, RoHeap}, load_dynamic::Libs,
 };
 use zkpoly_runtime::args::RuntimeType;
 
@@ -157,18 +157,19 @@ pub mod template {
             id: I,
             oprands: Vec<I>,
         },
-        RotateAndSlice {
-            id: I,
-            operand: I,
-            rot: R,
-            slice: (u64, u64),
-        },
         Transfer {
             id: I,
             from: I,
             rot: R,
         },
+        /// This is for marking that the object that a register stores or points to has changed.
+        /// At runtime, this operation is equivalent to a `Clone` operation.
         Move {
+            id: I,
+            from: I,
+        },
+        /// Shallow copy. If register points to some data, those data are not touched.
+        Clone {
             id: I,
             from: I,
         },
@@ -190,9 +191,9 @@ pub mod template {
                 Tuple { id, oprands, .. } => {
                     Box::new(std::iter::once(*id).chain(oprands.iter().copied()))
                 }
-                RotateAndSlice { id, .. } => Box::new(std::iter::once(*id)),
                 Transfer { id, .. } => Box::new(std::iter::once(*id)),
                 Move { id, .. } => Box::new(std::iter::once(*id)),
+                Clone { id, .. } => Box::new(std::iter::once(*id)),
             }
         }
     }
@@ -343,9 +344,9 @@ impl<'s> Instruction<'s> {
             CpuFree { .. } => MemoryManagement,
             StackFree { .. } => MemoryManagement,
             Tuple { .. } => Cpu,
-            RotateAndSlice { .. } => Cpu,
             Transfer { from, id, .. } => determine_transfer_track(devices(*from), devices(*id)),
             Move { .. } => Cpu,
+            Clone { .. } => Cpu,
         }
     }
 
@@ -362,7 +363,6 @@ impl<'s> Instruction<'s> {
             CpuFree { id } => Box::new(std::iter::once(*id)),
             StackFree { id } => Box::new(std::iter::once(*id)),
             Tuple { oprands, .. } => Box::new(oprands.iter().copied()),
-            RotateAndSlice { id, .. } => Box::new(std::iter::once(*id)),
             Transfer { id, .. } => Box::new(std::iter::once(*id)),
             Move { id, .. } => Box::new(std::iter::once(*id)),
             _ => Box::new(std::iter::empty()),
@@ -374,11 +374,12 @@ define_usize_id!(InstructionIndex);
 #[derive(Debug)]
 pub struct Chunk<'s, Rt: RuntimeType> {
     pub(crate) instructions: Vec<Instruction<'s>>,
-    pub(crate) register_types: BTreeMap<RegisterId, type2::Typ<Rt>>,
+    pub(crate) register_types: RoHeap<RegisterId, typ::Typ>,
     pub(crate) register_devices: BTreeMap<RegisterId, Device>,
     pub(crate) gpu_addr_mapping: AddrMapping,
     pub(crate) reg_id_allocator: IdAllocator<RegisterId>,
     pub(crate) libs: Libs,
+    pub(crate) _phantom: PhantomData<Rt>
 }
 
 impl<'s, Rt: RuntimeType> std::ops::Index<InstructionIndex> for Chunk<'s, Rt> {
@@ -452,3 +453,4 @@ pub mod kernel_gen;
 pub mod emit_func;
 pub mod lowering;
 pub mod track_splitting;
+pub mod typ;

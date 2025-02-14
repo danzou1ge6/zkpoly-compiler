@@ -23,32 +23,33 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         gpu_allocator: &Option<Vec<CudaAllocator>>,
     ) -> Variable<T> {
         match typ {
-            Typ::ScalarArray { len } => {
+            Typ::ScalarArray { len, meta } => {
                 let poly = match device {
                     DeviceType::CPU => ScalarArray::<T::Field>::new(
-                        len,
-                        mem_allocator.as_ref().unwrap().allocate(len.clone()),
+                        len as usize,
+                        mem_allocator.as_ref().unwrap().allocate(len as usize),
                         device.clone(),
                     ),
                     DeviceType::GPU { device_id } => ScalarArray::<T::Field>::new(
-                        len,
+                        len as usize,
                         gpu_allocator.as_ref().unwrap()[device_id as usize]
                             .allocate(offset.unwrap()),
                         device.clone(),
                     ),
                     DeviceType::Disk => todo!(),
                 };
+                todo!("set slice and rotation metadata; perhaps change all usize's to u64");
                 Variable::ScalarArray(poly)
             }
             Typ::PointBase { len } => {
                 let point_base = match device {
                     DeviceType::CPU => PointArray::<T::PointAffine>::new(
-                        len,
-                        mem_allocator.as_ref().unwrap().allocate(len),
+                        len as usize,
+                        mem_allocator.as_ref().unwrap().allocate(len as usize),
                         device.clone(),
                     ),
                     DeviceType::GPU { device_id } => PointArray::<T::PointAffine>::new(
-                        len,
+                        len as usize,
                         gpu_allocator.as_ref().unwrap()[device_id as usize]
                             .allocate(offset.unwrap()),
                         device.clone(),
@@ -70,32 +71,9 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                 assert!(device.is_cpu());
                 Variable::Point(crate::point::Point::new(T::PointAffine::identity()))
             }
-            Typ::Tuple(vec) => {
+            Typ::Tuple => {
                 let mut vars = Vec::new();
-                for typ in vec {
-                    vars.push(self.allocate(
-                        device.clone(),
-                        typ,
-                        offset,
-                        mem_allocator,
-                        gpu_allocator,
-                    ));
-                }
                 Variable::Tuple(vars)
-            }
-            Typ::Array(typ, len) => {
-                let typ = *typ;
-                let mut vars = Vec::new();
-                for _ in 0..len {
-                    vars.push(self.allocate(
-                        device.clone(),
-                        typ.clone(),
-                        offset,
-                        mem_allocator,
-                        gpu_allocator,
-                    ));
-                }
-                Variable::Array(vars.into_boxed_slice())
             }
             Typ::Any(_, _) => unreachable!(),
             Typ::Stream => {
@@ -106,7 +84,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                 let device = device.unwrap_gpu();
                 Variable::GpuBuffer(GpuBuffer {
                     ptr: gpu_allocator.as_ref().unwrap()[device as usize].allocate(offset.unwrap()),
-                    size,
+                    size: size as usize,
                 })
             }
             Typ::Rng => todo!(),

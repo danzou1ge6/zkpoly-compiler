@@ -1,4 +1,8 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    any::Any,
+    collections::{BTreeMap, BTreeSet},
+    marker::PhantomData,
+};
 
 use zkpoly_common::{
     bijection::Bijection,
@@ -8,18 +12,20 @@ use zkpoly_common::{
 };
 use zkpoly_runtime::args::RuntimeType;
 
-use crate::transit::type3::{Chunk, DeviceSpecific};
+use crate::transit::type3::{typ::PolyMeta, Chunk, DeviceSpecific};
 
 use super::{
     super::type3::{
-        Addr, AddrId, AddrMapping, Device as DeterminedDevice, Instruction, InstructionNode,
-        IntegralSize, RegisterId, Size, SmithereenSize,
+        typ::Typ, Addr, AddrId, AddrMapping, Device as DeterminedDevice, Instruction,
+        InstructionNode, IntegralSize, RegisterId, Size, SmithereenSize,
     },
     user_function,
 };
 
 use super::{Cg, Device, VertexId};
-use object_analysis::{ObjectId, ObjectsDefUse, ObjectsDieAfter, Value};
+use object_analysis::{
+    ObjectId, ObjectsDefUse, ObjectsDieAfter, ObjectsDieAfterReversed, Value, VertexInputs,
+};
 
 const MIN_SMITHEREEN_SPACE: u64 = 2u64.pow(26);
 const SMITHEREEN_CEIL_TO_INTEGRAL_THRESHOLD: u64 = 2u64.pow(16);
@@ -174,8 +180,17 @@ struct Context {
 }
 
 #[derive(Debug)]
-struct ImmutableContext<'os> {
-    obj_sizes: &'os BTreeMap<ObjectId, Size>,
+struct ImmutableContext {
+    obj_def_use: ObjectsDefUse,
+    obj_dies_after: ObjectsDieAfter,
+    obj_dies_after_reversed: ObjectsDieAfterReversed,
+    vertex_inputs: VertexInputs,
+}
+
+impl ImmutableContext {
+    pub fn obj_size(&self, obj_id: ObjectId) -> Size {
+        self.obj_def_use.sizes[&obj_id]
+    }
 }
 
 impl Context {
@@ -215,19 +230,23 @@ impl Context {
     }
 }
 
-struct Code<'s>(Vec<Instruction<'s>>, IdAllocator<RegisterId>);
+struct Code<'s>(Vec<Instruction<'s>>, Heap<RegisterId, Typ>);
 
 impl<'s> Code<'s> {
     pub fn new() -> Self {
-        Self(Vec::new(), IdAllocator::new())
+        Self(Vec::new(), Heap::new())
     }
 
-    pub fn alloc_register_id(&mut self) -> RegisterId {
-        self.1.alloc()
+    pub fn alloc_register_id(&mut self, typ: Typ) -> RegisterId {
+        self.1.push(typ)
     }
 
     pub fn emit(&mut self, inst: Instruction<'s>) {
         self.0.push(inst);
+    }
+
+    pub fn typ_of(&self, id: RegisterId) -> &Typ {
+        &self.1[id]
     }
 }
 
@@ -242,8 +261,8 @@ fn move_victims(victims: &[AddrId], code: &mut Code, ctx: &mut Context, imctx: &
         let obj_id = ctx.reg2obj[&reg_id];
 
         if ctx.object_residence[&obj_id].cpu.is_empty() {
-            let new_reg = code.alloc_register_id();
-            let size = imctx.obj_sizes[&obj_id];
+            let new_reg = code.alloc_register_id(code.typ_of(reg_id).clone());
+            let size = imctx.obj_size(obj_id);
             allocate_cpu(obj_id, new_reg, size, code, ctx);
             code.emit(Instruction::new_no_src(InstructionNode::Transfer {
                 id: new_reg,
@@ -256,8 +275,6 @@ fn move_victims(victims: &[AddrId], code: &mut Code, ctx: &mut Context, imctx: &
 
 fn allocate_gpu_integral(
     size: IntegralSize,
-    obj_id: ObjectId,
-    reg_id: RegisterId,
     next_use: Instant,
     gpu_ialloc: &mut integral_allocator::regretting::Allocator,
     code: &mut Code,
@@ -325,16 +342,9 @@ impl GpuAllocator {
         imctx: &ImmutableContext,
     ) -> Result<(), InsufficientSmithereenSpace> {
         let addr = match normalize_size(size) {
-            Size::Integral(size) => allocate_gpu_integral(
-                size,
-                obj_id,
-                reg_id,
-                next_use,
-                &mut self.ialloc,
-                code,
-                ctx,
-                imctx,
-            ),
+            Size::Integral(size) => {
+                allocate_gpu_integral(size, next_use, &mut self.ialloc, code, ctx, imctx)
+            }
             Size::Smithereen(size) => {
                 allocate_gpu_smithereen(size, &mut self.salloc, &mut ctx.gpu_addr_mapping)?
             }
@@ -506,17 +516,32 @@ fn decide_device<'s, Rt: RuntimeType>(
 fn ensure_on_device(
     device: DeterminedDevice,
     obj_id: ObjectId,
+    typ: Typ,
     next_use: Instant,
     gpu_allocator: &mut GpuAllocator,
     code: &mut Code,
     ctx: &mut Context,
     imctx: &ImmutableContext,
 ) -> Result<RegisterId, InsufficientSmithereenSpace> {
-    if let Some(reg_id) = ctx.object_residence[&obj_id].get_device(device).first() {
-        Ok(*reg_id)
+    let candidate_registers = ctx.object_residence[&obj_id].get_device(device);
+    if !candidate_registers.is_empty() {
+        if let Some(&reg_id) = candidate_registers
+            .iter()
+            .find(|&&r| code.typ_of(r) == &typ)
+        {
+            Ok(reg_id)
+        } else {
+            let reg_id = candidate_registers.first().unwrap().clone();
+            let new_reg = code.alloc_register_id(typ);
+            code.emit(Instruction::new_no_src(InstructionNode::Clone {
+                id: new_reg,
+                from: reg_id,
+            }));
+            Ok(new_reg)
+        }
     } else {
-        let new_reg = code.alloc_register_id();
-        let size = imctx.obj_sizes[&obj_id];
+        let new_reg = code.alloc_register_id(typ);
+        let size = imctx.obj_size(obj_id);
         allocate(
             device,
             new_reg,
@@ -540,6 +565,7 @@ fn ensure_on_device(
 fn ensure_copied(
     device: DeterminedDevice,
     vid: VertexId,
+    typ: Typ,
     original_obj_id: ObjectId,
     obj_id: ObjectId,
     now: Instant,
@@ -547,21 +573,21 @@ fn ensure_copied(
     code: &mut Code,
     ctx: &mut Context,
     imctx: &ImmutableContext,
-    obj_dies_after: &ObjectsDieAfter,
 ) -> Result<RegisterId, InsufficientSmithereenSpace> {
-    let need_copy = obj_dies_after.get_device(device)[&original_obj_id] != vid;
+    let need_copy = imctx.obj_dies_after.get_device(device)[&original_obj_id] != vid;
     let input_reg = if need_copy {
         let transferred_reg = ensure_on_device(
             device,
             original_obj_id,
+            typ.clone(),
             now,
             gpu_allocator,
             code,
             ctx,
             imctx,
         )?;
-        let copied_reg = code.alloc_register_id();
-        let size = imctx.obj_sizes[&original_obj_id];
+        let copied_reg = code.alloc_register_id(typ);
+        let size = imctx.obj_size(original_obj_id);
         allocate(
             device,
             copied_reg,
@@ -583,13 +609,14 @@ fn ensure_copied(
         let on_device_reg = ensure_on_device(
             device,
             original_obj_id,
+            typ.clone(),
             now,
             gpu_allocator,
             code,
             ctx,
             imctx,
         )?;
-        let moved_reg = code.alloc_register_id();
+        let moved_reg = code.alloc_register_id(typ);
         code.emit(Instruction::new_no_src(InstructionNode::Move {
             id: moved_reg,
             from: on_device_reg,
@@ -601,29 +628,27 @@ fn ensure_copied(
     Ok(input_reg)
 }
 
-fn set_rotation_and_slice(
-    value: &Value,
-    obj_id: ObjectId,
-    device: DeterminedDevice,
-    reg_id: RegisterId,
-    code: &mut Code,
-    ctx: &mut Context,
-) -> RegisterId {
-    match value {
-        Value::Poly {
-            rotation, slice, ..
-        } => {
-            let new_reg = code.alloc_register_id();
-            code.emit(Instruction::new_no_src(InstructionNode::RotateAndSlice {
-                id: new_reg,
-                operand: reg_id,
-                rot: *rotation,
-                slice: *slice,
-            }));
-            ctx.add_residence_for_object(obj_id, new_reg, device);
-            new_reg
+fn lower_typ<Rt: RuntimeType>(t2typ: &super::Typ<Rt>, value: &Value) -> Typ {
+    use super::Typ::*;
+    match t2typ {
+        Poly { deg, .. } => {
+            let (rot, slice) = value.unwrap_poly();
+            Typ::ScalarArray {
+                len: *deg as usize,
+                meta: PolyMeta { slice, rot },
+            }
         }
-        _ => reg_id,
+        Scalar => Typ::Scalar,
+        Point => Typ::Point,
+        PointBase { log_n } => Typ::PointBase {
+            len: 2usize.pow(*log_n),
+        },
+        Transcript => Typ::Transcript,
+        Rng => Typ::Rng,
+        Tuple(..) => panic!("tuple unexpected"),
+        Array(..) => panic!("array unexpected"),
+        Any(id, size) => Typ::Any(*id, *size as usize),
+        _Phantom(_) => unreachable!(),
     }
 }
 
@@ -640,8 +665,15 @@ pub fn plan<'s, Rt: RuntimeType>(
     let successors = cg.g.successors();
     let next_ueses = collect_next_uses(&successors, seq);
     let devices = decide_device(cg, &successors);
-    let (obj_def_use, mut obj_id_allocator) = object_analysis::analyze_def_use(cg);
-    let obj_dies_after = object_analysis::analyze_die_after(cg, seq, &devices, &obj_def_use);
+    let (obj_def_use, mut obj_id_allocator) =
+        object_analysis::analyze_def_use(cg, |vid| devices[&vid]);
+    let vertex_inputs = object_analysis::plan_vertex_inputs(
+        cg,
+        &obj_def_use,
+        |vid| devices[&vid],
+        &mut obj_id_allocator,
+    );
+    let obj_dies_after = object_analysis::analyze_die_after(seq, &devices, &vertex_inputs);
     let obj_dies_after_reversed = obj_dies_after.reversed();
 
     let mut gpu_allocator = GpuAllocator {
@@ -658,7 +690,10 @@ pub fn plan<'s, Rt: RuntimeType>(
     };
     let mut register_types = BTreeMap::new();
     let imctx = ImmutableContext {
-        obj_sizes: &obj_def_use.sizes,
+        obj_def_use,
+        obj_dies_after,
+        obj_dies_after_reversed,
+        vertex_inputs,
     };
 
     let mut code = Code::new();
@@ -688,7 +723,7 @@ pub fn plan<'s, Rt: RuntimeType>(
             .map(|input_vid| {
                 if mutable_uses.contains(&input_vid) && outputs_inplace.contains(&Some(input_vid)) {
                     // This input's space is used inplace by an output
-                    let ouput_obj = obj_def_use.values[&vid]
+                    let ouput_obj = imctx.obj_def_use.values[&vid]
                         .object_ids()
                         .nth(
                             outputs_inplace
@@ -697,15 +732,16 @@ pub fn plan<'s, Rt: RuntimeType>(
                                 .unwrap(),
                         )
                         .unwrap();
-                    let input_value = match &obj_def_use.values[&input_vid] {
+                    let input_value = match &imctx.obj_def_use.values[&input_vid] {
                         object_analysis::VertexValue::Single(input_value) => input_value.clone(),
                         object_analysis::VertexValue::Tuple(..) => {
                             panic!("an inplace input must not be a tuple")
                         }
                     };
-                    let copied_reg = ensure_copied(
+                    ensure_copied(
                         device,
                         vid,
+                        lower_typ(cg.g.vertex(input_vid).typ(), &input_value),
                         input_value.object_id(),
                         ouput_obj,
                         updated_next_uses[&vid],
@@ -713,18 +749,9 @@ pub fn plan<'s, Rt: RuntimeType>(
                         &mut code,
                         &mut ctx,
                         &imctx,
-                        &obj_dies_after,
-                    )?;
-                    Ok(set_rotation_and_slice(
-                        &input_value,
-                        ouput_obj,
-                        device,
-                        copied_reg,
-                        &mut code,
-                        &mut ctx,
-                    ))
+                    )
                 } else if mutable_uses.contains(&input_vid) {
-                    let input_value = match &obj_def_use.values[&input_vid] {
+                    let input_value = match &imctx.obj_def_use.values[&input_vid] {
                         object_analysis::VertexValue::Single(input_value) => input_value.clone(),
                         object_analysis::VertexValue::Tuple(..) => {
                             panic!("an mutable input must not be a tuple")
@@ -732,9 +759,10 @@ pub fn plan<'s, Rt: RuntimeType>(
                     };
                     // This input is mutated
                     let temp_obj = obj_id_allocator.alloc();
-                    let copied_reg = ensure_copied(
+                    ensure_copied(
                         device,
                         vid,
+                        lower_typ(cg.g.vertex(input_vid).typ(), &input_value),
                         input_value.object_id(),
                         temp_obj,
                         now,
@@ -742,24 +770,16 @@ pub fn plan<'s, Rt: RuntimeType>(
                         &mut code,
                         &mut ctx,
                         &imctx,
-                        &obj_dies_after,
-                    );
-                    Ok(set_rotation_and_slice(
-                        &input_value,
-                        temp_obj,
-                        device,
-                        copied_reg?,
-                        &mut code,
-                        &mut ctx,
-                    ))
+                    )
                 } else if !mutable_uses.contains(&input_vid)
                     && !outputs_inplace.contains(&Some(input_vid))
                 {
                     // The input is not mutated
-                    match &obj_def_use.values[&input_vid] {
+                    match &imctx.obj_def_use.values[&input_vid] {
                         object_analysis::VertexValue::Single(input_value) => ensure_on_device(
                             device,
                             input_value.object_id(),
+                            lower_typ(cg.g.vertex(input_vid).typ(), input_value),
                             now,
                             &mut gpu_allocator,
                             &mut code,
@@ -769,10 +789,12 @@ pub fn plan<'s, Rt: RuntimeType>(
                         object_analysis::VertexValue::Tuple(input_values) => {
                             let elements = input_values
                                 .iter()
-                                .map(|input_value| {
+                                .zip(cg.g.vertex(input_vid).typ().iter())
+                                .map(|(input_value, input_typ)| {
                                     ensure_on_device(
                                         device,
                                         input_value.object_id(),
+                                        lower_typ(input_typ, input_value),
                                         now,
                                         &mut gpu_allocator,
                                         &mut code,
@@ -781,7 +803,7 @@ pub fn plan<'s, Rt: RuntimeType>(
                                     )
                                 })
                                 .collect::<Result<Vec<_>, _>>()?;
-                            let tuple_reg = code.alloc_register_id();
+                            let tuple_reg = code.alloc_register_id(Typ::Tuple);
                             code.emit(Instruction::new_no_src(InstructionNode::Tuple {
                                 id: tuple_reg,
                                 oprands: elements,
@@ -799,16 +821,18 @@ pub fn plan<'s, Rt: RuntimeType>(
         // - Use correspounding input registe if inplace.
         //   In this case, the object ID of the register is already the output object ID.
         let v = cg.g.vertex(vid);
-        let output_registers: Vec<RegisterId> = obj_def_use.values[&vid]
-            .object_ids()
+        let output_registers: Vec<RegisterId> = imctx.obj_def_use.values[&vid]
+            .iter()
             .zip(v.outputs_inplace(uf_table, device))
-            .map(|(output_obj, inplace)| {
+            .zip(v.typ().iter())
+            .map(|((output_value, inplace), output_typ)| {
+                let output_obj = output_value.object_id();
                 if let Some(input_vid) = inplace {
                     let index = v.uses().position(|x| x == input_vid).unwrap();
                     Ok(input_registers[index])
                 } else {
-                    let output_reg = code.alloc_register_id();
-                    let size = imctx.obj_sizes[&output_obj];
+                    let output_reg = code.alloc_register_id(lower_typ(output_typ, output_value));
+                    let size = imctx.obj_size(output_obj);
                     allocate(
                         device,
                         output_reg,
@@ -824,25 +848,26 @@ pub fn plan<'s, Rt: RuntimeType>(
                 }
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let temp_register_obj =
-            if let Some((temp_space_size, temp_space_device)) = v.temporary_space_needed() {
-                let temp_register = code.alloc_register_id();
-                let temp_obj = obj_id_allocator.alloc();
-                allocate(
-                    temp_space_device,
-                    temp_register,
-                    temp_obj,
-                    now,
-                    Size::Smithereen(SmithereenSize(temp_space_size)),
-                    &mut gpu_allocator,
-                    &mut code,
-                    &mut ctx,
-                    &imctx,
-                )?;
-                Some((temp_register, temp_obj))
-            } else {
-                None
-            };
+        let temp_register_obj = if let Some((temp_space_size, temp_space_device)) =
+            v.temporary_space_needed()
+        {
+            let temp_register = code.alloc_register_id(Typ::GpuBuffer(temp_space_size as usize));
+            let temp_obj = obj_id_allocator.alloc();
+            allocate(
+                temp_space_device,
+                temp_register,
+                temp_obj,
+                now,
+                Size::Smithereen(SmithereenSize(temp_space_size)),
+                &mut gpu_allocator,
+                &mut code,
+                &mut ctx,
+                &imctx,
+            )?;
+            Some((temp_register, temp_obj))
+        } else {
+            None
+        };
 
         // Emit vertex
 
@@ -879,7 +904,7 @@ pub fn plan<'s, Rt: RuntimeType>(
         // Deallocate dead register
         // - Deallocate dead GPU register right away
         // - Non-GPU register are deallocated if they are never used by any device
-        for (&dead_obj, device_collection) in obj_dies_after_reversed.after[&vid].iter() {
+        for (&dead_obj, device_collection) in imctx.obj_dies_after_reversed.after[&vid].iter() {
             if device_collection.gpu() {
                 gpu_allocator.deallocate(dead_obj, &mut code, &mut ctx);
             }
@@ -896,11 +921,14 @@ pub fn plan<'s, Rt: RuntimeType>(
         }
     }
 
+    let (register_types, reg_id_allocator) = code.1.freeze();
+
     Ok(Chunk {
         instructions: code.0,
         register_types,
         register_devices: ctx.reg_device,
         gpu_addr_mapping: ctx.gpu_addr_mapping,
-        reg_id_allocator: code.1,
+        reg_id_allocator,
+        _phantom: PhantomData,
     })
 }
