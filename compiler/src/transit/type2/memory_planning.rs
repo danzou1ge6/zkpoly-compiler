@@ -69,15 +69,21 @@ trait AddrMappingHandler {
     fn get(&self, id: AddrId) -> (Addr, Size);
 }
 
-struct GpuAddrMappingHandler<'m>(&'m mut AddrMapping);
+struct GpuAddrMappingHandler<'m>(&'m mut AddrMapping, u64);
+
+impl<'m> GpuAddrMappingHandler<'m> {
+    pub fn new(addr_mapping: &'m mut AddrMapping, offset: u64) -> Self {
+        Self(addr_mapping, offset)
+    }
+}
 
 impl<'m> AddrMappingHandler for GpuAddrMappingHandler<'m> {
     fn add(&mut self, addr: Addr, size: Size) -> AddrId {
-        self.0.push((addr, size))
+        self.0.push((addr.offset(self.1), size))
     }
 
     fn update(&mut self, id: AddrId, addr: Addr, size: Size) {
-        self.0[id] = (addr, size);
+        self.0[id] = (addr.offset(self.1), size);
     }
 
     fn get(&self, id: AddrId) -> (Addr, Size) {
@@ -277,6 +283,7 @@ fn allocate_gpu_integral(
     size: IntegralSize,
     next_use: Instant,
     gpu_ialloc: &mut integral_allocator::regretting::Allocator,
+    ioffset: u64,
     code: &mut Code,
     ctx: &mut Context,
     imctx: &ImmutableContext,
@@ -284,7 +291,7 @@ fn allocate_gpu_integral(
     let addr = gpu_ialloc.allocate(
         size,
         next_use,
-        &mut GpuAddrMappingHandler(&mut ctx.gpu_addr_mapping),
+        &mut GpuAddrMappingHandler::new(&mut ctx.gpu_addr_mapping, ioffset),
     );
 
     if let Some((transfers, addr)) = addr {
@@ -304,7 +311,7 @@ fn allocate_gpu_integral(
     let (addr, victims) = gpu_ialloc.decide_and_realloc_victim(
         size,
         next_use,
-        &mut GpuAddrMappingHandler(&mut ctx.gpu_addr_mapping),
+        &mut GpuAddrMappingHandler::new(&mut ctx.gpu_addr_mapping, ioffset),
     );
     move_victims(&victims, code, ctx, imctx);
 
@@ -317,9 +324,11 @@ pub struct InsufficientSmithereenSpace;
 fn allocate_gpu_smithereen(
     size: SmithereenSize,
     gpu_salloc: &mut smithereens_allocator::Allocator,
+    soffset: u64,
     mapping: &mut AddrMapping,
 ) -> Result<AddrId, InsufficientSmithereenSpace> {
-    if let Some(addr) = gpu_salloc.allocate(size, &mut GpuAddrMappingHandler(mapping)) {
+    if let Some(addr) = gpu_salloc.allocate(size, &mut GpuAddrMappingHandler::new(mapping, soffset))
+    {
         return Ok(addr);
     }
 
@@ -331,6 +340,14 @@ fn whether_ceil_smithereen_to_integral(size: SmithereenSize) -> bool {
 }
 
 impl GpuAllocator {
+    fn ioffset(&self) -> u64 {
+        self.salloc.capacity()
+    }
+
+    fn soffset(&self) -> u64 {
+        0
+    }
+
     pub fn allocate(
         &mut self,
         size: Size,
@@ -341,12 +358,15 @@ impl GpuAllocator {
         ctx: &mut Context,
         imctx: &ImmutableContext,
     ) -> Result<(), InsufficientSmithereenSpace> {
+        let ioffset = self.ioffset();
+        let soffset = self.soffset();
+
         let addr = match normalize_size(size) {
             Size::Integral(size) => {
-                allocate_gpu_integral(size, next_use, &mut self.ialloc, code, ctx, imctx)
+                allocate_gpu_integral(size, next_use, &mut self.ialloc, ioffset, code, ctx, imctx)
             }
             Size::Smithereen(size) => {
-                allocate_gpu_smithereen(size, &mut self.salloc, &mut ctx.gpu_addr_mapping)?
+                allocate_gpu_smithereen(size, &mut self.salloc, soffset, &mut ctx.gpu_addr_mapping)?
             }
         };
 
@@ -370,12 +390,14 @@ impl GpuAllocator {
 
         let (_, size) = ctx.gpu_addr_mapping[addr];
         match size {
-            Size::Integral(..) => self
-                .ialloc
-                .deallocate(addr, &mut GpuAddrMappingHandler(&mut ctx.gpu_addr_mapping)),
-            Size::Smithereen(..) => self
-                .salloc
-                .deallocate(addr, &mut GpuAddrMappingHandler(&mut ctx.gpu_addr_mapping)),
+            Size::Integral(..) => self.ialloc.deallocate(
+                addr,
+                &mut GpuAddrMappingHandler::new(&mut ctx.gpu_addr_mapping, self.ioffset()),
+            ),
+            Size::Smithereen(..) => self.salloc.deallocate(
+                addr,
+                &mut GpuAddrMappingHandler::new(&mut ctx.gpu_addr_mapping, self.soffset()),
+            ),
         }
 
         code.emit(Instruction::new_no_src(InstructionNode::GpuFree {
