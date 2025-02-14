@@ -75,6 +75,12 @@ pub enum Size {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Addr(pub(crate) u64);
 
+impl Addr {
+    pub fn offset(self, x: u64) -> Addr {
+        Addr(self.0 + x)
+    }
+}
+
 impl Size {
     pub fn new(s: u64) -> Self {
         let ss = SmithereenSize(s);

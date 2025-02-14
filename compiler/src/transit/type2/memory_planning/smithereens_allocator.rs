@@ -17,6 +17,7 @@ pub struct Allocator {
     chunks: BTreeMap<u64, Chunk>,
     last_chunk_addr: u64,
     aligned_addr2chunk_addr: BTreeMap<u64, u64>,
+    capacity: u64,
 }
 
 fn aligned_addr(addr: u64) -> u64 {
@@ -43,6 +44,7 @@ impl Allocator {
             .collect(),
             last_chunk_addr: 0,
             aligned_addr2chunk_addr: BTreeMap::new(),
+            capacity,
         }
     }
 
@@ -56,6 +58,10 @@ impl Allocator {
             .min_by_key(|(_, chunk)| chunk.size - size)?;
 
         Some(*addr)
+    }
+
+    pub fn capacity(&self) -> u64 {
+        self.capacity
     }
 
     pub fn allocate(
