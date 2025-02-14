@@ -347,9 +347,6 @@ impl<Id: UsizeId> FusedOp<Id> {
                                         head, rhs, lhs
                                     );
                                 }
-                                SpOp::Eval => {
-                                    unreachable!("SpOp::Eval is not supported in kernel fusion")
-                                }
                             },
                         }
                     }
