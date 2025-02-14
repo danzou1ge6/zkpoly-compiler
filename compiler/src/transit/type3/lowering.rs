@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use super::track_splitting::{split, TrackTasks};
-use super::{kernel_generation, Track};
+use super::{emit_func, Track};
 use zkpoly_common::define_usize_id;
 use zkpoly_common::heap::{Heap, IdAllocator};
 use zkpoly_common::typ::Typ;
@@ -317,12 +317,12 @@ fn lower_instruction<'s, Rt: RuntimeType>(
 ) {
     match &inst.node {
         super::InstructionNode::Type2 { ids, temp, vertex } => {
-            kernel_generation::generate(
+            emit_func::generate(
                 ids,
                 *temp,
+                stream2variable_id.get(Stream::of_track(track).unwrap()).clone(),
                 vertex,
                 t3chunk,
-                thread,
                 reg_id2var_id,
                 f_table,
                 emit,

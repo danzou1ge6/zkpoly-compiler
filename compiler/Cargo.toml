@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 zkpoly_runtime = { path = "../runtime" }
 zkpoly_common = { path = "../common" }
+zkpoly_core = { path = "../core" }

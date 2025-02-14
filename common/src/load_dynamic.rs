@@ -2,6 +2,7 @@ use std::{collections::HashMap, path::PathBuf};
 
 use libloading::Library;
 
+#[derive(Debug)]
 pub struct Libs {
     libs: HashMap<String, &'static Library>,
 }

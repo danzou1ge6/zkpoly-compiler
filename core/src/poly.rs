@@ -199,7 +199,7 @@ impl_poly_new!(PolySub, "poly_sub");
 impl_poly_new!(PolyMul, "poly_mul");
 
 impl<T: RuntimeType> PolyInvert<T> {
-    pub fn get_buffer_size(&self, len: u64) -> usize {
+    pub fn get_buffer_size(&self, len: usize) -> usize {
         let mut buf_size: usize = 0;
         unsafe {
             cuda_check!((self.c_func)(
@@ -207,7 +207,7 @@ impl<T: RuntimeType> PolyInvert<T> {
                 &mut buf_size as *mut usize as *mut c_ulong,
                 null_mut(),
                 null_mut(),
-                len,
+                len.try_into().unwrap(),
                 null_mut(),
             ));
         }
@@ -252,7 +252,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyInvert<T> {
 }
 
 impl<T: RuntimeType> PolyScan<T> {
-    pub fn get_buffer_size(&self, len: u64) -> usize {
+    pub fn get_buffer_size(&self, len: usize) -> usize {
         let mut buf_size: usize = 0;
         unsafe {
             cuda_check!((self.c_func)(
@@ -263,7 +263,7 @@ impl<T: RuntimeType> PolyScan<T> {
                 null_mut(),
                 0,
                 null(),
-                len,
+                len.try_into().unwrap(),
                 null_mut(),
             ));
         }
