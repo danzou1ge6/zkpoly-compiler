@@ -1,14 +1,18 @@
 use std::{
     any::type_name,
-    collections::VecDeque,
+    collections::BTreeSet,
     ffi::c_longlong,
+    fs,
     marker::PhantomData,
     os::raw::{c_uint, c_ulonglong},
 };
 
 use libloading::Symbol;
 use zkpoly_common::{
-    arith::{Arith, ArithBinOp, ArithGraph, ArithUnrOp, BinOp, Operation, POp, SpOp, UnrOp},
+    arith::{
+        Arith, ArithBinOp, ArithGraph, ArithUnrOp, BinOp, FusedType, Mutability, Operation, POp,
+        SpOp, UnrOp,
+    },
     heap::UsizeId,
     load_dynamic::Libs,
 };
@@ -42,30 +46,72 @@ pub struct FusedKernel<T: RuntimeType> {
     >,
 }
 
-pub enum Var {
-    Const(usize),
-    Mut(usize),
+fn gen_var_lists<OuterId: Ord + Clone, InnerId: UsizeId>(
+    graph: &ArithGraph<OuterId, InnerId>,
+) -> (Vec<(FusedType, OuterId)>, Vec<(FusedType, OuterId)>) {
+    let mut vars = Vec::new();
+    let mut mut_vars = Vec::new();
+    let mut var_set = BTreeSet::new();
+    for inner_id in graph.inputs.iter() {
+        if let Operation::Input {
+            outer_id,
+            typ,
+            mutability,
+        } = &graph.g.vertex(*inner_id).op
+        {
+            if var_set.get(&outer_id).is_none() {
+                var_set.insert(outer_id);
+                let outer_id = (*outer_id).clone();
+                match (typ, mutability) {
+                    (FusedType::Scalar, Mutability::Const) => {
+                        vars.push((FusedType::Scalar, outer_id))
+                    }
+                    (FusedType::Scalar, Mutability::Mut) => {
+                        mut_vars.push((FusedType::Scalar, outer_id))
+                    }
+                    (FusedType::ScalarArray, Mutability::Const) => {
+                        vars.push((FusedType::ScalarArray, outer_id))
+                    }
+                    (FusedType::ScalarArray, Mutability::Mut) => {
+                        mut_vars.push((FusedType::ScalarArray, outer_id))
+                    }
+                }
+            }
+        } else {
+            unreachable!("input should be an Operation::Input");
+        }
+    }
+    for inner_id in graph.outputs.iter() {
+        if let Operation::Output { outer_id, typ, .. } = &graph.g.vertex(*inner_id).op {
+            if var_set.get(&outer_id).is_none() {
+                var_set.insert(outer_id);
+                let outer_id = (*outer_id).clone();
+                match typ {
+                    FusedType::Scalar => mut_vars.push((FusedType::Scalar, outer_id)),
+                    FusedType::ScalarArray => mut_vars.push((FusedType::ScalarArray, outer_id)),
+                }
+            }
+        } else {
+            unreachable!("output should be an Operation::Output");
+        }
+    }
+    (vars, mut_vars)
 }
 
-pub enum FusedType {
-    Scalar,
-    ScalarArray,
-}
-
-pub struct FusedOp<Id> {
-    graph: ArithGraph<Var, Id>,
+pub struct FusedOp<OuterId, InnerId> {
+    graph: ArithGraph<OuterId, InnerId>,
     name: String,
-    vars: Vec<FusedType>,
-    mut_vars: Vec<FusedType>,
+    vars: Vec<(FusedType, OuterId)>,
+    mut_vars: Vec<(FusedType, OuterId)>,
 }
 
-impl<Id: UsizeId> FusedOp<Id> {
-    pub fn new(
-        graph: ArithGraph<Var, Id>,
-        name: String,
-        vars: Vec<FusedType>,
-        mut_vars: Vec<FusedType>,
-    ) -> Self {
+const TMP_PREFIX: &str = "tmp";
+const SCALAR_PREFIX: &str = "var";
+const ITER_PREFIX: &str = "iter";
+
+impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
+    pub fn new(graph: ArithGraph<OuterId, InnerId>, name: String) -> Self {
+        let (vars, mut_vars) = gen_var_lists(&graph);
         Self {
             graph,
             name,
@@ -74,14 +120,21 @@ impl<Id: UsizeId> FusedOp<Id> {
         }
     }
 
-    pub fn gen_header(&self) -> String {
+    pub fn gen(&self) {
+        let header = self.gen_header();
+        let kernel = self.gen_kernel();
+        let wrapper = self.gen_wrapper();
+        fs::write("src/fused_kernels/src", header + &kernel + &wrapper).unwrap();
+    }
+
+    fn gen_header(&self) -> String {
         let mut header = String::new();
         header.push_str("#include \"../../common/mont/src/field_impls.cuh\"\n");
         header.push_str("#include \"../../common/mont/src/iter.cuh\"\n");
         header
     }
 
-    pub fn gen_wrapper(&self) -> String {
+    fn gen_wrapper(&self) -> String {
         let mut wrapper = String::new();
 
         // signature
@@ -91,22 +144,32 @@ impl<Id: UsizeId> FusedOp<Id> {
             "(uint const * const* vars, long long const * var_rotates, uint * const* mut_vars, long long const * mut_var_rotates unsigned long long len, cudaStream_t stream) {\n",
         );
 
-        for (i, var) in self.vars.iter().enumerate() {
-            match var {
+        for (i, (typ, id)) in self.vars.iter().enumerate() {
+            let id: usize = id.clone().into();
+            match typ {
                 FusedType::ScalarArray => {
-                    let iter = format!("auto iter_{} = mont::make_rotating_iter(reinterpret_cast<const FUSED_FIELD*>(vars[{}]), var_rotates[{}], len);", i, i, i);
+                    let iter = format!("auto {ITER_PREFIX}{id} = mont::make_rotating_iter(reinterpret_cast<const FUSED_FIELD*>(vars[{i}]), var_rotates[{i}], len);");
                     wrapper.push_str(&iter);
                 }
-                _ => {}
+                FusedType::Scalar => {
+                    let scalar = format!("auto {SCALAR_PREFIX}{id} = reinterpret_cast<const FUSED_FIELD*>(vars[{i}]);");
+                    wrapper.push_str(&scalar);
+                }
             }
         }
-        for (i, mut_var) in self.mut_vars.iter().enumerate() {
-            match mut_var {
+        for (i, (typ, id)) in self.mut_vars.iter().enumerate() {
+            let id: usize = id.clone().into();
+            match typ {
                 FusedType::ScalarArray => {
-                    let iter = format!("auto iter_mut_{} = mont::make_rotating_iter(reinterpret_cast<FUSED_FIELD*>(mut_vars[{}]), mut_var_rotates[{}], len);", i, i, i);
+                    let iter = format!("auto {ITER_PREFIX}{id} = mont::make_rotating_iter(reinterpret_cast<FUSED_FIELD*>(mut_vars[{i}]), mut_var_rotates[{i}], len);");
                     wrapper.push_str(&iter);
                 }
-                _ => {}
+                FusedType::Scalar => {
+                    let scalar = format!(
+                        "auto {SCALAR_PREFIX}{id} = reinterpret_cast<FUSED_FIELD*>(mut_vars[{i}]);"
+                    );
+                    wrapper.push_str(&scalar);
+                }
             }
         }
         wrapper.push_str("uint block_size = 256;\n");
@@ -115,31 +178,18 @@ impl<Id: UsizeId> FusedOp<Id> {
         wrapper.push_str(&self.name);
         wrapper.push_str("<FUSED_FIELD>");
         wrapper.push_str(" <<< grid_size, block_size, 0, stream >>> (\n");
-        for (i, var) in self.vars.iter().enumerate() {
-            match var {
+        for (typ, id) in self.vars.iter().chain(self.mut_vars.iter()) {
+            let id = id.clone().into();
+            match typ {
                 FusedType::ScalarArray => {
-                    wrapper.push_str("iter_");
-                    wrapper.push_str(&i.to_string());
+                    wrapper.push_str(ITER_PREFIX);
+                    wrapper.push_str(&id.to_string());
                     wrapper.push_str(", ");
                 }
                 FusedType::Scalar => {
-                    wrapper.push_str("reinterpret_cast<const FUSED_FIELD*>(vars[");
-                    wrapper.push_str(&i.to_string());
-                    wrapper.push_str("]), ");
-                }
-            }
-        }
-        for (i, var) in self.mut_vars.iter().enumerate() {
-            match var {
-                FusedType::ScalarArray => {
-                    wrapper.push_str("iter_mut_");
-                    wrapper.push_str(&i.to_string());
+                    wrapper.push_str(SCALAR_PREFIX);
+                    wrapper.push_str(&id.to_string());
                     wrapper.push_str(", ");
-                }
-                FusedType::Scalar => {
-                    wrapper.push_str("reinterpret_cast<FUSED_FIELD*>(mut_vars[");
-                    wrapper.push_str(&i.to_string());
-                    wrapper.push_str("]), ");
                 }
             }
         }
@@ -149,7 +199,7 @@ impl<Id: UsizeId> FusedOp<Id> {
         wrapper
     }
 
-    pub fn gen_kernel(&self) -> String {
+    fn gen_kernel(&self) -> String {
         let mut kernel = String::new();
 
         // generate kernel namespace
@@ -162,31 +212,37 @@ impl<Id: UsizeId> FusedOp<Id> {
         kernel.push_str("(");
 
         // generate kernel arguments
-        for (i, var) in self.vars.iter().enumerate() {
-            match var {
+        for (typ, id) in self.vars.iter() {
+            let id: usize = id.clone().into();
+            match typ {
                 FusedType::Scalar => {
-                    kernel.push_str("const Field* var");
-                    kernel.push_str(&i.to_string());
+                    kernel.push_str("const Field* ");
+                    kernel.push_str(SCALAR_PREFIX);
+                    kernel.push_str(&id.to_string());
                     kernel.push_str(", ");
                 }
                 FusedType::ScalarArray => {
-                    kernel.push_str("mont::RotatingIter<const Field> iter_");
-                    kernel.push_str(&i.to_string());
+                    kernel.push_str("mont::RotatingIter<const Field> ");
+                    kernel.push_str(ITER_PREFIX);
+                    kernel.push_str(&id.to_string());
                     kernel.push_str(", ");
                 }
             }
         }
 
-        for (i, mut_var) in self.mut_vars.iter().enumerate() {
-            match mut_var {
+        for (typ, id) in self.mut_vars.iter() {
+            let id: usize = id.clone().into();
+            match typ {
                 FusedType::Scalar => {
-                    kernel.push_str("Field* mut_var");
-                    kernel.push_str(&i.to_string());
+                    kernel.push_str("Field* ");
+                    kernel.push_str(SCALAR_PREFIX);
+                    kernel.push_str(&id.to_string());
                     kernel.push_str(", ");
                 }
                 FusedType::ScalarArray => {
-                    kernel.push_str("mont::RotatingIter<Field> iter_mut_");
-                    kernel.push_str(&i.to_string());
+                    kernel.push_str("mont::RotatingIter<Field> ");
+                    kernel.push_str(ITER_PREFIX);
+                    kernel.push_str(&id.to_string());
                     kernel.push_str(", ");
                 }
             }
@@ -196,78 +252,39 @@ impl<Id: UsizeId> FusedOp<Id> {
         kernel += "unsigned long long idx = blockIdx.x * blockDim.x + threadIdx.x;\n";
         kernel += "if (idx >= len) return;\n";
 
-        // this is for topological ordering
-        let mut deg = Vec::new();
-        let mut queue = VecDeque::new();
-        deg.resize(self.graph.g.order(), 0);
-        for id in self.graph.g.vertices() {
-            let vertex = self.graph.g.vertex(id);
-            match &vertex.op {
-                Operation::Input(_) => {
-                    queue.push_back(id);
-                    deg[id.into()] = 0;
-                }
-                Operation::Arith(arith) => match arith {
-                    Arith::Bin(_, id1, id2) => {
-                        if id1 != id2 {
-                            deg[id.into()] = 2;
-                        } else {
-                            deg[id.into()] = 1;
-                        }
-                    }
-                    Arith::Unr(..) => {
-                        deg[id.into()] = 1;
-                    }
-                },
-                Operation::Output(..) => {
-                    deg[id.into()] = 1;
-                }
-            }
-        }
         // topological ordering
-        while !queue.is_empty() {
-            let head = queue.pop_front().unwrap();
-            let vertex = &self.graph.g.vertex(head);
-            for target in vertex.target.iter() {
-                let id: usize = target.clone().into();
-                deg[id] -= 1;
-                if deg[id] == 0 {
-                    queue.push_front(target.clone());
-                }
-            }
+        for (head, vertex) in self.graph.topology_sort() {
             match &vertex.op {
-                Operation::Output(var, src) => match var {
-                    Var::Mut(id) => {
-                        let src: usize = src.clone().into();
-                        match self.mut_vars[*id] {
-                            FusedType::Scalar => {
-                                kernel += &format!("*mut_var{} = tmp{};\n", id, src);
-                            }
-                            FusedType::ScalarArray => {
-                                kernel += &format!("iter_mut_{}[idx] = tmp{};\n", id, src);
-                            }
+                Operation::Output {
+                    outer_id,
+                    typ,
+                    store_node,
+                    ..
+                } => {
+                    let src: usize = store_node.clone().into();
+                    let id: usize = outer_id.clone().into();
+                    match typ {
+                        FusedType::Scalar => {
+                            kernel += &format!("*{SCALAR_PREFIX}{id} = {TMP_PREFIX}{src};\n");
+                        }
+                        FusedType::ScalarArray => {
+                            kernel += &format!("{ITER_PREFIX}{id}[idx] = {TMP_PREFIX}{src};\n");
                         }
                     }
-                    Var::Const(..) => unreachable!("Output should not be a constant"),
-                },
-                Operation::Input(var) => match var {
-                    Var::Const(id) => match self.vars[*id] {
+                }
+                Operation::Input { outer_id, typ, .. } => {
+                    let id = outer_id.clone().into();
+                    let head = head.clone().into();
+                    match typ {
                         FusedType::Scalar => {
-                            kernel += &format!("auto tmp{} = *var{};\n", head.into(), id);
+                            kernel += &format!("auto {TMP_PREFIX}{head} = *{SCALAR_PREFIX}{id};\n");
                         }
                         FusedType::ScalarArray => {
-                            kernel += &format!("auto tmp{} = iter_{}[idx];\n", head.into(), id);
+                            kernel +=
+                                &format!("auto {TMP_PREFIX}{head} = {ITER_PREFIX}{id}[idx];\n");
                         }
-                    },
-                    Var::Mut(id) => match self.mut_vars[*id] {
-                        FusedType::Scalar => {
-                            kernel += &format!("auto tmp{} = *mut_var{};\n", head.into(), id);
-                        }
-                        FusedType::ScalarArray => {
-                            kernel += &format!("auto tmp{} = iter_mut_{}[idx];\n", head.into(), id);
-                        }
-                    },
-                },
+                    }
+                }
                 Operation::Arith(arith) => match arith {
                     Arith::Bin(op, lhs, rhs) => {
                         let lhs: usize = lhs.clone().into();
@@ -276,74 +293,94 @@ impl<Id: UsizeId> FusedOp<Id> {
                         match op {
                             BinOp::Pp(op) => match op {
                                 ArithBinOp::Add => {
-                                    kernel +=
-                                        &format!("auto tmp{} = tmp{} + tmp{};\n", head, lhs, rhs)
+                                    kernel += &format!(
+                                        "auto {TMP_PREFIX}{} = {TMP_PREFIX}{} + {TMP_PREFIX}{};\n",
+                                        head, lhs, rhs
+                                    )
                                 }
                                 ArithBinOp::Sub => {
-                                    kernel +=
-                                        &format!("auto tmp{} = tmp{} - tmp{};\n", head, lhs, rhs)
+                                    kernel += &format!(
+                                        "auto {TMP_PREFIX}{} = {TMP_PREFIX}{} - {TMP_PREFIX}{};\n",
+                                        head, lhs, rhs
+                                    )
                                 }
                                 ArithBinOp::Mul => {
-                                    kernel +=
-                                        &format!("auto tmp{} = tmp{} * tmp{};\n", head, lhs, rhs)
+                                    kernel += &format!(
+                                        "auto {TMP_PREFIX}{} = {TMP_PREFIX}{} * {TMP_PREFIX}{};\n",
+                                        head, lhs, rhs
+                                    )
                                 }
                                 ArithBinOp::Div => {
                                     eprintln!("Warning: division is very expensive, consider using batched inv first");
                                     kernel += &format!(
-                                        "auto tmp{} = tmp{} * tmp{}.invert();\n",
+                                        "auto {TMP_PREFIX}{} = {TMP_PREFIX}{} * {TMP_PREFIX}{}.invert();\n",
                                         head, lhs, rhs
                                     );
                                 }
                             },
                             BinOp::Ss(op) => match op {
                                 ArithBinOp::Add => {
-                                    kernel +=
-                                        &format!("auto tmp{} = tmp{} + tmp{};\n", head, lhs, rhs)
+                                    kernel += &format!(
+                                        "auto {TMP_PREFIX}{} = {TMP_PREFIX}{} + {TMP_PREFIX}{};\n",
+                                        head, lhs, rhs
+                                    )
                                 }
                                 ArithBinOp::Sub => {
-                                    kernel +=
-                                        &format!("auto tmp{} = tmp{} - tmp{};\n", head, lhs, rhs)
+                                    kernel += &format!(
+                                        "auto {TMP_PREFIX}{} = {TMP_PREFIX}{} - {TMP_PREFIX}{};\n",
+                                        head, lhs, rhs
+                                    )
                                 }
                                 ArithBinOp::Mul => {
-                                    kernel +=
-                                        &format!("auto tmp{} = tmp{} * tmp{};\n", head, lhs, rhs)
+                                    kernel += &format!(
+                                        "auto {TMP_PREFIX}{} = {TMP_PREFIX}{} * {TMP_PREFIX}{};\n",
+                                        head, lhs, rhs
+                                    )
                                 }
                                 ArithBinOp::Div => {
                                     eprintln!("Warning: division is very expensive, consider inverse the scalar first");
                                     kernel += &format!(
-                                        "auto tmp{} = tmp{} * tmp{}.invert();\n",
+                                        "auto {TMP_PREFIX}{} = {TMP_PREFIX}{} * {TMP_PREFIX}{}.invert();\n",
                                         head, lhs, rhs
                                     );
                                 }
                             },
                             BinOp::Sp(op) => match op {
                                 SpOp::Add => {
-                                    kernel +=
-                                        &format!("auto tmp{} = tmp{} + tmp{};\n", head, lhs, rhs)
+                                    kernel += &format!(
+                                        "auto {TMP_PREFIX}{} = {TMP_PREFIX}{} + {TMP_PREFIX}{};\n",
+                                        head, lhs, rhs
+                                    )
                                 }
                                 SpOp::Sub => {
-                                    kernel +=
-                                        &format!("auto tmp{} = tmp{} - tmp{};\n", head, lhs, rhs)
+                                    kernel += &format!(
+                                        "auto {TMP_PREFIX}{} = {TMP_PREFIX}{} - {TMP_PREFIX}{};\n",
+                                        head, lhs, rhs
+                                    )
                                 }
                                 SpOp::SubBy => {
-                                    kernel +=
-                                        &format!("auto tmp{} = tmp{} - tmp{};\n", head, rhs, lhs)
+                                    kernel += &format!(
+                                        "auto {TMP_PREFIX}{} = {TMP_PREFIX}{} - {TMP_PREFIX}{};\n",
+                                        head, rhs, lhs
+                                    )
                                 }
                                 SpOp::Mul => {
-                                    kernel +=
-                                        &format!("auto tmp{} = tmp{} * tmp{};\n", head, lhs, rhs)
+                                    kernel += &format!(
+                                        "auto {TMP_PREFIX}{} = {TMP_PREFIX}{} * {TMP_PREFIX}{};\n",
+                                        head, lhs, rhs
+                                    )
                                 }
                                 SpOp::Div => {
                                     eprintln!("Warning: division is very expensive, consider inverse first");
                                     kernel += &format!(
-                                        "auto tmp{} = tmp{} * tmp{}.invert();\n",
+                                        "auto {TMP_PREFIX}{} = {TMP_PREFIX}{} * {TMP_PREFIX}{}.invert();\n",
                                         head, lhs, rhs
                                     );
                                 }
                                 SpOp::DivBy => {
                                     eprintln!("Warning: division is very expensive, consider inverse first");
                                     kernel += &format!(
-                                        "auto tmp{} = tmp{} * tmp{}.invert();\n",
+                                        "auto {TMP_PREFIX}{} = {TMP_PREFIX}{} * {TMP_PREFIX}{}.invert();\n",
                                         head, rhs, lhs
                                     );
                                 }
@@ -355,24 +392,33 @@ impl<Id: UsizeId> FusedOp<Id> {
                         let head: usize = head.into();
                         match op {
                             UnrOp::P(POp::Neg) => {
-                                kernel += &format!("auto tmp{} = -tmp{};\n", head, arg);
+                                kernel +=
+                                    &format!("auto {TMP_PREFIX}{} = -{TMP_PREFIX}{};\n", head, arg);
                             }
                             UnrOp::P(POp::Inv) => {
                                 eprintln!("Warning: inversion is very expensive, consider using batched inv first");
-                                kernel += &format!("auto tmp{} = tmp{}.invert();\n", head, arg);
+                                kernel += &format!(
+                                    "auto {TMP_PREFIX}{} = {TMP_PREFIX}{}.invert();\n",
+                                    head, arg
+                                );
                             }
                             UnrOp::S(ArithUnrOp::Neg) => {
-                                kernel += &format!("auto tmp{} = -tmp{};\n", head, arg);
+                                kernel +=
+                                    &format!("auto {TMP_PREFIX}{} = -{TMP_PREFIX}{};\n", head, arg);
                             }
                             UnrOp::S(ArithUnrOp::Inv) => {
                                 eprintln!("Warning: inversion is very expensive, consider inverse the scalar first");
-                                kernel += &format!("auto tmp{} = tmp{}.invert();\n", head, arg);
+                                kernel += &format!(
+                                    "auto {TMP_PREFIX}{} = {TMP_PREFIX}{}.invert();\n",
+                                    head, arg
+                                );
                             }
                         }
                     }
                 },
             }
         }
+
         kernel.push_str("}\n");
         kernel.push_str("}\n");
         kernel

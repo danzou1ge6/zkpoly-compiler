@@ -1,1 +1,1 @@
-pub use zkpoly_common::typ::{Slice, PolyMeta, Typ};
+pub use zkpoly_common::typ::{PolyMeta, Slice, Typ};

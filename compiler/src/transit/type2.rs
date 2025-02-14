@@ -66,7 +66,7 @@ pub mod template {
             to: PolyType,
             from: PolyType,
             alg: NttAlgorithm,
-            twiddle_factors: I
+            twiddle_factors: I,
         },
         RotateIdx(I, i32),
         Interplote {
@@ -94,7 +94,7 @@ pub mod template {
         KateDivision(I, I),
         EvaluatePoly {
             poly: I,
-            at: I
+            at: I,
         },
         BatchedInvert(I),
     }
@@ -107,7 +107,9 @@ pub mod template {
             use VertexNode::*;
             match self {
                 Arith(arith, ..) => Box::new(arith.uses()),
-                Ntt { s, twiddle_factors, .. } => Box::new([*s, *twiddle_factors].into_iter()),
+                Ntt {
+                    s, twiddle_factors, ..
+                } => Box::new([*s, *twiddle_factors].into_iter()),
                 RotateIdx(x, _) => Box::new([*x].into_iter()),
                 Interplote { xs, ys } => Box::new(xs.iter().copied().chain(ys.iter().copied())),
                 Array(es) => Box::new(es.iter().copied()),
@@ -191,7 +193,7 @@ where
             ArrayGet(..) => None,
             UserFunction(..) => None,
             KateDivision(..) => todo!(),
-            EvaluatePoly {.. } => todo!(),
+            EvaluatePoly { .. } => todo!(),
             BatchedInvert(..) => todo!(),
         }
     }
@@ -321,7 +323,13 @@ where
             Entry => Entry,
             Return => Return,
             LiteralScalar(s) => LiteralScalar(*s),
-            Ntt { alg, s, to, from , twiddle_factors } => Ntt {
+            Ntt {
+                alg,
+                s,
+                to,
+                from,
+                twiddle_factors,
+            } => Ntt {
                 alg: alg.clone(),
                 s: mapping(*s),
                 to: to.clone(),
@@ -359,7 +367,7 @@ where
             ArrayGet(s, i) => ArrayGet(mapping(*s), *i),
             UserFunction(fid, args) => {
                 UserFunction(fid.clone(), args.iter().map(|x| mapping(*x)).collect())
-            },
+            }
             KateDivision(lhs, rhs) => KateDivision(mapping(*lhs), mapping(*rhs)),
             EvaluatePoly { poly, at } => EvaluatePoly {
                 poly: mapping(*poly),
@@ -401,7 +409,7 @@ where
             ArrayGet(..) => Cpu,
             UserFunction(..) => Cpu,
             KateDivision(..) => Gpu,
-            EvaluatePoly {.. } => Gpu,
+            EvaluatePoly { .. } => Gpu,
             BatchedInvert(..) => Gpu,
         }
     }

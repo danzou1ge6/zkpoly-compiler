@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use zkpoly_common::{define_usize_id, heap::IdAllocator};
 use zkpoly_runtime::args::RuntimeType;
 
-use crate::transit::type3::{Device, DeviceSpecific, Size, SmithereenSize, typ::Slice};
+use crate::transit::type3::{typ::Slice, Device, DeviceSpecific, Size, SmithereenSize};
 
 use super::super::{Cg, Typ, VertexId};
 
@@ -78,9 +78,7 @@ impl Value {
     pub fn unwrap_poly(&self) -> (i32, Slice) {
         use ValueNode::*;
         match &self.node {
-            Poly { rotation, slice } => {
-                (*rotation, slice.clone())
-            }
+            Poly { rotation, slice } => (*rotation, slice.clone()),
             _otherwise => panic!("not a poly"),
         }
     }
@@ -427,12 +425,15 @@ pub fn analyze_die_after(
 ) -> ObjectsDieAfter {
     let mut die_after = ObjectsDieAfter::empty();
     for &vid in seq.iter() {
-        vertex_inputs.inputs[&vid].iter()
+        vertex_inputs.inputs[&vid]
+            .iter()
             .map(|input_vv| input_vv.iter())
             .flatten()
             .for_each(|input_value| {
                 let device = devices[&vid];
-                die_after.get_device_mut(device).insert(input_value.object_id(), vid);
+                die_after
+                    .get_device_mut(device)
+                    .insert(input_value.object_id(), vid);
             });
     }
     die_after

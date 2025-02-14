@@ -1,6 +1,5 @@
 use std::any;
 
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Slice(u64, u64);
 
@@ -38,7 +37,7 @@ pub enum PolyType {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PolyMeta {
     pub slice: Slice,
-    pub rot: i32
+    pub rot: i32,
 }
 
 impl PolyMeta {
@@ -68,8 +67,8 @@ impl Typ {
     pub fn compatible(&self, other: &Self) -> bool {
         use Typ::*;
         match (self, other) {
-            (ScalarArray {len: deg1, ..}, ScalarArray {len: deg2, .. }) => deg1 == deg2,
-            (otherwise1, otherwise2) => otherwise1 == otherwise2
+            (ScalarArray { len: deg1, .. }, ScalarArray { len: deg2, .. }) => deg1 == deg2,
+            (otherwise1, otherwise2) => otherwise1 == otherwise2,
         }
     }
 }

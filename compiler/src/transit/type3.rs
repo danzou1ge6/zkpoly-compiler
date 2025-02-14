@@ -3,7 +3,8 @@ use std::{collections::BTreeMap, marker::PhantomData};
 use crate::transit::{self, type2};
 use zkpoly_common::{
     arith, define_usize_id,
-    heap::{Heap, IdAllocator, RoHeap}, load_dynamic::Libs,
+    heap::{Heap, IdAllocator, RoHeap},
+    load_dynamic::Libs,
 };
 use zkpoly_runtime::args::RuntimeType;
 
@@ -379,7 +380,7 @@ pub struct Chunk<'s, Rt: RuntimeType> {
     pub(crate) gpu_addr_mapping: AddrMapping,
     pub(crate) reg_id_allocator: IdAllocator<RegisterId>,
     pub(crate) libs: Libs,
-    pub(crate) _phantom: PhantomData<Rt>
+    pub(crate) _phantom: PhantomData<Rt>,
 }
 
 impl<'s, Rt: RuntimeType> std::ops::Index<InstructionIndex> for Chunk<'s, Rt> {
@@ -449,8 +450,8 @@ impl<'s, Rt: RuntimeType> Chunk<'s, Rt> {
     }
 }
 
-pub mod kernel_gen;
 pub mod emit_func;
+pub mod kernel_gen;
 pub mod lowering;
 pub mod track_splitting;
 pub mod typ;

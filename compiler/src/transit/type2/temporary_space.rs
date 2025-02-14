@@ -1,5 +1,9 @@
 use zkpoly_common::{load_dynamic::Libs, msm_config::MsmConfig};
-use zkpoly_core::{msm::MSM, ntt::SsipNtt, poly::{KateDivision, PolyEval, PolyInvert, PolyScan}};
+use zkpoly_core::{
+    msm::MSM,
+    ntt::SsipNtt,
+    poly::{KateDivision, PolyEval, PolyInvert, PolyScan},
+};
 use zkpoly_runtime::args::RuntimeType;
 
 use super::NttAlgorithm;
@@ -18,7 +22,10 @@ pub fn poly_eval<Rt: RuntimeType>(len: usize, libs: &mut Libs) -> usize {
 
 pub fn kate_division<Rt: RuntimeType>(len: usize, libs: &mut Libs) -> usize {
     let kate_division_impl = KateDivision::<Rt>::new(libs);
-    assert!(len.is_power_of_two(), "kate_division: len must be a power of 2");
+    assert!(
+        len.is_power_of_two(),
+        "kate_division: len must be a power of 2"
+    );
     let log_len = len.trailing_zeros() as u32;
     kate_division_impl.get_buffer_size(log_len)
 }

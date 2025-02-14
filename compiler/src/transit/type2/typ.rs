@@ -93,8 +93,7 @@ where
     }
 
     pub fn unwrap_poly(&self) -> (PolyType, u64)
-    where
-    {
+where {
         use Typ::*;
         match self {
             Poly { meta, deg } => (meta.clone(), *deg),

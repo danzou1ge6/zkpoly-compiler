@@ -1,7 +1,7 @@
 use crate::{
     define_usize_id,
     digraph::internal::{Digraph, Predecessors},
-    heap::{Heap, UsizeId},
+    heap::UsizeId,
 };
 
 /// Scalar-Polynomial operator
@@ -67,35 +67,52 @@ pub enum Arith<Index> {
     Unr(UnrOp, Index),
 }
 
-#[derive(Debug, Clone)]
-pub enum Operation<VarType, ArithIndex> {
-    Arith(Arith<ArithIndex>),
-    Input(VarType),
-    Output(VarType, ArithIndex),
+#[derive(Debug, Clone, PartialEq)]
+pub enum FusedType {
+    Scalar,
+    ScalarArray,
 }
 
 #[derive(Debug, Clone)]
-pub struct Vertex<VarType, ArithIndex> {
-    pub op: Operation<VarType, ArithIndex>,
+pub enum Operation<OuterId, ArithIndex> {
+    Arith(Arith<ArithIndex>),
+    Input {
+        outer_id: OuterId,
+        typ: FusedType,
+        mutability: Mutability,
+    },
+    Output {
+        outer_id: OuterId,
+        typ: FusedType,
+        store_node: ArithIndex,
+        in_node: Vec<ArithIndex>,
+    },
+    // 0 is the output index, 1 is the index of the data to be stored
+    // 2: the output's outer index is the same as some inputs' outer index
+}
+
+#[derive(Debug, Clone)]
+pub struct Vertex<OuterId, ArithIndex> {
+    pub op: Operation<OuterId, ArithIndex>,
     pub target: Vec<ArithIndex>,
 }
 
-impl<VarType, ArithIndex> Operation<VarType, ArithIndex> {
+impl<OuterId, ArithIndex> Operation<OuterId, ArithIndex> {
     pub fn unwrap_temp(&self) -> &Arith<ArithIndex> {
         match self {
             Self::Arith(arith) => arith,
             _ => panic!("Vertex is not an arithmetic expression"),
         }
     }
-    pub fn unwrap_global(&self) -> &VarType {
+    pub fn unwrap_global(&self) -> &OuterId {
         match self {
-            Self::Input(var) => var,
+            Self::Input { outer_id, .. } => outer_id,
             _ => panic!("Vertex is not an input"),
         }
     }
 }
 
-impl<VarType, ArithIndex> Vertex<VarType, ArithIndex>
+impl<OuterId, ArithIndex> Vertex<OuterId, ArithIndex>
 where
     ArithIndex: Copy + 'static,
 {
@@ -103,25 +120,41 @@ where
         match &self.op {
             Operation::Arith(Arith::Bin(_, lhs, rhs)) => Box::new([*lhs, *rhs].into_iter()),
             Operation::Arith(Arith::Unr(_, rhs)) => Box::new([*rhs].into_iter()),
+            Operation::Output {
+                store_node,
+                in_node,
+                ..
+            } => {
+                let mut src = Vec::new();
+                in_node.iter().for_each(|&i| src.push(i));
+                src.push(*store_node);
+                Box::new(src.into_iter())
+            }
             _ => Box::new(std::iter::empty()),
         }
     }
 }
 
-// DAG for arithmetic expressions.
 #[derive(Debug, Clone)]
-pub struct ArithGraph<VarType, ArithIndex> {
-    pub outputs: Vec<ArithIndex>, // output ids
-    pub inputs: Vec<ArithIndex>,  // input ids
-    pub g: Digraph<ArithIndex, Vertex<VarType, ArithIndex>>,
+pub enum Mutability {
+    Const,
+    Mut,
 }
 
-impl<VarType, ArithIndex> ArithGraph<VarType, ArithIndex>
+// DAG for arithmetic expressions.
+#[derive(Debug, Clone)]
+pub struct ArithGraph<OuterId, ArithIndex> {
+    pub outputs: Vec<ArithIndex>, // output ids
+    pub inputs: Vec<ArithIndex>,  // input ids
+    pub g: Digraph<ArithIndex, Vertex<OuterId, ArithIndex>>,
+}
+
+impl<OuterId, ArithIndex> ArithGraph<OuterId, ArithIndex>
 where
     ArithIndex: UsizeId,
-    VarType: Copy,
+    OuterId: Copy,
 {
-    pub fn uses<'s>(&'s self) -> impl Iterator<Item = VarType> + 's {
+    pub fn uses<'s>(&'s self) -> impl Iterator<Item = OuterId> + 's {
         self.inputs
             .iter()
             .map(|&i| self.g.vertex(i).op.unwrap_global().clone())
@@ -129,13 +162,31 @@ where
 
     pub fn relabeled<I2>(
         &self,
-        mut mapping: impl FnMut(VarType) -> I2,
+        mut mapping: impl FnMut(OuterId) -> I2,
     ) -> ArithGraph<I2, ArithIndex> {
         let heap = self.g.map_by_ref(&mut |_, v| {
             let op = match &v.op {
-                Operation::Input(i) => Operation::Input(mapping(*i)),
+                Operation::Input {
+                    outer_id,
+                    typ,
+                    mutability,
+                } => Operation::Input {
+                    outer_id: mapping(*outer_id),
+                    typ: typ.clone(),
+                    mutability: mutability.clone(),
+                },
                 Operation::Arith(arith) => Operation::Arith(arith.clone()),
-                Operation::Output(i, o) => Operation::Output(mapping(*i), *o),
+                Operation::Output {
+                    outer_id,
+                    typ,
+                    store_node,
+                    in_node,
+                } => Operation::Output {
+                    outer_id: mapping(*outer_id),
+                    typ: typ.clone(),
+                    store_node: *store_node,
+                    in_node: in_node.clone(),
+                },
             };
 
             Vertex {
@@ -152,7 +203,7 @@ where
     }
 }
 
-impl<VarType, ArithIndex> Predecessors<ArithIndex> for Vertex<VarType, ArithIndex>
+impl<OuterId, ArithIndex> Predecessors<ArithIndex> for Vertex<OuterId, ArithIndex>
 where
     ArithIndex: Copy + 'static,
 {
@@ -161,13 +212,13 @@ where
     }
 }
 
-impl<VarType, ArithIndex> ArithGraph<VarType, ArithIndex>
+impl<OuterId, ArithIndex> ArithGraph<OuterId, ArithIndex>
 where
     ArithIndex: UsizeId + 'static,
 {
     pub fn topology_sort<'s>(
         &'s self,
-    ) -> impl Iterator<Item = (ArithIndex, &'s Vertex<VarType, ArithIndex>)> + 's {
+    ) -> impl Iterator<Item = (ArithIndex, &'s Vertex<OuterId, ArithIndex>)> + 's {
         self.g.topology_sort()
     }
 }

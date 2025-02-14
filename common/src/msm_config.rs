@@ -1,6 +1,4 @@
-use pasta_curves::arithmetic::CurveAffine;
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct MsmConfig {
     pub window_size: u32,
     pub target_window: u32,
@@ -51,6 +49,6 @@ impl MsmConfig {
 
 impl Default for MsmConfig {
     fn default() -> Self {
-        todo!("A not too good but a working default config")
+        MsmConfig::new(16, 4, vec![0], false, 8, 2, 2, 2, 254)
     }
 }

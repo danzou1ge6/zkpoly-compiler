@@ -127,7 +127,7 @@ fn generate_coefficients(k: u8, bits: usize) -> Vec<Scalar> {
 fn test_msm() {
     let mut libs = Libs::new();
     let (_, bits) = resolve_curve(type_name::<MyCurve>());
-    let msm_config = MsmConfig::new(16, 4, vec![0], false, 2, 2, 2, 2, bits);
+    let msm_config = MsmConfig::new(16, 4, vec![0], false, 8, 2, 2, 2, bits);
     let msm = MSM::<MyRuntimeType>::new(&mut libs, msm_config.clone());
     let msm_precompute = MSMPrecompute::<MyRuntimeType>::new(&mut libs, msm_config.clone());
 

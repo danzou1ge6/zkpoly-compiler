@@ -302,7 +302,9 @@ fn lower_instruction<'s, Rt: RuntimeType>(
             emit_func::generate(
                 ids,
                 *temp,
-                stream2variable_id.get(Stream::of_track(track).unwrap()).clone(),
+                stream2variable_id
+                    .get(Stream::of_track(track).unwrap())
+                    .clone(),
                 vertex,
                 t3chunk,
                 reg_id2var_id,
@@ -348,8 +350,7 @@ fn lower_instruction<'s, Rt: RuntimeType>(
         }),
         super::InstructionNode::Tuple { id, oprands } => todo!("Tuple Generation"),
         super::InstructionNode::Move { id, from } => unimplemented!(),
-        super::InstructionNode::Clone { id, from } => unimplemented!()
-
+        super::InstructionNode::Clone { id, from } => unimplemented!(),
     };
 }
 
