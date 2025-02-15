@@ -8,7 +8,8 @@ use zkpoly_common::{
     bijection::Bijection,
     define_usize_id,
     digraph::internal::Predecessors,
-    heap::{Heap, IdAllocator, UsizeId}, load_dynamic::Libs,
+    heap::{Heap, IdAllocator, UsizeId},
+    load_dynamic::Libs,
 };
 use zkpoly_runtime::args::RuntimeType;
 
@@ -91,7 +92,10 @@ impl<'m> AddrMappingHandler for GpuAddrMappingHandler<'m> {
     }
 }
 
-fn collect_integral_sizes<'s, Rt: RuntimeType>(cg: &Cg<'s, Rt>, libs: &mut Libs) -> Vec<IntegralSize> {
+fn collect_integral_sizes<'s, Rt: RuntimeType>(
+    cg: &Cg<'s, Rt>,
+    libs: &mut Libs,
+) -> Vec<IntegralSize> {
     let mut integral_sizes = BTreeSet::<IntegralSize>::new();
     for vid in cg.g.vertices() {
         let v = cg.g.vertex(vid);
@@ -100,10 +104,13 @@ fn collect_integral_sizes<'s, Rt: RuntimeType>(cg: &Cg<'s, Rt>, libs: &mut Libs)
                 integral_sizes.insert(is);
             }
         }
-        if let Some((temp_size, _)) = cg.temporary_space_needed(vid, libs) {
-            if let Size::Integral(is) = normalize_size(Size::Smithereen(SmithereenSize(temp_size)))
-            {
-                integral_sizes.insert(is);
+        if let Some((temp_sizes, _)) = cg.temporary_space_needed(vid, libs) {
+            for temp_size in temp_sizes {
+                if let Size::Integral(is) =
+                    normalize_size(Size::Smithereen(SmithereenSize(temp_size)))
+                {
+                    integral_sizes.insert(is);
+                }
             }
         }
     }
@@ -685,7 +692,6 @@ pub fn plan<'s, Rt: RuntimeType>(
     let integral_sizes = collect_integral_sizes(cg, &mut libs);
     let (ispace, sspace) =
         divide_integral_smithereens(capacity, integral_sizes.last().unwrap().clone());
-    
 
     let successors = cg.g.successors();
     let next_ueses = collect_next_uses(&successors, seq);
@@ -873,23 +879,30 @@ pub fn plan<'s, Rt: RuntimeType>(
                 }
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let temp_register_obj = if let Some((temp_space_size, temp_space_device)) =
+        let temp_register_obj = if let Some((temp_space_sizes, temp_space_device)) =
             cg.temporary_space_needed(vid, &mut libs)
         {
-            let temp_register = code.alloc_register_id(Typ::GpuBuffer(temp_space_size as usize));
-            let temp_obj = obj_id_allocator.alloc();
-            allocate(
-                temp_space_device,
-                temp_register,
-                temp_obj,
-                now,
-                Size::Smithereen(SmithereenSize(temp_space_size)),
-                &mut gpu_allocator,
-                &mut code,
-                &mut ctx,
-                &imctx,
-            )?;
-            Some((temp_register, temp_obj))
+            let rs = temp_space_sizes
+                .into_iter()
+                .map(|temp_space_size| {
+                    let temp_register =
+                        code.alloc_register_id(Typ::GpuBuffer(temp_space_size as usize));
+                    let temp_obj = obj_id_allocator.alloc();
+                    allocate(
+                        temp_space_device,
+                        temp_register,
+                        temp_obj,
+                        now,
+                        Size::Smithereen(SmithereenSize(temp_space_size)),
+                        &mut gpu_allocator,
+                        &mut code,
+                        &mut ctx,
+                        &imctx,
+                    )?;
+                    Ok((temp_register, temp_obj))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Some(rs)
         } else {
             None
         };
@@ -915,14 +928,16 @@ pub fn plan<'s, Rt: RuntimeType>(
         code.emit(Instruction::new(
             InstructionNode::Type2 {
                 ids: output_registers,
-                temp: temp_register_obj.map(|(x, _)| x),
+                temp: temp_register_obj
+                    .as_ref()
+                    .map_or_else(Vec::new, |ros| ros.iter().map(|(reg, _)| *reg).collect()),
                 vertex: v3,
             },
             v.src().clone(),
         ));
 
         // Deallocate temporary space
-        if let Some((_, temp_obj)) = temp_register_obj {
+        for (_, temp_obj) in temp_register_obj.unwrap_or_default().into_iter() {
             deallocate(device, temp_obj, &mut gpu_allocator, &mut code, &mut ctx);
         }
 

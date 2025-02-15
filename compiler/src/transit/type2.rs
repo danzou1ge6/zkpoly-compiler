@@ -109,8 +109,8 @@ pub mod template {
         ScanMul(I),
         DistributePowers {
             scalar: I,
-            poly: I
-        }
+            poly: I,
+        },
     }
 
     impl<I, C, E> VertexNode<I, arith::ArithGraph<I, arith::ExprId>, C, E>
@@ -127,7 +127,9 @@ pub mod template {
                 Array(es) => Box::new(es.iter().copied()),
                 AssmblePoly(_, es) => Box::new([*es].into_iter()),
                 Msm {
-                    polys: scalars, points, ..
+                    polys: scalars,
+                    points,
+                    ..
                 } => Box::new(scalars.iter().copied().chain(points.iter().copied())),
                 HashTranscript {
                     transcript, value, ..
@@ -400,7 +402,7 @@ where
             EvaluatePoly { .. } => Gpu,
             BatchedInvert(..) => Gpu,
             ScanMul(..) => Gpu,
-            DistributePowers {.. } => Gpu,
+            DistributePowers { .. } => Gpu,
         }
     }
 }
@@ -409,7 +411,11 @@ where
 pub type Cg<'s, Rt> = transit::Cg<VertexId, Vertex<'s, Rt>>;
 
 impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
-    pub fn temporary_space_needed(&self, vid: VertexId, libs: &mut Libs) -> Option<(u64, super::type3::Device)> {
+    pub fn temporary_space_needed(
+        &self,
+        vid: VertexId,
+        libs: &mut Libs,
+    ) -> Option<(Vec<u64>, super::type3::Device)> {
         use super::type3::Device::*;
         use template::VertexNode::*;
         match self.g.vertex(vid).node() {
@@ -425,9 +431,9 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
             Blind(..) => None,
             Array(..) => None,
             AssmblePoly(..) => None,
-            Msm { polys , alg, .. } => {
+            Msm { polys, alg, .. } => {
                 let (_, len) = self.g.vertex(polys[0]).typ().unwrap_poly();
-                Some((temporary_space::msm::<Rt>(alg, len as usize, libs) as u64, Gpu))
+                Some((temporary_space::msm::<Rt>(alg, len as usize, libs), Gpu))
             }
             HashTranscript { .. } => None,
             SqueezeScalar(..) => None,
@@ -436,21 +442,24 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
             UserFunction(..) => None,
             KateDivision(lhs, _) => {
                 let (_, len) = self.g.vertex(*lhs).typ().unwrap_poly();
-                Some((temporary_space::kate_division::<Rt>(len as usize, libs) as u64, Gpu))
-            },
+                Some((
+                    temporary_space::kate_division::<Rt>(len as usize, libs),
+                    Gpu,
+                ))
+            }
             EvaluatePoly { poly, .. } => {
                 let (_, len) = self.g.vertex(*poly).typ().unwrap_poly();
-                Some((temporary_space::poly_eval::<Rt>(len as usize, libs) as u64, Gpu))
-            },
+                Some((temporary_space::poly_eval::<Rt>(len as usize, libs), Gpu))
+            }
             BatchedInvert(poly) => {
                 let (_, len) = self.g.vertex(*poly).typ().unwrap_poly();
-                Some((temporary_space::poly_invert::<Rt>(len as usize, libs) as u64, Gpu))
-            },
+                Some((temporary_space::poly_invert::<Rt>(len as usize, libs), Gpu))
+            }
             ScanMul(poly) => {
                 let (_, len) = self.g.vertex(*poly).typ().unwrap_poly();
-                Some((temporary_space::poly_scan::<Rt>(len as usize, libs) as u64, Gpu))
-            },
-            DistributePowers {..} => todo!(),
+                Some((temporary_space::poly_scan::<Rt>(len as usize, libs), Gpu))
+            }
+            DistributePowers { .. } => todo!(),
         }
     }
 }

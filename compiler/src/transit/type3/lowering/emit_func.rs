@@ -12,7 +12,7 @@ use zkpoly_runtime::{
 
 pub fn emit_func<'s, Rt: RuntimeType>(
     outputs: &[RegisterId], // output registers
-    temp: Vec<RegisterId>,  // temporary register to store intermediate results
+    temp: &[RegisterId],  // temporary register to store intermediate results
     track: Track,
     vertex: &VertexNode,     // vertex node to generate kernel for
     t3chunk: &Chunk<'s, Rt>, // the main program

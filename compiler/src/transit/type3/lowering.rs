@@ -293,7 +293,7 @@ fn allocate_stream(variable_id_allocator: &mut IdAllocator<VariableId>) -> Instr
 fn lower_instruction<'s, Rt: RuntimeType>(
     t3idx: super::InstructionIndex,
     inst: &super::Instruction<'s>,
-    thread: ThreadId,
+    _thread: ThreadId,
     track: Track,
     reg_id2var_id: &impl Fn(super::RegisterId) -> VariableId,
     stream2variable_id: &StreamSpecific<VariableId>,
@@ -305,7 +305,7 @@ fn lower_instruction<'s, Rt: RuntimeType>(
         super::InstructionNode::Type2 { ids, temp, vertex } => {
             emit_func::emit_func(
                 ids,
-                todo!("support multiple temporary memory blocks"),
+                temp,
                 track,
                 vertex,
                 t3chunk,

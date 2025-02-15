@@ -9,33 +9,33 @@ use zkpoly_runtime::args::RuntimeType;
 use super::NttAlgorithm;
 
 // msm can work on several cares, so its return type is Vec<usize>
-pub fn msm<Rt: RuntimeType>(msm_config: &MsmConfig, len: usize, libs: &mut Libs) -> usize {
+pub fn msm<Rt: RuntimeType>(msm_config: &MsmConfig, len: usize, libs: &mut Libs) -> Vec<u64> {
     let msm_impl = MSM::<Rt>::new(libs, msm_config.clone());
     assert_eq!(msm_config.cards.len(), 1);
-    msm_impl.get_buffer_size(len)[0] // we don't support multi-card yet
+    vec![msm_impl.get_buffer_size(len)[0] as u64] // we don't support multi-card yet
 }
 
-pub fn poly_eval<Rt: RuntimeType>(len: usize, libs: &mut Libs) -> usize {
+pub fn poly_eval<Rt: RuntimeType>(len: usize, libs: &mut Libs) -> Vec<u64> {
     let poly_eval_impl = PolyEval::<Rt>::new(libs);
-    poly_eval_impl.get_buffer_size(len)
+    vec![poly_eval_impl.get_buffer_size(len) as u64]
 }
 
-pub fn kate_division<Rt: RuntimeType>(len: usize, libs: &mut Libs) -> usize {
+pub fn kate_division<Rt: RuntimeType>(len: usize, libs: &mut Libs) -> Vec<u64> {
     let kate_division_impl = KateDivision::<Rt>::new(libs);
     assert!(
         len.is_power_of_two(),
         "kate_division: len must be a power of 2"
     );
     let log_len = len.trailing_zeros() as u32;
-    kate_division_impl.get_buffer_size(log_len)
+    vec![kate_division_impl.get_buffer_size(log_len) as u64]
 }
 
-pub fn poly_scan<Rt: RuntimeType>(len: usize, libs: &mut Libs) -> usize {
+pub fn poly_scan<Rt: RuntimeType>(len: usize, libs: &mut Libs) -> Vec<u64> {
     let poly_scan_impl = PolyScan::<Rt>::new(libs);
-    poly_scan_impl.get_buffer_size(len)
+    vec![poly_scan_impl.get_buffer_size(len) as u64]
 }
 
-pub fn poly_invert<Rt: RuntimeType>(len: usize, libs: &mut Libs) -> usize {
+pub fn poly_invert<Rt: RuntimeType>(len: usize, libs: &mut Libs) -> Vec<u64> {
     let poly_invert_impl = PolyInvert::<Rt>::new(libs);
-    poly_invert_impl.get_buffer_size(len)
+    vec![poly_invert_impl.get_buffer_size(len) as u64]
 }

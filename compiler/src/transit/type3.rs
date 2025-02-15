@@ -140,7 +140,7 @@ pub mod template {
     pub enum InstructionNode<I, A, R, V> {
         Type2 {
             ids: Vec<I>,
-            temp: Option<I>,
+            temp: Vec<I>,
             vertex: V,
         },
         GpuMalloc {
