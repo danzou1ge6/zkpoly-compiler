@@ -46,7 +46,7 @@ pub struct FusedKernel<T: RuntimeType> {
     >,
 }
 
-fn gen_var_lists<OuterId: Ord + Clone, InnerId: UsizeId>(
+pub fn gen_var_lists<OuterId: Ord + Clone, InnerId: UsizeId>(
     graph: &ArithGraph<OuterId, InnerId>,
 ) -> (Vec<(FusedType, OuterId)>, Vec<(FusedType, OuterId)>) {
     let mut vars = Vec::new();
