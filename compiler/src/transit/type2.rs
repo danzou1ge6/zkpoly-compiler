@@ -105,6 +105,11 @@ pub mod template {
             at: I,
         },
         BatchedInvert(I),
+        ScanMul(I),
+        DistributePowers {
+            scalar: I,
+            poly: I
+        }
     }
 
     impl<I, C, E> VertexNode<I, arith::ArithGraph<I, arith::ExprId>, C, E>
@@ -131,7 +136,12 @@ pub mod template {
                 Blind(x, _) => Box::new([*x].into_iter()),
                 ArrayGet(x, _) => Box::new([*x].into_iter()),
                 UserFunction(_, es) => Box::new(es.iter().copied()),
-                _ => Box::new([].into_iter()),
+                KateDivision(lhs, rhs) => Box::new([*lhs, *rhs].into_iter()),
+                EvaluatePoly { poly, at } => Box::new([*poly, *at].into_iter()),
+                BatchedInvert(x) => Box::new([*x].into_iter()),
+                ScanMul(x) => Box::new([*x].into_iter()),
+                DistributePowers { scalar, poly } => Box::new([*scalar, *poly].into_iter()),
+                _ => Box::new(std::iter::empty()),
             }
         }
 
@@ -201,6 +211,8 @@ where
             KateDivision(..) => todo!(),
             EvaluatePoly { .. } => todo!(),
             BatchedInvert(..) => todo!(),
+            ScanMul(..) => todo!(),
+            DistributePowers {..} => todo!(),
         }
     }
     pub fn space(&self) -> u64 {
@@ -373,6 +385,11 @@ where
                 at: mapping(*at),
             },
             BatchedInvert(s) => BatchedInvert(mapping(*s)),
+            ScanMul(s) => ScanMul(mapping(*s)),
+            DistributePowers { poly, scalar } => DistributePowers {
+                poly: mapping(*poly),
+                scalar: mapping(*scalar),
+            },
         }
     }
 
@@ -410,6 +427,8 @@ where
             KateDivision(..) => Gpu,
             EvaluatePoly { .. } => Gpu,
             BatchedInvert(..) => Gpu,
+            ScanMul(..) => Gpu,
+            DistributePowers {.. } => Gpu,
         }
     }
 }

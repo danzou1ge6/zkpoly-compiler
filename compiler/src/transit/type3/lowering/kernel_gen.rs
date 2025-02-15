@@ -36,6 +36,7 @@ impl KernelType {
             VertexNode::KateDivision(..) => Some(Self::KateDivision),
             VertexNode::EvaluatePoly { .. } => Some(Self::EvaluatePoly),
             VertexNode::BatchedInvert(..) => Some(Self::BatchedInvert),
+            VertexNode::ScanMul(..) => Some(Self::ScanMul),
             _ => None,
         }
     }
