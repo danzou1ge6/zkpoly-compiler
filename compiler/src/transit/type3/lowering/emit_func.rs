@@ -35,25 +35,19 @@ pub fn emit_func<'s, Rt: RuntimeType>(
                 .collect::<Vec<_>>();
             generate_arith(arg, arg_mut, f_id, emit);
         }
-        VertexNode::Ntt {
-            s,
-            to,
-            from,
-            alg,
-            twiddle_factors,
-        } => {
+        VertexNode::Ntt { s, to, from, alg } => {
             let poly = reg_id2var_id(*s);
-            // match alg {
-            // crate::transit::type2::NttAlgorithm::Precomputed { twiddle } => {
-            //     let twiddle = reg_id2var_id(*twiddle);
-            //     generate_ntt_precompute(poly, twiddle, stream.unwrap(), f_id, emit);
-            // }
-            // crate::transit::type2::NttAlgorithm::Standard { pq, omega } => {
-            //     let pq = reg_id2var_id(*pq);
-            //     let omega = reg_id2var_id(*omega);
-            //     generate_ntt_recompute(poly, pq, omega, stream.unwrap(), f_id, emit);
-            // }
-            // }
+            match alg {
+                crate::transit::type2::NttAlgorithm::Precomputed(twiddle) => {
+                    let twiddle = reg_id2var_id(*twiddle);
+                    generate_ntt_precompute(poly, twiddle, stream.unwrap(), f_id, emit);
+                }
+                crate::transit::type2::NttAlgorithm::Standard { pq, omega } => {
+                    let pq = reg_id2var_id(*pq);
+                    let omega = reg_id2var_id(*omega);
+                    generate_ntt_recompute(poly, pq, omega, stream.unwrap(), f_id, emit);
+                }
+            }
             unimplemented!()
         }
         VertexNode::Msm {

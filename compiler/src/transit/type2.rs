@@ -17,32 +17,41 @@ zkpoly_common::define_usize_id!(VertexId);
 pub type Arith = arith::ArithGraph<VertexId, arith::ExprId>;
 
 #[derive(Debug, Clone)]
-pub enum NttAlgorithm {
-    Precomputed,
-    Standard,
+pub enum NttAlgorithm<I> {
+    Precomputed(I),
+    Standard { pq: I, omega: I },
 }
+
+impl<I> NttAlgorithm<I>
+where
+    I: Copy,
+{
+    pub fn uses<'a>(&'a self) -> Box<dyn Iterator<Item = I> + 'a> {
+        use NttAlgorithm::*;
+        match self {
+            Precomputed(x) => Box::new([*x].into_iter()),
+            Standard { pq, omega: base } => Box::new([*pq, *base].into_iter()),
+        }
+    }
+
+    pub fn relabeled<I2>(&self, mapping: &mut impl FnMut(I) -> I2) -> NttAlgorithm<I2> {
+        use NttAlgorithm::*;
+        match self {
+            Precomputed(x) => Precomputed(mapping(*x)),
+            Standard { pq, omega: base } => Standard {
+                pq: mapping(*pq),
+                omega: mapping(*base),
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Device {
     Gpu,
     Cpu,
     /// If it has any successor or predecesor on GPU, then it should be on GPU
     PreferGpu,
-}
-
-impl NttAlgorithm {
-    pub fn decide(deg: u64) -> Self {
-        if deg <= 2u64.pow(20) {
-            NttAlgorithm::Precomputed
-        } else {
-            NttAlgorithm::Standard
-        }
-    }
-}
-
-impl Default for NttAlgorithm {
-    fn default() -> Self {
-        NttAlgorithm::Precomputed
-    }
 }
 
 pub mod template {
@@ -65,8 +74,7 @@ pub mod template {
             s: I,
             to: PolyType,
             from: PolyType,
-            alg: NttAlgorithm,
-            twiddle_factors: I,
+            alg: NttAlgorithm<I>,
         },
         RotateIdx(I, i32),
         Interplote {
@@ -107,9 +115,7 @@ pub mod template {
             use VertexNode::*;
             match self {
                 Arith(arith, ..) => Box::new(arith.uses()),
-                Ntt {
-                    s, twiddle_factors, ..
-                } => Box::new([*s, *twiddle_factors].into_iter()),
+                Ntt { s, alg, .. } => Box::new([*s].into_iter().chain(alg.uses())),
                 RotateIdx(x, _) => Box::new([*x].into_iter()),
                 Interplote { xs, ys } => Box::new(xs.iter().copied().chain(ys.iter().copied())),
                 Array(es) => Box::new(es.iter().copied()),
@@ -323,18 +329,11 @@ where
             Entry => Entry,
             Return => Return,
             LiteralScalar(s) => LiteralScalar(*s),
-            Ntt {
-                alg,
-                s,
-                to,
-                from,
-                twiddle_factors,
-            } => Ntt {
-                alg: alg.clone(),
+            Ntt { alg, s, to, from } => Ntt {
+                alg: alg.relabeled(&mut mapping),
                 s: mapping(*s),
                 to: to.clone(),
                 from: from.clone(),
-                twiddle_factors: mapping(*twiddle_factors),
             },
             RotateIdx(s, deg) => RotateIdx(mapping(*s), *deg),
             Interplote { xs, ys } => Interplote {

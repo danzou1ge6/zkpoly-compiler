@@ -29,8 +29,8 @@ impl KernelType {
         match vertex {
             VertexNode::Arith(..) => Some(Self::FusedArith),
             VertexNode::Ntt { alg, .. } => match alg {
-                NttAlgorithm::Standard => Some(Self::NttRecompute),
-                NttAlgorithm::Precomputed => Some(Self::NttPrcompute),
+                NttAlgorithm::Standard { .. } => Some(Self::NttRecompute),
+                NttAlgorithm::Precomputed { .. } => Some(Self::NttPrcompute),
             },
             VertexNode::Msm { alg, .. } => Some(Self::Msm(alg.clone())),
             VertexNode::KateDivision(..) => Some(Self::KateDivision),
@@ -73,9 +73,7 @@ pub fn get_function_id<'s, Rt: RuntimeType>(
 ) -> GeneratedFunctions {
     let mut inst2func = BTreeMap::new();
     let mut kernel2func: BTreeMap<KernelType, FunctionId> = BTreeMap::new();
-    for (id, instruct) in program
-        .iter_instructions()
-    {
+    for (id, instruct) in program.iter_instructions() {
         if let InstructionNode::Type2 { vertex, .. } = &instruct.node {
             let kernel_type = KernelType::from_vertex(vertex);
             if kernel_type.is_none() {
