@@ -91,7 +91,7 @@ impl<'m> AddrMappingHandler for GpuAddrMappingHandler<'m> {
     }
 }
 
-fn collect_integral_sizes<'s, Rt: RuntimeType>(cg: &Cg<'s, Rt>) -> Vec<IntegralSize> {
+fn collect_integral_sizes<'s, Rt: RuntimeType>(cg: &Cg<'s, Rt>, libs: &mut Libs) -> Vec<IntegralSize> {
     let mut integral_sizes = BTreeSet::<IntegralSize>::new();
     for vid in cg.g.vertices() {
         let v = cg.g.vertex(vid);
@@ -100,7 +100,7 @@ fn collect_integral_sizes<'s, Rt: RuntimeType>(cg: &Cg<'s, Rt>) -> Vec<IntegralS
                 integral_sizes.insert(is);
             }
         }
-        if let Some((temp_size, _)) = v.temporary_space_needed() {
+        if let Some((temp_size, _)) = cg.temporary_space_needed(vid, libs) {
             if let Size::Integral(is) = normalize_size(Size::Smithereen(SmithereenSize(temp_size)))
             {
                 integral_sizes.insert(is);
@@ -680,11 +680,12 @@ pub fn plan<'s, Rt: RuntimeType>(
     seq: &[VertexId],
     uf_table: &user_function::Table<Rt>,
 ) -> Result<Chunk<'s, Rt>, InsufficientSmithereenSpace> {
-    let integral_sizes = collect_integral_sizes(cg);
+    let mut libs = Libs::new();
+
+    let integral_sizes = collect_integral_sizes(cg, &mut libs);
     let (ispace, sspace) =
         divide_integral_smithereens(capacity, integral_sizes.last().unwrap().clone());
     
-    let mut libs = Libs::new();
 
     let successors = cg.g.successors();
     let next_ueses = collect_next_uses(&successors, seq);
@@ -873,7 +874,7 @@ pub fn plan<'s, Rt: RuntimeType>(
             })
             .collect::<Result<Vec<_>, _>>()?;
         let temp_register_obj = if let Some((temp_space_size, temp_space_device)) =
-            v.temporary_space_needed()
+            cg.temporary_space_needed(vid, &mut libs)
         {
             let temp_register = code.alloc_register_id(Typ::GpuBuffer(temp_space_size as usize));
             let temp_obj = obj_id_allocator.alloc();

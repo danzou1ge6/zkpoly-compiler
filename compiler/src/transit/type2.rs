@@ -8,6 +8,7 @@ pub use typ::Typ;
 use zkpoly_common::arith;
 use zkpoly_common::digraph;
 use zkpoly_common::heap::UsizeId;
+use zkpoly_common::load_dynamic::Libs;
 pub use zkpoly_common::typ::PolyType;
 pub use zkpoly_runtime::args::{Constant, ConstantId, RuntimeType, Variable};
 pub use zkpoly_runtime::error::RuntimeError;
@@ -85,7 +86,7 @@ pub mod template {
         Array(Vec<I>),
         AssmblePoly(u64, I),
         Msm {
-            scalars: Vec<I>,
+            polys: Vec<I>,
             points: Vec<I>,
             alg: MsmConfig,
         },
@@ -126,7 +127,7 @@ pub mod template {
                 Array(es) => Box::new(es.iter().copied()),
                 AssmblePoly(_, es) => Box::new([*es].into_iter()),
                 Msm {
-                    scalars, points, ..
+                    polys: scalars, points, ..
                 } => Box::new(scalars.iter().copied().chain(points.iter().copied())),
                 HashTranscript {
                     transcript, value, ..
@@ -185,35 +186,6 @@ where
 {
     pub fn uses<'a>(&'a self) -> Box<dyn Iterator<Item = I> + 'a> {
         self.node().uses()
-    }
-    pub fn temporary_space_needed(&self) -> Option<(u64, super::type3::Device)> {
-        use super::type3::Device::*;
-        use template::VertexNode::*;
-        match self.node() {
-            Arith(..) => None,
-            NewPoly(..) => None,
-            Constant(..) => None,
-            Entry => None,
-            Return => None,
-            LiteralScalar(..) => None,
-            Ntt { alg, .. } => None, // Some((temporary_space::ntt::<Rt>(alg), Gpu)),
-            RotateIdx(..) => None,
-            Interplote { .. } => None,
-            Blind(..) => None,
-            Array(..) => None,
-            AssmblePoly(..) => None,
-            Msm { alg, .. } => None, // Some((temporary_space::msm::<Rt>(alg), Gpu)),
-            HashTranscript { .. } => None,
-            SqueezeScalar(..) => None,
-            TupleGet(..) => None,
-            ArrayGet(..) => None,
-            UserFunction(..) => None,
-            KateDivision(..) => todo!(),
-            EvaluatePoly { .. } => todo!(),
-            BatchedInvert(..) => todo!(),
-            ScanMul(..) => todo!(),
-            DistributePowers {..} => todo!(),
-        }
     }
     pub fn space(&self) -> u64 {
         self.typ().size().total()
@@ -357,11 +329,11 @@ where
             AssmblePoly(s, es) => AssmblePoly(*s, mapping(*es)),
             Msm {
                 alg,
-                scalars,
+                polys: scalars,
                 points,
             } => Msm {
                 alg: alg.clone(),
-                scalars: scalars.iter().map(|x| mapping(*x)).collect(),
+                polys: scalars.iter().map(|x| mapping(*x)).collect(),
                 points: points.iter().map(|x| mapping(*x)).collect(),
             },
             HashTranscript {
@@ -435,6 +407,53 @@ where
 
 /// Invariants are same as those of [`tree::tree1::Cg`]
 pub type Cg<'s, Rt> = transit::Cg<VertexId, Vertex<'s, Rt>>;
+
+impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
+    pub fn temporary_space_needed(&self, vid: VertexId, libs: &mut Libs) -> Option<(u64, super::type3::Device)> {
+        use super::type3::Device::*;
+        use template::VertexNode::*;
+        match self.g.vertex(vid).node() {
+            Arith(..) => None,
+            NewPoly(..) => None,
+            Constant(..) => None,
+            Entry => None,
+            Return => None,
+            LiteralScalar(..) => None,
+            Ntt { .. } => None,
+            RotateIdx(..) => None,
+            Interplote { .. } => None,
+            Blind(..) => None,
+            Array(..) => None,
+            AssmblePoly(..) => None,
+            Msm { polys , alg, .. } => {
+                let (_, len) = self.g.vertex(polys[0]).typ().unwrap_poly();
+                Some((temporary_space::msm::<Rt>(alg, len as usize, libs) as u64, Gpu))
+            }
+            HashTranscript { .. } => None,
+            SqueezeScalar(..) => None,
+            TupleGet(..) => None,
+            ArrayGet(..) => None,
+            UserFunction(..) => None,
+            KateDivision(lhs, _) => {
+                let (_, len) = self.g.vertex(*lhs).typ().unwrap_poly();
+                Some((temporary_space::kate_division::<Rt>(len as usize, libs) as u64, Gpu))
+            },
+            EvaluatePoly { poly, .. } => {
+                let (_, len) = self.g.vertex(*poly).typ().unwrap_poly();
+                Some((temporary_space::poly_eval::<Rt>(len as usize, libs) as u64, Gpu))
+            },
+            BatchedInvert(poly) => {
+                let (_, len) = self.g.vertex(*poly).typ().unwrap_poly();
+                Some((temporary_space::poly_invert::<Rt>(len as usize, libs) as u64, Gpu))
+            },
+            ScanMul(poly) => {
+                let (_, len) = self.g.vertex(*poly).typ().unwrap_poly();
+                Some((temporary_space::poly_scan::<Rt>(len as usize, libs) as u64, Gpu))
+            },
+            DistributePowers {..} => todo!(),
+        }
+    }
+}
 
 pub mod graph_scheduling;
 pub mod memory_planning;

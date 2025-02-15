@@ -51,7 +51,7 @@ pub fn emit_func<'s, Rt: RuntimeType>(
             unimplemented!()
         }
         VertexNode::Msm {
-            scalars,
+            polys: scalars,
             points,
             alg,
         } => {
