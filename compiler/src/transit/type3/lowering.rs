@@ -1,14 +1,18 @@
 use std::collections::BTreeMap;
 
-use super::track_splitting::{split, TrackTasks};
-use super::{emit_func, Track};
+use super::track_splitting::split;
+use kernel_gen::GeneratedFunctions;
 use zkpoly_common::define_usize_id;
 use zkpoly_common::heap::{Heap, IdAllocator};
 use zkpoly_common::typ::Typ;
 use zkpoly_runtime::args::{RuntimeType, VariableId};
-use zkpoly_runtime::devices::{DeviceType, Event, EventId, EventTable, ThreadId};
-use zkpoly_runtime::functions::{FunctionId, FunctionTable};
+use zkpoly_runtime::devices::{DeviceType, Event, EventTable, ThreadId};
+use zkpoly_runtime::functions::FunctionTable;
 use zkpoly_runtime::instructions::Instruction;
+use super::Track;
+
+mod emit_func;
+mod kernel_gen;
 
 #[derive(Debug, Clone)]
 struct Cell {
@@ -294,21 +298,20 @@ fn lower_instruction<'s, Rt: RuntimeType>(
     reg_id2var_id: &impl Fn(super::RegisterId) -> VariableId,
     stream2variable_id: &StreamSpecific<VariableId>,
     t3chunk: &super::Chunk<'s, Rt>,
-    f_table: &mut FunctionTable<Rt>,
+    generated_functions: &GeneratedFunctions,
     emit: &mut impl FnMut(Instruction),
 ) {
     match &inst.node {
         super::InstructionNode::Type2 { ids, temp, vertex } => {
-            emit_func::generate(
+            emit_func::emit_func(
                 ids,
-                *temp,
-                stream2variable_id
-                    .get(Stream::of_track(track).unwrap())
-                    .clone(),
+                todo!("support multiple temporary memory blocks"),
+                track,
                 vertex,
                 t3chunk,
                 reg_id2var_id,
-                f_table,
+                stream2variable_id,
+                generated_functions.at(t3idx),
                 emit,
             );
         }
@@ -488,6 +491,9 @@ fn emit_multithread_instructions<'s, Rt: RuntimeType>(
     let mut event_table = EventTable::new();
     let mut f_table = FunctionTable::<Rt>::new();
     let (mut variable_id_allcoator, reg_id2var_id) = t3chunk.take_reg_id_allocator().decompose();
+    let mut libs = t3chunk.take_libs();
+
+    let generated_functions = kernel_gen::get_function_id(&mut f_table, &t3chunk, &mut libs);
 
     let stream2variable_id = StreamSpecific::new(|| variable_id_allcoator.alloc());
 
@@ -527,7 +533,7 @@ fn emit_multithread_instructions<'s, Rt: RuntimeType>(
                 &reg_id2var_id,
                 &stream2variable_id,
                 &t3chunk,
-                &mut f_table,
+                &generated_functions,
                 &mut |inst| chunk.emit_with_idx(t3idx, aux_thread, inst),
             );
 
@@ -554,7 +560,7 @@ fn emit_multithread_instructions<'s, Rt: RuntimeType>(
                 &reg_id2var_id,
                 &stream2variable_id,
                 &t3chunk,
-                &mut f_table,
+                &generated_functions,
                 &mut |inst| chunk.emit_primary_with_idx(t3idx, pthread, inst),
             );
         }

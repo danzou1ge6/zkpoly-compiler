@@ -8,7 +8,7 @@ use zkpoly_common::{
     bijection::Bijection,
     define_usize_id,
     digraph::internal::Predecessors,
-    heap::{Heap, IdAllocator, UsizeId},
+    heap::{Heap, IdAllocator, UsizeId}, load_dynamic::Libs,
 };
 use zkpoly_runtime::args::RuntimeType;
 
@@ -683,6 +683,8 @@ pub fn plan<'s, Rt: RuntimeType>(
     let integral_sizes = collect_integral_sizes(cg);
     let (ispace, sspace) =
         divide_integral_smithereens(capacity, integral_sizes.last().unwrap().clone());
+    
+    let mut libs = Libs::new();
 
     let successors = cg.g.successors();
     let next_ueses = collect_next_uses(&successors, seq);
@@ -951,6 +953,7 @@ pub fn plan<'s, Rt: RuntimeType>(
         register_devices: ctx.reg_device,
         gpu_addr_mapping: ctx.gpu_addr_mapping,
         reg_id_allocator,
+        libs,
         _phantom: PhantomData,
     })
 }

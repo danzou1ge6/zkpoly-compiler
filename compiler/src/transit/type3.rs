@@ -454,10 +454,14 @@ impl<'s, Rt: RuntimeType> Chunk<'s, Rt> {
         std::mem::swap(&mut self.reg_id_allocator, &mut x);
         x
     }
+
+    pub fn take_libs(&mut self) -> Libs {
+        let mut x = Libs::new();
+        std::mem::swap(&mut self.libs, &mut x);
+        x
+    }
 }
 
-pub mod emit_func;
-pub mod kernel_gen;
 pub mod lowering;
 pub mod track_splitting;
 pub mod typ;
