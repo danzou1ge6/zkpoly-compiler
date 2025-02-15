@@ -85,8 +85,8 @@ pub mod template {
         Array(Vec<I>),
         AssmblePoly(u64, I),
         Msm {
-            scalars: I,
-            points: I,
+            scalars: Vec<I>,
+            points: Vec<I>,
             alg: MsmConfig,
         },
         HashTranscript {
@@ -127,7 +127,7 @@ pub mod template {
                 AssmblePoly(_, es) => Box::new([*es].into_iter()),
                 Msm {
                     scalars, points, ..
-                } => Box::new([*scalars, *points].into_iter()),
+                } => Box::new(scalars.iter().copied().chain(points.iter().copied())),
                 HashTranscript {
                     transcript, value, ..
                 } => Box::new([*transcript, *value].into_iter()),
@@ -361,8 +361,8 @@ where
                 points,
             } => Msm {
                 alg: alg.clone(),
-                scalars: mapping(*scalars),
-                points: mapping(*points),
+                scalars: scalars.iter().map(|x| mapping(*x)).collect(),
+                points: points.iter().map(|x| mapping(*x)).collect(),
             },
             HashTranscript {
                 transcript,

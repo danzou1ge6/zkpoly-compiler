@@ -55,16 +55,14 @@ pub fn emit_func<'s, Rt: RuntimeType>(
             points,
             alg,
         } => {
-            // let scalar_batch = scalars
-            //     .iter()
-            //     .map(|id| reg_id2var_id(*id))
-            //     .collect::<Vec<_>>();
-            // let point_batch = points
-            //     .iter()
-            //     .map(|id| reg_id2var_id(*id))
-            //     .collect::<Vec<_>>();
-            let scalar_batch = unimplemented!();
-            let point_batch = unimplemented!();
+            let scalar_batch = scalars
+                .iter()
+                .map(|id| reg_id2var_id(*id))
+                .collect::<Vec<_>>();
+            let point_batch = points
+                .iter()
+                .map(|id| reg_id2var_id(*id))
+                .collect::<Vec<_>>();
 
             let temp_buffers = temp.iter().map(|id| reg_id2var_id(*id)).collect::<Vec<_>>();
             let answers = outputs
