@@ -12,3 +12,5 @@ extern "C" cudaError_t recompute_ntt(unsigned int *x, long long x_rotate, const 
 
 // precompute pq and omegas at compile time for recompute NTT
 extern "C" void gen_pq_omegas(unsigned int *pq, unsigned int *omegas, unsigned int pq_deg, unsigned int len, unsigned int *unit);
+
+extern "C" cudaError_t distribute_pow_zeta(unsigned int *poly, long long rotate, const unsigned int *zeta, unsigned long long len, cudaStream_t stream);
