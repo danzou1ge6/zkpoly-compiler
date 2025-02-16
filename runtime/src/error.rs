@@ -4,3 +4,5 @@ pub enum RuntimeError {
     TypError,
     Other(String),
 }
+
+pub type Result<T> = std::result::Result<T, RuntimeError>;

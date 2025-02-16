@@ -1,6 +1,7 @@
 - 编译前端
-    -![ ] 抽象语法树构造器
+    -![x] 抽象语法树构造器
     -![ ] 翻译抽象语法树到Type2中间表示
+        -![ ] 为各个抽象语法树节点类型实现ast::TypeEraseable和ast::RuntimeCorrespondance
     -![ ] 类型重建
 - 编译后端
     - 算子调度
@@ -35,4 +36,6 @@
     -![ ] 加载常数指令
     - MSM算子
         - [ ] 各GPU流作为参数输入
+    -![ ] 为ScalarArray、Scalar、T::Trans等需要暴露给用户函数的类型实现args::TryBorrowVariable;
+          并为Variable实现From<ScalarArray>、From<Scalar>、From<T::Trans>等
     
