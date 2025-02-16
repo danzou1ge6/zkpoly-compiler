@@ -747,6 +747,7 @@ pub fn plan<'s, Rt: RuntimeType>(
         let mutable_uses: Vec<VertexId> = cg.g.vertex(vid).mutable_uses(uf_table).collect();
         let outputs_inplace: Vec<Option<VertexId>> =
             cg.g.vertex(vid).outputs_inplace(uf_table, device).collect();
+        let mut tuple_registers = Vec::new();
         let input_registers: Vec<RegisterId> = cg
             .g
             .vertex(vid)
@@ -839,6 +840,7 @@ pub fn plan<'s, Rt: RuntimeType>(
                                 id: tuple_reg,
                                 oprands: elements,
                             }));
+                            tuple_registers.push(tuple_reg);
                             Ok(tuple_reg)
                         }
                     }
@@ -939,6 +941,13 @@ pub fn plan<'s, Rt: RuntimeType>(
         // Deallocate temporary space
         for (_, temp_obj) in temp_register_obj.unwrap_or_default().into_iter() {
             deallocate(device, temp_obj, &mut gpu_allocator, &mut code, &mut ctx);
+        }
+
+        // Deallocate used tuple register
+        for tuple_reg in tuple_registers.into_iter() {
+            code.emit(Instruction::new_no_src(InstructionNode::StackFree {
+                id: tuple_reg,
+            }));
         }
 
         // Deallocate dead register
