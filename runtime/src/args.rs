@@ -1,3 +1,4 @@
+use crate::error;
 use crate::gpu_buffer::GpuBuffer;
 use crate::point::{Point, PointArray};
 use crate::scalar::{Scalar, ScalarArray};
@@ -15,7 +16,7 @@ zkpoly_common::define_usize_id!(ConstantId);
 pub type VariableTable<T> = heap::Heap<VariableId, RwLock<Option<Variable<T>>>>;
 pub type ConstantTable<T> = heap::Heap<ConstantId, Constant<T>>;
 
-pub trait RuntimeType: 'static + Clone + Send + Sync {
+pub trait RuntimeType: 'static + Clone + Send + Sync + Debug {
     type Field: Field;
     type PointAffine: CurveAffine;
     type Challenge: EncodedChallenge<Self::PointAffine>;
@@ -33,6 +34,10 @@ pub enum Variable<T: RuntimeType> {
     Stream(CudaStream),              // cpu only
     Any(Box<dyn Any + Send + Sync>), // cpu only
     GpuBuffer(GpuBuffer),            // gpu only
+}
+
+pub trait TryBorrowVariable<T: RuntimeType> {
+    fn try_borrow(var: &Variable<T>) -> error::Result<&Self>;
 }
 
 impl<T: RuntimeType> Variable<T> {

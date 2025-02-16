@@ -158,13 +158,10 @@ pub mod template {
     }
 }
 
-// TODO
-// - Decide whether to use chunked Arith kernel based on k
-// - Temporary space
-// - Chunking of polynomial is done during compilation
-// - Take inplace into consideration in scheduling and memory planning
-// - Twiddle factor precomputing
-// - Points precomputing
+pub mod partial_typed {
+    use super::*;
+    pub type Vertex<'s, Rt> = transit::Vertex<VertexNode, Option<Typ<Rt>>, SourceInfo<'s>>;
+}
 
 pub type VertexNode = template::VertexNode<VertexId, Arith, ConstantId, user_function::Id>;
 
