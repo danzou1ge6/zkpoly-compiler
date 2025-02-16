@@ -40,7 +40,7 @@ impl Drop for CudaEvent {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CudaStream {
     stream: cudaStream_t,
     gpu_id: i32,
@@ -149,10 +149,8 @@ impl CudaStream {
             ));
         }
     }
-}
 
-impl Drop for CudaStream {
-    fn drop(&mut self) {
+    pub fn destroy(&self) {
         unsafe {
             cuda_check!(cudaStreamDestroy(self.stream));
         }

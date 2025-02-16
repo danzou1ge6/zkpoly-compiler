@@ -2,7 +2,7 @@ use crate::{devices::DeviceType, runtime::transfer::Transfer};
 use pasta_curves::arithmetic::CurveAffine;
 use zkpoly_cuda_api::stream::CudaStream;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Point<P: CurveAffine> {
     pub value: P,
 }
@@ -19,7 +19,7 @@ impl<P: CurveAffine> Transfer for Point<P> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PointArray<P: CurveAffine> {
     pub values: *mut P,
     pub len: usize,

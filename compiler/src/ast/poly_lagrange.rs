@@ -29,11 +29,7 @@ impl<Rt: RuntimeType> From<(CommonNode<Rt>, SourceInfo)> for PolyLagrange<Rt> {
 impl<Rt: RuntimeType> PolyLagrange<Rt> {
     fn pp_op(&self, rhs: &PolyLagrange<Rt>, op: ArithBinOp, src: SourceInfo) -> Self {
         PolyLagrange::new(
-            PolyLagrangeNode::Arith(LagrangeArith::Bin(
-                op,
-                self.clone(),
-                rhs.clone(),
-            )),
+            PolyLagrangeNode::Arith(LagrangeArith::Bin(op, self.clone(), rhs.clone())),
             src,
         )
     }
@@ -103,7 +99,10 @@ impl<Rt: RuntimeType> PolyLagrange<Rt> {
     #[track_caller]
     pub fn distribute_powers(&self, power: &Scalar<Rt>) -> Self {
         let src = SourceInfo::new(Location::caller().clone(), None);
-        PolyLagrange::new(PolyLagrangeNode::DistributePowers(self.clone(), power.clone()), src)
+        PolyLagrange::new(
+            PolyLagrangeNode::DistributePowers(self.clone(), power.clone()),
+            src,
+        )
     }
 
     #[track_caller]
@@ -136,7 +135,7 @@ impl<Rt: RuntimeType> Sub<&PolyLagrange<Rt>> for &PolyLagrange<Rt> {
     fn sub(self, rhs: &PolyLagrange<Rt>) -> Self::Output {
         let src = SourceInfo::new(Location::caller().clone(), None);
         PolyLagrange::pp_op(self, rhs, ArithBinOp::Sub, src)
-   }
+    }
 }
 
 impl<Rt: RuntimeType> Mul<&PolyLagrange<Rt>> for &PolyLagrange<Rt> {
@@ -208,4 +207,3 @@ impl<Rt: RuntimeType> Div<&Scalar<Rt>> for &PolyLagrange<Rt> {
         PolyLagrange::ps_op(self, rhs, ArithBinOp::Div, src)
     }
 }
-

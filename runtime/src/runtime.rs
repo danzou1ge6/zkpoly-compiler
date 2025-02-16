@@ -5,7 +5,7 @@ use threadpool::ThreadPool;
 use zkpoly_common::load_dynamic::Libs;
 
 use crate::{
-    args::{RuntimeType, Variable, VariableTable},
+    args::{ConstantTable, RuntimeType, Variable, VariableTable},
     devices::{DeviceType, Event, EventTable, ThreadTable},
     functions::{
         FunctionTable,
@@ -24,6 +24,7 @@ pub mod transfer;
 pub struct Runtime<T: RuntimeType> {
     instructions: Vec<Instruction>,
     variable: VariableTable<T>,
+    constant: ConstantTable<T>,
     pool: ThreadPool,
     funcs: FunctionTable<T>,
     events: EventTable,
@@ -37,6 +38,7 @@ impl<T: RuntimeType> Runtime<T> {
     pub fn new(
         instructions: Vec<Instruction>,
         variable: VariableTable<T>,
+        constant: ConstantTable<T>,
         pool: ThreadPool,
         funcs: FunctionTable<T>,
         events: EventTable,
@@ -48,6 +50,7 @@ impl<T: RuntimeType> Runtime<T> {
         Self {
             instructions,
             variable,
+            constant,
             pool,
             funcs,
             events,
@@ -60,6 +63,7 @@ impl<T: RuntimeType> Runtime<T> {
     pub fn run(self) -> RuntimeInfo<T> {
         let info = RuntimeInfo {
             variable: Arc::new(self.variable),
+            constant: Arc::new(self.constant),
             pool: Arc::new(self.pool),
             funcs: Arc::new(self.funcs),
             events: Arc::new(self.events),
@@ -79,6 +83,7 @@ impl<T: RuntimeType> Runtime<T> {
 #[derive(Clone)]
 pub struct RuntimeInfo<T: RuntimeType> {
     pub variable: Arc<VariableTable<T>>,
+    pub constant: Arc<ConstantTable<T>>,
     pub pool: Arc<ThreadPool>,
     pub funcs: Arc<FunctionTable<T>>,
     pub events: Arc<EventTable>,
@@ -254,6 +259,29 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     let mut dst_guard = self.variable[dst].write().unwrap();
                     assert!(dst_guard.is_none());
                     *dst_guard = Some(Variable::ScalarArray(slice));
+                }
+                Instruction::LoadConstant { src, dst } => {
+                    let mut constant_guard = self.constant[src].lock().unwrap();
+                    let constant = constant_guard.take().unwrap();
+                    drop(constant_guard);
+                    let mut guard = self.variable[dst].write().unwrap();
+                    assert!(guard.is_none());
+                    *guard = Some(constant.value);
+                }
+                Instruction::AssembleTuple { vars, dst } => {
+                    let mut assemble = Vec::new();
+                    for var in vars.iter() {
+                        let guard = self.variable[*var].read().unwrap();
+                        assemble.push((*guard.as_ref().unwrap()).clone());
+                    }
+                    let mut guard = self.variable[dst].write().unwrap();
+                    assert!(guard.is_none());
+                    *guard = Some(Variable::Tuple(assemble));
+                }
+                Instruction::RemoveRegister { id } => {
+                    let mut guard = self.variable[id].write().unwrap();
+                    assert!(guard.is_some());
+                    *guard = None;
                 }
             }
         }

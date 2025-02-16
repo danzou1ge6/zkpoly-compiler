@@ -94,7 +94,7 @@ pub struct GenPqOmegas<T: RuntimeType> {
     >,
 }
 
-impl <T: RuntimeType> DistributePowers<T> {
+impl<T: RuntimeType> DistributePowers<T> {
     pub fn new(libs: &mut Libs) -> Self {
         let field_type = resolve_type(type_name::<T::Field>());
         xmake_config("NTT_FIELD", field_type);
@@ -111,7 +111,7 @@ impl <T: RuntimeType> DistributePowers<T> {
     }
 }
 
-impl <T: RuntimeType> RegisteredFunction<T> for DistributePowers<T> {
+impl<T: RuntimeType> RegisteredFunction<T> for DistributePowers<T> {
     fn get_fn(&self) -> Function<T> {
         let c_func = self.c_func.clone();
         let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
@@ -135,7 +135,7 @@ impl <T: RuntimeType> RegisteredFunction<T> for DistributePowers<T> {
             }
             Ok(())
         };
-        Function{
+        Function {
             name: "distribute_pow_zeta".to_string(),
             f: FunctionValue::Fn(Box::new(rust_func)),
         }

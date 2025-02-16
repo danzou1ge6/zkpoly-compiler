@@ -11,7 +11,7 @@ use zkpoly_cuda_api::{
 
 use crate::{devices::DeviceType, runtime::transfer::Transfer};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Scalar<F: Field> {
     pub value: *mut F,
     pub device: DeviceType,
@@ -111,7 +111,7 @@ impl<F: Field> Transfer for Scalar<F> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ScalarArray<F: Field> {
     // when this is a slice, the pointer is pointed to the base array's start,
     // you have to visit the slice with slice_offset or by index
@@ -122,7 +122,7 @@ pub struct ScalarArray<F: Field> {
     pub slice_info: Option<ScalarSlice>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ScalarSlice {
     pub offset: usize,
     pub whole_len: usize,

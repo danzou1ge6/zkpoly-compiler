@@ -1,4 +1,4 @@
-use crate::args::VariableId;
+use crate::args::{ConstantId, VariableId};
 use crate::devices::{DeviceType, EventId, ThreadId};
 use crate::functions::FunctionId;
 use zkpoly_common::typ::Typ;
@@ -13,6 +13,12 @@ pub enum Instruction {
     },
 
     Deallocate {
+        // free the underlying memory
+        id: VariableId,
+    },
+
+    RemoveRegister {
+        // only delete the register file
         id: VariableId,
     },
 
@@ -60,5 +66,15 @@ pub enum Instruction {
         dst: VariableId,
         start: usize,
         end: usize,
+    },
+
+    LoadConstant {
+        src: ConstantId,
+        dst: VariableId,
+    },
+
+    AssembleTuple {
+        vars: Vec<VariableId>,
+        dst: VariableId,
     },
 }

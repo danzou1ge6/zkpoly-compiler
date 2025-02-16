@@ -6,6 +6,7 @@ static MAX_K: u32 = 20;
 use group::ff::Field;
 use halo2_proofs::arithmetic;
 use halo2_proofs::poly::EvaluationDomain;
+use halo2curves::ff::WithSmallOrderMulGroup;
 use rand_core::OsRng;
 use rand_core::SeedableRng;
 use rand_xorshift::XorShiftRng;
@@ -18,7 +19,6 @@ use zkpoly_runtime::devices::DeviceType;
 use zkpoly_runtime::functions::*;
 use zkpoly_runtime::runtime::transfer::Transfer;
 use zkpoly_runtime::scalar::ScalarArray;
-use halo2curves::ff::WithSmallOrderMulGroup;
 
 #[test]
 fn test_ssip_ntt() {
@@ -260,13 +260,16 @@ fn test_distribute_zeta() {
 
         let extended_k = domain.extended_k();
 
-        let mut poly_cpu =
-            ScalarArray::<MyField>::new(1 << extended_k, cpu_alloc.allocate(1 << extended_k), DeviceType::CPU);
+        let mut poly_cpu = ScalarArray::<MyField>::new(
+            1 << extended_k,
+            cpu_alloc.allocate(1 << extended_k),
+            DeviceType::CPU,
+        );
 
         for i in 0..(1 << k) {
             poly_cpu[i] = data_rust[i];
         }
-        for i in (1<<k)..(1<<extended_k) {
+        for i in (1 << k)..(1 << extended_k) {
             poly_cpu[i] = MyField::zero();
         }
 
@@ -282,7 +285,7 @@ fn test_distribute_zeta() {
         let mut zeta_cpu = ScalarArray::<MyField>::new(2, cpu_alloc.allocate(2), DeviceType::CPU);
         zeta_cpu[0] = g_coset;
         zeta_cpu[1] = g_coset_inv;
-        
+
         let mut pq = ScalarArray::<MyField>::new(
             precompute.get_pq_len(extended_k),
             cpu_alloc.allocate(precompute.get_pq_len(extended_k)),
@@ -294,7 +297,9 @@ fn test_distribute_zeta() {
         println!("transferring data to gpu for k = {k}...");
 
         let ptr_data: *mut MyField = stream.unwrap_stream().allocate(1 << extended_k);
-        let ptr_pq: *mut MyField = stream.unwrap_stream().allocate(precompute.get_pq_len(extended_k));
+        let ptr_pq: *mut MyField = stream
+            .unwrap_stream()
+            .allocate(precompute.get_pq_len(extended_k));
         let ptr_omegas: *mut MyField = stream.unwrap_stream().allocate(32);
         let ptr_zeta: *mut MyField = stream.unwrap_stream().allocate(2);
 
@@ -332,7 +337,6 @@ fn test_distribute_zeta() {
 
         ntt_fn(vec![&mut poly_gpu], vec![&pq_gpu, &omegas_gpu, &stream]).unwrap();
 
-
         poly_gpu
             .unwrap_scalar_array()
             .gpu2cpu(&mut poly_cpu, stream.unwrap_stream());
@@ -353,6 +357,5 @@ fn test_distribute_zeta() {
         cpu_alloc.free(pq.values);
         cpu_alloc.free(omegas.values);
         cpu_alloc.free(zeta_cpu.values);
-
     }
 }

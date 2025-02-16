@@ -1,4 +1,4 @@
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GpuBuffer {
     pub ptr: *mut u8,
     pub size: usize,
