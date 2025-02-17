@@ -1,9 +1,37 @@
+use crate::utils::log2;
 use super::*;
 
 #[derive(Debug, Clone)]
-pub struct PrecomputedPointsData<Rt: RuntimeType>(Vec<Rt::PointAffine>);
+pub struct PrecomputedPointsData<Rt: RuntimeType>(Vec<Rt::PointAffine>, u32);
 
 pub type PrecomputedPoints<Rt: RuntimeType> = Outer<PrecomputedPointsData<Rt>>;
+
+impl<Rt: RuntimeType> PrecomputedPoints<Rt> {
+    #[track_caller]
+    pub fn construct(points: Vec<Rt::PointAffine>) -> Self {
+        if let Some(log_n) = log2(points.len() as u64) {
+            let src = SourceInfo::new(Location::caller().clone(), None);
+            Self::new(PrecomputedPointsData(points, log_n), src)
+        } else {
+            panic!("points length must be power of 2");
+        }
+    }
+}
+
+impl<Rt: RuntimeType> TypeEraseable<Rt> for PrecomputedPoints<Rt> {
+    fn erase<'s>(&self, cg: &mut Cg<'s, Rt>) -> VertexId {
+        cg.lookup_or_insert_with(self.as_ptr(), |cg| {
+            let constant = unimplemented!();
+            Vertex::new(
+                VertexNode::Constant(constant),
+                Some(Typ::PointBase {
+                    log_n: self.inner.t.1,
+                }),
+                self.src_lowered()
+            )
+        })
+    }
+}
 
 #[derive(Debug)]
 pub enum PointNode<Rt: RuntimeType> {
@@ -18,24 +46,34 @@ impl<Rt: RuntimeType> From<(CommonNode<Rt>, SourceInfo)> for Point<Rt> {
     }
 }
 
+impl<Rt: RuntimeType> TypeEraseable<Rt> for Point<Rt> {
+    fn erase<'s>(&self, cg: &mut Cg<'s, Rt>) -> VertexId {
+        cg.lookup_or_insert_with(self.as_ptr(), |cg| {
+            match &self.inner.t {
+                PointNode::Common(node) => node.vertex(cg, self.src_lowered()),
+            }
+        })
+    }
+}
+
 pub fn msm_coef<Rt: RuntimeType>(
     polys: &[PolyCoef<Rt>],
-    points: &[PrecomputedPoints<Rt>],
+    points: PrecomputedPoints<Rt>,
 ) -> Array<Rt, Scalar<Rt>> {
     let src = SourceInfo::new(Location::caller().clone(), None);
     Array::wrap(ArrayUntyped::new(
-        ArrayNode::MsmCoef(polys.to_vec(), points.to_vec()),
+        ArrayNode::MsmCoef(polys.to_vec(), points),
         src,
     ))
 }
 
 pub fn msm_lagrange<Rt: RuntimeType>(
     polys: &[PolyLagrange<Rt>],
-    points: &[PrecomputedPoints<Rt>],
+    points: PrecomputedPoints<Rt>,
 ) -> Array<Rt, Scalar<Rt>> {
     let src = SourceInfo::new(Location::caller().clone(), None);
     Array::wrap(ArrayUntyped::new(
-        ArrayNode::MsmLagrange(polys.to_vec(), points.to_vec()),
+        ArrayNode::MsmLagrange(polys.to_vec(), points),
         src,
     ))
 }

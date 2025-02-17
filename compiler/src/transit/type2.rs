@@ -21,6 +21,13 @@ pub type Arith = arith::ArithGraph<VertexId, arith::ExprId>;
 pub enum NttAlgorithm<I> {
     Precomputed(I),
     Standard { pq: I, omega: I },
+    Undecieded,
+}
+
+impl<I> Default for NttAlgorithm<I> {
+    fn default() -> Self {
+        NttAlgorithm::Undecieded
+    }
 }
 
 impl<I> NttAlgorithm<I>
@@ -32,6 +39,7 @@ where
         match self {
             Precomputed(x) => Box::new([*x].into_iter()),
             Standard { pq, omega: base } => Box::new([*pq, *base].into_iter()),
+            Undecieded => Box::new(std::iter::empty()),
         }
     }
 
@@ -43,6 +51,7 @@ where
                 pq: mapping(*pq),
                 omega: mapping(*base),
             },
+            Undecieded => Undecieded,
         }
     }
 }
@@ -62,8 +71,11 @@ pub mod template {
 
     #[derive(Debug, Clone)]
     pub enum VertexNode<I, A, C, E> {
-        NewPoly(u64, PolyInit),
+        NewPoly(u64, PolyInit, PolyType),
         Constant(C),
+        Extend(I, u64),
+        /// A single binary or unary arith expression, to be fused to an arith graph
+        SingleArith(arith::Arith<I>),
         /// .1 is size of each chunk, if chunking is enabled
         Arith(A, Option<u64>),
         Entry,
@@ -78,13 +90,14 @@ pub mod template {
             alg: NttAlgorithm<I>,
         },
         RotateIdx(I, i32),
+        Slice(I, u64, u64),
         Interplote {
             xs: Vec<I>,
             ys: Vec<I>,
         },
-        Blind(I, usize),
+        Blind(I, u64, u64),
         Array(Vec<I>),
-        AssmblePoly(u64, I),
+        AssmblePoly(u64, Vec<I>),
         Msm {
             polys: Vec<I>,
             points: Vec<I>,
@@ -106,7 +119,10 @@ pub mod template {
             at: I,
         },
         BatchedInvert(I),
-        ScanMul(I),
+        ScanMul {
+            x0: I,
+            poly: I,
+        },
         DistributePowers {
             scalar: I,
             poly: I,
@@ -120,12 +136,14 @@ pub mod template {
         pub fn uses<'a>(&'a self) -> Box<dyn Iterator<Item = I> + 'a> {
             use VertexNode::*;
             match self {
+                SingleArith(expr) => expr.uses(),
                 Arith(arith, ..) => Box::new(arith.uses()),
                 Ntt { s, alg, .. } => Box::new([*s].into_iter().chain(alg.uses())),
                 RotateIdx(x, _) => Box::new([*x].into_iter()),
+                Slice(x, ..) => Box::new([*x].into_iter()),
                 Interplote { xs, ys } => Box::new(xs.iter().copied().chain(ys.iter().copied())),
                 Array(es) => Box::new(es.iter().copied()),
-                AssmblePoly(_, es) => Box::new([*es].into_iter()),
+                AssmblePoly(_, es) => Box::new(es.iter().copied()),
                 Msm {
                     polys: scalars,
                     points,
@@ -136,13 +154,13 @@ pub mod template {
                 } => Box::new([*transcript, *value].into_iter()),
                 SqueezeScalar(x) => Box::new([*x].into_iter()),
                 TupleGet(x, _) => Box::new([*x].into_iter()),
-                Blind(x, _) => Box::new([*x].into_iter()),
+                Blind(x, ..) => Box::new([*x].into_iter()),
                 ArrayGet(x, _) => Box::new([*x].into_iter()),
                 UserFunction(_, es) => Box::new(es.iter().copied()),
                 KateDivision(lhs, rhs) => Box::new([*lhs, *rhs].into_iter()),
                 EvaluatePoly { poly, at } => Box::new([*poly, *at].into_iter()),
                 BatchedInvert(x) => Box::new([*x].into_iter()),
-                ScanMul(x) => Box::new([*x].into_iter()),
+                ScanMul { x0, poly } => Box::new([*x0, *poly].into_iter()),
                 DistributePowers { scalar, poly } => Box::new([*scalar, *poly].into_iter()),
                 _ => Box::new(std::iter::empty()),
             }
@@ -151,8 +169,16 @@ pub mod template {
         pub fn is_virtual(&self) -> bool {
             use VertexNode::*;
             match self {
-                Array(..) | ArrayGet(..) | TupleGet(..) | RotateIdx(..) => true,
+                Array(..) | ArrayGet(..) | TupleGet(..) | RotateIdx(..) | Slice(..) => true,
                 _ => false,
+            }
+        }
+
+        pub fn unexpcted_during_lowering(&self) -> bool {
+            use VertexNode::*;
+            match self {
+                SingleArith(..) => true,
+                x => x.is_virtual(),
             }
         }
     }
@@ -160,7 +186,7 @@ pub mod template {
 
 pub mod partial_typed {
     use super::*;
-    pub type Vertex<'s, Rt> = transit::Vertex<VertexNode, Option<Typ<Rt>>, SourceInfo<'s>>;
+    pub type Vertex<'s, T> = transit::Vertex<VertexNode, T, SourceInfo<'s>>;
 }
 
 pub type VertexNode = template::VertexNode<VertexId, Arith, ConstantId, user_function::Id>;
@@ -192,7 +218,7 @@ where
     pub fn device(&self) -> Device {
         use template::VertexNode::*;
         match self.node() {
-            NewPoly(..) | RotateIdx(..) => Device::PreferGpu,
+            NewPoly(..) | Extend(..) => Device::PreferGpu,
             Arith(_, chk) => {
                 if chk.is_some() {
                     Device::Cpu
@@ -306,8 +332,10 @@ where
         use template::VertexNode::*;
 
         match self {
-            NewPoly(deg, init) => NewPoly(*deg, init.clone()),
+            NewPoly(deg, init, typ) => NewPoly(*deg, init.clone(), typ.clone()),
             Constant(c) => Constant(c.clone()),
+            Extend(s, deg) => Extend(mapping(*s), deg.clone()),
+            SingleArith(expr) => SingleArith(expr.relabeled(&mut mapping)),
             Arith(arith, chk) => Arith(arith.relabeled(mapping), *chk),
             Entry => Entry,
             Return => Return,
@@ -319,13 +347,14 @@ where
                 from: from.clone(),
             },
             RotateIdx(s, deg) => RotateIdx(mapping(*s), *deg),
+            Slice(s, start, end) => Slice(mapping(*s), *start, *end),
             Interplote { xs, ys } => Interplote {
                 xs: xs.iter().map(|x| mapping(*x)).collect(),
                 ys: ys.iter().map(|x| mapping(*x)).collect(),
             },
-            Blind(s, blind) => Blind(mapping(*s), *blind),
+            Blind(s, left, right) => Blind(mapping(*s), *left, *right),
             Array(es) => Array(es.iter().map(|x| mapping(*x)).collect()),
-            AssmblePoly(s, es) => AssmblePoly(*s, mapping(*es)),
+            AssmblePoly(s, es) => AssmblePoly(*s, es.iter().map(|x| mapping(*x)).collect()),
             Msm {
                 alg,
                 polys: scalars,
@@ -356,7 +385,10 @@ where
                 at: mapping(*at),
             },
             BatchedInvert(s) => BatchedInvert(mapping(*s)),
-            ScanMul(s) => ScanMul(mapping(*s)),
+            ScanMul { x0, poly } => ScanMul {
+                x0: mapping(*x0),
+                poly: mapping(*poly),
+            },
             DistributePowers { poly, scalar } => DistributePowers {
                 poly: mapping(*poly),
                 scalar: mapping(*scalar),
@@ -370,9 +402,15 @@ where
 
         let on_device = super::type3::Track::on_device;
 
+        if self.unexpcted_during_lowering() {
+            panic!("vertex is unexpected during lowering, it shouldn't be on any track")
+        }
+
         match self {
             NewPoly(..) => on_device(device),
             Constant(..) => Cpu,
+            Extend(..) => on_device(device),
+            SingleArith(..) => unreachable!(),
             Arith(_, chk) => {
                 if let Some(..) = chk {
                     CoProcess
@@ -384,21 +422,22 @@ where
             Return => Cpu,
             LiteralScalar(..) => Cpu,
             Ntt { .. } => CoProcess,
-            RotateIdx(..) => on_device(device),
+            RotateIdx(..) => unreachable!(),
+            Slice(..) => unreachable!(),
             Interplote { .. } => Cpu,
             Blind(..) => Cpu,
-            Array(..) => Cpu,
+            Array(..) => unreachable!(),
             AssmblePoly(..) => Cpu,
             Msm { .. } => CoProcess,
             HashTranscript { .. } => Cpu,
             SqueezeScalar(..) => Cpu,
-            TupleGet(..) => Cpu,
-            ArrayGet(..) => Cpu,
+            TupleGet(..) => unreachable!(),
+            ArrayGet(..) => unreachable!(),
             UserFunction(..) => Cpu,
             KateDivision(..) => Gpu,
             EvaluatePoly { .. } => Gpu,
             BatchedInvert(..) => Gpu,
-            ScanMul(..) => Gpu,
+            ScanMul { .. } => Gpu,
             DistributePowers { .. } => Gpu,
         }
     }
@@ -416,6 +455,8 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
         use super::type3::Device::*;
         use template::VertexNode::*;
         match self.g.vertex(vid).node() {
+            Extend(..) => None,
+            SingleArith(..) => None,
             Arith(..) => None,
             NewPoly(..) => None,
             Constant(..) => None,
@@ -424,13 +465,14 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
             LiteralScalar(..) => None,
             Ntt { .. } => None,
             RotateIdx(..) => None,
+            Slice(..) => None,
             Interplote { .. } => None,
             Blind(..) => None,
             Array(..) => None,
             AssmblePoly(..) => None,
             Msm { polys, alg, .. } => {
                 let (_, len) = self.g.vertex(polys[0]).typ().unwrap_poly();
-                Some((temporary_space::msm::<Rt>(alg, len as usize, libs), Gpu))
+                Some((temporary_space::msm::<Rt>(alg, *len as usize, libs), Gpu))
             }
             HashTranscript { .. } => None,
             SqueezeScalar(..) => None,
@@ -440,21 +482,21 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
             KateDivision(lhs, _) => {
                 let (_, len) = self.g.vertex(*lhs).typ().unwrap_poly();
                 Some((
-                    temporary_space::kate_division::<Rt>(len as usize, libs),
+                    temporary_space::kate_division::<Rt>(*len as usize, libs),
                     Gpu,
                 ))
             }
             EvaluatePoly { poly, .. } => {
                 let (_, len) = self.g.vertex(*poly).typ().unwrap_poly();
-                Some((temporary_space::poly_eval::<Rt>(len as usize, libs), Gpu))
+                Some((temporary_space::poly_eval::<Rt>(*len as usize, libs), Gpu))
             }
             BatchedInvert(poly) => {
                 let (_, len) = self.g.vertex(*poly).typ().unwrap_poly();
-                Some((temporary_space::poly_invert::<Rt>(len as usize, libs), Gpu))
+                Some((temporary_space::poly_invert::<Rt>(*len as usize, libs), Gpu))
             }
-            ScanMul(poly) => {
+            ScanMul { poly, .. } => {
                 let (_, len) = self.g.vertex(*poly).typ().unwrap_poly();
-                Some((temporary_space::poly_scan::<Rt>(len as usize, libs), Gpu))
+                Some((temporary_space::poly_scan::<Rt>(*len as usize, libs), Gpu))
             }
             DistributePowers { .. } => todo!(),
         }

@@ -303,7 +303,7 @@ fn lower_instruction<'s, Rt: RuntimeType>(
 ) {
     match &inst.node {
         super::InstructionNode::Type2 { ids, temp, vertex } => match vertex {
-            VertexNode::NewPoly(_, _) => todo!(),
+            VertexNode::NewPoly(..) => todo!(),
             VertexNode::Constant(constant_id) => emit(Instruction::LoadConstant {
                 src: *constant_id,
                 dst: reg_id2var_id(ids[0]),

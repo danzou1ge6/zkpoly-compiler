@@ -49,6 +49,7 @@ pub fn emit_func(
                     let omega = reg_id2var_id(*omega);
                     generate_ntt_recompute(poly, pq, omega, stream.unwrap(), f_id, emit);
                 }
+                crate::transit::type2::NttAlgorithm::Undecieded => panic!("NttAlgorithm should be decided at this points")
             }
         }
         VertexNode::Msm {

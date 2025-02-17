@@ -1,21 +1,37 @@
 use std::mem::size_of;
-use std::{any, marker::PhantomData};
 use zkpoly_common::typ::PolyType;
 use zkpoly_runtime::args::RuntimeType;
 
-#[derive(Debug, Clone)]
-pub enum Typ<Rt: RuntimeType> {
-    Poly { deg: u64, meta: PolyType },
-    PointBase { log_n: u32 },
-    Scalar,
-    Transcript,
-    Point,
-    Rng,
-    Tuple(Vec<Typ<Rt>>),
-    Array(Box<Typ<Rt>>, usize),
-    Any(any::TypeId, u64),
-    _Phantom(PhantomData<Rt>),
+pub mod template {
+    use super::RuntimeType;
+    use std::{any, marker::PhantomData};
+
+    #[derive(Debug, Clone)]
+    pub enum Typ<Rt: RuntimeType, P> {
+        Poly(P),
+        PointBase { log_n: u32 },
+        Scalar,
+        Transcript,
+        Point,
+        Rng,
+        Tuple(Vec<Typ<Rt, P>>),
+        Array(Box<Typ<Rt, P>>, usize),
+        Any(any::TypeId, u64),
+        _Phantom(PhantomData<Rt>),
+    }
+
+    impl<Rt: RuntimeType, P> Typ<Rt, P> {
+        pub fn unwrap_poly(&self) -> &P {
+            use Typ::*;
+            match self {
+                Poly(p) => p,
+                _ => panic!("called unwrap_poly on non-poly type"),
+            }
+        }
+    }
 }
+
+pub type Typ<Rt: RuntimeType> = template::Typ<Rt, (PolyType, u64)>;
 
 pub enum Size {
     Single(u64),
@@ -65,9 +81,9 @@ where
     Rt: RuntimeType,
 {
     pub fn size(&self) -> Size {
-        use Typ::*;
+        use template::Typ::*;
         match self {
-            Poly { deg, .. } => Size::Single(*deg * size_of::<Rt::Field>() as u64),
+            Poly((_, deg)) => Size::Single(*deg * size_of::<Rt::Field>() as u64),
             PointBase { log_n } => Size::Single((1 << log_n) * 2 * size_of::<Rt::Field>() as u64),
             Scalar => Size::Single(size_of::<Rt::Field>() as u64),
             Transcript => unimplemented!(),
@@ -92,15 +108,6 @@ where
         }
     }
 
-    pub fn unwrap_poly(&self) -> (PolyType, u64)
-where {
-        use Typ::*;
-        match self {
-            Poly { meta, deg } => (meta.clone(), *deg),
-            _ => panic!("called unwrap_poly on non-poly type"),
-        }
-    }
-
     pub fn iter<'s>(&'s self) -> Box<dyn Iterator<Item = &'s Self> + 's> {
         match self {
             Typ::Tuple(ts) => Box::new(ts.iter()),
@@ -110,7 +117,7 @@ where {
     }
 
     pub fn stack_allocable(&self) -> bool {
-        use Typ::*;
+        use template::Typ::*;
         match self {
             Poly { .. } => false,
             PointBase { .. } => false,

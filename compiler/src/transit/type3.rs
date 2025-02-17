@@ -1,6 +1,7 @@
 use std::{collections::BTreeMap, marker::PhantomData};
 
 use crate::transit::{self, type2};
+use crate::utils::log2_ceil;
 use zkpoly_common::{
     arith, define_usize_id,
     heap::{Heap, IdAllocator, RoHeap},
@@ -54,12 +55,6 @@ impl TryFrom<Size> for IntegralSize {
     }
 }
 
-fn log2_ceil(x: u64) -> u32 {
-    if x == 0 {
-        panic!("log2(0) is undefined");
-    }
-    64 - x.leading_zeros()
-}
 
 impl IntegralSize {
     pub fn ceiling(size: SmithereenSize) -> Self {

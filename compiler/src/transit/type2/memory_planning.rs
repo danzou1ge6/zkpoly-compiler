@@ -658,9 +658,9 @@ fn ensure_copied(
 }
 
 fn lower_typ<Rt: RuntimeType>(t2typ: &super::Typ<Rt>, value: &Value) -> Typ {
-    use super::Typ::*;
+    use super::typ::template::Typ::*;
     match t2typ {
-        Poly { deg, .. } => {
+        Poly((_, deg)) => {
             let (rot, slice) = value.unwrap_poly();
             Typ::ScalarArray {
                 len: *deg as usize,

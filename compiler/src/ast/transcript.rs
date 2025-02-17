@@ -1,12 +1,12 @@
-use super::*;
+use super::{transit::HashTyp, *};
 
 #[derive(Debug)]
 pub enum TranscriptNode<Rt: RuntimeType> {
     Entry,
-    HashScalar(Transcript<Rt>, Scalar<Rt>),
-    HashLagrange(Transcript<Rt>, PolyLagrange<Rt>),
-    HashCoef(Transcript<Rt>, PolyCoef<Rt>),
-    HashPoint(Transcript<Rt>, Point<Rt>),
+    HashScalar(Transcript<Rt>, Scalar<Rt>, HashTyp),
+    HashLagrange(Transcript<Rt>, PolyLagrange<Rt>, HashTyp),
+    HashCoef(Transcript<Rt>, PolyCoef<Rt>, HashTyp),
+    HashPoint(Transcript<Rt>, Point<Rt>, HashTyp),
     Common(CommonNode<Rt>),
 }
 
@@ -20,7 +20,43 @@ impl<Rt: RuntimeType> From<(CommonNode<Rt>, SourceInfo)> for Transcript<Rt> {
 
 impl<Rt: RuntimeType> TypeEraseable<Rt> for Transcript<Rt> {
     fn erase<'s>(&self, cg: &mut Cg<'s, Rt>) -> VertexId {
-        unimplemented!()
+        cg.lookup_or_insert_with(self.as_ptr(), |cg| {
+            fn hash_transcript<'s, Rt: RuntimeType>(
+                t: &impl TypeEraseable<Rt>,
+                s: &impl TypeEraseable<Rt>,
+                typ: &HashTyp,
+                cg: &mut Cg<'s, Rt>,
+                src: transit::SourceInfo<'s>,
+            ) -> Vertex<'s, Rt> {
+                let t = t.erase(cg);
+                let s = s.erase(cg);
+                Vertex::new(
+                    VertexNode::HashTranscript {
+                        transcript: t,
+                        value: s,
+                        typ: *typ,
+                    },
+                    Some(Typ::Transcript),
+                    src,
+                )
+            };
+
+            use TranscriptNode::*;
+            match &self.inner.t {
+                Entry => todo!("track entry ID"),
+                HashScalar(t, s, hash_typ) => {
+                    hash_transcript(t, s, hash_typ, cg, self.src_lowered())
+                }
+                HashLagrange(t, s, hash_typ) => {
+                    hash_transcript(t, s, hash_typ, cg, self.src_lowered())
+                }
+                HashCoef(t, s, hash_typ) => hash_transcript(t, s, hash_typ, cg, self.src_lowered()),
+                HashPoint(t, s, hash_typ) => {
+                    hash_transcript(t, s, hash_typ, cg, self.src_lowered())
+                }
+                Common(node) => node.vertex(cg, self.src_lowered()),
+            }
+        })
     }
 }
 
@@ -32,24 +68,30 @@ impl<Rt: RuntimeType> Transcript<Rt> {
     }
 
     #[track_caller]
-    pub fn hash_scalar(&self, data: &Scalar<Rt>) -> Self {
-        let src = SourceInfo::new(Location::caller().clone(), None);
-        Self::new(TranscriptNode::HashScalar(self.clone(), data.clone()), src)
-    }
-
-    #[track_caller]
-    pub fn hash_lagrange(&self, data: &PolyLagrange<Rt>) -> Self {
+    pub fn hash_scalar(&self, data: &Scalar<Rt>, hash_typ: HashTyp) -> Self {
         let src = SourceInfo::new(Location::caller().clone(), None);
         Self::new(
-            TranscriptNode::HashLagrange(self.clone(), data.clone()),
+            TranscriptNode::HashScalar(self.clone(), data.clone(), hash_typ),
             src,
         )
     }
 
     #[track_caller]
-    pub fn hash_coef(&self, data: &PolyCoef<Rt>) -> Self {
+    pub fn hash_lagrange(&self, data: &PolyLagrange<Rt>, hash_typ: HashTyp) -> Self {
         let src = SourceInfo::new(Location::caller().clone(), None);
-        Self::new(TranscriptNode::HashCoef(self.clone(), data.clone()), src)
+        Self::new(
+            TranscriptNode::HashLagrange(self.clone(), data.clone(), hash_typ),
+            src,
+        )
+    }
+
+    #[track_caller]
+    pub fn hash_coef(&self, data: &PolyCoef<Rt>, hash_typ: HashTyp) -> Self {
+        let src = SourceInfo::new(Location::caller().clone(), None);
+        Self::new(
+            TranscriptNode::HashCoef(self.clone(), data.clone(), hash_typ),
+            src,
+        )
     }
 
     #[track_caller]

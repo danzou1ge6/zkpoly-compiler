@@ -1,5 +1,8 @@
 use arith::{ArithBinOp, ArithUnrOp};
 use std::ops::{Add, Div, Mul, Neg, Sub};
+use zkpoly_common::typ::PolyType;
+
+use crate::{transit::type2::template::VertexNode, transit::type2::NttAlgorithm};
 
 use super::*;
 
@@ -14,7 +17,7 @@ pub enum PolyLagrangeNode<Rt: RuntimeType> {
     Blind(PolyLagrange<Rt>, u64, u64),
     Slice(PolyLagrange<Rt>, u64, u64),
     DistributePowers(PolyLagrange<Rt>, Scalar<Rt>),
-    ScanMul(PolyLagrange<Rt>),
+    ScanMul(PolyLagrange<Rt>, Scalar<Rt>),
     Common(CommonNode<Rt>),
 }
 
@@ -23,6 +26,87 @@ pub type PolyLagrange<Rt: RuntimeType> = Outer<PolyLagrangeNode<Rt>>;
 impl<Rt: RuntimeType> From<(CommonNode<Rt>, SourceInfo)> for PolyLagrange<Rt> {
     fn from(value: (CommonNode<Rt>, SourceInfo)) -> Self {
         Self::new(PolyLagrangeNode::Common(value.0), value.1)
+    }
+}
+
+impl<Rt: RuntimeType> TypeEraseable<Rt> for PolyLagrange<Rt> {
+    fn erase<'s>(&self, cg: &mut Cg<'s, Rt>) -> VertexId {
+        cg.lookup_or_insert_with(self.as_ptr(), |cg| {
+            use PolyLagrangeNode::*;
+            match &self.inner.t {
+                Arith(la) => {
+                    let arith = la.to_arith(cg);
+                    Vertex::new(VertexNode::SingleArith(arith), Some(Typ::lagrange()), self.src_lowered())
+                }
+                New(init, deg) => Vertex::new(
+                    VertexNode::NewPoly(*deg, init.clone(), PolyType::Lagrange),
+                    Some(Typ::Poly((PolyType::Lagrange, Some(*deg)))),
+                    self.src_lowered()
+                ),
+                Constant(data) => {
+                    let value = unimplemented!();
+                    let constant_id = cg.add_constant(value, self.src().name.clone());
+                    Vertex::new(
+                        VertexNode::Constant(constant_id),
+                        Some(Typ::lagrange_with_deg(data.len() as u64)),
+                        self.src_lowered(),
+                    )
+                }
+                Entry(deg) => todo!("keep entry ID for runtime to lookup input"),
+                FromCoef(coefs) => {
+                    let coefs = coefs.erase(cg);
+                    Vertex::new(
+                        VertexNode::Ntt {
+                            s: coefs,
+                            to: PolyType::Lagrange,
+                            from: PolyType::Coef,
+                            alg: NttAlgorithm::default(),
+                        },
+                        Some(Typ::lagrange()),
+                        self.src_lowered(),
+                    )
+                }
+                RotateIdx(operand, x) => {
+                    let operand = operand.erase(cg);
+                    Vertex::new(
+                        VertexNode::RotateIdx(operand, *x),
+                        Some(Typ::lagrange()),
+                        self.src_lowered(),
+                    )
+                }
+                Blind(operand, start, end) => {
+                    let operand = operand.erase(cg);
+                    Vertex::new(
+                        VertexNode::Blind(operand, *start, *end),
+                        Some(Typ::lagrange()),
+                        self.src_lowered(),
+                    )
+                }
+                Slice(operand, start, end) => {
+                    let operand = operand.erase(cg);
+                    Vertex::new(
+                        VertexNode::Slice(operand, *start, *end),
+                        Some(Typ::lagrange()),
+                        self.src_lowered(),
+                    )
+                }
+                DistributePowers(poly, scalar) => {
+                    let poly = poly.erase(cg);
+                    let scalar = scalar.erase(cg);
+                    Vertex::new(
+                        VertexNode::DistributePowers { poly, scalar },
+                        Some(Typ::lagrange()),
+                        self.src_lowered(),
+                    )
+                }
+                ScanMul(poly, x0) => {
+                    let poly = poly.erase(cg);
+                    let x0 = x0.erase(cg);
+                    Vertex::new(VertexNode::ScanMul { poly, x0 }, Some(Typ::lagrange()), self.src_lowered())
+                }
+                Common(cn) => cn.vertex(cg, self.src_lowered()),
+            }
+        })
     }
 }
 
@@ -106,9 +190,9 @@ impl<Rt: RuntimeType> PolyLagrange<Rt> {
     }
 
     #[track_caller]
-    pub fn scan_mul(&self) -> Self {
+    pub fn scan_mul(&self, x0: &Scalar<Rt>) -> Self {
         let src = SourceInfo::new(Location::caller().clone(), None);
-        PolyLagrange::new(PolyLagrangeNode::ScanMul(self.clone()), src)
+        PolyLagrange::new(PolyLagrangeNode::ScanMul(self.clone(), x0.clone()), src)
     }
 
     #[track_caller]

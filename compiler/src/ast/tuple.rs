@@ -6,6 +6,22 @@ pub enum TupleNode<Rt: RuntimeType> {
     Common(CommonNode<Rt>),
 }
 
+impl<Rt: RuntimeType> TypeEraseable<Rt> for TupleUntyped<Rt> {
+    fn erase<'s>(&self, cg: &mut Cg<'s, Rt>) -> VertexId {
+        cg.lookup_or_insert_with(self.as_ptr(), |cg| match &self.inner.t {
+            TupleNode::SqueezeScalar(t) => {
+                let operand = t.erase(cg);
+                Vertex::new(
+                    VertexNode::SqueezeScalar(operand),
+                    Some(Typ::Tuple(vec![Typ::Transcript, Typ::Scalar])),
+                    self.src_lowered(),
+                )
+            }
+            TupleNode::Common(cn) => cn.vertex(cg, self.src_lowered()),
+        })
+    }
+}
+
 pub(super) type TupleUntyped<Rt: RuntimeType> = Outer<TupleNode<Rt>>;
 
 macro_rules! define_tuples {
@@ -15,10 +31,7 @@ macro_rules! define_tuples {
 
             impl<$($T: TypeEraseable<Rt>),+, Rt: RuntimeType> TypeEraseable<Rt> for $n<$($T),+, Rt> {
                 fn erase<'s>(&self, cg: &mut Cg<'s, Rt>) -> VertexId {
-                    match &self.t.inner.t {
-                        TupleNode::SqueezeScalar(t) => t.erase(cg),
-                        TupleNode::Common(cn) => cn.erase(cg),
-                    }
+                    self.t.erase(cg)
                 }
             }
 

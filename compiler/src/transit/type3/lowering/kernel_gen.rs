@@ -26,24 +26,26 @@ pub enum KernelType {
 
 impl KernelType {
     pub fn from_vertex(vertex: &VertexNode) -> Option<Self> {
+        assert!(!vertex.unexpcted_during_lowering());
         match vertex {
             VertexNode::Arith(..) => Some(Self::FusedArith),
             VertexNode::Ntt { alg, .. } => match alg {
                 NttAlgorithm::Standard { .. } => Some(Self::NttRecompute),
                 NttAlgorithm::Precomputed { .. } => Some(Self::NttPrcompute),
+                NttAlgorithm::Undecieded => panic!("NttAlgorithm should be decided at this point"),
             },
             VertexNode::Msm { alg, .. } => Some(Self::Msm(alg.clone())),
             VertexNode::KateDivision(..) => Some(Self::KateDivision),
             VertexNode::EvaluatePoly { .. } => Some(Self::EvaluatePoly),
             VertexNode::BatchedInvert(..) => Some(Self::BatchedInvert),
-            VertexNode::ScanMul(..) => Some(Self::ScanMul),
+            VertexNode::ScanMul { .. } => Some(Self::ScanMul),
             VertexNode::Constant(_) => todo!(),
             VertexNode::Entry => todo!(),
             VertexNode::Return => todo!(),
             VertexNode::LiteralScalar(_) => todo!(),
             VertexNode::RotateIdx(_, _) => todo!(),
             VertexNode::Interplote { xs, ys } => todo!(),
-            VertexNode::Blind(_, _) => todo!(),
+            VertexNode::Blind(..) => todo!(),
             VertexNode::Array(items) => todo!(),
             VertexNode::AssmblePoly(_, _) => todo!(),
             VertexNode::HashTranscript {
@@ -56,7 +58,8 @@ impl KernelType {
             VertexNode::ArrayGet(_, _) => todo!(),
             VertexNode::UserFunction(_, items) => todo!(),
             VertexNode::DistributePowers { scalar, poly } => todo!(),
-            VertexNode::NewPoly(_, _) => todo!(),
+            VertexNode::NewPoly(..) => todo!(),
+            otherwise => unreachable!(),
         }
     }
 }

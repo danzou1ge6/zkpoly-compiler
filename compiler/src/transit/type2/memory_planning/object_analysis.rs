@@ -37,7 +37,7 @@ impl Value {
         device: Device,
     ) -> Self {
         match typ {
-            Typ::Poly { deg, .. } => {
+            Typ::Poly((_, deg)) => {
                 let object_id = obj_id_allocator.alloc();
                 Value {
                     node: ValueNode::Poly {

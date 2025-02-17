@@ -1,6 +1,6 @@
 /// Computes smallest k such that
 ///   2^k >= [`x`]
-fn min_power_of_2_above(n: usize) -> usize {
+pub fn min_power_of_2_above(n: usize) -> usize {
     if n == 0 {
         return 0;
     }
@@ -14,4 +14,20 @@ fn min_power_of_2_above(n: usize) -> usize {
     }
 
     k
+}
+
+pub fn log2_ceil(x: u64) -> u32 {
+    if x == 0 {
+        panic!("log2(0) is undefined");
+    }
+    64 - x.leading_zeros()
+}
+
+pub fn log2(x: u64) -> Option<u32> {
+    let r = log2_ceil(x);
+    if 2u64.pow(r as u32) == x {
+        Some(r)
+    } else {
+        None
+    }
 }

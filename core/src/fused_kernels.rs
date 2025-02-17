@@ -10,7 +10,7 @@ use std::{
 use libloading::Symbol;
 use zkpoly_common::{
     arith::{
-        Arith, ArithBinOp, ArithGraph, ArithUnrOp, BinOp, FusedType, Mutability, Operation, POp,
+        Arith, ArithBinOp, ArithGraph, ArithUnrOp, BinOp, FusedType, Mutability, Operation, 
         SpOp, UnrOp,
     },
     heap::UsizeId,
@@ -391,11 +391,11 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                         let arg: usize = arg.clone().into();
                         let head: usize = head.into();
                         match op {
-                            UnrOp::P(POp::Neg) => {
+                            UnrOp::P(ArithUnrOp::Neg) => {
                                 kernel +=
                                     &format!("auto {TMP_PREFIX}{} = -{TMP_PREFIX}{};\n", head, arg);
                             }
-                            UnrOp::P(POp::Inv) => {
+                            UnrOp::P(ArithUnrOp::Inv) => {
                                 eprintln!("Warning: inversion is very expensive, consider using batched inv first");
                                 kernel += &format!(
                                     "auto {TMP_PREFIX}{} = {TMP_PREFIX}{}.invert();\n",

@@ -15,11 +15,15 @@ pub enum SpOp {
     DivBy,
 }
 
-/// Unary polynomial operator
-#[derive(Debug, Clone)]
-pub enum POp {
-    Neg,
-    Inv,
+impl SpOp {
+    pub fn for_4ops(op: ArithBinOp, rev: bool) -> Self {
+        match op {
+            ArithBinOp::Add => SpOp::Add,
+            ArithBinOp::Sub => if rev { SpOp::SubBy } else { SpOp::Sub },
+            ArithBinOp::Mul => SpOp::Mul,
+            ArithBinOp::Div => if rev { SpOp::DivBy } else { SpOp::Div },
+        }
+    }
 }
 
 mod op_template {
@@ -56,7 +60,7 @@ pub enum ArithUnrOp {
 }
 
 pub type BinOp = op_template::BinOp<ArithBinOp, ArithBinOp, SpOp>;
-pub type UnrOp = op_template::UnrOp<POp, ArithUnrOp>;
+pub type UnrOp = op_template::UnrOp<ArithUnrOp, ArithUnrOp>;
 
 define_usize_id!(ExprId);
 
@@ -65,6 +69,25 @@ define_usize_id!(ExprId);
 pub enum Arith<Index> {
     Bin(BinOp, Index, Index),
     Unr(UnrOp, Index),
+}
+
+impl<I> Arith<I>
+where
+    I: Copy,
+{
+    pub fn uses<'s>(&'s self) -> Box<dyn Iterator<Item = I> + 's> {
+        match self {
+            Arith::Bin(_, lhs, rhs) => Box::new([*lhs, *rhs].into_iter()),
+            Arith::Unr(_, rhs) => Box::new([*rhs].into_iter()),
+        }
+    }
+
+    pub fn relabeled<I2>(&self, f: &mut impl FnMut(I) -> I2) -> Arith<I2> {
+        match self {
+            Arith::Bin(op, lhs, rhs) => Arith::Bin(op.clone(), f(*lhs), f(*rhs)),
+            Arith::Unr(op, rhs) => Arith::Unr(op.clone(), f(*rhs)),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -116,10 +139,9 @@ impl<OuterId, ArithIndex> Vertex<OuterId, ArithIndex>
 where
     ArithIndex: Copy + 'static,
 {
-    pub fn uses(&self) -> Box<dyn Iterator<Item = ArithIndex>> {
+    pub fn uses<'s>(&'s self) -> Box<dyn Iterator<Item = ArithIndex> + 's> {
         match &self.op {
-            Operation::Arith(Arith::Bin(_, lhs, rhs)) => Box::new([*lhs, *rhs].into_iter()),
-            Operation::Arith(Arith::Unr(_, rhs)) => Box::new([*rhs].into_iter()),
+            Operation::Arith(a) => a.uses(),
             Operation::Output {
                 store_node,
                 in_node,

@@ -1,18 +1,14 @@
-pub use crate::transit::{
-    self,
-    type2::{template, Typ},
-    PolyInit,
-};
+pub use crate::transit::{self, PolyInit};
 use std::{fmt::Debug, marker::PhantomData, panic::Location, rc::Rc};
 use zkpoly_common::{arith, digraph::internal::Digraph};
 pub use zkpoly_runtime::args::{Constant, ConstantId};
 use zkpoly_runtime::args::{RuntimeType, TryBorrowVariable, Variable};
 
-use self::transit::type2::{partial_typed::Vertex, VertexId, VertexNode};
+use self::transit::type2::{self, VertexId, VertexNode};
 
 pub mod lowering;
 
-use lowering::Cg;
+use lowering::{Cg, Typ, Vertex};
 
 pub trait TypeEraseable<Rt: RuntimeType>: std::fmt::Debug + 'static {
     fn erase<'s>(&self, cg: &mut Cg<'s, Rt>) -> VertexId;
@@ -68,9 +64,19 @@ where
     }
 }
 
-impl<Rt: RuntimeType> TypeEraseable<Rt> for CommonNode<Rt> {
-    fn erase<'s>(&self, cg: &mut Cg<'s, Rt>) -> VertexId {
-        unimplemented!()
+impl<Rt: RuntimeType> CommonNode<Rt> {
+    fn vertex<'s>(&self, cg: &mut Cg<'s, Rt>, src: transit::SourceInfo<'static>) -> Vertex<'s, Rt> {
+        match self {
+            CommonNode::TupleGet(tuple, idx) => {
+                let tuple = tuple.erase(cg);
+                Vertex::new(VertexNode::TupleGet(tuple, *idx), None, src)
+            }
+            CommonNode::ArrayGet(array, idx) => {
+                let array = array.erase(cg);
+                Vertex::new(VertexNode::ArrayGet(array, *idx), None, src)
+            }
+            CommonNode::FunctionCall(..) => todo!("handler user function call"),
+        }
     }
 }
 
@@ -84,6 +90,12 @@ pub struct AstVertex<Rt: RuntimeType>(Box<dyn TypeEraseable<Rt>>);
 impl<Rt: RuntimeType> AstVertex<Rt> {
     fn new(t: impl TypeEraseable<Rt>) -> Self {
         Self(Box::new(t))
+    }
+}
+
+impl<Rt: RuntimeType> TypeEraseable<Rt> for AstVertex<Rt> {
+    fn erase<'s>(&self, cg: &mut Cg<'s, Rt>) -> VertexId {
+        self.0.erase(cg)
     }
 }
 
@@ -120,6 +132,14 @@ impl<T> Outer<T> {
         Self {
             inner: Rc::new(Inner { t, src }),
         }
+    }
+
+    pub fn src(&self) -> &SourceInfo {
+        &self.inner.src
+    }
+
+    pub fn src_lowered(&self) -> transit::SourceInfo<'static> {
+        self.inner.src.clone().into()
     }
 }
 
@@ -180,6 +200,38 @@ pub enum LagrangeArith<P, S> {
     Unr(arith::ArithUnrOp, P),
 }
 
+impl<P, S> LagrangeArith<P, S> {
+    pub fn to_arith<'s, Rt: RuntimeType>(&self, cg: &mut Cg<'s, Rt>) -> arith::Arith<VertexId>
+    where
+        P: TypeEraseable<Rt>,
+        S: TypeEraseable<Rt>,
+    {
+        use arith::{Arith, BinOp, SpOp, UnrOp};
+        use LagrangeArith::*;
+        match self {
+            Bin(op, lhs, rhs) => {
+                let lhs = lhs.erase(cg);
+                let rhs = rhs.erase(cg);
+                Arith::Bin(BinOp::Pp(op.clone()), lhs, rhs)
+            }
+            Sp(op, lhs, rhs) => {
+                let lhs = lhs.erase(cg);
+                let rhs = rhs.erase(cg);
+                Arith::Bin(BinOp::Sp(SpOp::for_4ops(op.clone(), false)), lhs, rhs)
+            }
+            Ps(op, lhs, rhs) => {
+                let lhs = lhs.erase(cg);
+                let rhs = rhs.erase(cg);
+                Arith::Bin(BinOp::Sp(SpOp::for_4ops(op.clone(), true)), rhs, lhs)
+            }
+            Unr(op, p) => {
+                let p = p.erase(cg);
+                Arith::Unr(UnrOp::P(op.clone()), p)
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum CoefArith<P, S> {
     AddPp(P, P),
@@ -190,10 +242,73 @@ pub enum CoefArith<P, S> {
     Neg(P),
 }
 
+impl<P, S> CoefArith<P, S> {
+    pub fn to_arith<'s, Rt: RuntimeType>(&self, cg: &mut Cg<'s, Rt>) -> arith::Arith<VertexId>
+    where
+        P: TypeEraseable<Rt>,
+        S: TypeEraseable<Rt>,
+    {
+        use arith::{Arith, BinOp, SpOp, UnrOp};
+        use CoefArith::*;
+        match self {
+            AddPp(lhs, rhs) => {
+                let lhs = lhs.erase(cg);
+                let rhs = rhs.erase(cg);
+                Arith::Bin(BinOp::Pp(arith::ArithBinOp::Add), lhs, rhs)
+            }
+            AddPs(lhs, rhs) => {
+                let lhs = lhs.erase(cg);
+                let rhs = rhs.erase(cg);
+                Arith::Bin(BinOp::Sp(SpOp::Add), rhs, lhs)
+            }
+            SubPp(lhs, rhs) => {
+                let lhs = lhs.erase(cg);
+                let rhs = rhs.erase(cg);
+                Arith::Bin(BinOp::Pp(arith::ArithBinOp::Sub), lhs, rhs)
+            }
+            SubPs(lhs, rhs) => {
+                let lhs = lhs.erase(cg);
+                let rhs = rhs.erase(cg);
+                Arith::Bin(BinOp::Sp(SpOp::SubBy), rhs, lhs)
+            }
+            SubSp(lhs, rhs) => {
+                let lhs = lhs.erase(cg);
+                let rhs = rhs.erase(cg);
+                Arith::Bin(BinOp::Sp(SpOp::Sub), lhs, rhs)
+            }
+            Neg(p) => {
+                let p = p.erase(cg);
+                Arith::Unr(UnrOp::P(arith::ArithUnrOp::Neg), p)
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum ScalarArith<S> {
     Bin(arith::ArithBinOp, S, S),
     Unr(arith::ArithUnrOp, S),
+}
+
+impl<S> ScalarArith<S> {
+    pub fn to_arith<'s, Rt: RuntimeType>(&self, cg: &mut Cg<'s, Rt>) -> arith::Arith<VertexId>
+    where
+        S: TypeEraseable<Rt>,
+    {
+        use arith::{Arith, BinOp, SpOp, UnrOp};
+        use ScalarArith::*;
+        match self {
+            Bin(op, lhs, rhs) => {
+                let lhs = lhs.erase(cg);
+                let rhs = rhs.erase(cg);
+                Arith::Bin(BinOp::Ss(op.clone()), lhs, rhs)
+            }
+            Unr(op, p) => {
+                let p = p.erase(cg);
+                Arith::Unr(UnrOp::S(op.clone()), p)
+            }
+        }
+    }
 }
 
 pub mod array;

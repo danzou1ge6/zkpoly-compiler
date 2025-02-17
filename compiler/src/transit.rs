@@ -1,14 +1,26 @@
 //! Common data structures for Transit IR's
 
-use std::any;
+use std::{any, panic::Location};
 use std::marker::PhantomData;
 
 use zkpoly_common::{digraph::internal::Digraph, heap::Heap};
 use zkpoly_runtime::args::RuntimeType;
 
+use crate::ast;
+
 #[derive(Debug, Clone)]
 pub struct SourceInfo<'s> {
-    _marker: PhantomData<&'s str>,
+    location: Location<'s>,
+    name: Option<String>,
+}
+
+impl From<ast::SourceInfo> for SourceInfo<'_> {
+    fn from(value: ast::SourceInfo) -> Self {
+        Self {
+            location: value.loc,
+            name: value.name,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -43,10 +55,10 @@ impl<I, V> Default for Cg<I, V> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum HashTyp {
-    HashPoint,
-    HashScalar,
+    WriteProof,
+    NoWriteProof
 }
 
 #[derive(Debug, Clone)]

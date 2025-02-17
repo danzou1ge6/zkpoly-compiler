@@ -1,5 +1,9 @@
 use std::ops::{Add, Neg, Sub};
 
+use zkpoly_common::typ::PolyType;
+
+use type2::NttAlgorithm;
+
 use super::*;
 
 #[derive(Debug)]
@@ -10,14 +14,87 @@ pub enum PolyCoefNode<Rt: RuntimeType> {
     Entry(u64),
     FromLagrange(PolyLagrange<Rt>),
     Extend(PolyCoef<Rt>, u64),
-    Assemble(Vec<Scalar<Rt>>),
+    Assemble(Vec<Scalar<Rt>>, u64),
     Interplote {
         xs: Vec<Scalar<Rt>>,
         ys: Vec<Scalar<Rt>>,
     },
+    Common(CommonNode<Rt>),
 }
 
 pub type PolyCoef<Rt: RuntimeType> = Outer<PolyCoefNode<Rt>>;
+
+impl<Rt: RuntimeType> From<(CommonNode<Rt>, SourceInfo)> for PolyCoef<Rt> {
+    fn from(value: (CommonNode<Rt>, SourceInfo)) -> Self {
+        Self::new(PolyCoefNode::Common(value.0), value.1)
+    }
+}
+
+impl<Rt: RuntimeType> TypeEraseable<Rt> for PolyCoef<Rt> {
+    fn erase<'s>(&self, cg: &mut Cg<'s, Rt>) -> VertexId {
+        use PolyCoefNode::*;
+        let new_vertex = |node, typ| Vertex::new(node, typ, self.src_lowered());
+
+        cg.lookup_or_insert_with(self.as_ptr(), |cg| match &self.inner.t {
+            Arith(arith) => {
+                let arith = arith.to_arith(cg);
+                new_vertex(
+                    VertexNode::SingleArith(arith),
+                    Some(Typ::coef()),
+                )
+            }
+            New(init, deg) => new_vertex(
+                VertexNode::NewPoly(*deg, init.clone(), PolyType::Coef),
+                Some(Typ::coef()),
+            ),
+            Constant(data) => {
+                let value = unimplemented!();
+                let constant_id = cg.add_constant(value, self.src().name.clone());
+                new_vertex(
+                    VertexNode::Constant(constant_id),
+                    Some(Typ::coef_with_deg(data.len() as u64)),
+                )
+            }
+            Entry(deg) => todo!("track entry ID"),
+            FromLagrange(values) => {
+                let values = values.erase(cg);
+                new_vertex(
+                    VertexNode::Ntt {
+                        s: values,
+                        to: PolyType::Coef,
+                        from: PolyType::Lagrange,
+                        alg: NttAlgorithm::default(),
+                    },
+                    Some(Typ::coef()),
+                )
+            }
+            Extend(poly, deg) => {
+                let poly = poly.erase(cg);
+                new_vertex(
+                    VertexNode::Extend(poly, *deg),
+                    Some(Typ::coef_with_deg(*deg)),
+                )
+            }
+            Assemble(values, deg) => {
+                let values = values.iter().cloned().map(|x| x.erase(cg)).collect();
+                new_vertex(
+                    VertexNode::AssmblePoly(*deg, values),
+                    Some(Typ::coef_with_deg(*deg)),
+                )
+            }
+            Interplote { xs, ys } => {
+                let deg = xs.len() as u64;
+                let xs = xs.iter().cloned().map(|x| x.erase(cg)).collect();
+                let ys = ys.iter().cloned().map(|y| y.erase(cg)).collect();
+                new_vertex(
+                    VertexNode::Interplote { xs, ys },
+                    Some(Typ::coef_with_deg(deg)),
+                )
+            }
+            Common(cn) => cn.vertex(cg, self.src_lowered()),
+        })
+    }
+}
 
 impl<Rt: RuntimeType> PolyCoef<Rt> {
     fn pp_op(
@@ -83,9 +160,9 @@ impl<Rt: RuntimeType> PolyCoef<Rt> {
     }
 
     #[track_caller]
-    pub fn assemble(&self, xs: Vec<Scalar<Rt>>) -> Self {
+    pub fn assemble(&self, xs: Vec<Scalar<Rt>>, deg: u64) -> Self {
         let src = SourceInfo::new(Location::caller().clone(), None);
-        PolyCoef::new(PolyCoefNode::Assemble(xs), src)
+        PolyCoef::new(PolyCoefNode::Assemble(xs, deg), src)
     }
 
     #[track_caller]

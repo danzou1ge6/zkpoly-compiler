@@ -10,9 +10,43 @@ pub enum ScalarNode<Rt: RuntimeType> {
     Constant(Rt::Field),
     Entry,
     EvaluatePoly(PolyCoef<Rt>, Scalar<Rt>),
+    Common(CommonNode<Rt>),
 }
 
 pub type Scalar<Rt: RuntimeType> = Outer<ScalarNode<Rt>>;
+
+impl<Rt: RuntimeType> From<(CommonNode<Rt>, SourceInfo)> for Scalar<Rt> {
+    fn from(value: (CommonNode<Rt>, SourceInfo)) -> Self {
+        Scalar::new(ScalarNode::Common(value.0), value.1)
+    }
+}
+
+impl<Rt: RuntimeType> TypeEraseable<Rt> for Scalar<Rt> {
+    fn erase<'s>(&self, cg: &mut Cg<'s, Rt>) -> VertexId {
+        cg.lookup_or_insert_with(self.as_ptr(), |cg| {
+            use ScalarNode::*;
+            let new_vertex = |node, typ| Vertex::new(node, typ, self.src_lowered());
+
+            match &self.inner.t {
+                Arith(sa) => {
+                    let arith = sa.to_arith(cg);
+                    new_vertex(VertexNode::SingleArith(arith), Some(Typ::Scalar))
+                }
+                Constant(x) => {
+                    let constant = unimplemented!();
+                    new_vertex(VertexNode::Constant(constant), Some(Typ::Scalar))
+                }
+                Entry => todo!("track entry ID"),
+                EvaluatePoly(poly, scalar) => {
+                    let poly = poly.erase(cg);
+                    let at = scalar.erase(cg);
+                    new_vertex(VertexNode::EvaluatePoly { poly, at }, Some(Typ::Scalar))
+                }
+                Common(cn) => cn.vertex(cg, self.src_lowered()),
+            }
+        })
+    }
+}
 
 impl<Rt: RuntimeType> Scalar<Rt> {
     fn ss_op(&self, rhs: &Scalar<Rt>, op: ArithBinOp, src: SourceInfo) -> Self {
