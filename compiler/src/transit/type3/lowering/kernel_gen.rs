@@ -37,7 +37,26 @@ impl KernelType {
             VertexNode::EvaluatePoly { .. } => Some(Self::EvaluatePoly),
             VertexNode::BatchedInvert(..) => Some(Self::BatchedInvert),
             VertexNode::ScanMul(..) => Some(Self::ScanMul),
-            _ => None,
+            VertexNode::Constant(_) => todo!(),
+            VertexNode::Entry => todo!(),
+            VertexNode::Return => todo!(),
+            VertexNode::LiteralScalar(_) => todo!(),
+            VertexNode::RotateIdx(_, _) => todo!(),
+            VertexNode::Interplote { xs, ys } => todo!(),
+            VertexNode::Blind(_, _) => todo!(),
+            VertexNode::Array(items) => todo!(),
+            VertexNode::AssmblePoly(_, _) => todo!(),
+            VertexNode::HashTranscript {
+                transcript,
+                value,
+                typ,
+            } => todo!(),
+            VertexNode::SqueezeScalar(_) => todo!(),
+            VertexNode::TupleGet(_, _) => todo!(),
+            VertexNode::ArrayGet(_, _) => todo!(),
+            VertexNode::UserFunction(_, items) => todo!(),
+            VertexNode::DistributePowers { scalar, poly } => todo!(),
+            VertexNode::NewPoly(_, _) => todo!(),
         }
     }
 }
@@ -72,6 +91,7 @@ pub fn get_function_id<'s, Rt: RuntimeType>(
     program: &Chunk<'s, Rt>,
     libs: &mut Libs,
 ) -> GeneratedFunctions {
+    gen_fused_kernels(program);
     let mut inst2func = BTreeMap::new();
     let mut kernel2func: BTreeMap<KernelType, FunctionId> = BTreeMap::new();
     for (id, instruct) in program.iter_instructions() {

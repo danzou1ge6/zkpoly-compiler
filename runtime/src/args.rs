@@ -6,6 +6,7 @@ use crate::transcript::{EncodedChallenge, Transcript};
 use group::ff::Field;
 use pasta_curves::arithmetic::CurveAffine;
 use std::fmt::Debug;
+use std::sync::{Arc, Mutex};
 use std::{any::Any, sync::RwLock};
 use zkpoly_common::heap;
 use zkpoly_cuda_api::stream::CudaStream;
@@ -14,7 +15,7 @@ zkpoly_common::define_usize_id!(VariableId);
 zkpoly_common::define_usize_id!(ConstantId);
 
 pub type VariableTable<T> = heap::Heap<VariableId, RwLock<Option<Variable<T>>>>;
-pub type ConstantTable<T> = heap::Heap<ConstantId, Constant<T>>;
+pub type ConstantTable<T> = heap::Heap<ConstantId, Mutex<Option<Constant<T>>>>;
 
 pub trait RuntimeType: 'static + Clone + Send + Sync + Debug {
     type Field: Field;
@@ -23,6 +24,7 @@ pub trait RuntimeType: 'static + Clone + Send + Sync + Debug {
     type Trans: Transcript<Self::PointAffine, Self::Challenge>;
 }
 
+#[derive(Debug, Clone)]
 pub enum Variable<T: RuntimeType> {
     ScalarArray(ScalarArray<T::Field>),
     PointArray(PointArray<T::PointAffine>),
@@ -30,9 +32,8 @@ pub enum Variable<T: RuntimeType> {
     Transcript(T::Trans),            // cpu only
     Point(Point<T::PointAffine>),    // cpu only
     Tuple(Vec<Variable<T>>),         // cpu only
-    Array(Box<[Variable<T>]>),       // cpu only
     Stream(CudaStream),              // cpu only
-    Any(Box<dyn Any + Send + Sync>), // cpu only
+    Any(Arc<dyn Any + Send + Sync>), // cpu only
     GpuBuffer(GpuBuffer),            // gpu only
 }
 
@@ -125,20 +126,6 @@ impl<T: RuntimeType> Variable<T> {
         }
     }
 
-    pub fn unwrap_array(&self) -> &[Variable<T>] {
-        match self {
-            Variable::Array(array) => array,
-            _ => panic!("unwrap_array: not an array"),
-        }
-    }
-
-    pub fn unwrap_array_mut(&mut self) -> &mut [Variable<T>] {
-        match self {
-            Variable::Array(array) => array,
-            _ => panic!("unwrap_array_mut: not an array"),
-        }
-    }
-
     pub fn unwrap_stream(&self) -> &CudaStream {
         match self {
             Variable::Stream(stream) => stream,
@@ -150,13 +137,6 @@ impl<T: RuntimeType> Variable<T> {
         match self {
             Variable::Any(any) => any.as_ref(),
             _ => panic!("unwrap_any: not an any"),
-        }
-    }
-
-    pub fn unwrap_any_mut(&mut self) -> &mut dyn Any {
-        match self {
-            Variable::Any(any) => any.as_mut(),
-            _ => panic!("unwrap_any_mut: not an any"),
         }
     }
 
@@ -176,8 +156,8 @@ impl<T: RuntimeType> Variable<T> {
 }
 
 pub struct Constant<T: RuntimeType> {
-    name: String,
-    value: Variable<T>,
+    pub name: String,
+    pub value: Variable<T>,
 }
 
 impl<T: RuntimeType> Constant<T> {

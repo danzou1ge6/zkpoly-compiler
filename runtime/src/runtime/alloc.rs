@@ -23,7 +23,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         gpu_allocator: &Option<Vec<CudaAllocator>>,
     ) -> Variable<T> {
         match typ {
-            Typ::ScalarArray { len, meta } => {
+            Typ::ScalarArray { len, meta: _ } => {
                 let poly = match device {
                     DeviceType::CPU => ScalarArray::<T::Field>::new(
                         len as usize,
@@ -38,7 +38,6 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     ),
                     DeviceType::Disk => todo!(),
                 };
-                todo!("set slice and rotation metadata; perhaps change all usize's to u64");
                 Variable::ScalarArray(poly)
             }
             Typ::PointBase { len } => {
@@ -71,11 +70,8 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                 assert!(device.is_cpu());
                 Variable::Point(crate::point::Point::new(T::PointAffine::identity()))
             }
-            Typ::Tuple => {
-                let mut vars = Vec::new();
-                Variable::Tuple(vars)
-            }
-            Typ::Any(_, _) => unreachable!(),
+            Typ::Tuple => unreachable!("Tuple can only be assembled"),
+            Typ::Any(_, _) => unimplemented!(),
             Typ::Stream => {
                 let device = device.unwrap_gpu();
                 Variable::Stream(CudaStream::new(device))
@@ -97,12 +93,15 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         mem_allocator: &Option<PinnedMemoryPool>,
     ) {
         match var {
-            Variable::ScalarArray(poly) => match poly.device {
-                DeviceType::CPU => {
-                    mem_allocator.as_ref().unwrap().free(poly.values);
+            Variable::ScalarArray(poly) => {
+                assert!(poly.slice_info.is_none(), "slice can't be deallocated");
+                match poly.device {
+                    DeviceType::CPU => {
+                        mem_allocator.as_ref().unwrap().free(poly.values);
+                    }
+                    _ => {}
                 }
-                _ => {}
-            },
+            }
             Variable::PointArray(point_base) => match point_base.device {
                 DeviceType::CPU => {
                     mem_allocator.as_ref().unwrap().free(point_base.values);
@@ -114,10 +113,8 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     self.deallocate(var, mem_allocator);
                 }
             }
-            Variable::Array(array) => {
-                for var in array.iter_mut() {
-                    self.deallocate(var, mem_allocator);
-                }
+            Variable::Stream(stream) => {
+                stream.destroy();
             }
             _ => {}
         }

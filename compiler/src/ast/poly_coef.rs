@@ -97,7 +97,10 @@ impl<Rt: RuntimeType> PolyCoef<Rt> {
     #[track_caller]
     pub fn evaluate(&self, x: &Scalar<Rt>) -> Scalar<Rt> {
         let src = SourceInfo::new(Location::caller().clone(), None);
-        Scalar::new(scalar::ScalarNode::EvaluatePoly(self.clone(), x.clone()), src)
+        Scalar::new(
+            scalar::ScalarNode::EvaluatePoly(self.clone(), x.clone()),
+            src,
+        )
     }
 }
 

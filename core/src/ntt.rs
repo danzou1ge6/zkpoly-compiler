@@ -1,5 +1,5 @@
 use std::any::type_name;
-use std::ffi::c_longlong;
+use std::ffi::{c_longlong, c_ulonglong};
 use std::marker::PhantomData;
 use std::os::raw::c_uint;
 
@@ -66,6 +66,20 @@ pub struct RecomputeNtt<T: RuntimeType> {
     >,
 }
 
+pub struct DistributePowers<T: RuntimeType> {
+    _marker: PhantomData<T>,
+    c_func: Symbol<
+        'static,
+        unsafe extern "C" fn(
+            x: *mut c_uint,
+            x_rotate: c_longlong,
+            zeta: *const c_uint,
+            len: c_ulonglong,
+            stream: cudaStream_t,
+        ) -> cudaError_t,
+    >,
+}
+
 pub struct GenPqOmegas<T: RuntimeType> {
     _marker: PhantomData<T>,
     c_func: Symbol<
@@ -78,6 +92,54 @@ pub struct GenPqOmegas<T: RuntimeType> {
             unit: *const c_uint,
         ),
     >,
+}
+
+impl<T: RuntimeType> DistributePowers<T> {
+    pub fn new(libs: &mut Libs) -> Self {
+        let field_type = resolve_type(type_name::<T::Field>());
+        xmake_config("NTT_FIELD", field_type);
+        xmake_run("ntt");
+
+        // load the dynamic library
+        let lib = libs.load("../lib/libntt.so");
+        // get the function pointer
+        let c_func = unsafe { lib.get(b"distribute_pow_zeta\0") }.unwrap();
+        Self {
+            _marker: PhantomData,
+            c_func,
+        }
+    }
+}
+
+impl<T: RuntimeType> RegisteredFunction<T> for DistributePowers<T> {
+    fn get_fn(&self) -> Function<T> {
+        let c_func = self.c_func.clone();
+        let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
+                              var: Vec<&Variable<T>>|
+              -> Result<(), RuntimeError> {
+            assert!(mut_var.len() == 1);
+            assert!(var.len() == 2);
+            let x = mut_var[0].unwrap_scalar_array_mut();
+            let zeta = var[0].unwrap_scalar_array();
+            assert_eq!(zeta.len, 2);
+            let stream = var[1].unwrap_stream();
+            unsafe {
+                cuda_check!(cudaSetDevice(stream.get_device()));
+                cuda_check!((c_func)(
+                    x.values as *mut c_uint,
+                    x.get_rotation() as i64,
+                    zeta.values as *const c_uint,
+                    x.len as c_ulonglong,
+                    stream.raw(),
+                ));
+            }
+            Ok(())
+        };
+        Function {
+            name: "distribute_pow_zeta".to_string(),
+            f: FunctionValue::Fn(Box::new(rust_func)),
+        }
+    }
 }
 
 impl<T: RuntimeType> SsipNtt<T> {

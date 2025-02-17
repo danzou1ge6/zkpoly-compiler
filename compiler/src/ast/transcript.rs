@@ -7,7 +7,7 @@ pub enum TranscriptNode<Rt: RuntimeType> {
     HashLagrange(Transcript<Rt>, PolyLagrange<Rt>),
     HashCoef(Transcript<Rt>, PolyCoef<Rt>),
     HashPoint(Transcript<Rt>, Point<Rt>),
-    Common(CommonNode<Rt>)
+    Common(CommonNode<Rt>),
 }
 
 pub type Transcript<Rt: RuntimeType> = Outer<TranscriptNode<Rt>>;
@@ -40,7 +40,10 @@ impl<Rt: RuntimeType> Transcript<Rt> {
     #[track_caller]
     pub fn hash_lagrange(&self, data: &PolyLagrange<Rt>) -> Self {
         let src = SourceInfo::new(Location::caller().clone(), None);
-        Self::new(TranscriptNode::HashLagrange(self.clone(), data.clone()), src)
+        Self::new(
+            TranscriptNode::HashLagrange(self.clone(), data.clone()),
+            src,
+        )
     }
 
     #[track_caller]
@@ -55,4 +58,3 @@ impl<Rt: RuntimeType> Transcript<Rt> {
         Tuple2::from_squeeze_scalar(self.clone(), src)
     }
 }
-

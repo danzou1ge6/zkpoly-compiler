@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use super::track_splitting::split;
+use super::{Track, VertexNode};
 use kernel_gen::GeneratedFunctions;
 use zkpoly_common::define_usize_id;
 use zkpoly_common::heap::{Heap, IdAllocator};
@@ -9,7 +10,6 @@ use zkpoly_runtime::args::{RuntimeType, VariableId};
 use zkpoly_runtime::devices::{DeviceType, Event, EventTable, ThreadId};
 use zkpoly_runtime::functions::FunctionTable;
 use zkpoly_runtime::instructions::Instruction;
-use super::Track;
 
 mod emit_func;
 mod kernel_gen;
@@ -302,19 +302,35 @@ fn lower_instruction<'s, Rt: RuntimeType>(
     emit: &mut impl FnMut(Instruction),
 ) {
     match &inst.node {
-        super::InstructionNode::Type2 { ids, temp, vertex } => {
-            emit_func::emit_func(
-                ids,
-                temp,
-                track,
-                vertex,
-                t3chunk,
-                reg_id2var_id,
-                stream2variable_id,
-                generated_functions.at(t3idx),
-                emit,
-            );
-        }
+        super::InstructionNode::Type2 { ids, temp, vertex } => match vertex {
+            VertexNode::NewPoly(_, _) => todo!(),
+            VertexNode::Constant(constant_id) => emit(Instruction::LoadConstant {
+                src: *constant_id,
+                dst: reg_id2var_id(ids[0]),
+            }),
+            VertexNode::Entry => todo!(),
+            VertexNode::Return => {}
+            VertexNode::LiteralScalar(_) => todo!(),
+            VertexNode::RotateIdx(id, shift) => emit(Instruction::Rotation {
+                id: reg_id2var_id(*id),
+                shift: *shift as i64,
+            }),
+            VertexNode::Array(items) => todo!(),
+            VertexNode::AssmblePoly(_, _) => todo!(),
+            VertexNode::SqueezeScalar(_) => todo!(),
+            _ => {
+                emit_func::emit_func(
+                    ids,
+                    temp,
+                    track,
+                    vertex,
+                    reg_id2var_id,
+                    stream2variable_id,
+                    generated_functions.at(t3idx),
+                    emit,
+                );
+            }
+        },
         super::InstructionNode::GpuMalloc { id, addr } => {
             let var_id = reg_id2var_id(*id);
 

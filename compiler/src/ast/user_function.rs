@@ -67,7 +67,10 @@ where
     R: RuntimeCorrespondance<Rt>,
 {
     #[track_caller]
-    pub fn new_fn(name: String, f: impl Fn(&T0::Rtc, &T1::Rtc) -> RuntimeResult<R::Rtc> + Send + Sync + 'static) -> Self {
+    pub fn new_fn(
+        name: String,
+        f: impl Fn(&T0::Rtc, &T1::Rtc) -> RuntimeResult<R::Rtc> + Send + Sync + 'static,
+    ) -> Self {
         let f = move |args: Vec<&Variable<Rt>>| -> RuntimeResult<Variable<Rt>> {
             let arg0 = T0::Rtc::try_borrow(&args[0])?;
             let arg1 = T1::Rtc::try_borrow(&args[1])?;

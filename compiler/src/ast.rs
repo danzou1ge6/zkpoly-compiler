@@ -5,8 +5,8 @@ pub use crate::transit::{
 };
 use std::{fmt::Debug, marker::PhantomData, panic::Location, rc::Rc};
 use zkpoly_common::{arith, digraph::internal::Digraph};
-use zkpoly_runtime::args::{RuntimeType, TryBorrowVariable, Variable};
 pub use zkpoly_runtime::args::{Constant, ConstantId};
+use zkpoly_runtime::args::{RuntimeType, TryBorrowVariable, Variable};
 
 use self::transit::type2::{partial_typed::Vertex, VertexId, VertexNode};
 
@@ -20,7 +20,11 @@ pub trait TypeEraseable<Rt: RuntimeType>: std::fmt::Debug + 'static {
 
 pub trait CommonConstructors<Rt: RuntimeType> {
     fn from_tuple_get(tuple: TupleUntyped<Rt>, idx: usize, src: SourceInfo) -> Self;
-    fn from_function_call(f: FunctionUntyped<Rt>, args: Vec<AstVertex<Rt>>, src: SourceInfo) -> Self;
+    fn from_function_call(
+        f: FunctionUntyped<Rt>,
+        args: Vec<AstVertex<Rt>>,
+        src: SourceInfo,
+    ) -> Self;
     fn from_array_get(array: ArrayUntyped<Rt>, idx: usize, src: SourceInfo) -> Self;
 }
 
@@ -43,12 +47,19 @@ impl<Rt: RuntimeType> CommonNode<Rt> {
     }
 }
 
-impl<T, Rt: RuntimeType> CommonConstructors<Rt> for T where T: From<(CommonNode<Rt>, SourceInfo)> {
+impl<T, Rt: RuntimeType> CommonConstructors<Rt> for T
+where
+    T: From<(CommonNode<Rt>, SourceInfo)>,
+{
     fn from_tuple_get(tuple: TupleUntyped<Rt>, idx: usize, src: SourceInfo) -> Self {
         (CommonNode::from_tuple_get(tuple, idx), src).into()
     }
 
-    fn from_function_call(f: FunctionUntyped<Rt>, args: Vec<AstVertex<Rt>>, src: SourceInfo) -> Self {
+    fn from_function_call(
+        f: FunctionUntyped<Rt>,
+        args: Vec<AstVertex<Rt>>,
+        src: SourceInfo,
+    ) -> Self {
         (CommonNode::from_function_call(f, args), src).into()
     }
 
@@ -185,15 +196,14 @@ pub enum ScalarArith<S> {
     Unr(arith::ArithUnrOp, S),
 }
 
-
 pub mod array;
 pub mod point;
 pub mod poly_coef;
 pub mod poly_lagrange;
 pub mod scalar;
+pub mod transcript;
 pub mod tuple;
 pub mod user_function;
-pub mod transcript;
 pub mod whatever;
 
 use array::ArrayUntyped;
@@ -202,11 +212,13 @@ use user_function::FunctionUntyped;
 use whatever::WhateverUntyped;
 
 pub use array::{Array, ArrayNode};
-pub use point::{PrecomputedPoints, PrecomputedPointsData, Point, PointNode};
+pub use point::{Point, PointNode, PrecomputedPoints, PrecomputedPointsData};
 pub use poly_coef::{PolyCoef, PolyCoefNode};
 pub use poly_lagrange::{PolyLagrange, PolyLagrangeNode};
 pub use scalar::Scalar;
-pub use tuple::{TupleNode, Tuple2, Tuple3, Tuple4, Tuple5, Tuple6, Tuple7, Tuple8, Tuple9, Tuple10};
-pub use user_function::FunctionData;
 pub use transcript::{Transcript, TranscriptNode};
+pub use tuple::{
+    Tuple10, Tuple2, Tuple3, Tuple4, Tuple5, Tuple6, Tuple7, Tuple8, Tuple9, TupleNode,
+};
+pub use user_function::FunctionData;
 pub use whatever::{Whatever, WhateverNode};

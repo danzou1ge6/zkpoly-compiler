@@ -1,21 +1,17 @@
-use super::super::{Chunk, RegisterId, VertexNode};
-use super::{kernel_gen, Stream, StreamSpecific, Track};
-use zkpoly_common::msm_config::MsmConfig;
+use super::super::{RegisterId, VertexNode};
+use super::{Stream, StreamSpecific, Track};
 use zkpoly_core::fused_kernels::gen_var_lists;
 use zkpoly_runtime::{
     args::{RuntimeType, VariableId},
-    devices::ThreadId,
-    functions::{FunctionId, FunctionTable},
+    functions::FunctionId,
     instructions::Instruction,
-    scalar,
 };
 
-pub fn emit_func<'s, Rt: RuntimeType>(
+pub fn emit_func(
     outputs: &[RegisterId], // output registers
-    temp: &[RegisterId],  // temporary register to store intermediate results
+    temp: &[RegisterId],    // temporary register to store intermediate results
     track: Track,
-    vertex: &VertexNode,     // vertex node to generate kernel for
-    t3chunk: &Chunk<'s, Rt>, // the main program
+    vertex: &VertexNode, // vertex node to generate kernel for
     reg_id2var_id: &impl Fn(RegisterId) -> VariableId, // function to get variable id from register id
     stream2variable_id: &StreamSpecific<VariableId>,
     f_id: FunctionId,
@@ -35,8 +31,14 @@ pub fn emit_func<'s, Rt: RuntimeType>(
                 .collect::<Vec<_>>();
             generate_arith(arg, arg_mut, f_id, emit);
         }
-        VertexNode::Ntt { s, to, from, alg } => {
+        VertexNode::Ntt {
+            s,
+            to: _,
+            from: _,
+            alg,
+        } => {
             let poly = reg_id2var_id(*s);
+
             match alg {
                 crate::transit::type2::NttAlgorithm::Precomputed(twiddle) => {
                     let twiddle = reg_id2var_id(*twiddle);
@@ -48,12 +50,11 @@ pub fn emit_func<'s, Rt: RuntimeType>(
                     generate_ntt_recompute(poly, pq, omega, stream.unwrap(), f_id, emit);
                 }
             }
-            unimplemented!()
         }
         VertexNode::Msm {
             polys: scalars,
             points,
-            alg,
+            alg: _alg,
         } => {
             let scalar_batch = scalars
                 .iter()
@@ -98,7 +99,7 @@ pub fn emit_func<'s, Rt: RuntimeType>(
             let inv = reg_id2var_id(outputs[0]);
             generate_batched_invert(poly, temp, inv, stream.unwrap(), f_id, emit);
         }
-        _ => unreachable!(),
+        _ => unimplemented!(),
     }
 }
 
