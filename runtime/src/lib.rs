@@ -1,4 +1,5 @@
 pub mod args;
+pub mod async_rng;
 pub mod devices;
 pub mod error;
 pub mod functions;

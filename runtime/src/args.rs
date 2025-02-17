@@ -2,7 +2,7 @@ use crate::error;
 use crate::gpu_buffer::GpuBuffer;
 use crate::point::{Point, PointArray};
 use crate::scalar::{Scalar, ScalarArray};
-use crate::transcript::{EncodedChallenge, Transcript};
+use crate::transcript::{EncodedChallenge, TranscriptWrite};
 use group::ff::Field;
 use pasta_curves::arithmetic::CurveAffine;
 use std::fmt::Debug;
@@ -18,10 +18,12 @@ pub type VariableTable<T> = heap::Heap<VariableId, RwLock<Option<Variable<T>>>>;
 pub type ConstantTable<T> = heap::Heap<ConstantId, Mutex<Option<Constant<T>>>>;
 
 pub trait RuntimeType: 'static + Clone + Send + Sync + Debug {
-    type Field: Field;
     type PointAffine: CurveAffine;
+    type Field: Field
+        + Into<<Self::PointAffine as CurveAffine>::ScalarExt>
+        + From<<Self::PointAffine as CurveAffine>::ScalarExt>;
     type Challenge: EncodedChallenge<Self::PointAffine>;
-    type Trans: Transcript<Self::PointAffine, Self::Challenge>;
+    type Trans: TranscriptWrite<Self::PointAffine, Self::Challenge>;
 }
 
 #[derive(Debug, Clone)]

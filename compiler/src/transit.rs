@@ -45,8 +45,8 @@ impl<I, V> Default for Cg<I, V> {
 
 #[derive(Debug, Clone)]
 pub enum HashTyp {
-    HashPoint,
-    HashScalar,
+    WriteProof,
+    NoWriteProof,
 }
 
 #[derive(Debug, Clone)]

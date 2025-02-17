@@ -11,6 +11,14 @@ impl<P: CurveAffine> Point<P> {
     pub fn new(value: P) -> Self {
         Self { value }
     }
+
+    pub fn as_ref(&self) -> &P {
+        &self.value
+    }
+
+    pub fn as_mut(&mut self) -> &mut P {
+        &mut self.value
+    }
 }
 
 impl<P: CurveAffine> Transfer for Point<P> {

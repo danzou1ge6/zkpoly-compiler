@@ -1,3 +1,4 @@
+// This file is copied from halo2
 //! This module contains utilities and traits for dealing with Fiat-Shamir
 //! transcripts.
 

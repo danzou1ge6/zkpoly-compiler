@@ -1,13 +1,12 @@
+use crate::transit::type3::Device;
+
 use super::super::{RegisterId, VertexNode};
 use super::{Stream, StreamSpecific, Track};
 use zkpoly_core::fused_kernels::gen_var_lists;
-use zkpoly_runtime::{
-    args::{RuntimeType, VariableId},
-    functions::FunctionId,
-    instructions::Instruction,
-};
+use zkpoly_runtime::args::RuntimeType;
+use zkpoly_runtime::{args::VariableId, functions::FunctionId, instructions::Instruction};
 
-pub fn emit_func(
+pub fn emit_func<'s, Rt: RuntimeType>(
     outputs: &[RegisterId], // output registers
     temp: &[RegisterId],    // temporary register to store intermediate results
     track: Track,
@@ -15,6 +14,7 @@ pub fn emit_func(
     reg_id2var_id: &impl Fn(RegisterId) -> VariableId, // function to get variable id from register id
     stream2variable_id: &StreamSpecific<VariableId>,
     f_id: FunctionId,
+    t3chunk: &crate::transit::type3::Chunk<'s, Rt>,
     emit: &mut impl FnMut(Instruction), // function to emit instruction
 ) {
     let stream = Stream::of_track(track).map(|t| stream2variable_id.get(t).clone());
@@ -98,6 +98,78 @@ pub fn emit_func(
             let temp = reg_id2var_id(temp[0]);
             let inv = reg_id2var_id(outputs[0]);
             generate_batched_invert(poly, temp, inv, stream.unwrap(), f_id, emit);
+        }
+        VertexNode::ScanMul(poly) => {
+            let x0 = unimplemented!();
+            let poly = reg_id2var_id(*poly);
+            let temp = reg_id2var_id(temp[0]);
+            let res = reg_id2var_id(outputs[0]);
+            generate_scan_mul(poly, temp, res, x0, stream.unwrap(), f_id, emit);
+        }
+        VertexNode::AssmblePoly(_, scalars) => {
+            let scalars: Vec<VariableId> = unimplemented!();
+            let target = reg_id2var_id(outputs[0]);
+            emit(Instruction::FuncCall {
+                func_id: f_id,
+                arg_mut: vec![target],
+                arg: scalars,
+            });
+        }
+        VertexNode::DistributePowers { .. } => {
+            let poly = unimplemented!();
+            let powers = unimplemented!();
+            emit(Instruction::FuncCall {
+                func_id: f_id,
+                arg_mut: vec![poly],
+                arg: vec![powers],
+            });
+        }
+        VertexNode::HashTranscript {
+            transcript, value, ..
+        } => {
+            let transcript = reg_id2var_id(*transcript);
+            let value = reg_id2var_id(*value);
+            emit(Instruction::FuncCall {
+                func_id: f_id,
+                arg_mut: vec![transcript],
+                arg: vec![value],
+            });
+        }
+        VertexNode::Interpolate { xs, ys } => {
+            let xs = xs.iter().map(|id| reg_id2var_id(*id)).collect::<Vec<_>>();
+            let ys = ys.iter().map(|id| reg_id2var_id(*id)).collect::<Vec<_>>();
+            let target = reg_id2var_id(outputs[0]);
+            emit(Instruction::FuncCall {
+                func_id: f_id,
+                arg_mut: vec![target],
+                arg: xs.into_iter().chain(ys).collect(),
+            });
+        }
+        VertexNode::SqueezeScalar(transcript) => {
+            let transcript = reg_id2var_id(*transcript);
+            let out_scalar = reg_id2var_id(outputs[0]);
+            emit(Instruction::FuncCall {
+                func_id: f_id,
+                arg_mut: vec![out_scalar],
+                arg: vec![transcript],
+            })
+        }
+        VertexNode::NewPoly(..) => {
+            let device = t3chunk.register_devices[&outputs[0]];
+            let dst = reg_id2var_id(outputs[0]);
+            if device == Device::Cpu {
+                emit(Instruction::FuncCall {
+                    func_id: f_id,
+                    arg_mut: vec![dst],
+                    arg: vec![],
+                });
+            } else {
+                emit(Instruction::FuncCall {
+                    func_id: f_id,
+                    arg_mut: vec![dst],
+                    arg: vec![stream.unwrap()],
+                });
+            }
         }
         _ => unimplemented!(),
     }

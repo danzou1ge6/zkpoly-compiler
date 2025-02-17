@@ -5,8 +5,10 @@ use std::{
     ffi::c_ulong,
     marker::PhantomData,
     os::raw::{c_longlong, c_uint, c_ulonglong, c_void},
-    ptr::{null, null_mut},
+    ptr::{self, null, null_mut},
 };
+
+use group::ff::Field;
 
 use libloading::Symbol;
 use zkpoly_cuda_api::{
@@ -18,6 +20,7 @@ use zkpoly_cuda_api::{
 
 use zkpoly_runtime::{
     args::{RuntimeType, Variable},
+    devices::DeviceType,
     error::RuntimeError,
 };
 
@@ -90,12 +93,25 @@ pub struct PolyZero<T: RuntimeType> {
     >,
 }
 
-pub struct PolyOne<T: RuntimeType> {
+pub struct PolyOneLagrange<T: RuntimeType> {
     _marker: PhantomData<T>,
     c_func: Symbol<
         'static,
         unsafe extern "C" fn(
             target: *mut c_uint,
+            len: c_ulonglong,
+            stream: cudaStream_t,
+        ) -> cudaError_t,
+    >,
+}
+
+pub struct PolyOneCoef<T: RuntimeType> {
+    _marker: PhantomData<T>,
+    c_func: Symbol<
+        'static,
+        unsafe extern "C" fn(
+            target: *mut c_uint,
+            rotate: c_longlong,
             len: c_ulonglong,
             stream: cudaStream_t,
         ) -> cudaError_t,
@@ -190,7 +206,8 @@ macro_rules! impl_poly_new {
 
 impl_poly_new!(PolyInvert, "batched_invert");
 impl_poly_new!(PolyScan, "scan_mul");
-impl_poly_new!(PolyOne, "poly_one");
+impl_poly_new!(PolyOneLagrange, "poly_one_lagrange");
+impl_poly_new!(PolyOneCoef, "poly_one_coef");
 impl_poly_new!(PolyZero, "poly_zero");
 impl_poly_new!(KateDivision, "kate_division");
 impl_poly_new!(PolyEval, "poly_eval");
@@ -310,29 +327,76 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyScan<T> {
     }
 }
 
-impl<T: RuntimeType> RegisteredFunction<T> for PolyOne<T> {
+impl<T: RuntimeType> RegisteredFunction<T> for PolyOneLagrange<T> {
     fn get_fn(&self) -> Function<T> {
         let c_func = self.c_func.clone();
         let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
                               var: Vec<&Variable<T>>|
               -> Result<(), RuntimeError> {
             assert_eq!(mut_var.len(), 1);
-            assert_eq!(var.len(), 1);
             let target = mut_var[0].unwrap_scalar_array_mut();
-            let stream = var[0].unwrap_stream();
-            unsafe {
-                cuda_check!(cudaSetDevice(stream.get_device()));
-                cuda_check!(c_func(
-                    target.values as *mut c_uint,
-                    target.len.try_into().unwrap(),
-                    stream.raw()
-                ));
+            if target.device == DeviceType::CPU {
+                assert_eq!(var.len(), 0);
+                for iter in target.iter_mut() {
+                    *iter = T::Field::ONE;
+                }
+            } else {
+                assert_eq!(var.len(), 1);
+                let stream = var[0].unwrap_stream();
+                unsafe {
+                    cuda_check!(cudaSetDevice(stream.get_device()));
+                    cuda_check!(c_func(
+                        target.values as *mut c_uint,
+                        target.len.try_into().unwrap(),
+                        stream.raw()
+                    ));
+                }
             }
             Ok(())
         };
 
         Function {
-            name: "poly_one".to_string(),
+            name: "poly_one_lagrange".to_string(),
+            f: FunctionValue::Fn(Box::new(rust_func)),
+        }
+    }
+}
+
+impl<T: RuntimeType> RegisteredFunction<T> for PolyOneCoef<T> {
+    fn get_fn(&self) -> Function<T> {
+        let c_func = self.c_func.clone();
+        let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
+                              var: Vec<&Variable<T>>|
+              -> Result<(), RuntimeError> {
+            assert_eq!(mut_var.len(), 1);
+            let target = mut_var[0].unwrap_scalar_array_mut();
+            if target.device == DeviceType::CPU {
+                assert_eq!(var.len(), 0);
+                for i in 0..target.len {
+                    if i == 0 {
+                        target[i] = T::Field::ONE;
+                    } else {
+                        target[i] = T::Field::ZERO;
+                    }
+                }
+            } else {
+                assert_eq!(var.len(), 1);
+                let stream = var[0].unwrap_stream();
+                unsafe {
+                    cuda_check!(cudaSetDevice(stream.get_device()));
+                    cuda_check!(c_func(
+                        target.values as *mut c_uint,
+                        target.get_rotation() as i64,
+                        target.len.try_into().unwrap(),
+                        stream.raw()
+                    ));
+                }
+            }
+            Ok(())
+        };
+
+        Function {
+            name: "poly_one_coef".to_string(),
             f: FunctionValue::Fn(Box::new(rust_func)),
         }
     }
@@ -345,16 +409,23 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyZero<T> {
                               var: Vec<&Variable<T>>|
               -> Result<(), RuntimeError> {
             assert_eq!(mut_var.len(), 1);
-            assert_eq!(var.len(), 1);
             let target = mut_var[0].unwrap_scalar_array_mut();
-            let stream = var[0].unwrap_stream();
-            unsafe {
-                cuda_check!(cudaSetDevice(stream.get_device()));
-                cuda_check!(c_func(
-                    target.values as *mut c_uint,
-                    target.len.try_into().unwrap(),
-                    stream.raw()
-                ));
+            if target.device == DeviceType::CPU {
+                assert_eq!(var.len(), 0);
+                unsafe {
+                    ptr::write_bytes(target.values, 0, target.len);
+                }
+            } else {
+                assert_eq!(var.len(), 1);
+                let stream = var[0].unwrap_stream();
+                unsafe {
+                    cuda_check!(cudaSetDevice(stream.get_device()));
+                    cuda_check!(c_func(
+                        target.values as *mut c_uint,
+                        target.len.try_into().unwrap(),
+                        stream.raw()
+                    ));
+                }
             }
             Ok(())
         };

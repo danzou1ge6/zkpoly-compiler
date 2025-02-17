@@ -78,7 +78,7 @@ pub mod template {
             alg: NttAlgorithm<I>,
         },
         RotateIdx(I, i32),
-        Interplote {
+        Interpolate {
             xs: Vec<I>,
             ys: Vec<I>,
         },
@@ -123,7 +123,7 @@ pub mod template {
                 Arith(arith, ..) => Box::new(arith.uses()),
                 Ntt { s, alg, .. } => Box::new([*s].into_iter().chain(alg.uses())),
                 RotateIdx(x, _) => Box::new([*x].into_iter()),
-                Interplote { xs, ys } => Box::new(xs.iter().copied().chain(ys.iter().copied())),
+                Interpolate { xs, ys } => Box::new(xs.iter().copied().chain(ys.iter().copied())),
                 Array(es) => Box::new(es.iter().copied()),
                 AssmblePoly(_, es) => Box::new([*es].into_iter()),
                 Msm {
@@ -319,7 +319,7 @@ where
                 from: from.clone(),
             },
             RotateIdx(s, deg) => RotateIdx(mapping(*s), *deg),
-            Interplote { xs, ys } => Interplote {
+            Interpolate { xs, ys } => Interpolate {
                 xs: xs.iter().map(|x| mapping(*x)).collect(),
                 ys: ys.iter().map(|x| mapping(*x)).collect(),
             },
@@ -385,7 +385,7 @@ where
             LiteralScalar(..) => Cpu,
             Ntt { .. } => CoProcess,
             RotateIdx(..) => on_device(device),
-            Interplote { .. } => Cpu,
+            Interpolate { .. } => Cpu,
             Blind(..) => Cpu,
             Array(..) => Cpu,
             AssmblePoly(..) => Cpu,
@@ -424,7 +424,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
             LiteralScalar(..) => None,
             Ntt { .. } => None,
             RotateIdx(..) => None,
-            Interplote { .. } => None,
+            Interpolate { .. } => None,
             Blind(..) => None,
             Array(..) => None,
             AssmblePoly(..) => None,

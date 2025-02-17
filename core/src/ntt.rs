@@ -73,7 +73,8 @@ pub struct DistributePowers<T: RuntimeType> {
         unsafe extern "C" fn(
             x: *mut c_uint,
             x_rotate: c_longlong,
-            zeta: *const c_uint,
+            powers: *const c_uint,
+            power_num: c_ulonglong,
             len: c_ulonglong,
             stream: cudaStream_t,
         ) -> cudaError_t,
@@ -103,7 +104,7 @@ impl<T: RuntimeType> DistributePowers<T> {
         // load the dynamic library
         let lib = libs.load("../lib/libntt.so");
         // get the function pointer
-        let c_func = unsafe { lib.get(b"distribute_pow_zeta\0") }.unwrap();
+        let c_func = unsafe { lib.get(b"distribute_powers\0") }.unwrap();
         Self {
             _marker: PhantomData,
             c_func,
@@ -120,15 +121,15 @@ impl<T: RuntimeType> RegisteredFunction<T> for DistributePowers<T> {
             assert!(mut_var.len() == 1);
             assert!(var.len() == 2);
             let x = mut_var[0].unwrap_scalar_array_mut();
-            let zeta = var[0].unwrap_scalar_array();
-            assert_eq!(zeta.len, 2);
+            let powers = var[0].unwrap_scalar_array();
             let stream = var[1].unwrap_stream();
             unsafe {
                 cuda_check!(cudaSetDevice(stream.get_device()));
                 cuda_check!((c_func)(
                     x.values as *mut c_uint,
                     x.get_rotation() as i64,
-                    zeta.values as *const c_uint,
+                    powers.values as *const c_uint,
+                    powers.len as u64,
                     x.len as c_ulonglong,
                     stream.raw(),
                 ));

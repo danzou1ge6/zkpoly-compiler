@@ -2,7 +2,7 @@
 #include "ssip_ntt.cuh"
 #include "precompute.cuh"
 #include "recompute_ntt.cuh"
-#include "distribute_zeta.cuh"
+#include "distribute_powers.cuh"
 
 cudaError_t ssip_ntt(unsigned int *x, long long x_rotate, const unsigned int *twiddle, unsigned int log_len, cudaStream_t stream, const unsigned int max_threads_stage1_log, const unsigned int max_threads_stage2_log) {
     return detail::ssip_ntt<NTT_FIELD>(x, x_rotate, twiddle, log_len, stream, max_threads_stage1_log, max_threads_stage2_log);
@@ -21,6 +21,6 @@ void gen_pq_omegas(unsigned int *pq, unsigned int *omegas, unsigned int pq_deg, 
     detail::gen_pq_omegas<NTT_FIELD>(pq, omegas, pq_deg, len, NTT_FIELD::load(unit));
 }
 
-cudaError_t distribute_pow_zeta(unsigned int *poly, long long rotate, const unsigned int *zeta, unsigned long long len, cudaStream_t stream) {
-    return detail::distribute_pow_zeta<NTT_FIELD>(reinterpret_cast<NTT_FIELD*>(poly), rotate, reinterpret_cast<const NTT_FIELD*>(zeta), len, stream);
+cudaError_t distribute_powers(unsigned int *poly, long long rotate, const unsigned int *powers, unsigned long long power_num, unsigned long long len, cudaStream_t stream) {
+    return detail::distribute_powers<NTT_FIELD>(reinterpret_cast<NTT_FIELD*>(poly), rotate, reinterpret_cast<const NTT_FIELD*>(powers), power_num, len, stream);
 }

@@ -39,12 +39,17 @@ cudaError_t poly_mul(unsigned int *result, long long r_rotate, const unsigned in
     return cudaSuccess;
 }
 
-cudaError_t poly_one(unsigned int * target, unsigned long long len, cudaStream_t stream) {
-    return detail::poly_one<POLY_FIELD>(target, len, stream);
+cudaError_t poly_one_lagrange(unsigned int * target, unsigned long long len, cudaStream_t stream) {
+    return detail::poly_one_lagrange<POLY_FIELD>(target, len, stream);
+}
+
+cudaError_t poly_one_coef(unsigned int * target, long long rotate, unsigned long long len, cudaStream_t stream) {
+    return detail::poly_one_coef<POLY_FIELD>(target, rotate, len, stream);
 }
 
 cudaError_t poly_zero(unsigned int * target, unsigned long long len, cudaStream_t stream) {
-    return detail::poly_zero<POLY_FIELD>(target, len, stream);
+    CUDA_CHECK(cudaMemsetAsync(target, 0, len * sizeof(POLY_FIELD), stream));
+    return cudaSuccess;
 }
 
 cudaError_t poly_eval(void* temp_buf, unsigned long *temp_buf_size, const unsigned int *poly,  unsigned int* res, const unsigned int*x, unsigned long long len, long long rotate, cudaStream_t stream) {

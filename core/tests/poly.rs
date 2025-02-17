@@ -261,7 +261,11 @@ fn test_zero_one() {
     };
     let cpu_pool = PinnedMemoryPool::new(K, size_of::<MyField>());
     let stream = Variable::Stream(CudaStream::new(0));
-    let mut poly = ScalarArray::new(len, cpu_pool.allocate(len), DeviceType::CPU);
+    let mut poly = Variable::ScalarArray(ScalarArray::new(
+        len,
+        cpu_pool.allocate(len),
+        DeviceType::CPU,
+    ));
 
     let mut poly_d = Variable::ScalarArray(ScalarArray::new(
         len,
@@ -272,16 +276,22 @@ fn test_zero_one() {
     func(vec![&mut poly_d], vec![&stream]).unwrap();
     poly_d
         .unwrap_scalar_array()
-        .gpu2cpu(&mut poly, stream.unwrap_stream());
+        .gpu2cpu(poly.unwrap_scalar_array_mut(), stream.unwrap_stream());
 
     stream.unwrap_stream().sync();
 
     let truth: Vec<_> = (0..len).into_iter().map(|_| MyField::ZERO).collect();
     for i in 0..len {
-        assert_eq!(poly[i], truth[i]);
+        assert_eq!(poly.unwrap_scalar_array_mut()[i], truth[i]);
     }
 
-    let one = PolyOne::<MyRuntimeType>::new(&mut libs);
+    // cpu ver
+    func(vec![&mut poly], vec![]).unwrap();
+    for i in 0..len {
+        assert_eq!(poly.unwrap_scalar_array_mut()[i], truth[i]);
+    }
+
+    let one = PolyOneLagrange::<MyRuntimeType>::new(&mut libs);
     let func = match one.get_fn() {
         Function {
             f: FunctionValue::Fn(func),
@@ -293,13 +303,47 @@ fn test_zero_one() {
     func(vec![&mut poly_d], vec![&stream]).unwrap();
     poly_d
         .unwrap_scalar_array()
-        .gpu2cpu(&mut poly, stream.unwrap_stream());
+        .gpu2cpu(poly.unwrap_scalar_array_mut(), stream.unwrap_stream());
 
     stream.unwrap_stream().sync();
 
     let truth: Vec<_> = (0..len).into_iter().map(|_| MyField::ONE).collect();
     for i in 0..len {
-        assert_eq!(poly[i], truth[i]);
+        assert_eq!(poly.unwrap_scalar_array_mut()[i], truth[i]);
+    }
+
+    // cpu ver
+    func(vec![&mut poly], vec![]).unwrap();
+    for i in 0..len {
+        assert_eq!(poly.unwrap_scalar_array_mut()[i], truth[i]);
+    }
+
+    let one_coef = PolyOneCoef::<MyRuntimeType>::new(&mut libs);
+    let func = match one_coef.get_fn() {
+        Function {
+            f: FunctionValue::Fn(func),
+            ..
+        } => func,
+        _ => unreachable!(),
+    };
+
+    func(vec![&mut poly_d], vec![&stream]).unwrap();
+    poly_d
+        .unwrap_scalar_array()
+        .gpu2cpu(poly.unwrap_scalar_array_mut(), stream.unwrap_stream());
+
+    stream.unwrap_stream().sync();
+
+    let mut truth: Vec<_> = (0..len).into_iter().map(|_| MyField::ZERO).collect();
+    truth[0] = MyField::ONE;
+    for i in 0..len {
+        assert_eq!(poly.unwrap_scalar_array_mut()[i], truth[i]);
+    }
+
+    // cpu ver
+    func(vec![&mut poly], vec![]).unwrap();
+    for i in 0..len {
+        assert_eq!(poly.unwrap_scalar_array_mut()[i], truth[i]);
     }
 
     stream
