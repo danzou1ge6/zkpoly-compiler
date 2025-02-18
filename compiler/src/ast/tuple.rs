@@ -35,6 +35,22 @@ macro_rules! define_tuples {
                 }
             }
 
+            impl<$($T: RuntimeCorrespondance<Rt>),+, Rt: RuntimeType> RuntimeCorrespondance<Rt> for $n<$($T),+, Rt> {
+                type Rtc = ($($T::Rtc),+,);
+                type RtcBorrowed<'a> = ($($T::RtcBorrowed<'a>),+,);
+
+                fn to_variable(x: Self::Rtc) -> Variable<Rt> {
+                    Variable::Tuple(vec![$($T::to_variable(x.$i)),+,])
+                }
+
+                fn try_borrow_variable(var: &Variable<Rt>) -> Option<Self::RtcBorrowed<'_>> {
+                    match var {
+                        Variable::Tuple(t) => Some(($($T::try_borrow_variable(&t[$i])?),+,)),
+                        _ => None
+                    }
+                }
+            }
+
             impl<$($T: CommonConstructors<Rt> + Clone + 'static),+, Rt: RuntimeType> $n<$($T),+, Rt> {
                 $(
                     #[track_caller]

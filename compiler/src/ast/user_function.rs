@@ -1,8 +1,5 @@
 use super::*;
-use zkpoly_runtime::{
-    args::{TryBorrowVariable, Variable},
-    error::Result as RuntimeResult,
-};
+use zkpoly_runtime::error::{Result as RuntimeResult, RuntimeError};
 
 pub type ValueMut<Rt: RuntimeType> =
     Box<dyn FnMut(Vec<&Variable<Rt>>) -> RuntimeResult<Variable<Rt>> + Send + Sync + 'static>;
@@ -69,13 +66,15 @@ where
     #[track_caller]
     pub fn new_fn(
         name: String,
-        f: impl Fn(&T0::Rtc, &T1::Rtc) -> RuntimeResult<R::Rtc> + Send + Sync + 'static,
+        f: impl for<'a, 'b> Fn(T0::RtcBorrowed<'a>, T1::RtcBorrowed<'b>) -> RuntimeResult<R::Rtc> + Send + Sync + 'static,
     ) -> Self {
         let f = move |args: Vec<&Variable<Rt>>| -> RuntimeResult<Variable<Rt>> {
-            let arg0 = T0::Rtc::try_borrow(&args[0])?;
-            let arg1 = T1::Rtc::try_borrow(&args[1])?;
+            let arg0 = T0::try_borrow_variable(&args[0])
+                .ok_or(RuntimeError::VariableTypError)?;
+            let arg1 = T1::try_borrow_variable(&args[1])
+                .ok_or(RuntimeError::VariableTypError)?;
             let r = f(arg0, arg1)?;
-            Ok(r.into())
+            Ok(R::to_variable(r))
         };
         let src = SourceInfo::new(Location::caller().clone(), Some(name.clone()));
         Function2::wrap(FunctionUntyped::new_fn(name, Box::new(f), src))

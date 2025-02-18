@@ -1,8 +1,8 @@
 pub use crate::transit::{self, PolyInit};
 use std::{fmt::Debug, marker::PhantomData, panic::Location, rc::Rc};
-use zkpoly_common::{arith, digraph::internal::Digraph};
+use zkpoly_common::arith;
 pub use zkpoly_runtime::args::{Constant, ConstantId};
-use zkpoly_runtime::args::{RuntimeType, TryBorrowVariable, Variable};
+use zkpoly_runtime::{args::{RuntimeType, Variable}, self as rt};
 
 use self::transit::type2::{self, VertexId, VertexNode};
 
@@ -81,7 +81,11 @@ impl<Rt: RuntimeType> CommonNode<Rt> {
 }
 
 pub trait RuntimeCorrespondance<Rt: RuntimeType> {
-    type Rtc: Into<Variable<Rt>> + TryBorrowVariable<Rt>;
+    type Rtc;
+    type RtcBorrowed<'a>;
+
+    fn to_variable(x: Self::Rtc) -> Variable<Rt>;
+    fn try_borrow_variable(var: &Variable<Rt>) -> Option<Self::RtcBorrowed<'_>>;
 }
 
 #[derive(Debug)]

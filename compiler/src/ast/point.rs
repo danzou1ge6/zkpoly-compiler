@@ -33,6 +33,22 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for PrecomputedPoints<Rt> {
     }
 }
 
+impl<Rt: RuntimeType> RuntimeCorrespondance<Rt> for PrecomputedPoints<Rt> {
+    type Rtc = rt::point::PointArray<Rt::PointAffine>;
+    type RtcBorrowed<'a> = &'a Self::Rtc;
+
+    fn to_variable(x: Self::Rtc) -> Variable<Rt> {
+        Variable::PointArray(x)
+    }
+
+    fn try_borrow_variable(var: &Variable<Rt>) -> Option<Self::RtcBorrowed<'_>> {
+        match var {
+            Variable::PointArray(x) => Some(x),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum PointNode<Rt: RuntimeType> {
     Common(CommonNode<Rt>),
@@ -53,6 +69,21 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for Point<Rt> {
                 PointNode::Common(node) => node.vertex(cg, self.src_lowered()),
             }
         })
+    }
+}
+
+impl<Rt: RuntimeType> RuntimeCorrespondance<Rt> for Point<Rt> {
+    type Rtc = Rt::PointAffine;
+    type RtcBorrowed<'a> = &'a Self::Rtc;
+
+    fn to_variable(x: Self::Rtc) -> Variable<Rt> {
+        Variable::Point(rt::point::Point::new(x))
+    }
+    fn try_borrow_variable(var: &Variable<Rt>) -> Option<Self::RtcBorrowed<'_>> {
+        match var {
+            Variable::Point(x) => Some(&x.value),
+            _ => None,
+        }
     }
 }
 

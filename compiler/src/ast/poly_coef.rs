@@ -87,12 +87,27 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for PolyCoef<Rt> {
                 let xs = xs.iter().cloned().map(|x| x.erase(cg)).collect();
                 let ys = ys.iter().cloned().map(|y| y.erase(cg)).collect();
                 new_vertex(
-                    VertexNode::Interplote { xs, ys },
+                    VertexNode::Interpolate { xs, ys },
                     Some(Typ::coef_with_deg(deg)),
                 )
             }
             Common(cn) => cn.vertex(cg, self.src_lowered()),
         })
+    }
+}
+
+impl<Rt: RuntimeType> RuntimeCorrespondance<Rt> for PolyCoef<Rt> {
+    type Rtc = rt::scalar::ScalarArray<Rt::Field>;
+    type RtcBorrowed<'a> = &'a Self::Rtc;
+
+    fn to_variable(x: Self::Rtc) -> Variable<Rt> {
+        Variable::ScalarArray(x)
+    }
+    fn try_borrow_variable(var: &Variable<Rt>) -> Option<Self::RtcBorrowed<'_>> {
+        match var {
+            Variable::ScalarArray(arr) => Some(arr),
+            _ => None
+        }
     }
 }
 

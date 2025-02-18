@@ -31,7 +31,7 @@
         - [x] GPU内存的静态分配
         -![x] 确定各个算子的临时空间需求
         -![x] 支持单个算子、多块临时空间
-        -![ ] 不允许旋转和切片导致切片结果成为内存上两段
+        -![ ] 不允许切片后再次切片或旋转
         -![ ] 插入旋转和切片指令
         -![ ] 强制输入多项式不能包含旋转
     - 执行轨同步
@@ -51,9 +51,5 @@
         -![ ] AssemblePoly算子
         -![ ] 接入Transcript
     -![x] 加载常数指令
-    -![ ] 拷贝寄存器指令
     - MSM算子
         - [ ] 各GPU流作为参数输入
-    -![ ] 为ScalarArray、Scalar、T::Trans等需要暴露给用户函数的类型实现args::TryBorrowVariable;
-          并为Variable实现From<ScalarArray>、From<Scalar>、From<T::Trans>等
-    

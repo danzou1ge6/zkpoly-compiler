@@ -110,6 +110,21 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for PolyLagrange<Rt> {
     }
 }
 
+impl<Rt: RuntimeType> RuntimeCorrespondance<Rt> for PolyLagrange<Rt> {
+    type Rtc = rt::scalar::ScalarArray<Rt::Field>;
+    type RtcBorrowed<'a> = &'a Self::Rtc;
+
+    fn to_variable(x: Self::Rtc) -> Variable<Rt> {
+        Variable::ScalarArray(x)
+    }
+    fn try_borrow_variable(var: &Variable<Rt>) -> Option<Self::RtcBorrowed<'_>> {
+        match var {
+            Variable::ScalarArray(arr) => Some(arr),
+            _ => None
+        }
+    }
+}
+
 impl<Rt: RuntimeType> PolyLagrange<Rt> {
     fn pp_op(&self, rhs: &PolyLagrange<Rt>, op: ArithBinOp, src: SourceInfo) -> Self {
         PolyLagrange::new(

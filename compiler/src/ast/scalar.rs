@@ -48,6 +48,21 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for Scalar<Rt> {
     }
 }
 
+impl<Rt: RuntimeType> RuntimeCorrespondance<Rt> for Scalar<Rt> {
+    type Rtc = rt::scalar::Scalar<Rt::Field>;
+    type RtcBorrowed<'a> = &'a Self::Rtc;
+
+    fn to_variable(x: Self::Rtc) -> Variable<Rt> {
+        Variable::Scalar(x)
+    }
+    fn try_borrow_variable(var: &Variable<Rt>) -> Option<Self::RtcBorrowed<'_>> {
+        match var {
+            Variable::Scalar(x) => Some(x),
+            _ => None,
+        }
+    }
+}
+
 impl<Rt: RuntimeType> Scalar<Rt> {
     fn ss_op(&self, rhs: &Scalar<Rt>, op: ArithBinOp, src: SourceInfo) -> Self {
         Scalar::new(

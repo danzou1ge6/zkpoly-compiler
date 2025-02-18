@@ -2,6 +2,7 @@
 pub enum RuntimeError {
     ArgNumWrong,
     TypError,
+    VariableTypError,
     Other(String),
 }
 

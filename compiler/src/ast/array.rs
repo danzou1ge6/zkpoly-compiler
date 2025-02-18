@@ -29,7 +29,7 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for ArrayUntyped<Rt> {
                     alg: MsmConfig::default(),
                 },
                 Some(Typ::Array(Box::new(Typ::Point), len)),
-                src
+                src,
             )
         }
 
@@ -93,5 +93,27 @@ where
 {
     fn erase<'s>(&self, cg: &mut Cg<'s, Rt>) -> VertexId {
         self.t.erase(cg)
+    }
+}
+
+impl<Rt: RuntimeType, T> RuntimeCorrespondance<Rt> for Array<Rt, T>
+where
+    T: RuntimeCorrespondance<Rt>,
+{
+    type Rtc = Vec<T::Rtc>;
+    type RtcBorrowed<'a> = Vec<T::RtcBorrowed<'a>>;
+
+    fn to_variable(x: Self::Rtc) -> Variable<Rt> {
+        Variable::Tuple(x.into_iter().map(T::to_variable).collect())
+    }
+    fn try_borrow_variable(var: &Variable<Rt>) -> Option<Self::RtcBorrowed<'_>> {
+         match var {
+            Variable::Tuple(t) => t
+                .iter()
+                .map(|v| T::try_borrow_variable(v))
+                .collect::<Option<_>>(),
+            _ => None,
+        }
+       
     }
 }

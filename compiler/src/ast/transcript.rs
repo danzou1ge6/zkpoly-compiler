@@ -60,6 +60,21 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for Transcript<Rt> {
     }
 }
 
+impl<Rt: RuntimeType> RuntimeCorrespondance<Rt> for Transcript<Rt> {
+    type Rtc = Rt::Trans;
+    type RtcBorrowed<'a> = &'a Self::Rtc;
+    
+    fn to_variable(x: Self::Rtc) -> Variable<Rt> {
+        Variable::Transcript(x)
+    }
+    fn try_borrow_variable(var: &Variable<Rt>) -> Option<Self::RtcBorrowed<'_>> {
+        match var {
+            Variable::Transcript(x) => Some(x),
+            _ => None,
+        }
+    }
+}
+
 impl<Rt: RuntimeType> Transcript<Rt> {
     #[track_caller]
     pub fn entry(name: String) -> Self {

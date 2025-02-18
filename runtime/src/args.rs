@@ -39,10 +39,6 @@ pub enum Variable<T: RuntimeType> {
     GpuBuffer(GpuBuffer),            // gpu only
 }
 
-pub trait TryBorrowVariable<T: RuntimeType> {
-    fn try_borrow(var: &Variable<T>) -> error::Result<&Self>;
-}
-
 impl<T: RuntimeType> Variable<T> {
     pub fn unwrap_scalar_array(&self) -> &ScalarArray<T::Field> {
         match self {
