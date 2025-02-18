@@ -54,7 +54,7 @@ impl KernelType {
             VertexNode::KateDivision(..) => Some(Self::KateDivision),
             VertexNode::EvaluatePoly { .. } => Some(Self::EvaluatePoly),
             VertexNode::BatchedInvert(..) => Some(Self::BatchedInvert),
-            VertexNode::ScanMul(..) => Some(Self::ScanMul),
+            VertexNode::ScanMul{..} => Some(Self::ScanMul),
             VertexNode::Interpolate { .. } => Some(Self::Interpolate),
             VertexNode::AssmblePoly(_, _) => Some(Self::AssmblePoly),
             VertexNode::HashTranscript { typ, .. } => match typ {
@@ -64,8 +64,8 @@ impl KernelType {
             VertexNode::SqueezeScalar(_) => Some(Self::SqueezeScalar),
             VertexNode::UserFunction(..) => Some(Self::UserFunction),
             VertexNode::DistributePowers { .. } => Some(Self::DistributePowers),
-            VertexNode::NewPoly(_, init_num) => {
-                let typ: PolyType = unimplemented!();
+            VertexNode::NewPoly(_, init_num, typ) => {
+                let typ = typ.clone();
                 match init_num {
                     crate::ast::PolyInit::Zeros => Some(Self::NewZero),
                     crate::ast::PolyInit::Ones => match typ {

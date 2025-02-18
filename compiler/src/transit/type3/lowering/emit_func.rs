@@ -100,8 +100,8 @@ pub fn emit_func<'s, Rt: RuntimeType>(
             let inv = reg_id2var_id(outputs[0]);
             generate_batched_invert(poly, temp, inv, stream.unwrap(), f_id, emit);
         }
-        VertexNode::ScanMul(poly) => {
-            let x0 = unimplemented!();
+        VertexNode::ScanMul{poly, x0} => {
+            let x0 = reg_id2var_id(*x0);
             let poly = reg_id2var_id(*poly);
             let temp = reg_id2var_id(temp[0]);
             let res = reg_id2var_id(outputs[0]);

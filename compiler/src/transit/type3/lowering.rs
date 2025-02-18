@@ -308,13 +308,12 @@ fn lower_instruction<'s, Rt: RuntimeType>(
                 src: *constant_id,
                 dst: reg_id2var_id(ids[0]),
             }),
-            VertexNode::Blind(id, start_pos) => {
-                let end_pos: &usize = unimplemented!();
+            VertexNode::Blind(id, start_pos, end_pos) => {
                 let dst = reg_id2var_id(*id);
                 emit(Instruction::Blind {
                     dst,
-                    start: *start_pos,
-                    end: *end_pos,
+                    start: *start_pos as usize,
+                    end: *end_pos as usize,
                 });
             }
             VertexNode::Entry => todo!(),

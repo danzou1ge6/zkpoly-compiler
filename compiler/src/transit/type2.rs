@@ -91,7 +91,7 @@ pub mod template {
         },
         RotateIdx(I, i32),
         Slice(I, u64, u64),
-        Interplote {
+        Interpolate {
             xs: Vec<I>,
             ys: Vec<I>,
         },
@@ -141,7 +141,7 @@ pub mod template {
                 Ntt { s, alg, .. } => Box::new([*s].into_iter().chain(alg.uses())),
                 RotateIdx(x, _) => Box::new([*x].into_iter()),
                 Slice(x, ..) => Box::new([*x].into_iter()),
-                Interplote { xs, ys } => Box::new(xs.iter().copied().chain(ys.iter().copied())),
+                Interpolate { xs, ys } => Box::new(xs.iter().copied().chain(ys.iter().copied())),
                 Array(es) => Box::new(es.iter().copied()),
                 AssmblePoly(_, es) => Box::new(es.iter().copied()),
                 Msm {
@@ -220,17 +220,17 @@ where
         match self.node() {
             NewPoly(..) | Extend(..) => Device::PreferGpu,
             Arith(_, chk) => {
-                        if chk.is_some() {
-                            Device::Cpu
-                        } else {
-                            Device::Gpu
-                        }
-                    }
+                if chk.is_some() {
+                    Device::Cpu
+                } else {
+                    Device::Gpu
+                }
+            }
             Ntt { .. } => Device::Gpu,
             KateDivision(_, _) => Device::Gpu,
             EvaluatePoly { .. } => Device::Gpu,
             BatchedInvert(_) => Device::Gpu,
-            ScanMul(_) => Device::Gpu,
+            ScanMul { .. } => Device::Gpu,
             DistributePowers { .. } => Device::Gpu,
             _ => Device::Cpu,
         }
@@ -248,7 +248,7 @@ where
             Arith(_, _) => todo!(),
             Blind(poly, ..) => Box::new([*poly].into_iter()),
             BatchedInvert(poly) => Box::new([*poly].into_iter()),
-            DistributePowers {  poly, .. } => Box::new([*poly].into_iter()),
+            DistributePowers { poly, .. } => Box::new([*poly].into_iter()),
             _ => Box::new([].into_iter()),
         }
     }
@@ -265,7 +265,7 @@ where
             Arith(_, _) => todo!(),
             Blind(poly, ..) => Box::new([poly].into_iter()),
             BatchedInvert(poly) => Box::new([poly].into_iter()),
-            DistributePowers {  poly, .. } => Box::new([poly].into_iter()),
+            DistributePowers { poly, .. } => Box::new([poly].into_iter()),
             UserFunction(fid, args) => {
                 let f_typ = &uf_table[*fid].typ;
                 let r = f_typ
@@ -300,7 +300,7 @@ where
             Arith(_, _) => todo!(),
             Blind(poly, ..) => Box::new([Some(*poly)].into_iter()),
             BatchedInvert(poly) => Box::new([Some(*poly)].into_iter()),
-            DistributePowers {  poly, .. } => Box::new([Some(*poly)].into_iter()),
+            DistributePowers { poly, .. } => Box::new([Some(*poly)].into_iter()),
             HashTranscript { transcript, .. } => Box::new([Some(*transcript)].into_iter()),
             SqueezeScalar(transcript) => Box::new([Some(*transcript), None].into_iter()),
             UserFunction(fid, args) => {
@@ -353,7 +353,7 @@ where
             },
             RotateIdx(s, deg) => RotateIdx(mapping(*s), *deg),
             Slice(s, start, end) => Slice(mapping(*s), *start, *end),
-            Interplote { xs, ys } => Interplote {
+            Interpolate { xs, ys } => Interpolate {
                 xs: xs.iter().map(|x| mapping(*x)).collect(),
                 ys: ys.iter().map(|x| mapping(*x)).collect(),
             },
@@ -429,7 +429,7 @@ where
             Ntt { .. } => CoProcess,
             RotateIdx(..) => unreachable!(),
             Slice(..) => unreachable!(),
-            Interplote { .. } => Cpu,
+            Interpolate { .. } => Cpu,
             Blind(..) => Cpu,
             Array(..) => unreachable!(),
             AssmblePoly(..) => Cpu,
@@ -471,7 +471,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
             Ntt { .. } => None,
             RotateIdx(..) => None,
             Slice(..) => None,
-            Interplote { .. } => None,
+            Interpolate { .. } => None,
             Blind(..) => None,
             Array(..) => None,
             AssmblePoly(..) => None,
