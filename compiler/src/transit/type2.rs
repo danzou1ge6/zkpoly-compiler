@@ -220,13 +220,18 @@ where
         match self.node() {
             NewPoly(..) | Extend(..) => Device::PreferGpu,
             Arith(_, chk) => {
-                if chk.is_some() {
-                    Device::Cpu
-                } else {
-                    Device::Gpu
-                }
-            }
+                        if chk.is_some() {
+                            Device::Cpu
+                        } else {
+                            Device::Gpu
+                        }
+                    }
             Ntt { .. } => Device::Gpu,
+            KateDivision(_, _) => Device::Gpu,
+            EvaluatePoly { .. } => Device::Gpu,
+            BatchedInvert(_) => Device::Gpu,
+            ScanMul(_) => Device::Gpu,
+            DistributePowers { .. } => Device::Gpu,
             _ => Device::Cpu,
         }
     }
@@ -240,18 +245,10 @@ where
             RotateIdx(s, ..) => Box::new([*s].into_iter()),
             HashTranscript { transcript, .. } => Box::new([*transcript].into_iter()),
             SqueezeScalar(transcript) => Box::new([*transcript].into_iter()),
-            UserFunction(fid, args) => {
-                let f_typ = &uf_table[*fid].typ;
-                let r = f_typ
-                    .args
-                    .iter()
-                    .zip(args.iter())
-                    .filter(|((_, arg_mutability), _)| {
-                        arg_mutability == &user_function::Mutability::Mutable
-                    })
-                    .map(|(_, arg)| *arg);
-                Box::new(r)
-            }
+            Arith(_, _) => todo!(),
+            Blind(poly, ..) => Box::new([*poly].into_iter()),
+            BatchedInvert(poly) => Box::new([*poly].into_iter()),
+            DistributePowers {  poly, .. } => Box::new([*poly].into_iter()),
             _ => Box::new([].into_iter()),
         }
     }
@@ -265,6 +262,10 @@ where
             RotateIdx(s, ..) => Box::new([s].into_iter()),
             HashTranscript { transcript, .. } => Box::new([transcript].into_iter()),
             SqueezeScalar(transcript) => Box::new([transcript].into_iter()),
+            Arith(_, _) => todo!(),
+            Blind(poly, ..) => Box::new([poly].into_iter()),
+            BatchedInvert(poly) => Box::new([poly].into_iter()),
+            DistributePowers {  poly, .. } => Box::new([poly].into_iter()),
             UserFunction(fid, args) => {
                 let f_typ = &uf_table[*fid].typ;
                 let r = f_typ
@@ -296,6 +297,10 @@ where
                     Stack => panic!("RotateIdx output can't be on stack"),
                 }
             }
+            Arith(_, _) => todo!(),
+            Blind(poly, ..) => Box::new([Some(*poly)].into_iter()),
+            BatchedInvert(poly) => Box::new([Some(*poly)].into_iter()),
+            DistributePowers {  poly, .. } => Box::new([Some(*poly)].into_iter()),
             HashTranscript { transcript, .. } => Box::new([Some(*transcript)].into_iter()),
             SqueezeScalar(transcript) => Box::new([Some(*transcript), None].into_iter()),
             UserFunction(fid, args) => {

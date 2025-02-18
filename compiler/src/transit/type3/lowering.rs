@@ -308,16 +308,17 @@ fn lower_instruction<'s, Rt: RuntimeType>(
                 src: *constant_id,
                 dst: reg_id2var_id(ids[0]),
             }),
+            VertexNode::Blind(id, start_pos) => {
+                let end_pos: &usize = unimplemented!();
+                let dst = reg_id2var_id(*id);
+                emit(Instruction::Blind {
+                    dst,
+                    start: *start_pos,
+                    end: *end_pos,
+                });
+            }
             VertexNode::Entry => todo!(),
             VertexNode::Return => {}
-            VertexNode::LiteralScalar(_) => todo!(),
-            VertexNode::RotateIdx(id, shift) => emit(Instruction::Rotation {
-                id: reg_id2var_id(*id),
-                shift: *shift as i64,
-            }),
-            VertexNode::Array(items) => todo!(),
-            VertexNode::AssmblePoly(_, _) => todo!(),
-            VertexNode::SqueezeScalar(_) => todo!(),
             _ => {
                 emit_func::emit_func(
                     ids,
@@ -327,6 +328,7 @@ fn lower_instruction<'s, Rt: RuntimeType>(
                     reg_id2var_id,
                     stream2variable_id,
                     generated_functions.at(t3idx),
+                    t3chunk,
                     emit,
                 );
             }
@@ -364,10 +366,14 @@ fn lower_instruction<'s, Rt: RuntimeType>(
             src_id: reg_id2var_id(*from),
             dst_id: reg_id2var_id(*id),
         }),
-        super::InstructionNode::StackFree { id } => emit(Instruction::Deallocate {
+        super::InstructionNode::StackFree { id } => emit(Instruction::RemoveRegister {
             id: reg_id2var_id(*id),
         }),
-        super::InstructionNode::Tuple { id, oprands } => todo!("Tuple Generation"),
+        super::InstructionNode::Tuple { id, oprands } => {
+            let dst = reg_id2var_id(*id);
+            let vars = oprands.iter().map(|&id| reg_id2var_id(id)).collect();
+            emit(Instruction::AssembleTuple { vars, dst });
+        }
         super::InstructionNode::Move { id, from } => unimplemented!(),
         super::InstructionNode::Clone { id, from } => unimplemented!(),
     };

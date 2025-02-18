@@ -6,6 +6,7 @@ use zkpoly_common::load_dynamic::Libs;
 
 use crate::{
     args::{ConstantTable, RuntimeType, Variable, VariableTable},
+    async_rng::AsyncRng,
     devices::{DeviceType, Event, EventTable, ThreadTable},
     functions::{
         FunctionTable,
@@ -31,6 +32,7 @@ pub struct Runtime<T: RuntimeType> {
     threads: ThreadTable,
     mem_allocator: PinnedMemoryPool,
     gpu_allocator: Vec<CudaAllocator>,
+    rng: AsyncRng,
     _libs: Libs,
 }
 
@@ -45,6 +47,7 @@ impl<T: RuntimeType> Runtime<T> {
         threads: ThreadTable,
         mem_allocator: PinnedMemoryPool,
         gpu_allocator: Vec<CudaAllocator>,
+        rng: AsyncRng,
         libs: Libs,
     ) -> Self {
         Self {
@@ -57,6 +60,7 @@ impl<T: RuntimeType> Runtime<T> {
             threads,
             mem_allocator,
             gpu_allocator,
+            rng,
             _libs: libs,
         }
     }
@@ -68,6 +72,7 @@ impl<T: RuntimeType> Runtime<T> {
             funcs: Arc::new(self.funcs),
             events: Arc::new(self.events),
             threads: Arc::new(self.threads),
+            rng: self.rng,
             main_thread: true,
         };
         info.run(
@@ -88,6 +93,7 @@ pub struct RuntimeInfo<T: RuntimeType> {
     pub funcs: Arc<FunctionTable<T>>,
     pub events: Arc<EventTable>,
     pub threads: Arc<ThreadTable>,
+    pub rng: AsyncRng,
     pub main_thread: bool,
 }
 
@@ -238,10 +244,14 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     let rx = self.threads[thread].lock().unwrap().take().unwrap();
                     rx.recv().unwrap();
                 }
-                Instruction::Rotation { id, shift } => {
-                    let mut guard = self.variable[id].write().unwrap();
-                    let poly = guard.as_mut().unwrap().unwrap_scalar_array_mut();
+                Instruction::Rotation { src, dst, shift } => {
+                    let guard = self.variable[src].read().unwrap();
+                    let mut poly = guard.as_ref().unwrap().unwrap_scalar_array().clone();
+                    drop(guard);
                     poly.rotate(shift);
+                    let mut guard = self.variable[dst].write().unwrap();
+                    assert!(guard.is_none());
+                    *guard = Some(Variable::ScalarArray(poly));
                 }
                 Instruction::Slice {
                     src,
@@ -282,6 +292,11 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     let mut guard = self.variable[id].write().unwrap();
                     assert!(guard.is_some());
                     *guard = None;
+                }
+                Instruction::Blind { dst, start, end } => {
+                    let mut guard = self.variable[dst].write().unwrap();
+                    let poly = guard.as_mut().unwrap().unwrap_scalar_array_mut();
+                    poly.blind(start, end, self.rng.clone());
                 }
             }
         }

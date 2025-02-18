@@ -4,6 +4,7 @@ use std::{
 };
 
 use group::ff::Field;
+use rand_core::RngCore;
 use zkpoly_cuda_api::{
     mem::{alloc_pinned, free_pinned},
     stream::CudaStream,
@@ -140,6 +141,16 @@ impl<F: Field> ScalarArray<F> {
             device,
             slice_info: None,
         }
+    }
+
+    pub fn blind(&mut self, start: usize, end: usize, rng: impl RngCore + Clone) {
+        for i in start..end {
+            self[i] = F::random(rng.clone());
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.len
     }
 
     pub fn get_rotation(&self) -> usize {

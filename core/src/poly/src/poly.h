@@ -6,7 +6,9 @@ extern "C" cudaError_t poly_sub(unsigned int *result, long long r_rotate, const 
 
 extern "C" cudaError_t poly_mul(unsigned int *result, long long r_rotate, const unsigned int *a, long long a_rotate, const unsigned int *b, long long b_rotate, unsigned long long len, cudaStream_t stream);
 
-extern "C" cudaError_t poly_one(unsigned int * target, unsigned long long len, cudaStream_t stream);
+extern "C" cudaError_t poly_one_lagrange(unsigned int * target, unsigned long long len, cudaStream_t stream);
+
+extern "C" cudaError_t poly_one_coef(unsigned int * target, long long rotate, unsigned long long len, cudaStream_t stream);
 
 extern "C" cudaError_t poly_zero(unsigned int *target, unsigned long long len, cudaStream_t stream);
 

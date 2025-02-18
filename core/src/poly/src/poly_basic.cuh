@@ -29,26 +29,35 @@ namespace detail {
     }
 
     template <typename Field>
-    __global__ void poly_set(Field * dst, Field value, u64 len) {
+    __global__ void poly_set_lagrange(Field * dst, Field value, u64 len) {
         u64 index = blockIdx.x * blockDim.x + threadIdx.x;
         if (index >= len) return;
         dst[index] = value;
     }
 
+    template <typename Field>
+    __global__ void poly_set_coef(RotatingIterator<Field> iter, Field value, u64 len) {
+        u64 index = blockIdx.x * blockDim.x + threadIdx.x;
+        if (index >= len) return;
+        if (index == 0) iter[index] = value;
+        else iter[index] = Field::zero();
+    }
+
     template<typename Field>
-    cudaError_t poly_zero(u32 * target, u64 len, cudaStream_t stream) {
+    cudaError_t poly_one_lagrange(u32 * target, u64 len, cudaStream_t stream) {
         u32 block = 256;
         u32 grid = (len - 1) / block + 1;
-        poly_set<<<grid, block, 0, stream>>>(reinterpret_cast<Field*>(target), Field::zero(), len);
+        poly_set_lagrange<<<grid, block, 0, stream>>>(reinterpret_cast<Field*>(target), Field::one(), len);
         CUDA_CHECK(cudaGetLastError());
         return cudaSuccess;
     }
 
     template<typename Field>
-    cudaError_t poly_one(u32 * target, u64 len, cudaStream_t stream) {
+    cudaError_t poly_one_coef(u32 * target, i64 rotate, u64 len, cudaStream_t stream) {
         u32 block = 256;
         u32 grid = (len - 1) / block + 1;
-        poly_set<<<grid, block, 0, stream>>>(reinterpret_cast<Field*>(target), Field::one(), len);
+        auto iter = make_rotating_iter(reinterpret_cast<Field*>(target), rotate, len);
+        poly_set_coef<<<grid, block, 0, stream>>>(iter, Field::one(), len);
         CUDA_CHECK(cudaGetLastError());
         return cudaSuccess;
     }

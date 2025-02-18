@@ -57,7 +57,8 @@ pub enum Instruction {
     },
 
     Rotation {
-        id: VariableId,
+        src: VariableId,
+        dst: VariableId,
         shift: i64,
     },
 
@@ -76,5 +77,11 @@ pub enum Instruction {
     AssembleTuple {
         vars: Vec<VariableId>,
         dst: VariableId,
+    },
+
+    Blind {
+        dst: VariableId,
+        start: usize,
+        end: usize,
     },
 }

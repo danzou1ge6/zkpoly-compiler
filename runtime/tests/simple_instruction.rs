@@ -9,6 +9,7 @@ use zkpoly_cuda_api::mem::CudaAllocator;
 use zkpoly_cuda_api::stream::CudaEvent;
 use zkpoly_memory_pool::PinnedMemoryPool;
 use zkpoly_runtime::args::{ConstantTable, RuntimeType, Variable, VariableTable};
+use zkpoly_runtime::async_rng::AsyncRng;
 use zkpoly_runtime::devices::{DeviceType, Event, EventTable, ThreadTable};
 use zkpoly_runtime::functions::*;
 use zkpoly_runtime::instructions::Instruction;
@@ -187,6 +188,7 @@ fn test_add() {
         ThreadTable::new(),
         cpu_alloc,
         vec![gpu_alloc],
+        AsyncRng::new(10),
         libs,
     );
     let info = runtime.run();
