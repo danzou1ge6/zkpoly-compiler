@@ -2,7 +2,10 @@ pub use crate::transit::{self, PolyInit};
 use std::{fmt::Debug, marker::PhantomData, panic::Location, rc::Rc};
 use zkpoly_common::arith;
 pub use zkpoly_runtime::args::{Constant, ConstantId};
-use zkpoly_runtime::{args::{RuntimeType, Variable}, self as rt};
+use zkpoly_runtime::{
+    self as rt,
+    args::{RuntimeType, Variable},
+};
 
 use self::transit::type2::{self, VertexId, VertexNode};
 

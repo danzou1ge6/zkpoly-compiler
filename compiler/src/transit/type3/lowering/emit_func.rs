@@ -19,7 +19,7 @@ pub fn emit_func<'s, Rt: RuntimeType>(
 ) {
     let stream = Stream::of_track(track).map(|t| stream2variable_id.get(t).clone());
     match vertex {
-        VertexNode::Arith(arith, _) => {
+        VertexNode::Arith { arith, .. } => {
             let (var, var_mut) = gen_var_lists(arith);
             let mut arg = vec![stream.unwrap()];
             for (_, id) in var.iter() {
@@ -49,7 +49,9 @@ pub fn emit_func<'s, Rt: RuntimeType>(
                     let omega = reg_id2var_id(*omega);
                     generate_ntt_recompute(poly, pq, omega, stream.unwrap(), f_id, emit);
                 }
-                crate::transit::type2::NttAlgorithm::Undecieded => panic!("NttAlgorithm should be decided at this points")
+                crate::transit::type2::NttAlgorithm::Undecieded => {
+                    panic!("NttAlgorithm should be decided at this points")
+                }
             }
         }
         VertexNode::Msm {
@@ -100,7 +102,7 @@ pub fn emit_func<'s, Rt: RuntimeType>(
             let inv = reg_id2var_id(outputs[0]);
             generate_batched_invert(poly, temp, inv, stream.unwrap(), f_id, emit);
         }
-        VertexNode::ScanMul{poly, x0} => {
+        VertexNode::ScanMul { poly, x0 } => {
             let x0 = reg_id2var_id(*x0);
             let poly = reg_id2var_id(*poly);
             let temp = reg_id2var_id(temp[0]);

@@ -3,7 +3,7 @@ use std::collections::{BTreeSet, VecDeque};
 use crate::heap::{Heap, UsizeId};
 
 #[derive(Clone, Debug)]
-pub struct Digraph<I, V>(Heap<I, V>);
+pub struct Digraph<I, V>(pub Heap<I, V>);
 
 impl<I, V> Digraph<I, V> {
     pub fn new() -> Self {

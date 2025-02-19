@@ -1,5 +1,5 @@
-use crate::utils::log2;
 use super::*;
+use crate::utils::log2;
 
 #[derive(Debug, Clone)]
 pub struct PrecomputedPointsData<Rt: RuntimeType>(Vec<Rt::PointAffine>, u32);
@@ -27,7 +27,7 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for PrecomputedPoints<Rt> {
                 Some(Typ::PointBase {
                     log_n: self.inner.t.1,
                 }),
-                self.src_lowered()
+                self.src_lowered(),
             )
         })
     }
@@ -64,10 +64,8 @@ impl<Rt: RuntimeType> From<(CommonNode<Rt>, SourceInfo)> for Point<Rt> {
 
 impl<Rt: RuntimeType> TypeEraseable<Rt> for Point<Rt> {
     fn erase<'s>(&self, cg: &mut Cg<'s, Rt>) -> VertexId {
-        cg.lookup_or_insert_with(self.as_ptr(), |cg| {
-            match &self.inner.t {
-                PointNode::Common(node) => node.vertex(cg, self.src_lowered()),
-            }
+        cg.lookup_or_insert_with(self.as_ptr(), |cg| match &self.inner.t {
+            PointNode::Common(node) => node.vertex(cg, self.src_lowered()),
         })
     }
 }

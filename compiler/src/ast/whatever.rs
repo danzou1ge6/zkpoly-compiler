@@ -37,13 +37,19 @@ impl<Rt: RuntimeType, T> From<(CommonNode<Rt>, SourceInfo)> for Whatever<Rt, T> 
     }
 }
 
-impl<Rt: RuntimeType, T> TypeEraseable<Rt> for Whatever<Rt, T> where T: 'static {
+impl<Rt: RuntimeType, T> TypeEraseable<Rt> for Whatever<Rt, T>
+where
+    T: 'static,
+{
     fn erase<'s>(&self, cg: &mut Cg<'s, Rt>) -> VertexId {
         self.t.erase(cg)
     }
 }
 
-impl<Rt: RuntimeType, T> RuntimeCorrespondance<Rt> for Whatever<Rt, T> where T: 'static + Send + Sync {
+impl<Rt: RuntimeType, T> RuntimeCorrespondance<Rt> for Whatever<Rt, T>
+where
+    T: 'static + Send + Sync,
+{
     type Rtc = T;
     type RtcBorrowed<'a> = &'a Self::Rtc;
 

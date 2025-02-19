@@ -36,12 +36,16 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for PolyLagrange<Rt> {
             match &self.inner.t {
                 Arith(la) => {
                     let arith = la.to_arith(cg);
-                    Vertex::new(VertexNode::SingleArith(arith), Some(Typ::lagrange()), self.src_lowered())
+                    Vertex::new(
+                        VertexNode::SingleArith(arith),
+                        Some(Typ::lagrange()),
+                        self.src_lowered(),
+                    )
                 }
                 New(init, deg) => Vertex::new(
                     VertexNode::NewPoly(*deg, init.clone(), PolyType::Lagrange),
                     Some(Typ::Poly((PolyType::Lagrange, Some(*deg)))),
-                    self.src_lowered()
+                    self.src_lowered(),
                 ),
                 Constant(data) => {
                     let value = unimplemented!();
@@ -102,7 +106,11 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for PolyLagrange<Rt> {
                 ScanMul(poly, x0) => {
                     let poly = poly.erase(cg);
                     let x0 = x0.erase(cg);
-                    Vertex::new(VertexNode::ScanMul { poly, x0 }, Some(Typ::lagrange()), self.src_lowered())
+                    Vertex::new(
+                        VertexNode::ScanMul { poly, x0 },
+                        Some(Typ::lagrange()),
+                        self.src_lowered(),
+                    )
                 }
                 Common(cn) => cn.vertex(cg, self.src_lowered()),
             }
@@ -120,7 +128,7 @@ impl<Rt: RuntimeType> RuntimeCorrespondance<Rt> for PolyLagrange<Rt> {
     fn try_borrow_variable(var: &Variable<Rt>) -> Option<Self::RtcBorrowed<'_>> {
         match var {
             Variable::ScalarArray(arr) => Some(arr),
-            _ => None
+            _ => None,
         }
     }
 }

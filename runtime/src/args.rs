@@ -1,4 +1,3 @@
-use crate::error;
 use crate::gpu_buffer::GpuBuffer;
 use crate::point::{Point, PointArray};
 use crate::scalar::{Scalar, ScalarArray};

@@ -157,6 +157,16 @@ impl<F: Field> ScalarArray<F> {
         self.rotate as usize
     }
 
+    // pub fn set_slice_raw(&self, offset: usize, len: usize) -> Self {
+    //     Self {
+    //         values: self.values.clone(),
+    //         len,
+    //         rotate: 0,
+    //         device: self.device.clone(),
+    //         slice_info: Some(ScalarSlice{offset, whole_len: self.len.clone()}),
+    //     }
+    // }
+
     pub fn slice(&self, start: usize, end: usize) -> Self {
         assert!(start <= end);
         assert!(end <= self.len);

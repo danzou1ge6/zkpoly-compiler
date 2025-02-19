@@ -66,13 +66,14 @@ where
     #[track_caller]
     pub fn new_fn(
         name: String,
-        f: impl for<'a, 'b> Fn(T0::RtcBorrowed<'a>, T1::RtcBorrowed<'b>) -> RuntimeResult<R::Rtc> + Send + Sync + 'static,
+        f: impl for<'a, 'b> Fn(T0::RtcBorrowed<'a>, T1::RtcBorrowed<'b>) -> RuntimeResult<R::Rtc>
+            + Send
+            + Sync
+            + 'static,
     ) -> Self {
         let f = move |args: Vec<&Variable<Rt>>| -> RuntimeResult<Variable<Rt>> {
-            let arg0 = T0::try_borrow_variable(&args[0])
-                .ok_or(RuntimeError::VariableTypError)?;
-            let arg1 = T1::try_borrow_variable(&args[1])
-                .ok_or(RuntimeError::VariableTypError)?;
+            let arg0 = T0::try_borrow_variable(&args[0]).ok_or(RuntimeError::VariableTypError)?;
+            let arg1 = T1::try_borrow_variable(&args[1]).ok_or(RuntimeError::VariableTypError)?;
             let r = f(arg0, arg1)?;
             Ok(R::to_variable(r))
         };

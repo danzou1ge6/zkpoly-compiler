@@ -55,7 +55,6 @@ impl TryFrom<Size> for IntegralSize {
     }
 }
 
-
 impl IntegralSize {
     pub fn ceiling(size: SmithereenSize) -> Self {
         Self(log2_ceil(size.0))
