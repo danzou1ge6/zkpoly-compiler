@@ -78,7 +78,11 @@ impl<Rt: RuntimeType> CommonNode<Rt> {
                 let array = array.erase(cg);
                 Vertex::new(VertexNode::ArrayGet(array, *idx), None, src)
             }
-            CommonNode::FunctionCall(..) => todo!("handler user function call"),
+            CommonNode::FunctionCall(f, args) => {
+                let fid = cg.add_function(f.clone());
+                let args = args.iter().map(|x| x.erase(cg)).collect();
+                Vertex::new(VertexNode::UserFunction(fid, args), None, src)
+            },
         }
     }
 }
@@ -342,5 +346,5 @@ pub use transcript::{Transcript, TranscriptNode};
 pub use tuple::{
     Tuple10, Tuple2, Tuple3, Tuple4, Tuple5, Tuple6, Tuple7, Tuple8, Tuple9, TupleNode,
 };
-pub use user_function::FunctionData;
+pub use user_function::Function;
 pub use whatever::{Whatever, WhateverNode};

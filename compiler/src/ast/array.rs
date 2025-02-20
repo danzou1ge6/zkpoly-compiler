@@ -106,6 +106,7 @@ where
     fn to_variable(x: Self::Rtc) -> Variable<Rt> {
         Variable::Tuple(x.into_iter().map(T::to_variable).collect())
     }
+
     fn try_borrow_variable(var: &Variable<Rt>) -> Option<Self::RtcBorrowed<'_>> {
         match var {
             Variable::Tuple(t) => t

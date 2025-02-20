@@ -1,20 +1,21 @@
 - 编译前端
     -![x] 抽象语法树构造器
     - 翻译抽象语法树到Type2中间表示
-        -![ ] 为各个抽象语法树节点类型实现ast::TypeEraseable
-        -![ ] 为各个抽象语法树节点类型实现和ast::RuntimeCorrespondance
-        -![ ] 宏展开不同参数数量的用户函数
+        -![x] 为各个抽象语法树节点类型实现ast::TypeEraseable
+        -![x] 为各个抽象语法树节点类型实现和ast::RuntimeCorrespondance
+        -![x] 宏展开不同参数数量的用户函数
+    -![ ] 将常量添加到常量表
     -![ ] 类型重建
+    - [ ] 用户函数可以使用内存分配器
+- 编译后端
+    - Type2中间表示
+        -![x] 添加Extend顶点
+        -![x] 移除LiteralScalar顶点
+        -![ ] 在Entry顶点中添加EntryId标记输入
     - NTT算子
         -![ ] 预计算旋转因子
     - MSM算子
         -![ ] 预计算椭圆曲线点
-    - [ ] 用户函数可以使用内存分配器
-- 编译后端
-    - Type2中间表示
-        -![ ] 添加Extend顶点
-        -![ ] 移除LiteralScalar顶点
-        -![ ] 在Entry顶点中添加EntryId标记输入
     - 算子融合
         -![ ] 基于规则的算术运算融合
         -![ ] 将NewPoly转换为标量常量

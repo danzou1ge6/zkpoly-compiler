@@ -1,8 +1,11 @@
 use std::collections::BTreeMap;
-use zkpoly_common::{digraph::internal::Digraph, heap::Heap, typ::PolyType};
-use zkpoly_runtime::args::{ConstantId, RuntimeType, Variable};
+use zkpoly_common::{define_usize_id, digraph::internal::Digraph, heap::Heap, typ::PolyType};
+use zkpoly_runtime::{args::{ConstantId, RuntimeType, Variable}, functions::FunctionValue};
 
-use super::transit::type2::{self, partial_typed, VertexId};
+use super::{
+    transit::type2::{self, partial_typed, VertexId},
+    Function, FunctionUntyped,
+};
 
 pub type Typ<Rt: RuntimeType> = type2::typ::template::Typ<Rt, (PolyType, Option<u64>)>;
 
@@ -24,16 +27,22 @@ impl<Rt: RuntimeType> Typ<Rt> {
 pub type Vertex<'s, Rt: RuntimeType> = partial_typed::Vertex<'s, Option<Typ<Rt>>>;
 
 pub struct Constant<Rt: RuntimeType> {
-    name: Option<String>,
-    value: Variable<Rt>,
+    pub(crate) name: Option<String>,
+    pub(crate) value: Variable<Rt>,
 }
 
 pub type ConstantTable<Rt: RuntimeType> = Heap<ConstantId, Constant<Rt>>;
+
+define_usize_id!(UserFunctionId);
+
+pub type UserFunctionTable<Rt: RuntimeType> = Heap<UserFunctionId, Function<Rt>>;
 
 pub struct Cg<'s, Rt: RuntimeType> {
     pub(crate) g: Digraph<VertexId, Vertex<'s, Rt>>,
     pub(crate) mapping: BTreeMap<*const u8, VertexId>,
     pub(crate) constant_table: ConstantTable<Rt>,
+    pub(crate) user_function_table: UserFunctionTable<Rt>,
+    pub(crate) user_function_id_mapping: BTreeMap<*const u8, UserFunctionId>,
 }
 
 impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
@@ -55,4 +64,17 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
         let id = self.constant_table.push(Constant { name, value });
         id
     }
+
+    pub fn add_function(&mut self, f: FunctionUntyped<Rt>) -> UserFunctionId {
+        let ptr = f.as_ptr();
+        self.user_function_id_mapping
+            .entry(ptr)
+            .or_insert_with(|| {
+                self.user_function_table
+                    .push(f.inner.t.take())
+            })
+            .clone()
+    }
+
 }
+
