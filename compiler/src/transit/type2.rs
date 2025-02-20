@@ -295,7 +295,7 @@ where
             RotateIdx(s, ..) => Box::new([*s].into_iter()),
             HashTranscript { transcript, .. } => Box::new([*transcript].into_iter()),
             SqueezeScalar(transcript) => Box::new([*transcript].into_iter()),
-            Arith { .. } => todo!(),
+            Arith { arith, .. } => {arith.mutable_uses()},
             Blind(poly, ..) => Box::new([*poly].into_iter()),
             BatchedInvert(poly) => Box::new([*poly].into_iter()),
             DistributePowers { poly, .. } => Box::new([*poly].into_iter()),
@@ -312,7 +312,7 @@ where
             RotateIdx(s, ..) => Box::new([s].into_iter()),
             HashTranscript { transcript, .. } => Box::new([transcript].into_iter()),
             SqueezeScalar(transcript) => Box::new([transcript].into_iter()),
-            Arith { .. } => todo!(),
+            Arith { arith, .. } => arith.mutable_uses_mut(),
             Blind(poly, ..) => Box::new([poly].into_iter()),
             BatchedInvert(poly) => Box::new([poly].into_iter()),
             DistributePowers { poly, .. } => Box::new([poly].into_iter()),
@@ -347,7 +347,7 @@ where
                     Stack => panic!("RotateIdx output can't be on stack"),
                 }
             }
-            Arith { .. } => todo!(),
+            Arith { arith, mut_scalars, mut_polys, .. } => arith.outputs_inplace(*mut_scalars, *mut_polys),
             Blind(poly, ..) => Box::new([Some(*poly)].into_iter()),
             BatchedInvert(poly) => Box::new([Some(*poly)].into_iter()),
             DistributePowers { poly, .. } => Box::new([Some(*poly)].into_iter()),

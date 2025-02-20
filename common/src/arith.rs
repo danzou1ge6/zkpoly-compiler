@@ -194,7 +194,7 @@ where
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Mutability {
     Const,
     Mut,
@@ -217,6 +217,65 @@ where
         self.inputs
             .iter()
             .map(|&i| self.g.vertex(i).op.unwrap_global().clone())
+    }
+
+    pub fn mutable_uses<'a>(
+        &'a self,
+    ) -> Box<dyn Iterator<Item = OuterId> + 'a> {
+        let mut results = Vec::new();
+        self.g.0 .0.iter().for_each(|v| {
+            if let Operation::Input { outer_id, mutability, .. } = & v.op {
+                if *mutability == Mutability::Mut {
+                    results.push(*outer_id);
+                }
+            }
+        });
+        Box::new(results.into_iter())
+    }
+
+    pub fn mutable_uses_mut<'a>(
+        &'a mut self,
+    ) -> Box<dyn Iterator<Item = &'a mut OuterId> + 'a> {
+        let mut results = Vec::new();
+        self.g.0 .0.iter_mut().for_each(|v| {
+            if let Operation::Input { outer_id, mutability, .. } = & mut v.op {
+                if *mutability == Mutability::Mut {
+                    results.push(outer_id);
+                }
+            }
+        });
+        Box::new(results.into_iter())
+    }
+
+    pub fn outputs_inplace<'a, 'b>(
+        &'b self,
+        mut mutable_scalars: usize,
+        mut mutable_polys: usize, 
+    ) -> Box<dyn Iterator<Item = Option<OuterId>> + 'b> {
+        let mut results = Vec::new();
+        self.g.0 .0.iter().for_each(|v| {
+            if let Operation::Input { outer_id, mutability, typ } = & v.op {
+                match typ {
+                    FusedType::Scalar => {
+                        if mutable_scalars > 0 && *mutability == Mutability::Mut {
+                            mutable_scalars -= 1;
+                            results.push(Some(*outer_id));
+                        } else {
+                            results.push(None);
+                        }
+                    }
+                    FusedType::ScalarArray => {
+                        if mutable_polys > 0 && *mutability == Mutability::Mut {
+                            mutable_polys -= 1;
+                            results.push(Some(*outer_id));
+                        } else {
+                            results.push(None);
+                        }
+                    }
+                }
+            }
+        });
+        Box::new(results.into_iter())
     }
 
     pub fn uses_mut<'s>(&'s mut self) -> Box<dyn Iterator<Item = &'s mut OuterId> + 's> {

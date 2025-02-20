@@ -178,11 +178,17 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
                 let (mut_scalars, mut_polys) = self.check_mutability(&mut ag, &succ);
 
                 // push the node
+                let mut output_scalars = 0;
+                let mut output_polys = 0;
                 let output_types = output_v
                     .iter()
                     .map(|output_i /*(targetid, old_src_id)*/| {
                         let old_src = output_i[0].1;
                         let old = self.g.vertex(old_src);
+                        match self.get_fuse_type(old_src) {
+                            FusedType::Scalar => output_scalars += 1,
+                            FusedType::ScalarArray => output_polys += 1,
+                        }
                         old.typ().clone()
                     })
                     .collect::<Vec<_>>();
@@ -193,8 +199,8 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
                 let node_id = self.g.add_vertex(Vertex::new(
                     VertexNode::Arith {
                         arith: ag,
-                        mut_scalars,
-                        mut_polys,
+                        mut_scalars: mut_scalars.min(output_scalars),
+                        mut_polys: mut_polys.min(output_polys),
                         chunking: None,
                     },
                     typ,
