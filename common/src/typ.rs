@@ -1,6 +1,6 @@
 use std::any;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Copy, PartialOrd, Ord)]
 pub struct Slice(u64, u64);
 
 impl Slice {
@@ -8,22 +8,16 @@ impl Slice {
         Slice(start, end)
     }
 
-    pub fn union(&self, other: &Self) -> Self {
-        Slice(self.0.min(other.0), self.1.max(other.1))
+    pub fn len(&self) -> u64 {
+        self.1
     }
 
-    pub fn union_with(&mut self, other: &Self) {
-        self.0 = self.0.min(other.0);
-        self.1 = self.1.max(other.1);
+    pub fn begin(&self) -> u64 {
+        self.0
     }
 
-    pub fn is_within(&self, other: &Self) -> bool {
-        self.0 >= other.0 && self.1 <= other.1
-    }
-
-    pub fn relative_of(&self, outer: &Self) -> Self {
-        assert!(self.is_within(outer));
-        Slice(self.0 - outer.0, self.1 - outer.0)
+    pub fn end(&self) -> u64 {
+        self.0 + self.1
     }
 }
 
@@ -34,18 +28,15 @@ pub enum PolyType {
     ExtendedLagrange,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PolyMeta {
-    pub slice: Slice,
-    pub rot: i32,
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum PolyMeta {
+    Sliced(Slice),
+    Rotated(i32),
 }
 
 impl PolyMeta {
-    pub fn plain(len: usize) -> Self {
-        PolyMeta {
-            slice: Slice(0, len as u64),
-            rot: 0,
-        }
+    pub fn plain() -> Self {
+        PolyMeta::Rotated(0)
     }
 }
 
@@ -69,6 +60,24 @@ impl Typ {
         match (self, other) {
             (ScalarArray { len: deg1, .. }, ScalarArray { len: deg2, .. }) => deg1 == deg2,
             (otherwise1, otherwise2) => otherwise1 == otherwise2,
+        }
+    }
+
+    pub fn unwrap_poly(&self) -> (usize, &PolyMeta) {
+        use Typ::*;
+        match self {
+            ScalarArray { len, meta } => (*len, meta),
+            otherwise => panic!("Expected ScalarArray, got {:?}", otherwise),
+        }
+    }
+
+    pub fn normalized(&self) -> Self {
+        match self {
+            Typ::ScalarArray { len, .. } => Typ::ScalarArray {
+                len: *len,
+                meta: PolyMeta::Rotated(0),
+            },
+            otherwise => otherwise.clone(),
         }
     }
 }
