@@ -1,6 +1,7 @@
 use crate::{devices::DeviceType, runtime::transfer::Transfer};
 use pasta_curves::arithmetic::CurveAffine;
 use zkpoly_cuda_api::stream::CudaStream;
+use zkpoly_memory_pool::PinnedMemoryPool;
 
 #[derive(Debug, Clone)]
 pub struct Point<P: CurveAffine> {
@@ -44,6 +45,23 @@ impl<P: CurveAffine> PointArray<P> {
             len,
             device,
         }
+    }
+
+    pub fn alloc_cpu(len: usize, allocator: &mut PinnedMemoryPool) -> Self {
+        let ptr = allocator.allocate(len);
+        Self {
+            values: ptr,
+            len,
+            device: DeviceType::CPU,
+        }
+    }
+
+    pub fn from_vec(vec: &[P], allocator: &mut PinnedMemoryPool) -> Self {
+        let r = Self::alloc_cpu(vec.len(), allocator);
+        unsafe {
+            std::ptr::copy_nonoverlapping(vec.as_ptr(), r.values, vec.len());
+        }
+        r
     }
 }
 

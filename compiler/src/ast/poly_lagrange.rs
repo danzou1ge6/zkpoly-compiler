@@ -48,8 +48,9 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for PolyLagrange<Rt> {
                     self.src_lowered(),
                 ),
                 Constant(data) => {
-                    let value = unimplemented!();
-                    let constant_id = cg.add_constant(value, self.src().name.clone());
+                    let value = rt::scalar::ScalarArray::from_vec(&data, cg.allocator());
+                    let constant_id =
+                        cg.add_constant(PolyLagrange::to_variable(value), self.src().name.clone());
                     Vertex::new(
                         VertexNode::Constant(constant_id),
                         Some(Typ::lagrange_with_deg(data.len() as u64)),

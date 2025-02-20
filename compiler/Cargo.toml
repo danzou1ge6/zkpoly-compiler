@@ -9,3 +9,4 @@ edition = "2021"
 zkpoly_runtime = { path = "../runtime" }
 zkpoly_common = { path = "../common" }
 zkpoly_core = { path = "../core" }
+zkpoly_memory_pool = { path = "../memory_pool" }

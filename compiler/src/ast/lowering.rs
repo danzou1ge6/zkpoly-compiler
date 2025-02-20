@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use zkpoly_common::{define_usize_id, digraph::internal::Digraph, heap::Heap, typ::PolyType};
-use zkpoly_runtime::{args::{ConstantId, RuntimeType, Variable}, functions::FunctionValue};
+use zkpoly_runtime::args::{ConstantId, RuntimeType, Variable};
+use zkpoly_memory_pool::PinnedMemoryPool;
 
 use super::{
     transit::type2::{self, partial_typed, VertexId},
@@ -43,6 +44,7 @@ pub struct Cg<'s, Rt: RuntimeType> {
     pub(crate) constant_table: ConstantTable<Rt>,
     pub(crate) user_function_table: UserFunctionTable<Rt>,
     pub(crate) user_function_id_mapping: BTreeMap<*const u8, UserFunctionId>,
+    pub(crate) allocator: PinnedMemoryPool,
 }
 
 impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
@@ -69,12 +71,11 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
         let ptr = f.as_ptr();
         self.user_function_id_mapping
             .entry(ptr)
-            .or_insert_with(|| {
-                self.user_function_table
-                    .push(f.inner.t.take())
-            })
+            .or_insert_with(|| self.user_function_table.push(f.inner.t.take()))
             .clone()
     }
 
+    pub fn allocator(&mut self) -> &mut PinnedMemoryPool {
+        &mut self.allocator
+    }
 }
-

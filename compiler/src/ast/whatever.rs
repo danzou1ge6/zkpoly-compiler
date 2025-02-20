@@ -1,12 +1,21 @@
-use std::{any, sync::Arc};
+use std::{any, cell::Cell, sync::Arc};
 
 use super::*;
 
-#[derive(Debug)]
 pub enum WhateverNode<Rt: RuntimeType> {
     Entry,
-    Constant(Box<dyn any::Any>),
+    Constant(Cell<Box<dyn any::Any + Send + Sync>>),
     Common(CommonNode<Rt>),
+}
+
+impl<Rt: RuntimeType> Debug for WhateverNode<Rt> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            WhateverNode::Entry => f.debug_tuple("Entry").finish(),
+            WhateverNode::Constant(_) => f.debug_tuple("Constant").finish(),
+            WhateverNode::Common(cn) => f.debug_tuple("Common").field(cn).finish(),
+        }
+    }
 }
 
 pub(super) type WhateverUntyped<Rt: RuntimeType> = Outer<WhateverNode<Rt>>;
@@ -20,7 +29,8 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for WhateverUntyped<Rt> {
             match &self.inner.t {
                 Entry => todo!("track entry ID"),
                 Constant(x) => {
-                    let constant = unimplemented!();
+                    let constant =
+                        cg.add_constant(Variable::Any(Arc::new(x.replace(Box::new(0)))), None);
                     new_vertex(VertexNode::Constant(constant), Some(Typ::Scalar))
                 }
                 Common(cn) => cn.vertex(cg, self.src_lowered()),
@@ -74,9 +84,9 @@ impl<Rt: RuntimeType, T> Whatever<Rt, T> {
     }
 
     #[track_caller]
-    pub fn constant(data: impl any::Any) -> Self {
+    pub fn constant(data: impl any::Any + Send + Sync) -> Self {
         let src = SourceInfo::new(Location::caller().clone(), None);
-        let untyped = WhateverUntyped::new(WhateverNode::Constant(Box::new(data)), src);
+        let untyped = WhateverUntyped::new(WhateverNode::Constant(Cell::new(Box::new(data))), src);
         Phantomed::wrap(untyped)
     }
 }

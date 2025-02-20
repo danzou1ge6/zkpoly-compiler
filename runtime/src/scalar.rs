@@ -9,6 +9,7 @@ use zkpoly_cuda_api::{
     mem::{alloc_pinned, free_pinned},
     stream::CudaStream,
 };
+use zkpoly_memory_pool::PinnedMemoryPool;
 
 use crate::{devices::DeviceType, runtime::transfer::Transfer};
 
@@ -34,6 +35,12 @@ impl<F: Field> Scalar<F> {
             value,
             device: DeviceType::GPU { device_id },
         }
+    }
+
+    pub fn from_ff(value: &F) -> Self {
+        let mut r = Self::new_cpu();
+        *r.as_mut() = value.clone();
+        r
     }
 
     pub fn as_ref(&self) -> &F {
@@ -141,6 +148,25 @@ impl<F: Field> ScalarArray<F> {
             device,
             slice_info: None,
         }
+    }
+
+    pub fn alloc_cpu(len: usize, allocator: &mut PinnedMemoryPool) -> Self {
+        let ptr = allocator.allocate(len);
+        Self {
+            values: ptr,
+            len,
+            rotate: 0,
+            device: DeviceType::CPU,
+            slice_info: None,
+        }
+    }
+
+    pub fn from_vec(v: &[F], allocator: &mut PinnedMemoryPool) -> Self {
+        let r = Self::alloc_cpu(v.len(), allocator);
+        unsafe {
+            std::ptr::copy_nonoverlapping(v.as_ptr(), r.values, v.len());
+        }
+        r
     }
 
     pub fn blind(&mut self, start: usize, end: usize, rng: impl RngCore + Clone) {

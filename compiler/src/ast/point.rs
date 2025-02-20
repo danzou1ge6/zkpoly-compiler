@@ -21,7 +21,8 @@ impl<Rt: RuntimeType> PrecomputedPoints<Rt> {
 impl<Rt: RuntimeType> TypeEraseable<Rt> for PrecomputedPoints<Rt> {
     fn erase<'s>(&self, cg: &mut Cg<'s, Rt>) -> VertexId {
         cg.lookup_or_insert_with(self.as_ptr(), |cg| {
-            let constant = unimplemented!();
+            let scalar_array = rt::point::PointArray::from_vec(&self.inner.t.0, cg.allocator());
+            let constant = cg.add_constant(PrecomputedPoints::to_variable(scalar_array), None);
             Vertex::new(
                 VertexNode::Constant(constant),
                 Some(Typ::PointBase {

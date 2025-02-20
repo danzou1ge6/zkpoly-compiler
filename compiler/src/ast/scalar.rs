@@ -33,7 +33,8 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for Scalar<Rt> {
                     new_vertex(VertexNode::SingleArith(arith), Some(Typ::Scalar))
                 }
                 Constant(x) => {
-                    let constant = unimplemented!();
+                    let constant =
+                        cg.add_constant(Scalar::to_variable(rt::scalar::Scalar::from_ff(x)), None);
                     new_vertex(VertexNode::Constant(constant), Some(Typ::Scalar))
                 }
                 Entry => todo!("track entry ID"),
