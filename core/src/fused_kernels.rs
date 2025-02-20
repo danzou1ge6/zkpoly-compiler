@@ -10,8 +10,8 @@ use std::{
 use libloading::Symbol;
 use zkpoly_common::{
     arith::{
-        Arith, ArithBinOp, ArithGraph, ArithUnrOp, BinOp, FusedType, Mutability, Operation, 
-        SpOp, UnrOp,
+        Arith, ArithBinOp, ArithGraph, ArithUnrOp, BinOp, FusedType, Mutability, Operation, SpOp,
+        UnrOp,
     },
     heap::UsizeId,
     load_dynamic::Libs,

@@ -19,9 +19,21 @@ impl SpOp {
     pub fn for_4ops(op: ArithBinOp, rev: bool) -> Self {
         match op {
             ArithBinOp::Add => SpOp::Add,
-            ArithBinOp::Sub => if rev { SpOp::SubBy } else { SpOp::Sub },
+            ArithBinOp::Sub => {
+                if rev {
+                    SpOp::SubBy
+                } else {
+                    SpOp::Sub
+                }
+            }
             ArithBinOp::Mul => SpOp::Mul,
-            ArithBinOp::Div => if rev { SpOp::DivBy } else { SpOp::Div },
+            ArithBinOp::Div => {
+                if rev {
+                    SpOp::DivBy
+                } else {
+                    SpOp::Div
+                }
+            }
         }
     }
 }

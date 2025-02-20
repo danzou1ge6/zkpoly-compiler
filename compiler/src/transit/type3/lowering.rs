@@ -358,7 +358,7 @@ fn lower_instruction<'s, Rt: RuntimeType>(
         super::InstructionNode::CpuFree { id } => emit(Instruction::Deallocate {
             id: reg_id2var_id(*id),
         }),
-        super::InstructionNode::Transfer { id, from, rot } => emit(Instruction::Transfer {
+        super::InstructionNode::Transfer { id, from } => emit(Instruction::Transfer {
             src_device: DeviceType::from(t3chunk.register_devices[from]),
             dst_device: DeviceType::from(t3chunk.register_devices[id]),
             stream: Stream::of_track(track).map(|s| *stream2variable_id.get(s)),
@@ -374,7 +374,7 @@ fn lower_instruction<'s, Rt: RuntimeType>(
             emit(Instruction::AssembleTuple { vars, dst });
         }
         super::InstructionNode::Move { id, from } => unimplemented!(),
-        super::InstructionNode::Clone { id, from } => unimplemented!(),
+        super::InstructionNode::SetPolyMeta { id, from, meta } => unimplemented!(),
     };
 }
 

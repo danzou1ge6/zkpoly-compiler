@@ -54,7 +54,7 @@ impl KernelType {
             VertexNode::KateDivision(..) => Some(Self::KateDivision),
             VertexNode::EvaluatePoly { .. } => Some(Self::EvaluatePoly),
             VertexNode::BatchedInvert(..) => Some(Self::BatchedInvert),
-            VertexNode::ScanMul{..} => Some(Self::ScanMul),
+            VertexNode::ScanMul { .. } => Some(Self::ScanMul),
             VertexNode::Interpolate { .. } => Some(Self::Interpolate),
             VertexNode::AssmblePoly(_, _) => Some(Self::AssmblePoly),
             VertexNode::HashTranscript { typ, .. } => match typ {

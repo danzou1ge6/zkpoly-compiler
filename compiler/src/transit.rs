@@ -1,7 +1,7 @@
 //! Common data structures for Transit IR's
 
-use std::{any, panic::Location};
 use std::marker::PhantomData;
+use std::{any, panic::Location};
 
 use zkpoly_common::{digraph::internal::Digraph, heap::Heap};
 use zkpoly_runtime::args::RuntimeType;

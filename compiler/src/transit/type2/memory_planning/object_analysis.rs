@@ -1,9 +1,11 @@
 use std::collections::BTreeMap;
 
-use zkpoly_common::{define_usize_id, heap::IdAllocator};
+use zkpoly_common::{define_usize_id, heap::IdAllocator, typ::PolyMeta};
 use zkpoly_runtime::args::RuntimeType;
 
-use crate::transit::type3::{typ::Slice, Device, DeviceSpecific, Size, SmithereenSize};
+use crate::transit::type3::{
+    typ::Slice as SliceRange, Device, DeviceSpecific, Size, SmithereenSize,
+};
 
 use super::super::{Cg, Typ, VertexId};
 
@@ -11,7 +13,8 @@ define_usize_id!(ObjectId);
 
 #[derive(Debug, Clone)]
 pub enum ValueNode {
-    Poly { rotation: i32, slice: Slice },
+    SlicedPoly { slice: SliceRange, deg: u64 },
+    Poly { rotation: i32, deg: u64 },
     Other,
 }
 
@@ -42,7 +45,7 @@ impl Value {
                 Value {
                     node: ValueNode::Poly {
                         rotation: 0,
-                        slice: Slice::new(0, *deg),
+                        deg: *deg,
                     },
                     object_id,
                     device,
@@ -73,14 +76,6 @@ impl Value {
 
     pub fn node_mut(&mut self) -> &mut ValueNode {
         &mut self.node
-    }
-
-    pub fn unwrap_poly(&self) -> (i32, Slice) {
-        use ValueNode::*;
-        match &self.node {
-            Poly { rotation, slice } => (*rotation, slice.clone()),
-            _otherwise => panic!("not a poly"),
-        }
     }
 }
 
@@ -120,6 +115,22 @@ impl VertexValue {
         match self {
             Tuple(ss) => Box::new(ss.iter_mut()),
             Single(s) => Box::new([s].into_iter()),
+        }
+    }
+
+    pub fn unwrap_single(&self) -> &Value {
+        use VertexValue::*;
+        match self {
+            Single(s) => s,
+            _ => panic!("called unwrap_single on VertexValue::Tuple"),
+        }
+    }
+
+    pub fn unwrap_single_mut(&mut self) -> &mut Value {
+        use VertexValue::*;
+        match self {
+            Single(s) => s,
+            _ => panic!("called unwrap_single on VertexValue::Tuple"),
         }
     }
 }
@@ -208,6 +219,11 @@ pub struct ObjectsDefUse {
     pub values: BTreeMap<VertexId, VertexValue>,
     pub defs: BTreeMap<ObjectId, VertexId>,
     pub sizes: BTreeMap<ObjectId, Size>,
+    pub cloned_slices: BTreeMap<(ObjectId, PolyMeta), ObjectId>,
+}
+
+fn rotated_offset(begin: u64, offset: i64, cycle: u64) -> u64 {
+    (begin as i64 + offset) as u64 % cycle
 }
 
 pub fn analyze_def_use<'s, Rt: RuntimeType>(
@@ -218,6 +234,7 @@ pub fn analyze_def_use<'s, Rt: RuntimeType>(
     let mut values: BTreeMap<VertexId, VertexValue> = BTreeMap::new();
     let mut defs = BTreeMap::new();
     let mut sizes = BTreeMap::new();
+    let mut cloned_slices = BTreeMap::new();
 
     for (vid, v) in cg.g.topology_sort() {
         use super::super::template::VertexNode::*;
@@ -248,29 +265,73 @@ pub fn analyze_def_use<'s, Rt: RuntimeType>(
                 values.insert(vid, value);
             }
             RotateIdx(pred, delta) => {
-                let pred_value = values[pred].clone();
+                let pred_value = values[pred].unwrap_single();
 
-                if let VertexValue::Single(Value {
-                    node: ValueNode::Poly { rotation, slice },
-                    object_id,
-                    device,
-                }) = pred_value
-                {
-                    let value = Value {
+                let value = match pred_value.node() {
+                    ValueNode::Poly { rotation, deg } => Value {
                         node: ValueNode::Poly {
-                            rotation: rotation + delta,
-                            slice,
+                            rotation: *rotation + *delta,
+                            deg: *deg,
                         },
-                        object_id,
-                        device,
-                    };
+                        device: pred_value.device,
+                        object_id: pred_value.object_id,
+                    },
+                    ValueNode::SlicedPoly { slice, deg } => {
+                        // Rotation after slice is not implemented, so we clone the slice to a new polynomial
+                        let cloned_obj_id = object_id_allocator.alloc();
+                        cloned_slices.insert(
+                            (pred_value.object_id(), PolyMeta::Sliced(*slice)),
+                            cloned_obj_id,
+                        );
+                        Value {
+                            node: ValueNode::Poly {
+                                rotation: *delta,
+                                deg: slice.len(),
+                            },
+                            // Let it be pred_value.device for now, we will update it later
+                            device: pred_value.device,
+                            object_id: cloned_obj_id,
+                        }
+                    }
+                    _ => panic!("only polynomials can be rotated"),
+                };
 
-                    values.insert(vid, VertexValue::Single(value));
-                } else {
-                    panic!("expected poly here");
-                }
+                values.insert(vid, VertexValue::Single(value));
             }
-            _otherwise => {
+            Slice(pred, begin, end) => {
+                let pred_value = values[pred].unwrap_single();
+
+                let value = match pred_value.node() {
+                    ValueNode::Poly { rotation, deg } => Value {
+                        node: ValueNode::SlicedPoly {
+                            slice: SliceRange::new(
+                                rotated_offset(*begin, *rotation as i64, *deg),
+                                *end - *begin,
+                            ),
+                            deg: *deg,
+                        },
+                        device: pred_value.device,
+                        object_id: pred_value.object_id,
+                    },
+                    ValueNode::SlicedPoly { slice, deg } => Value {
+                        node: ValueNode::SlicedPoly {
+                            slice: SliceRange::new(
+                                rotated_offset(slice.begin(), *begin as i64, *deg),
+                                *end - slice.begin(),
+                            ),
+                            deg: *deg,
+                        },
+                        device: pred_value.device,
+                        object_id: pred_value.object_id,
+                    },
+                    _ => panic!("only polynomials can be sliced"),
+                };
+
+                values.insert(vid, VertexValue::Single(value));
+            }
+            otherwise => {
+                assert!(!otherwise.is_virtual());
+
                 let value = match v.typ() {
                     Typ::Array(typ, len) => {
                         let elements =
@@ -320,6 +381,7 @@ pub fn analyze_def_use<'s, Rt: RuntimeType>(
                 .into_iter()
                 .map(|(id, s)| (id, Size::Smithereen(SmithereenSize(s))))
                 .collect(),
+            cloned_slices,
         },
         object_id_allocator,
     )
@@ -328,45 +390,16 @@ pub fn analyze_def_use<'s, Rt: RuntimeType>(
 #[derive(Debug, Clone)]
 pub struct VertexInputs {
     pub(super) inputs: BTreeMap<VertexId, Vec<VertexValue>>,
-    pub(super) cloned_slices: BTreeMap<ObjectId, (ObjectId, Slice)>,
-}
-
-fn collect_slice_range_on_device<'s, Rt: RuntimeType>(
-    device: Device,
-    vi: &BTreeMap<VertexId, Vec<VertexValue>>,
-    cg: &Cg<'s, Rt>,
-    devices: &impl Fn(VertexId) -> Device,
-    obj_id_allocator: &mut IdAllocator<ObjectId>,
-) -> BTreeMap<ObjectId, (ObjectId, Slice)> {
-    let mut slice_range = BTreeMap::new();
-
-    for vid in cg.g.vertices() {
-        if devices(vid) != device {
-            continue;
-        }
-
-        vi[&vid].iter().for_each(|vv| {
-            vv.iter().for_each(|value| {
-                if let ValueNode::Poly { slice, .. } = value.node() {
-                    let (_, old_slice) = slice_range
-                        .entry(value.object_id())
-                        .or_insert_with(|| (obj_id_allocator.alloc(), slice.clone()));
-                    old_slice.union_with(slice);
-                }
-            });
-        })
-    }
-
-    slice_range
+    pub(super) cloned_slices_reversed: BTreeMap<ObjectId, (ObjectId, PolyMeta)>,
 }
 
 pub fn plan_vertex_inputs<'s, Rt: RuntimeType>(
     cg: &Cg<'s, Rt>,
-    def_use: &ObjectsDefUse,
+    def_use: &mut ObjectsDefUse,
     devices: impl Fn(VertexId) -> Device,
     obj_id_allocator: &mut IdAllocator<ObjectId>,
 ) -> VertexInputs {
-    let mut inputs = BTreeMap::new();
+    let mut inputs: BTreeMap<VertexId, Vec<VertexValue>> = BTreeMap::new();
 
     for vid in cg.g.vertices() {
         let v = cg.g.vertex(vid);
@@ -379,14 +412,7 @@ pub fn plan_vertex_inputs<'s, Rt: RuntimeType>(
         );
     }
 
-    let gpu_slice_range =
-        collect_slice_range_on_device(Device::Gpu, &inputs, cg, &devices, obj_id_allocator);
-
-    let cloned_slices: BTreeMap<ObjectId, (ObjectId, Slice)> = gpu_slice_range
-        .iter()
-        .map(|(original_obj, (sliced_obj, slice))| (*sliced_obj, (*original_obj, slice.clone())))
-        .collect();
-
+    // - SlicedPoly not allowed on GPU
     for vid in cg.g.vertices() {
         if devices(vid) != Device::Gpu {
             continue;
@@ -394,33 +420,98 @@ pub fn plan_vertex_inputs<'s, Rt: RuntimeType>(
 
         inputs.get_mut(&vid).unwrap().iter_mut().for_each(|vv| {
             vv.iter_mut().for_each(|value| {
-                let original_obj = value.object_id();
+                let obj_id = value.object_id();
 
-                let sliced_obj_id = if let ValueNode::Poly { slice, .. } = value.node_mut() {
-                    let (sliced_obj, complete_slice) = gpu_slice_range[&original_obj].clone();
+                let new_value = match value.node() {
+                    ValueNode::SlicedPoly { slice, .. } => {
+                        let cloned_obj_id = *def_use
+                            .cloned_slices
+                            .entry((obj_id, PolyMeta::Sliced(*slice)))
+                            .or_insert_with(|| obj_id_allocator.alloc());
 
-                    *slice = slice.relative_of(&complete_slice);
-                    Some(sliced_obj)
-                } else {
-                    None
+                        Some(Value {
+                            node: ValueNode::Poly {
+                                rotation: 0,
+                                deg: slice.len(),
+                            },
+                            device: Device::Gpu,
+                            object_id: cloned_obj_id,
+                        })
+                    }
+                    _ => None,
                 };
-
-                if let Some(sliced_obj_id) = sliced_obj_id {
-                    *value.object_id_mut() = sliced_obj_id;
+                if let Some(new_value) = new_value {
+                    *value = new_value;
                 }
             });
         });
     }
 
+    // - Input polynomials of MSM cannot be rotated or sliced
+    for vid in cg.g.vertices() {
+        use super::super::template::VertexNode::*;
+        match cg.g.vertex(vid).node() {
+            Msm { polys, .. } => inputs.get_mut(&vid).unwrap().iter_mut().for_each(|vv| {
+                let value = vv.unwrap_single_mut();
+                let obj_id = value.object_id();
+
+                let new_value = match value.node() {
+                    ValueNode::SlicedPoly { slice, .. } => {
+                        let cloned_oj_id = *def_use
+                            .cloned_slices
+                            .entry((obj_id, PolyMeta::Sliced(*slice)))
+                            .or_insert_with(|| obj_id_allocator.alloc());
+
+                        Some(Value {
+                            node: ValueNode::Poly {
+                                rotation: 0,
+                                deg: slice.len(),
+                            },
+                            device: Device::Gpu,
+                            object_id: cloned_oj_id,
+                        })
+                    }
+                    ValueNode::Poly { rotation, deg } if *rotation != 0 => {
+                        let cloned_oj_id = *def_use
+                            .cloned_slices
+                            .entry((obj_id, PolyMeta::Rotated(*rotation)))
+                            .or_insert_with(|| obj_id_allocator.alloc());
+
+                        Some(Value {
+                            node: ValueNode::Poly {
+                                rotation: 0,
+                                deg: *deg,
+                            },
+                            device: Device::Gpu,
+                            object_id: cloned_oj_id,
+                        })
+                    }
+                    _ => panic!("inputs of MSM must be polynomials"),
+                };
+
+                if let Some(new_value) = new_value {
+                    *value = new_value;
+                }
+            }),
+            _ => {}
+        }
+    }
+
+    let cloned_slices_reversed = def_use
+        .cloned_slices
+        .iter()
+        .map(|((sliced_obj, slice), obj)| (*obj, (*sliced_obj, slice.clone())))
+        .collect();
+
     VertexInputs {
         inputs,
-        cloned_slices,
+        cloned_slices_reversed,
     }
 }
 
 pub fn analyze_die_after(
     seq: &[VertexId],
-    devices: &BTreeMap<VertexId, Device>,
+    _devices: &BTreeMap<VertexId, Device>,
     vertex_inputs: &VertexInputs,
 ) -> ObjectsDieAfter {
     let mut die_after = ObjectsDieAfter::empty();
@@ -430,10 +521,21 @@ pub fn analyze_die_after(
             .map(|input_vv| input_vv.iter())
             .flatten()
             .for_each(|input_value| {
-                let device = devices[&vid];
+                let device = input_value.device;
                 die_after
                     .get_device_mut(device)
                     .insert(input_value.object_id(), vid);
+
+                if device == Device::Gpu {
+                    if let Some((sliced_obj, _)) = vertex_inputs
+                        .cloned_slices_reversed
+                        .get(&input_value.object_id())
+                    {
+                        die_after
+                            .get_device_mut(Device::Cpu)
+                            .insert(*sliced_obj, vid);
+                    }
+                }
             });
     }
     die_after

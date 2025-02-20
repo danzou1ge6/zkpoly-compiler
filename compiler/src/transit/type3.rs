@@ -55,7 +55,6 @@ impl TryFrom<Size> for IntegralSize {
     }
 }
 
-
 impl IntegralSize {
     pub fn ceiling(size: SmithereenSize) -> Self {
         Self(log2_ceil(size.0))
@@ -129,10 +128,12 @@ impl<T> DeviceSpecific<T> {
 define_usize_id!(RegisterId);
 
 pub mod template {
-    use super::Size;
+    use zkpoly_common::typ::PolyMeta;
+
+    use super::{typ, Size};
 
     #[derive(Debug, Clone)]
-    pub enum InstructionNode<I, A, R, V> {
+    pub enum InstructionNode<I, A, V> {
         Type2 {
             ids: Vec<I>,
             temp: Vec<I>,
@@ -162,7 +163,6 @@ pub mod template {
         Transfer {
             id: I,
             from: I,
-            rot: R,
         },
         /// This is for marking that the object that a register stores or points to has changed.
         /// At runtime, this operation is equivalent to a `Clone` operation.
@@ -170,14 +170,14 @@ pub mod template {
             id: I,
             from: I,
         },
-        /// Shallow copy. If register points to some data, those data are not touched.
-        Clone {
+        SetPolyMeta {
             id: I,
             from: I,
+            meta: PolyMeta,
         },
     }
 
-    impl<I, A, R, V> InstructionNode<I, A, R, V>
+    impl<I, A, V> InstructionNode<I, A, V>
     where
         I: Copy,
     {
@@ -195,7 +195,7 @@ pub mod template {
                 }
                 Transfer { id, .. } => Box::new(std::iter::once(*id)),
                 Move { id, .. } => Box::new(std::iter::once(*id)),
-                Clone { id, .. } => Box::new(std::iter::once(*id)),
+                SetPolyMeta { id, .. } => Box::new(std::iter::once(*id)),
             }
         }
     }
@@ -208,7 +208,7 @@ pub type VertexNode = type2::template::VertexNode<
     type2::user_function::Id,
 >;
 
-pub type InstructionNode = template::InstructionNode<RegisterId, AddrId, i32, VertexNode>;
+pub type InstructionNode = template::InstructionNode<RegisterId, AddrId, VertexNode>;
 
 #[derive(Debug, Clone)]
 pub struct Instruction<'s> {
@@ -348,7 +348,7 @@ impl<'s> Instruction<'s> {
             Tuple { .. } => Cpu,
             Transfer { from, id, .. } => determine_transfer_track(devices(*from), devices(*id)),
             Move { .. } => Cpu,
-            Clone { .. } => Cpu,
+            SetPolyMeta { .. } => Cpu,
         }
     }
 

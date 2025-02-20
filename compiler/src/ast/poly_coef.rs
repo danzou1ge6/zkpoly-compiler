@@ -38,10 +38,7 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for PolyCoef<Rt> {
         cg.lookup_or_insert_with(self.as_ptr(), |cg| match &self.inner.t {
             Arith(arith) => {
                 let arith = arith.to_arith(cg);
-                new_vertex(
-                    VertexNode::SingleArith(arith),
-                    Some(Typ::coef()),
-                )
+                new_vertex(VertexNode::SingleArith(arith), Some(Typ::coef()))
             }
             New(init, deg) => new_vertex(
                 VertexNode::NewPoly(*deg, init.clone(), PolyType::Coef),
@@ -106,7 +103,7 @@ impl<Rt: RuntimeType> RuntimeCorrespondance<Rt> for PolyCoef<Rt> {
     fn try_borrow_variable(var: &Variable<Rt>) -> Option<Self::RtcBorrowed<'_>> {
         match var {
             Variable::ScalarArray(arr) => Some(arr),
-            _ => None
+            _ => None,
         }
     }
 }

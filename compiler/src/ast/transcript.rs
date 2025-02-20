@@ -63,7 +63,7 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for Transcript<Rt> {
 impl<Rt: RuntimeType> RuntimeCorrespondance<Rt> for Transcript<Rt> {
     type Rtc = Rt::Trans;
     type RtcBorrowed<'a> = &'a Self::Rtc;
-    
+
     fn to_variable(x: Self::Rtc) -> Variable<Rt> {
         Variable::Transcript(x)
     }

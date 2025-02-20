@@ -25,7 +25,8 @@ use super::{
 
 use super::{Cg, Device, VertexId};
 use object_analysis::{
-    ObjectId, ObjectsDefUse, ObjectsDieAfter, ObjectsDieAfterReversed, Value, VertexInputs,
+    ObjectId, ObjectsDefUse, ObjectsDieAfter, ObjectsDieAfterReversed, Value, ValueNode,
+    VertexInputs,
 };
 
 const MIN_SMITHEREEN_SPACE: u64 = 2u64.pow(26);
@@ -172,13 +173,12 @@ impl RegisterPlaces {
 }
 
 impl RegisterPlaces {
-    pub fn get_any(&self) -> RegisterId {
+    pub fn get_any(&self) -> Option<(RegisterId, DeterminedDevice)> {
         self.gpu
             .first()
-            .or_else(|| self.cpu.first())
-            .or_else(|| self.stack.first())
-            .cloned()
-            .expect("at least some register is expected to be available")
+            .map(|&r| (r, DeterminedDevice::Gpu))
+            .or_else(|| self.cpu.first().map(|&r| (r, DeterminedDevice::Cpu)))
+            .or_else(|| self.stack.first().map(|&r| (r, DeterminedDevice::Stack)))
     }
 }
 
@@ -280,7 +280,6 @@ fn move_victims(victims: &[AddrId], code: &mut Code, ctx: &mut Context, imctx: &
             code.emit(Instruction::new_no_src(InstructionNode::Transfer {
                 id: new_reg,
                 from: reg_id,
-                rot: 0,
             }));
         }
     });
@@ -309,7 +308,6 @@ fn allocate_gpu_integral(
             code.emit(Instruction::new_no_src(InstructionNode::Transfer {
                 id: reg_to,
                 from: reg_from,
-                rot: 0,
             }));
         }
         return addr;
@@ -542,6 +540,68 @@ fn decide_device<'s, Rt: RuntimeType>(
     devices
 }
 
+fn ensure_same_type(
+    device: DeterminedDevice,
+    obj_id: ObjectId,
+    typ: Typ,
+    mut candidate_regs: impl Iterator<Item = RegisterId> + Clone,
+    code: &mut Code,
+    ctx: &mut Context,
+) -> RegisterId {
+    if let Some(reg_id) = candidate_regs.clone().find(|&r| code.typ_of(r) == &typ) {
+        reg_id
+    } else {
+        let (_, meta) = typ.unwrap_poly();
+        let meta = meta.clone();
+        let reg_id = candidate_regs.next().unwrap().clone();
+        let new_reg = code.alloc_register_id(typ);
+        code.emit(Instruction::new_no_src(InstructionNode::SetPolyMeta {
+            id: new_reg,
+            from: reg_id,
+            meta,
+        }));
+        ctx.add_residence_for_object(obj_id, new_reg, device);
+        new_reg
+    }
+}
+
+// Try to find a register pointing to `obj_id` on `device`, but not necessarily that device.
+// Type of the returned register is ensured to be `typ`.
+fn attempt_on_device(
+    device: DeterminedDevice,
+    obj_id: ObjectId,
+    typ: Typ,
+    code: &mut Code,
+    ctx: &mut Context,
+    imctx: &ImmutableContext,
+) -> RegisterId {
+    let candidate_registers = ctx.object_residence[&obj_id]
+        .get_device(device)
+        .iter()
+        .cloned()
+        .collect::<Vec<_>>();
+    if !candidate_registers.is_empty() {
+        ensure_same_type(
+            device,
+            obj_id,
+            typ,
+            candidate_registers.into_iter(),
+            code,
+            ctx,
+        )
+    } else {
+        if let Some((from_reg, _)) = ctx.object_residence[&obj_id].get_any() {
+            ensure_same_type(device, obj_id, typ, std::iter::once(from_reg), code, ctx)
+        } else {
+            let (sliced_obj, meta) = imctx.vertex_inputs.cloned_slices_reversed[&obj_id].clone();
+            let (len, _) = typ.unwrap_poly();
+            let sliced_typ = Typ::ScalarArray { len, meta };
+            attempt_on_device(device, sliced_obj, sliced_typ, code, ctx, imctx)
+        }
+    }
+}
+
+// Return a register that is ensured to point to `obj_id` on `device`, with type `typ`.
 fn ensure_on_device(
     device: DeterminedDevice,
     obj_id: ObjectId,
@@ -552,24 +612,32 @@ fn ensure_on_device(
     ctx: &mut Context,
     imctx: &ImmutableContext,
 ) -> Result<RegisterId, InsufficientSmithereenSpace> {
-    let candidate_registers = ctx.object_residence[&obj_id].get_device(device);
+    // - If the same device has the desired object
+    //     - If some register `r` has type same as desired, use it directly
+    //     - Otherwise, the only possiblility is different polynomial metadata, so we copy the pointer
+    //       and reset metadata
+    // - Otherwise, allocate new space and try find register pointing to desired object on another device
+    //     - If some regiter `r` is found on any device, transfer whole piece and then ensure correct type
+    //       then transfer `r` to a new register
+    //     - Otherwise, the object must be sliced from some other object `src`.
+    //       In this case, we first attempt to find a register pointing to `src` and ensure its slice is desired,
+    //       Then we transfer `src` to a new register.
+    let candidate_registers = ctx.object_residence[&obj_id]
+        .get_device(device)
+        .iter()
+        .cloned()
+        .collect::<Vec<_>>();
     if !candidate_registers.is_empty() {
-        if let Some(&reg_id) = candidate_registers
-            .iter()
-            .find(|&&r| code.typ_of(r) == &typ)
-        {
-            Ok(reg_id)
-        } else {
-            let reg_id = candidate_registers.first().unwrap().clone();
-            let new_reg = code.alloc_register_id(typ);
-            code.emit(Instruction::new_no_src(InstructionNode::Clone {
-                id: new_reg,
-                from: reg_id,
-            }));
-            Ok(new_reg)
-        }
+        Ok(ensure_same_type(
+            device,
+            obj_id,
+            typ,
+            candidate_registers.into_iter(),
+            code,
+            ctx,
+        ))
     } else {
-        let new_reg = code.alloc_register_id(typ);
+        let new_reg = code.alloc_register_id(typ.clone());
         let size = imctx.obj_size(obj_id);
         allocate(
             device,
@@ -582,12 +650,33 @@ fn ensure_on_device(
             ctx,
             imctx,
         )?;
-        code.emit(Instruction::new_no_src(InstructionNode::Transfer {
-            id: new_reg,
-            from: ctx.object_residence[&obj_id].get_any(),
-            rot: 0,
-        }));
-        Ok(new_reg)
+        if let Some((from_reg, from_device)) = ctx.object_residence[&obj_id].get_any() {
+            let from_reg = ensure_same_type(
+                from_device,
+                obj_id,
+                typ.normalized(),
+                std::iter::once(from_reg),
+                code,
+                ctx,
+            );
+
+            code.emit(Instruction::new_no_src(InstructionNode::Transfer {
+                id: new_reg,
+                from: from_reg,
+            }));
+            Ok(new_reg)
+        } else {
+            let (sliced_obj, meta) = imctx.vertex_inputs.cloned_slices_reversed[&obj_id].clone();
+            let (len, _) = typ.unwrap_poly();
+            let sliced_typ = Typ::ScalarArray { len, meta };
+            let from_reg = attempt_on_device(device, sliced_obj, sliced_typ, code, ctx, imctx);
+
+            code.emit(Instruction::new_no_src(InstructionNode::Transfer {
+                id: new_reg,
+                from: from_reg,
+            }));
+            Ok(new_reg)
+        }
     }
 }
 
@@ -631,7 +720,6 @@ fn ensure_copied(
         code.emit(Instruction::new_no_src(InstructionNode::Transfer {
             id: copied_reg,
             from: transferred_reg,
-            rot: 0,
         }));
         copied_reg
     } else {
@@ -660,13 +748,23 @@ fn ensure_copied(
 fn lower_typ<Rt: RuntimeType>(t2typ: &super::Typ<Rt>, value: &Value) -> Typ {
     use super::typ::template::Typ::*;
     match t2typ {
-        Poly((_, deg)) => {
-            let (rot, slice) = value.unwrap_poly();
-            Typ::ScalarArray {
-                len: *deg as usize,
-                meta: PolyMeta { slice, rot },
+        Poly((_, deg0)) => match value.node() {
+            ValueNode::Poly { rotation, deg } => {
+                assert!(deg0 == deg);
+                Typ::ScalarArray {
+                    len: *deg as usize,
+                    meta: PolyMeta::Rotated(*rotation),
+                }
             }
-        }
+            ValueNode::SlicedPoly { slice, deg } => {
+                assert!(deg0 == deg);
+                Typ::ScalarArray {
+                    len: *deg as usize,
+                    meta: PolyMeta::Sliced(slice.clone()),
+                }
+            }
+            _ => panic!("expected poly here"),
+        },
         Scalar => Typ::Scalar,
         Point => Typ::Point,
         PointBase { log_n } => Typ::PointBase {
@@ -696,14 +794,15 @@ pub fn plan<'s, Rt: RuntimeType>(
     let successors = cg.g.successors();
     let next_ueses = collect_next_uses(&successors, seq);
     let devices = decide_device(cg, &successors);
-    let (obj_def_use, mut obj_id_allocator) =
+    let (mut obj_def_use, mut obj_id_allocator) =
         object_analysis::analyze_def_use(cg, |vid| devices[&vid]);
     let vertex_inputs = object_analysis::plan_vertex_inputs(
         cg,
-        &obj_def_use,
+        &mut obj_def_use,
         |vid| devices[&vid],
         &mut obj_id_allocator,
     );
+    let obj_def_use = obj_def_use;
     let obj_dies_after = object_analysis::analyze_die_after(seq, &devices, &vertex_inputs);
     let obj_dies_after_reversed = obj_dies_after.reversed();
 
@@ -752,7 +851,8 @@ pub fn plan<'s, Rt: RuntimeType>(
             .g
             .vertex(vid)
             .uses()
-            .map(|input_vid| {
+            .zip(imctx.vertex_inputs.inputs[&vid].iter())
+            .map(|(input_vid, input_vv)| {
                 if mutable_uses.contains(&input_vid) && outputs_inplace.contains(&Some(input_vid)) {
                     // This input's space is used inplace by an output
                     let ouput_obj = imctx.obj_def_use.values[&vid]
@@ -764,7 +864,7 @@ pub fn plan<'s, Rt: RuntimeType>(
                                 .unwrap(),
                         )
                         .unwrap();
-                    let input_value = match &imctx.obj_def_use.values[&input_vid] {
+                    let input_value = match input_vv {
                         object_analysis::VertexValue::Single(input_value) => input_value.clone(),
                         object_analysis::VertexValue::Tuple(..) => {
                             panic!("an inplace input must not be a tuple")
@@ -783,7 +883,7 @@ pub fn plan<'s, Rt: RuntimeType>(
                         &imctx,
                     )
                 } else if mutable_uses.contains(&input_vid) {
-                    let input_value = match &imctx.obj_def_use.values[&input_vid] {
+                    let input_value = match input_vv {
                         object_analysis::VertexValue::Single(input_value) => input_value.clone(),
                         object_analysis::VertexValue::Tuple(..) => {
                             panic!("an mutable input must not be a tuple")
@@ -807,7 +907,7 @@ pub fn plan<'s, Rt: RuntimeType>(
                     && !outputs_inplace.contains(&Some(input_vid))
                 {
                     // The input is not mutated
-                    match &imctx.obj_def_use.values[&input_vid] {
+                    match input_vv {
                         object_analysis::VertexValue::Single(input_value) => ensure_on_device(
                             device,
                             input_value.object_id(),
