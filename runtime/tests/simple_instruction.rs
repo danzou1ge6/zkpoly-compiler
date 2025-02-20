@@ -74,37 +74,25 @@ fn test_add() {
     // allocate memory
     instructions.push(Instruction::Allocate {
         device: DeviceType::CPU,
-        typ: Typ::ScalarArray {
-            len: len,
-            meta: PolyMeta::plain(len),
-        },
+        typ: Typ::scalar_array(len),
         id: idb,
         offset: None,
     });
     instructions.push(Instruction::Allocate {
         device: DeviceType::GPU { device_id: 0 },
-        typ: Typ::ScalarArray {
-            len: len,
-            meta: PolyMeta::plain(len),
-        },
+        typ: Typ::scalar_array(len),
         id: ida_d,
         offset: Some(0),
     });
     instructions.push(Instruction::Allocate {
         device: DeviceType::GPU { device_id: 0 },
-        typ: Typ::ScalarArray {
-            len: len,
-            meta: PolyMeta::plain(len),
-        },
+        typ: Typ::scalar_array(len),
         id: idb_d,
         offset: Some(len * size_of::<MyField>()),
     });
     instructions.push(Instruction::Allocate {
         device: DeviceType::GPU { device_id: 0 },
-        typ: Typ::ScalarArray {
-            len: len,
-            meta: PolyMeta::plain(len),
-        },
+        typ: Typ::scalar_array(len),
         id: idc_d,
         offset: Some(2 * len * size_of::<MyField>()),
     });

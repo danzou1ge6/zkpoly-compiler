@@ -40,44 +40,80 @@ impl PolyMeta {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Typ {
-    ScalarArray { len: usize, meta: PolyMeta },
-    PointBase { len: usize },
-    Scalar,
-    Transcript,
-    Point,
-    Rng,
-    Tuple,
-    Any(any::TypeId, usize),
-    Stream,
-    GpuBuffer(usize),
+pub mod template {
+    use super::any;
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum Typ<P> {
+        ScalarArray { len: usize, meta: P },
+        PointBase { len: usize },
+        Scalar,
+        Transcript,
+        Point,
+        Rng,
+        Tuple,
+        Any(any::TypeId, usize),
+        Stream,
+        GpuBuffer(usize),
+    }
+
+    impl<P> Typ<P> {
+        pub fn compatible(&self, other: &Self) -> bool where P: Eq {
+            use Typ::*;
+            match (self, other) {
+                (ScalarArray { len: deg1, .. }, ScalarArray { len: deg2, .. }) => deg1 == deg2,
+                (otherwise1, otherwise2) => otherwise1 == otherwise2,
+            }
+        }
+
+        pub fn unwrap_poly(&self) -> (usize, &P) {
+            use Typ::*;
+            match self {
+                ScalarArray { len, meta } => (*len, meta),
+                _ => panic!("expected ScalarArray"),
+            }
+        }
+    }
 }
 
-impl Typ {
-    pub fn compatible(&self, other: &Self) -> bool {
-        use Typ::*;
-        match (self, other) {
-            (ScalarArray { len: deg1, .. }, ScalarArray { len: deg2, .. }) => deg1 == deg2,
-            (otherwise1, otherwise2) => otherwise1 == otherwise2,
+pub type Typ = template::Typ<()>;
+
+impl template::Typ<()> {
+    pub fn scalar_array(len: usize) -> Self {
+        template::Typ::ScalarArray {
+            len,
+            meta: (),
         }
     }
+}
 
-    pub fn unwrap_poly(&self) -> (usize, &PolyMeta) {
-        use Typ::*;
-        match self {
-            ScalarArray { len, meta } => (*len, meta),
-            otherwise => panic!("Expected ScalarArray, got {:?}", otherwise),
-        }
-    }
-
+impl template::Typ<PolyMeta> {
     pub fn normalized(&self) -> Self {
         match self {
-            Typ::ScalarArray { len, .. } => Typ::ScalarArray {
+            Self::ScalarArray { len, .. } => Self::ScalarArray {
                 len: *len,
                 meta: PolyMeta::Rotated(0),
             },
             otherwise => otherwise.clone(),
+        }
+    }
+
+    pub fn erase_p(&self) -> Typ {
+        use template::Typ::*;
+        match self {
+            ScalarArray { len, .. } => ScalarArray {
+                len: *len,
+                meta: (),
+            },
+            PointBase { len } => PointBase { len: *len },
+            Scalar => Scalar,
+            Transcript => Transcript,
+            Point => Point,
+            Rng => Rng,
+            Tuple => Tuple,
+            Any(id, len) => Any(*id, *len),
+            Stream => Stream,
+            GpuBuffer(len) => GpuBuffer(*len),
         }
     }
 }

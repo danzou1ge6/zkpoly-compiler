@@ -339,7 +339,7 @@ fn lower_instruction<'s, Rt: RuntimeType>(
 
             emit(Instruction::Allocate {
                 device: DeviceType::from(t3chunk.register_devices[id]),
-                typ: t3chunk.register_types[*id].clone(),
+                typ: t3chunk.register_types[*id].erase_p(),
                 id: var_id,
                 offset: Some(physical_addr as usize),
             });
@@ -350,7 +350,7 @@ fn lower_instruction<'s, Rt: RuntimeType>(
 
             emit(Instruction::Allocate {
                 device: DeviceType::CPU,
-                typ: t3chunk.register_types[*id].clone(),
+                typ: t3chunk.register_types[*id].erase_p(),
                 id: var_id,
                 offset: None,
             });
