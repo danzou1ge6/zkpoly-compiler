@@ -43,6 +43,15 @@ where
         }
     }
 
+    pub fn uses_mut<'a>(&'a mut self) -> Box<dyn Iterator<Item = &'a mut I> + 'a> {
+        use NttAlgorithm::*;
+        match self {
+            Precomputed(x) => Box::new([x].into_iter()),
+            Standard { pq, omega: base } => Box::new([pq, base].into_iter()),
+            Undecieded => Box::new(std::iter::empty()),
+        }
+    }
+
     pub fn relabeled<I2>(&self, mapping: &mut impl FnMut(I) -> I2) -> NttAlgorithm<I2> {
         use NttAlgorithm::*;
         match self {
@@ -77,7 +86,12 @@ pub mod template {
         /// A single binary or unary arith expression, to be fused to an arith graph
         SingleArith(arith::Arith<I>),
         /// .1 is size of each chunk, if chunking is enabled
-        Arith(A, Option<u64>),
+        Arith {
+            arith: A,
+            mut_scalars: usize,
+            mut_polys: usize,
+            chunking: Option<u64>,
+        },
         Entry,
         Return,
         /// A small scalar. To accomodate big scalars, use global constants.
@@ -133,11 +147,44 @@ pub mod template {
     where
         I: Copy,
     {
+        pub fn uses_mut<'a>(&'a mut self) -> Box<dyn Iterator<Item = &'a mut I> + 'a> {
+            use VertexNode::*;
+            match self {
+                SingleArith(expr) => expr.uses_mut(),
+                Arith { arith, .. } => arith.uses_mut(),
+                Ntt { s, alg, .. } => Box::new([s].into_iter().chain(alg.uses_mut())),
+                RotateIdx(x, _) => Box::new([x].into_iter()),
+                Slice(x, ..) => Box::new([x].into_iter()),
+                Interpolate { xs, ys } => Box::new(xs.iter_mut().chain(ys.iter_mut())),
+                Array(es) => Box::new(es.iter_mut()),
+                AssmblePoly(_, es) => Box::new(es.iter_mut()),
+                Msm {
+                    polys: scalars,
+                    points,
+                    ..
+                } => Box::new(scalars.iter_mut().chain(points.iter_mut())),
+                HashTranscript {
+                    transcript, value, ..
+                } => Box::new([transcript, value].into_iter()),
+                SqueezeScalar(x) => Box::new([x].into_iter()),
+                TupleGet(x, _) => Box::new([x].into_iter()),
+                Blind(x, ..) => Box::new([x].into_iter()),
+                ArrayGet(x, _) => Box::new([x].into_iter()),
+                UserFunction(_, es) => Box::new(es.iter_mut()),
+                KateDivision(lhs, rhs) => Box::new([lhs, rhs].into_iter()),
+                EvaluatePoly { poly, at } => Box::new([poly, at].into_iter()),
+                BatchedInvert(x) => Box::new([x].into_iter()),
+                ScanMul { x0, poly } => Box::new([x0, poly].into_iter()),
+                DistributePowers { scalar, poly } => Box::new([scalar, poly].into_iter()),
+                _ => Box::new(std::iter::empty()),
+            }
+        }
+
         pub fn uses<'a>(&'a self) -> Box<dyn Iterator<Item = I> + 'a> {
             use VertexNode::*;
             match self {
                 SingleArith(expr) => expr.uses(),
-                Arith(arith, ..) => Box::new(arith.uses()),
+                Arith { arith, .. } => Box::new(arith.uses()),
                 Ntt { s, alg, .. } => Box::new([*s].into_iter().chain(alg.uses())),
                 RotateIdx(x, _) => Box::new([*x].into_iter()),
                 Slice(x, ..) => Box::new([*x].into_iter()),
@@ -212,6 +259,9 @@ where
     pub fn uses<'a>(&'a self) -> Box<dyn Iterator<Item = I> + 'a> {
         self.node().uses()
     }
+    pub fn uses_mut<'a>(&'a mut self) -> Box<dyn Iterator<Item = &'a mut I> + 'a> {
+        self.node_mut().uses_mut()
+    }
     pub fn space(&self) -> u64 {
         self.typ().size().total()
     }
@@ -219,8 +269,8 @@ where
         use template::VertexNode::*;
         match self.node() {
             NewPoly(..) | Extend(..) => Device::PreferGpu,
-            Arith(_, chk) => {
-                if chk.is_some() {
+            Arith { chunking, .. } => {
+                if chunking.is_some() {
                     Device::Cpu
                 } else {
                     Device::Gpu
@@ -245,7 +295,7 @@ where
             RotateIdx(s, ..) => Box::new([*s].into_iter()),
             HashTranscript { transcript, .. } => Box::new([*transcript].into_iter()),
             SqueezeScalar(transcript) => Box::new([*transcript].into_iter()),
-            Arith(_, _) => todo!(),
+            Arith { .. } => todo!(),
             Blind(poly, ..) => Box::new([*poly].into_iter()),
             BatchedInvert(poly) => Box::new([*poly].into_iter()),
             DistributePowers { poly, .. } => Box::new([*poly].into_iter()),
@@ -262,7 +312,7 @@ where
             RotateIdx(s, ..) => Box::new([s].into_iter()),
             HashTranscript { transcript, .. } => Box::new([transcript].into_iter()),
             SqueezeScalar(transcript) => Box::new([transcript].into_iter()),
-            Arith(_, _) => todo!(),
+            Arith { .. } => todo!(),
             Blind(poly, ..) => Box::new([poly].into_iter()),
             BatchedInvert(poly) => Box::new([poly].into_iter()),
             DistributePowers { poly, .. } => Box::new([poly].into_iter()),
@@ -297,7 +347,7 @@ where
                     Stack => panic!("RotateIdx output can't be on stack"),
                 }
             }
-            Arith(_, _) => todo!(),
+            Arith { .. } => todo!(),
             Blind(poly, ..) => Box::new([Some(*poly)].into_iter()),
             BatchedInvert(poly) => Box::new([Some(*poly)].into_iter()),
             DistributePowers { poly, .. } => Box::new([Some(*poly)].into_iter()),
@@ -341,7 +391,17 @@ where
             Constant(c) => Constant(c.clone()),
             Extend(s, deg) => Extend(mapping(*s), deg.clone()),
             SingleArith(expr) => SingleArith(expr.relabeled(&mut mapping)),
-            Arith(arith, chk) => Arith(arith.relabeled(mapping), *chk),
+            Arith {
+                arith,
+                chunking,
+                mut_scalars,
+                mut_polys,
+            } => Arith {
+                arith: arith.relabeled(mapping),
+                chunking: *chunking,
+                mut_scalars: *mut_scalars,
+                mut_polys: *mut_polys,
+            },
             Entry => Entry,
             Return => Return,
             LiteralScalar(s) => LiteralScalar(*s),
@@ -416,8 +476,8 @@ where
             Constant(..) => Cpu,
             Extend(..) => on_device(device),
             SingleArith(..) => unreachable!(),
-            Arith(_, chk) => {
-                if let Some(..) = chk {
+            Arith { chunking, .. } => {
+                if let Some(..) = chunking {
                     CoProcess
                 } else {
                     Gpu
@@ -462,7 +522,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
         match self.g.vertex(vid).node() {
             Extend(..) => None,
             SingleArith(..) => None,
-            Arith(..) => None,
+            Arith { .. } => None,
             NewPoly(..) => None,
             Constant(..) => None,
             Entry => None,
@@ -509,6 +569,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
 }
 
 pub mod graph_scheduling;
+pub mod kernel_fusion;
 pub mod memory_planning;
 pub mod temporary_space;
 pub mod typ;

@@ -44,7 +44,7 @@ impl KernelType {
     pub fn from_vertex(vertex: &VertexNode) -> Option<Self> {
         assert!(!vertex.unexpcted_during_lowering());
         match vertex {
-            VertexNode::Arith(..) => Some(Self::FusedArith),
+            VertexNode::Arith { .. } => Some(Self::FusedArith),
             VertexNode::Ntt { alg, .. } => match alg {
                 NttAlgorithm::Standard { .. } => Some(Self::NttRecompute),
                 NttAlgorithm::Precomputed { .. } => Some(Self::NttPrcompute),
@@ -86,10 +86,10 @@ pub fn gen_fused_kernels<'s, Rt: RuntimeType>(program: &Chunk<'s, Rt>) {
     // first pass to generate fused arith kernels
     for (id, instruct) in program.iter_instructions() {
         if let InstructionNode::Type2 { vertex, .. } = &instruct.node {
-            if let VertexNode::Arith(graph, _) = vertex {
+            if let VertexNode::Arith { arith, .. } = vertex {
                 let id: usize = id.into();
                 let name = format!("{FUSED_PERFIX}{id}");
-                FusedOp::new(graph.clone(), name).gen(); // generate fused kernel
+                FusedOp::new(arith.clone(), name).gen(); // generate fused kernel
             }
         }
     }

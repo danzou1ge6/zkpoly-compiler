@@ -49,7 +49,7 @@ impl<I: UsizeId> IdAllocator<I> {
 }
 
 #[derive(Debug, Clone)]
-pub struct Heap<I, T>(Vec<T>, PhantomData<I>);
+pub struct Heap<I, T>(pub Vec<T>, PhantomData<I>);
 
 const PANIC_MSG: &'static str =
     "Assigned indices should never exceed vector length. Perhaps more than one heap is used?";

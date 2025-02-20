@@ -94,6 +94,13 @@ where
         }
     }
 
+    pub fn uses_mut<'a>(&'a mut self) -> Box<dyn Iterator<Item = &'a mut I> + 'a> {
+        match self {
+            Arith::Bin(_, lhs, rhs) => Box::new([lhs, rhs].into_iter()),
+            Arith::Unr(_, rhs) => Box::new([rhs].into_iter()),
+        }
+    }
+
     pub fn relabeled<I2>(&self, f: &mut impl FnMut(I) -> I2) -> Arith<I2> {
         match self {
             Arith::Bin(op, lhs, rhs) => Arith::Bin(op.clone(), f(*lhs), f(*rhs)),
@@ -127,9 +134,8 @@ pub enum Operation<OuterId, ArithIndex> {
 }
 
 #[derive(Debug, Clone)]
-pub struct Vertex<OuterId, ArithIndex> {
+pub struct ArithVertex<OuterId, ArithIndex> {
     pub op: Operation<OuterId, ArithIndex>,
-    pub target: Vec<ArithIndex>,
 }
 
 impl<OuterId, ArithIndex> Operation<OuterId, ArithIndex> {
@@ -147,7 +153,7 @@ impl<OuterId, ArithIndex> Operation<OuterId, ArithIndex> {
     }
 }
 
-impl<OuterId, ArithIndex> Vertex<OuterId, ArithIndex>
+impl<OuterId, ArithIndex> ArithVertex<OuterId, ArithIndex>
 where
     ArithIndex: Copy + 'static,
 {
@@ -167,6 +173,25 @@ where
             _ => Box::new(std::iter::empty()),
         }
     }
+
+    pub fn uses_mut<'s>(&'s mut self) -> Box<dyn Iterator<Item = &'s mut ArithIndex> + 's> {
+        match &mut self.op {
+            Operation::Arith(a) => a.uses_mut(),
+            Operation::Output {
+                store_node,
+                in_node,
+                ..
+            } => {
+                let store = store_node as *mut ArithIndex;
+                let mut result = Vec::with_capacity(in_node.len() + 1);
+                result.extend(in_node.iter_mut());
+                // SAFETY: store_node is a unique mutable reference
+                unsafe { result.push(&mut *store) };
+                Box::new(result.into_iter())
+            }
+            _ => Box::new(std::iter::empty()),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -180,7 +205,7 @@ pub enum Mutability {
 pub struct ArithGraph<OuterId, ArithIndex> {
     pub outputs: Vec<ArithIndex>, // output ids
     pub inputs: Vec<ArithIndex>,  // input ids
-    pub g: Digraph<ArithIndex, Vertex<OuterId, ArithIndex>>,
+    pub g: Digraph<ArithIndex, ArithVertex<OuterId, ArithIndex>>,
 }
 
 impl<OuterId, ArithIndex> ArithGraph<OuterId, ArithIndex>
@@ -192,6 +217,16 @@ where
         self.inputs
             .iter()
             .map(|&i| self.g.vertex(i).op.unwrap_global().clone())
+    }
+
+    pub fn uses_mut<'s>(&'s mut self) -> Box<dyn Iterator<Item = &'s mut OuterId> + 's> {
+        let mut results = Vec::new();
+        self.g.0 .0.iter_mut().for_each(|v| {
+            if let Operation::Input { outer_id, .. } = &mut v.op {
+                results.push(outer_id);
+            }
+        });
+        Box::new(results.into_iter())
     }
 
     pub fn relabeled<I2>(
@@ -223,10 +258,7 @@ where
                 },
             };
 
-            Vertex {
-                op,
-                target: v.target.clone(),
-            }
+            ArithVertex { op }
         });
 
         ArithGraph {
@@ -237,7 +269,7 @@ where
     }
 }
 
-impl<OuterId, ArithIndex> Predecessors<ArithIndex> for Vertex<OuterId, ArithIndex>
+impl<OuterId, ArithIndex> Predecessors<ArithIndex> for ArithVertex<OuterId, ArithIndex>
 where
     ArithIndex: Copy + 'static,
 {
@@ -252,7 +284,7 @@ where
 {
     pub fn topology_sort<'s>(
         &'s self,
-    ) -> impl Iterator<Item = (ArithIndex, &'s Vertex<OuterId, ArithIndex>)> + 's {
+    ) -> impl Iterator<Item = (ArithIndex, &'s ArithVertex<OuterId, ArithIndex>)> + 's {
         self.g.topology_sort()
     }
 }
