@@ -394,6 +394,7 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
                     self.try_unwrap_poly_typ(cg, *powers, PolyType::Lagrange, &err)?;
                 type2::Typ::Poly((PolyType::Lagrange, deg))
             }
+            ScalarInvert { val } => panic!("ScalarInvert cannot come from AST"),
         };
         if let Some(annotated_typ) = v.typ() {
             if !annotated_typ.compatible_with_type2(&typ) {

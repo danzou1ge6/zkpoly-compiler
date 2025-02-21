@@ -5,7 +5,7 @@ use crate::{
 };
 
 /// Scalar-Polynomial operator
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum SpOp {
     Add,
     Sub,
@@ -39,7 +39,7 @@ impl SpOp {
 
     pub fn support_coef(&self) -> bool {
         match self {
-            Self::Div=> false,
+            Self::Div => false,
             _ => true,
         }
     }
@@ -64,7 +64,7 @@ mod op_template {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ArithBinOp {
     Add,
     Sub,
@@ -81,7 +81,7 @@ impl ArithBinOp {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ArithUnrOp {
     Neg,
     Inv,

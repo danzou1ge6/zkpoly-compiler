@@ -10,7 +10,7 @@ use zkpoly_core::fused_kernels::{FusedKernel, FusedOp};
 use zkpoly_core::msm::MSM;
 use zkpoly_core::ntt::{DistributePowers, RecomputeNtt, SsipNtt};
 use zkpoly_core::poly::{
-    KateDivision, PolyEval, PolyInvert, PolyOneCoef, PolyOneLagrange, PolyScan, PolyZero,
+    KateDivision, PolyEval, PolyInvert, PolyOneCoef, PolyOneLagrange, PolyScan, PolyZero, ScalarInv,
 };
 use zkpoly_runtime::args::RuntimeType;
 use zkpoly_runtime::functions::{FunctionId, FunctionTable, RegisteredFunction};
@@ -38,6 +38,7 @@ pub enum KernelType {
     NewOneLagrange,
     NewOneCoef,
     NewZero,
+    ScalarInvert,
 }
 
 impl KernelType {
@@ -75,6 +76,7 @@ impl KernelType {
                     },
                 }
             }
+            VertexNode::ScalarInvert { .. } => Some(Self::ScalarInvert),
             _ => None,
         }
     }
@@ -226,6 +228,12 @@ pub fn get_function_id<'s, Rt: RuntimeType>(
                 KernelType::HashTranscriptWrite => {
                     let hash_transcript_write = HashTranscriptWrite::new();
                     let func_id = f_table.push(hash_transcript_write.get_fn());
+                    kernel2func.insert(kernel_type, func_id);
+                    inst2func.insert(id, func_id);
+                }
+                KernelType::ScalarInvert => {
+                    let scalar_inv = ScalarInv::new(libs);
+                    let func_id = f_table.push(scalar_inv.get_fn());
                     kernel2func.insert(kernel_type, func_id);
                     inst2func.insert(id, func_id);
                 }

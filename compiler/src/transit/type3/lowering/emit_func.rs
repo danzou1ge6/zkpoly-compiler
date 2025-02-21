@@ -173,7 +173,24 @@ pub fn emit_func<'s, Rt: RuntimeType>(
                 });
             }
         }
-        _ => todo!(),
+        VertexNode::ScalarInvert { val } => {
+            let device = t3chunk.register_devices[&outputs[0]];
+            let target = reg_id2var_id(*val);
+            if device == Device::Cpu {
+                emit(Instruction::FuncCall {
+                    func_id: f_id,
+                    arg_mut: vec![target],
+                    arg: vec![],
+                });
+            } else {
+                emit(Instruction::FuncCall {
+                    func_id: f_id,
+                    arg_mut: vec![target],
+                    arg: vec![stream.unwrap()],
+                });
+            }
+        }
+        _ => unimplemented!(),
     }
 }
 

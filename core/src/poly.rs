@@ -186,6 +186,14 @@ pub struct PolyInvert<T: RuntimeType> {
     >,
 }
 
+pub struct ScalarInv<T: RuntimeType> {
+    _marker: PhantomData<T>,
+    c_func: Symbol<
+        'static,
+        unsafe extern "C" fn(target: *mut c_uint, stream: cudaStream_t) -> cudaError_t,
+    >,
+}
+
 macro_rules! impl_poly_new {
     ($struct_name:ident, $symbol_name:literal) => {
         impl<T: RuntimeType> $struct_name<T> {
@@ -214,6 +222,38 @@ impl_poly_new!(PolyEval, "poly_eval");
 impl_poly_new!(PolyAdd, "poly_add");
 impl_poly_new!(PolySub, "poly_sub");
 impl_poly_new!(PolyMul, "poly_mul");
+impl_poly_new!(ScalarInv, "inv_scalar");
+
+impl<T: RuntimeType> RegisteredFunction<T> for ScalarInv<T> {
+    fn get_fn(&self) -> Function<T> {
+        let c_func = self.c_func.clone();
+        let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
+                              var: Vec<&Variable<T>>|
+              -> Result<(), RuntimeError> {
+            assert_eq!(mut_var.len(), 1);
+            let scalar = mut_var[0].unwrap_scalar_mut();
+
+            if var.len() == 1 {
+                // gpu
+                let stream = var[0].unwrap_stream();
+                unsafe {
+                    cuda_check!(cudaSetDevice(stream.get_device()));
+                    cuda_check!(c_func(scalar.value as *mut c_uint, stream.raw(),));
+                }
+            } else if var.len() == 0 {
+                *scalar.as_mut() = scalar.as_ref().invert().unwrap();
+            } else {
+                unreachable!("var len should be 1 or 0 for ScalarInv");
+            }
+
+            Ok(())
+        };
+        Function {
+            name: "scalar_invert".to_string(),
+            f: FunctionValue::Fn(Box::new(rust_func)),
+        }
+    }
+}
 
 impl<T: RuntimeType> PolyInvert<T> {
     pub fn get_buffer_size(&self, len: usize) -> usize {

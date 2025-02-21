@@ -123,7 +123,8 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
         &self,
         ag: &mut ArithGraph<VertexId, ExprId>,
         succ: &Heap<VertexId, BTreeSet<VertexId>>,
-    ) -> (usize, usize) {
+        mut_limit: Option<(usize, usize)>,
+    ) -> Option<(usize, usize)> {
         // change mutability
         let succ_arith = ag.g.successors();
         let mut mut_scalars = 0;
@@ -137,17 +138,29 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
             } = &mut v.op
             {
                 if succ_arith[*id].len() == succ[*outer_id].len() {
-                    *mutability = Mutability::Mut;
+                    // *mutability = Mutability::Mut; TODO: change this to meet actual need of mutablility
                     match typ {
                         FusedType::Scalar => mut_scalars += 1,
                         FusedType::ScalarArray => mut_polys += 1,
+                    }
+                    if mut_limit.is_some() {
+                        let (scalar_limit, poly_limit) = mut_limit.unwrap();
+                        if (*typ == FusedType::Scalar && scalar_limit <= mut_scalars)
+                            || (*typ == FusedType::ScalarArray && poly_limit <= mut_polys)
+                        {
+                            *mutability = Mutability::Mut;
+                        }
                     }
                 }
             } else {
                 panic!("arith vertex in the inputs table should be inputs")
             }
         }
-        (mut_scalars, mut_polys)
+        if mut_limit.is_none() {
+            Some((mut_scalars, mut_polys))
+        } else {
+            None
+        }
     }
 
     pub fn fuse_arith(&mut self) {
@@ -175,7 +188,8 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
                     &mut src_info,
                 );
 
-                let (mut_scalars, mut_polys) = self.check_mutability(&mut ag, &succ);
+                let (mut mut_scalars, mut mut_polys) =
+                    self.check_mutability(&mut ag, &succ, None).unwrap(); // first call to get mutable input counts
 
                 // push the node
                 let mut output_scalars = 0;
@@ -193,14 +207,20 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
                     })
                     .collect::<Vec<_>>();
 
+                mut_scalars = mut_scalars.min(output_scalars);
+                mut_polys = mut_polys.min(output_polys);
+
+                // second call to actually update the inputs need to be mutable
+                self.check_mutability(&mut ag, &succ, Some((mut_scalars, mut_polys)));
+
                 assert_eq!(output_types.len(), ag.outputs.len());
                 let typ = super::typ::template::Typ::Tuple(output_types.clone());
 
                 let node_id = self.g.add_vertex(Vertex::new(
                     VertexNode::Arith {
                         arith: ag,
-                        mut_scalars: mut_scalars.min(output_scalars),
-                        mut_polys: mut_polys.min(output_polys),
+                        mut_scalars,
+                        mut_polys,
                         chunking: None,
                     },
                     typ,

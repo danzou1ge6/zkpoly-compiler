@@ -20,7 +20,7 @@ pub enum Value<Rt: RuntimeType> {
 pub struct FunctionInCell<Rt: RuntimeType> {
     value: Cell<Option<Value<Rt>>>,
     name: String,
-    ret_typ: type2::Typ<Rt>
+    ret_typ: type2::Typ<Rt>,
 }
 
 impl<Rt: RuntimeType> FunctionInCell<Rt> {
@@ -43,7 +43,7 @@ impl<Rt: RuntimeType> std::fmt::Debug for FunctionInCell<Rt> {
 pub struct Function<Rt: RuntimeType> {
     pub(crate) value: Value<Rt>,
     pub(crate) name: String,
-    pub(crate) ret_typ: type2::Typ<Rt>
+    pub(crate) ret_typ: type2::Typ<Rt>,
 }
 
 pub(super) type FunctionUntyped<Rt: RuntimeType> = Outer<FunctionInCell<Rt>>;
@@ -54,29 +54,39 @@ impl<Rt: RuntimeType> FunctionUntyped<Rt> {
             FunctionInCell {
                 value: Cell::new(Some(Value::Fn(f))),
                 name,
-                ret_typ
+                ret_typ,
             },
             src,
         )
     }
 
-    pub fn new_mut(name: String, f: ValueMut<Rt>, ret_typ: type2::Typ<Rt>, src: SourceInfo) -> Self {
+    pub fn new_mut(
+        name: String,
+        f: ValueMut<Rt>,
+        ret_typ: type2::Typ<Rt>,
+        src: SourceInfo,
+    ) -> Self {
         FunctionUntyped::new(
             FunctionInCell {
                 value: Cell::new(Some(Value::Mut(f))),
                 name,
-                ret_typ
+                ret_typ,
             },
             src,
         )
     }
 
-    pub fn new_once(name: String, f: ValueOnce<Rt>, ret_typ: type2::Typ<Rt>, src: SourceInfo) -> Self {
+    pub fn new_once(
+        name: String,
+        f: ValueOnce<Rt>,
+        ret_typ: type2::Typ<Rt>,
+        src: SourceInfo,
+    ) -> Self {
         FunctionUntyped::new(
             FunctionInCell {
                 value: Cell::new(Some(Value::Once(f))),
                 name,
-                ret_typ
+                ret_typ,
             },
             src,
         )
