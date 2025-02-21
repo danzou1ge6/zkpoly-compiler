@@ -25,7 +25,6 @@ impl Slice {
 pub enum PolyType {
     Coef,
     Lagrange,
-    ExtendedLagrange,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
