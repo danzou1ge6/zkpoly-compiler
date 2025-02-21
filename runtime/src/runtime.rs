@@ -104,7 +104,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         mem_allocator: Option<PinnedMemoryPool>,
         gpu_allocator: Option<Vec<CudaAllocator>>,
         epilogue: Option<Sender<i32>>,
-    ) {
+    ) -> Option<Variable<T>> {
         for instruction in instructions {
             match instruction {
                 Instruction::Allocate {
@@ -298,6 +298,13 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     let poly = guard.as_mut().unwrap().unwrap_scalar_array_mut();
                     poly.blind(start, end, self.rng.clone());
                 }
+                Instruction::Return(var_id) => {
+                    if !self.main_thread {
+                        panic!("can only return from main thread");
+                    }
+                    let var = self.variable[var_id].write().unwrap().take().unwrap();
+                    return Some(var);
+                }
             }
         }
         if !self.main_thread {
@@ -306,5 +313,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                 .send(1)
                 .expect("channel will be there waiting for the pool");
         }
+
+        None
     }
 }

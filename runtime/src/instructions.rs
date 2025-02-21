@@ -84,6 +84,9 @@ pub enum Instruction {
         start: usize,
         end: usize,
     },
+
+    Return(VariableId),
+
     // SetSliceMeta { // for directly operating on the meta data of
 
     // }

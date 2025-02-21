@@ -1043,6 +1043,12 @@ pub fn plan<'s, Rt: RuntimeType>(
             deallocate(device, temp_obj, &mut gpu_allocator, &mut code, &mut ctx);
         }
 
+        // We can't deallocate those objects that dies exactly after return vertex, as they are returned.
+        // Though this doesn't matter as the runtime should exit immediately at seeing a return instruction.
+        if v.node().is_return() {
+            break;
+        }
+
         // Deallocate used tuple register
         for tuple_reg in tuple_registers.into_iter() {
             code.emit(Instruction::new_no_src(InstructionNode::StackFree {

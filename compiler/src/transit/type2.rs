@@ -231,6 +231,14 @@ pub mod template {
                 x => x.is_virtual(),
             }
         }
+
+        pub fn is_return(&self) -> bool {
+            use VertexNode::*;
+            match self {
+                Return(..) => true,
+                _ => false,
+            }
+        }
     }
 }
 
@@ -486,7 +494,7 @@ where
                 }
             }
             Entry(..) => Cpu,
-            Return(..) => Cpu,
+            Return(..) => MemoryManagement,
             Ntt { .. } => CoProcess,
             RotateIdx(..) => unreachable!(),
             Slice(..) => unreachable!(),

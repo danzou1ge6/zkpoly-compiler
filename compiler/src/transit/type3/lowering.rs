@@ -317,6 +317,7 @@ fn lower_instruction<'s, Rt: RuntimeType>(
                 });
             }
             VertexNode::Entry(idx) => todo!(),
+            VertexNode::Return(id) => emit(Instruction::Return(reg_id2var_id(*id))),
             _ => {
                 emit_func::emit_func(
                     ids,
