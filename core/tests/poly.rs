@@ -6,6 +6,7 @@ static K: u32 = 20;
 use group::ff::BatchInvert;
 use group::ff::Field;
 use halo2_proofs::arithmetic::kate_division;
+use rand_core::OsRng;
 use rand_core::SeedableRng;
 use rand_xorshift::XorShiftRng;
 use zkpoly_common::load_dynamic::Libs;
@@ -481,4 +482,54 @@ fn test_invert() {
     for i in 0..len - 1 {
         assert_eq!(res[i], poly[i]);
     }
+}
+
+#[test]
+fn test_invert_scalar() {
+    let mut libs = Libs::new();
+    let invert = ScalarInv::<MyRuntimeType>::new(&mut libs);
+    let f = match invert.get_fn() {
+        Function {
+            f: FunctionValue::Fn(func),
+            ..
+        } => func,
+        _ => panic!(),
+    };
+    let mut scalar = Variable::<MyRuntimeType>::Scalar(Scalar::new_cpu());
+
+    let mut rand_scalar = MyField::random(OsRng);
+    while rand_scalar == MyField::ZERO {
+        rand_scalar = MyField::random(OsRng);
+    }
+    let truth = rand_scalar.invert().unwrap();
+    *scalar.unwrap_scalar_mut().as_mut() = rand_scalar;
+
+    let stream = CudaStream::new(0);
+
+    let mut gpu_scalar = Variable::<MyRuntimeType>::Scalar(Scalar::new_gpu(stream.allocate(1), 0));
+
+    scalar
+        .unwrap_scalar()
+        .cpu2gpu(gpu_scalar.unwrap_scalar_mut(), &stream);
+
+    stream.sync();
+
+    f(vec![&mut scalar], vec![]).unwrap();
+
+    assert_eq!(*scalar.unwrap_scalar().as_ref(), truth);
+
+    *scalar.unwrap_scalar_mut().as_mut() = MyField::ZERO;
+
+    f(
+        vec![&mut gpu_scalar],
+        vec![&Variable::Stream(stream.clone())],
+    )
+    .unwrap();
+
+    gpu_scalar
+        .unwrap_scalar()
+        .gpu2cpu(scalar.unwrap_scalar_mut(), &stream);
+    stream.sync();
+
+    assert_eq!(*scalar.unwrap_scalar().as_ref(), truth);
 }

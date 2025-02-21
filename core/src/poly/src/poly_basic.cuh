@@ -43,6 +43,11 @@ namespace detail {
         else iter[index] = Field::zero();
     }
 
+    template <typename Field>
+    __global__ void inverse_scalar(Field * target) {
+        *target = (*target).invert();
+    }
+
     template<typename Field>
     cudaError_t poly_one_lagrange(u32 * target, u64 len, cudaStream_t stream) {
         u32 block = 256;

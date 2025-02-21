@@ -82,7 +82,7 @@ impl<Rt: RuntimeType> CommonNode<Rt> {
                 let fid = cg.add_function(f.clone());
                 let args = args.iter().map(|x| x.erase(cg)).collect();
                 Vertex::new(VertexNode::UserFunction(fid, args), None, src)
-            },
+            }
         }
     }
 }

@@ -46,7 +46,8 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for PolyCoef<Rt> {
             ),
             Constant(data) => {
                 let value = rt::scalar::ScalarArray::from_vec(&data, cg.allocator());
-                let constant_id = cg.add_constant(PolyCoef::to_variable(value), self.src().name.clone());
+                let constant_id =
+                    cg.add_constant(PolyCoef::to_variable(value), self.src().name.clone());
                 new_vertex(
                     VertexNode::Constant(constant_id),
                     Some(Typ::coef_with_deg(data.len() as u64)),

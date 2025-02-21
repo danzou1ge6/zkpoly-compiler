@@ -58,7 +58,10 @@ pub mod template {
     }
 
     impl<P> Typ<P> {
-        pub fn compatible(&self, other: &Self) -> bool where P: Eq {
+        pub fn compatible(&self, other: &Self) -> bool
+        where
+            P: Eq,
+        {
             use Typ::*;
             match (self, other) {
                 (ScalarArray { len: deg1, .. }, ScalarArray { len: deg2, .. }) => deg1 == deg2,
@@ -80,10 +83,7 @@ pub type Typ = template::Typ<()>;
 
 impl template::Typ<()> {
     pub fn scalar_array(len: usize) -> Self {
-        template::Typ::ScalarArray {
-            len,
-            meta: (),
-        }
+        template::Typ::ScalarArray { len, meta: () }
     }
 }
 

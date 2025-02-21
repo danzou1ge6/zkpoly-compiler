@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use zkpoly_common::{define_usize_id, digraph::internal::Digraph, heap::Heap, typ::PolyType};
-use zkpoly_runtime::args::{ConstantId, RuntimeType, Variable};
 use zkpoly_memory_pool::PinnedMemoryPool;
+use zkpoly_runtime::args::{ConstantId, RuntimeType, Variable};
 
 use super::{
     transit::type2::{self, partial_typed, VertexId},

@@ -110,7 +110,7 @@ pub fn emit_func<'s, Rt: RuntimeType>(
             generate_scan_mul(poly, temp, res, x0, stream.unwrap(), f_id, emit);
         }
         VertexNode::AssmblePoly(_, scalars) => {
-            let scalars: Vec<VariableId> = unimplemented!();
+            let scalars = scalars.iter().map(|id| reg_id2var_id(*id)).collect::<Vec<_>>();
             let target = reg_id2var_id(outputs[0]);
             emit(Instruction::FuncCall {
                 func_id: f_id,
@@ -170,6 +170,23 @@ pub fn emit_func<'s, Rt: RuntimeType>(
                 emit(Instruction::FuncCall {
                     func_id: f_id,
                     arg_mut: vec![dst],
+                    arg: vec![stream.unwrap()],
+                });
+            }
+        }
+        VertexNode::ScalarInvert { val } => {
+            let device = t3chunk.register_devices[&outputs[0]];
+            let target = reg_id2var_id(*val);
+            if device == Device::Cpu {
+                emit(Instruction::FuncCall {
+                    func_id: f_id,
+                    arg_mut: vec![target],
+                    arg: vec![],
+                });
+            } else {
+                emit(Instruction::FuncCall {
+                    func_id: f_id,
+                    arg_mut: vec![target],
                     arg: vec![stream.unwrap()],
                 });
             }

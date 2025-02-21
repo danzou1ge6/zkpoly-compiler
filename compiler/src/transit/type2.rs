@@ -12,6 +12,7 @@ use zkpoly_common::load_dynamic::Libs;
 pub use zkpoly_common::typ::PolyType;
 pub use zkpoly_runtime::args::{Constant, ConstantId, RuntimeType, Variable};
 pub use zkpoly_runtime::error::RuntimeError;
+use zkpoly_runtime::scalar::Scalar;
 
 zkpoly_common::define_usize_id!(VertexId);
 
@@ -85,6 +86,9 @@ pub mod template {
         Extend(I, u64),
         /// A single binary or unary arith expression, to be fused to an arith graph
         SingleArith(arith::Arith<I>),
+        ScalarInvert {
+            val: I,
+        },
         /// .1 is size of each chunk, if chunking is enabled
         Arith {
             arith: A,
@@ -151,6 +155,7 @@ pub mod template {
             use VertexNode::*;
             match self {
                 SingleArith(expr) => expr.uses_mut(),
+                ScalarInvert { val } => Box::new([val].into_iter()),
                 Arith { arith, .. } => arith.uses_mut(),
                 Ntt { s, alg, .. } => Box::new([s].into_iter().chain(alg.uses_mut())),
                 RotateIdx(x, _) => Box::new([x].into_iter()),
@@ -184,6 +189,7 @@ pub mod template {
             use VertexNode::*;
             match self {
                 SingleArith(expr) => expr.uses(),
+                ScalarInvert { val } => Box::new([*val].into_iter()),
                 Arith { arith, .. } => Box::new(arith.uses()),
                 Ntt { s, alg, .. } => Box::new([*s].into_iter().chain(alg.uses())),
                 RotateIdx(x, _) => Box::new([*x].into_iter()),
@@ -268,7 +274,7 @@ where
     pub fn device(&self) -> Device {
         use template::VertexNode::*;
         match self.node() {
-            NewPoly(..) | Extend(..) => Device::PreferGpu,
+            NewPoly(..) | Extend(..) | ScalarInvert { .. } => Device::PreferGpu,
             Arith { chunking, .. } => {
                 if chunking.is_some() {
                     Device::Cpu
@@ -291,11 +297,12 @@ where
     ) -> Box<dyn Iterator<Item = I> + 'a> {
         use template::VertexNode::*;
         match self.node() {
+            ScalarInvert { val } => Box::new([*val].into_iter()),
             Ntt { s, .. } => Box::new([*s].into_iter()),
             RotateIdx(s, ..) => Box::new([*s].into_iter()),
             HashTranscript { transcript, .. } => Box::new([*transcript].into_iter()),
             SqueezeScalar(transcript) => Box::new([*transcript].into_iter()),
-            Arith { arith, .. } => {arith.mutable_uses()},
+            Arith { arith, .. } => arith.mutable_uses(),
             Blind(poly, ..) => Box::new([*poly].into_iter()),
             BatchedInvert(poly) => Box::new([*poly].into_iter()),
             DistributePowers { poly, .. } => Box::new([*poly].into_iter()),
@@ -308,6 +315,7 @@ where
     ) -> Box<dyn Iterator<Item = &'a mut I> + 'a> {
         use template::VertexNode::*;
         match self.node_mut() {
+            ScalarInvert { val } => Box::new([val].into_iter()),
             Ntt { s, .. } => Box::new([s].into_iter()),
             RotateIdx(s, ..) => Box::new([s].into_iter()),
             HashTranscript { transcript, .. } => Box::new([transcript].into_iter()),
@@ -338,6 +346,7 @@ where
     ) -> Box<dyn Iterator<Item = Option<I>> + 'b> {
         use template::VertexNode::*;
         match self.node() {
+            ScalarInvert { val } => Box::new([Some(*val)].into_iter()),
             Ntt { s, .. } => Box::new([Some(*s)].into_iter()),
             RotateIdx(s, ..) => {
                 use super::type3::Device::*;
@@ -347,7 +356,12 @@ where
                     Stack => panic!("RotateIdx output can't be on stack"),
                 }
             }
-            Arith { arith, mut_scalars, mut_polys, .. } => arith.outputs_inplace(*mut_scalars, *mut_polys),
+            Arith {
+                arith,
+                mut_scalars,
+                mut_polys,
+                ..
+            } => arith.outputs_inplace(*mut_scalars, *mut_polys),
             Blind(poly, ..) => Box::new([Some(*poly)].into_iter()),
             BatchedInvert(poly) => Box::new([Some(*poly)].into_iter()),
             DistributePowers { poly, .. } => Box::new([Some(*poly)].into_iter()),
@@ -458,6 +472,7 @@ where
                 poly: mapping(*poly),
                 scalar: mapping(*scalar),
             },
+            ScalarInvert { val } => ScalarInvert { val: mapping(*val) },
         }
     }
 
@@ -473,6 +488,7 @@ where
 
         match self {
             NewPoly(..) => on_device(device),
+            ScalarInvert { .. } => on_device(device),
             Constant(..) => Cpu,
             Extend(..) => on_device(device),
             SingleArith(..) => unreachable!(),
@@ -486,7 +502,7 @@ where
             Entry => Cpu,
             Return => Cpu,
             LiteralScalar(..) => Cpu,
-            Ntt { .. } => CoProcess,
+            Ntt { .. } => Gpu,
             RotateIdx(..) => unreachable!(),
             Slice(..) => unreachable!(),
             Interpolate { .. } => Cpu,
@@ -521,6 +537,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
         use template::VertexNode::*;
         match self.g.vertex(vid).node() {
             Extend(..) => None,
+            ScalarInvert { .. } => None,
             SingleArith(..) => None,
             Arith { .. } => None,
             NewPoly(..) => None,
@@ -570,6 +587,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
 
 pub mod graph_scheduling;
 pub mod kernel_fusion;
+pub mod manage_inverse;
 pub mod memory_planning;
 pub mod temporary_space;
 pub mod typ;
