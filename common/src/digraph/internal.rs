@@ -128,6 +128,13 @@ where
     pub fn dfs_from<'g>(&'g self, i: I) -> DfsIterator<'g, I, V> {
         self.dfs().add_begin(i)
     }
+    pub fn connected_component(&self, i: I) -> Heap<I, bool> {
+        let mut visited = Heap::repeat(false, self.order());
+        for v in self.dfs_from(i) {
+            visited[v.0] = true;
+        }
+        visited
+    }
     pub fn degrees_in(&self) -> Heap<I, usize> {
         let deg: Heap<I, usize> = self.0.map_by_ref(&mut |_, v| v.predecessors().count());
         deg

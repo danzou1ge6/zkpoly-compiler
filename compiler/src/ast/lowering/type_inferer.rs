@@ -208,6 +208,7 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
             Entry(..) => v
                 .try_to_type2_typ()
                 .expect("entry point of graph should have type annotation from AST"),
+            Return(vin) => self.infer(cg, *vin)?,
             Ntt { s, to, from, .. } => {
                 let deg = self.try_unwrap_poly_typ(cg, *s, *from, err)?;
                 type2::Typ::Poly((*to, deg))

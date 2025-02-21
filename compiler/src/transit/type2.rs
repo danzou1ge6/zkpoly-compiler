@@ -96,6 +96,7 @@ pub mod template {
             chunking: Option<u64>,
         },
         Entry(EntryId),
+        Return(I),
         /// Convert a local from one representation to another
         Ntt {
             s: I,
@@ -176,6 +177,7 @@ pub mod template {
                 BatchedInvert(x) => Box::new([x].into_iter()),
                 ScanMul { x0, poly } => Box::new([x0, poly].into_iter()),
                 DistributePowers { powers, poly } => Box::new([poly, powers].into_iter()),
+                Return(x) => Box::new([x].into_iter()),
                 _ => Box::new(std::iter::empty()),
             }
         }
@@ -209,6 +211,7 @@ pub mod template {
                 BatchedInvert(x) => Box::new([*x].into_iter()),
                 ScanMul { x0, poly } => Box::new([*x0, *poly].into_iter()),
                 DistributePowers { powers, poly } => Box::new([*poly, *powers].into_iter()),
+                Return(x) => Box::new([*x].into_iter()),
                 _ => Box::new(std::iter::empty()),
             }
         }
@@ -403,6 +406,7 @@ where
                 mut_polys: *mut_polys,
             },
             Entry(idx) => Entry(*idx),
+            Return(x) => Return(mapping(*x)),
             Ntt { alg, s, to, from } => Ntt {
                 alg: alg.relabeled(&mut mapping),
                 s: mapping(*s),
@@ -482,6 +486,7 @@ where
                 }
             }
             Entry(..) => Cpu,
+            Return(..) => Cpu,
             Ntt { .. } => CoProcess,
             RotateIdx(..) => unreachable!(),
             Slice(..) => unreachable!(),
@@ -521,6 +526,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
             Arith { .. } => None,
             NewPoly(..) => None,
             Constant(..) => None,
+            Return(..) => None,
             Entry(..) => None,
             Ntt { .. } => None,
             RotateIdx(..) => None,

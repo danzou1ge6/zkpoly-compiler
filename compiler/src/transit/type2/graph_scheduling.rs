@@ -70,6 +70,8 @@ fn choose_next_vertex<'s, Rt: RuntimeType>(
 pub fn schedule<'s, Rt: RuntimeType>(
     cg: &Cg<'s, Rt>,
 ) -> (Vec<VertexId>, BTreeMap<VertexId, usize>) {
+    let connected = cg.g.connected_component(cg.output);
+
     let mut active_vertices: BTreeSet<VertexId> = BTreeSet::new();
     // Number of unexecuted predecessors
     let mut deg_in = cg.g.degrees_in();
@@ -77,7 +79,13 @@ pub fn schedule<'s, Rt: RuntimeType>(
     let mut deg_out = cg.g.degrees_out();
     let mut ready_vertices: BTreeSet<VertexId> = deg_in
         .iter_with_id()
-        .filter_map(|(vid, deg)| if *deg == 0 { Some(vid) } else { None })
+        .filter_map(|(vid, deg)| {
+            if *deg == 0 && connected[vid] {
+                Some(vid)
+            } else {
+                None
+            }
+        })
         .collect();
     let successors = cg.g.successors();
 
@@ -95,7 +103,7 @@ pub fn schedule<'s, Rt: RuntimeType>(
         let successors = successors[vid].clone();
         for succ in successors {
             deg_in[succ] -= 1;
-            if deg_in[succ] == 0 {
+            if deg_in[succ] == 0 && connected[succ] {
                 ready_vertices.insert(succ);
             }
         }

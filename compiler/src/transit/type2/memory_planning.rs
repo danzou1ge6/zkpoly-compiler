@@ -795,7 +795,7 @@ pub fn plan<'s, Rt: RuntimeType>(
     let next_ueses = collect_next_uses(&successors, seq);
     let devices = decide_device(cg, &successors);
     let (mut obj_def_use, mut obj_id_allocator) =
-        object_analysis::analyze_def_use(cg, |vid| devices[&vid]);
+        object_analysis::analyze_def_use(cg, seq, |vid| devices[&vid]);
     let vertex_inputs = object_analysis::plan_vertex_inputs(
         cg,
         &mut obj_def_use,

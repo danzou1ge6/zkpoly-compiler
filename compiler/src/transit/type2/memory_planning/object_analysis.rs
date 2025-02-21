@@ -228,6 +228,7 @@ fn rotated_offset(begin: u64, offset: i64, cycle: u64) -> u64 {
 
 pub fn analyze_def_use<'s, Rt: RuntimeType>(
     cg: &Cg<'s, Rt>,
+    seq: &[VertexId],
     devices: impl Fn(VertexId) -> Device,
 ) -> (ObjectsDefUse, IdAllocator<ObjectId>) {
     let mut object_id_allocator = IdAllocator::new();
@@ -236,7 +237,9 @@ pub fn analyze_def_use<'s, Rt: RuntimeType>(
     let mut sizes = BTreeMap::new();
     let mut cloned_slices = BTreeMap::new();
 
-    for (vid, v) in cg.g.topology_sort() {
+    for &vid in seq.iter() {
+        let v = cg.g.vertex(vid);
+
         use super::super::template::VertexNode::*;
         match v.node() {
             TupleGet(pred, i) | ArrayGet(pred, i) => {
