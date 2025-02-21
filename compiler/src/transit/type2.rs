@@ -93,9 +93,6 @@ pub mod template {
             chunking: Option<u64>,
         },
         Entry,
-        Return,
-        /// A small scalar. To accomodate big scalars, use global constants.
-        LiteralScalar(usize),
         /// Convert a local from one representation to another
         Ntt {
             s: I,
@@ -403,8 +400,6 @@ where
                 mut_polys: *mut_polys,
             },
             Entry => Entry,
-            Return => Return,
-            LiteralScalar(s) => LiteralScalar(*s),
             Ntt { alg, s, to, from } => Ntt {
                 alg: alg.relabeled(&mut mapping),
                 s: mapping(*s),
@@ -484,8 +479,6 @@ where
                 }
             }
             Entry => Cpu,
-            Return => Cpu,
-            LiteralScalar(..) => Cpu,
             Ntt { .. } => CoProcess,
             RotateIdx(..) => unreachable!(),
             Slice(..) => unreachable!(),
@@ -526,8 +519,6 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
             NewPoly(..) => None,
             Constant(..) => None,
             Entry => None,
-            Return => None,
-            LiteralScalar(..) => None,
             Ntt { .. } => None,
             RotateIdx(..) => None,
             Slice(..) => None,

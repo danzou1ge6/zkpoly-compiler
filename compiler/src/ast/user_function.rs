@@ -20,6 +20,7 @@ pub enum Value<Rt: RuntimeType> {
 pub struct FunctionInCell<Rt: RuntimeType> {
     value: Cell<Option<Value<Rt>>>,
     name: String,
+    ret_typ: type2::Typ<Rt>
 }
 
 impl<Rt: RuntimeType> FunctionInCell<Rt> {
@@ -28,6 +29,7 @@ impl<Rt: RuntimeType> FunctionInCell<Rt> {
         Function {
             value,
             name: self.name.clone(),
+            ret_typ: self.ret_typ.clone(),
         }
     }
 }
@@ -41,36 +43,40 @@ impl<Rt: RuntimeType> std::fmt::Debug for FunctionInCell<Rt> {
 pub struct Function<Rt: RuntimeType> {
     pub(crate) value: Value<Rt>,
     pub(crate) name: String,
+    pub(crate) ret_typ: type2::Typ<Rt>
 }
 
 pub(super) type FunctionUntyped<Rt: RuntimeType> = Outer<FunctionInCell<Rt>>;
 
 impl<Rt: RuntimeType> FunctionUntyped<Rt> {
-    pub fn new_fn(name: String, f: ValueFn<Rt>, src: SourceInfo) -> Self {
+    pub fn new_fn(name: String, f: ValueFn<Rt>, ret_typ: type2::Typ<Rt>, src: SourceInfo) -> Self {
         FunctionUntyped::new(
             FunctionInCell {
                 value: Cell::new(Some(Value::Fn(f))),
                 name,
+                ret_typ
             },
             src,
         )
     }
 
-    pub fn new_mut(name: String, f: ValueMut<Rt>, src: SourceInfo) -> Self {
+    pub fn new_mut(name: String, f: ValueMut<Rt>, ret_typ: type2::Typ<Rt>, src: SourceInfo) -> Self {
         FunctionUntyped::new(
             FunctionInCell {
                 value: Cell::new(Some(Value::Mut(f))),
                 name,
+                ret_typ
             },
             src,
         )
     }
 
-    pub fn new_once(name: String, f: ValueOnce<Rt>, src: SourceInfo) -> Self {
+    pub fn new_once(name: String, f: ValueOnce<Rt>, ret_typ: type2::Typ<Rt>, src: SourceInfo) -> Self {
         FunctionUntyped::new(
             FunctionInCell {
                 value: Cell::new(Some(Value::Once(f))),
                 name,
+                ret_typ
             },
             src,
         )
@@ -109,6 +115,7 @@ macro_rules! define_function_fn {
                         + Send
                         + Sync
                         + 'static,
+                    ret_typ: type2::Typ<Rt>,
                 ) -> Self {
                     let f = move |args: Vec<&Variable<Rt>>| -> RuntimeResult<Variable<Rt>> {
                         $(
@@ -118,7 +125,7 @@ macro_rules! define_function_fn {
                         Ok(R::to_variable(r))
                     };
                     let src = SourceInfo::new(Location::caller().clone(), Some(name.clone()));
-                    Self::wrap(FunctionUntyped::new_fn(name, Box::new(f), src))
+                    Self::wrap(FunctionUntyped::new_fn(name, Box::new(f), ret_typ, src))
                 }
             }
         )*
@@ -180,6 +187,7 @@ macro_rules! define_function_mut {
                         + Send
                         + Sync
                         + 'static,
+                    ret_typ: type2::Typ<Rt>,
                 ) -> Self {
                     let f = move |args: Vec<&Variable<Rt>>| -> RuntimeResult<Variable<Rt>> {
                         $(
@@ -189,7 +197,7 @@ macro_rules! define_function_mut {
                         Ok(R::to_variable(r))
                     };
                     let src = SourceInfo::new(Location::caller().clone(), Some(name.clone()));
-                    Self::wrap(FunctionUntyped::new_mut(name, Box::new(f), src))
+                    Self::wrap(FunctionUntyped::new_mut(name, Box::new(f), ret_typ, src))
                 }
             }
         )*
@@ -234,6 +242,7 @@ macro_rules! define_function_once {
                         + Send
                         + Sync
                         + 'static,
+                    ret_typ: type2::Typ<Rt>,
                 ) -> Self {
                     let f = move |args: Vec<&Variable<Rt>>| -> RuntimeResult<Variable<Rt>> {
                         $(
@@ -243,7 +252,7 @@ macro_rules! define_function_once {
                         Ok(R::to_variable(r))
                     };
                     let src = SourceInfo::new(Location::caller().clone(), Some(name.clone()));
-                    Self::wrap(FunctionUntyped::new_once(name, Box::new(f), src))
+                    Self::wrap(FunctionUntyped::new_once(name, Box::new(f), ret_typ, src))
                 }
             }
         )*

@@ -20,12 +20,75 @@ pub mod template {
         _Phantom(PhantomData<Rt>),
     }
 
+    impl<Rt: RuntimeType, P> PartialEq for Typ<Rt, P>
+    where
+        P: Eq,
+    {
+        fn eq(&self, other: &Self) -> bool {
+            use Typ::*;
+            match (self, other) {
+                (Poly(p1), Poly(p2)) => p1 == p2,
+                (PointBase { log_n: l1 }, PointBase { log_n: l2 }) => l1 == l2,
+                (Scalar, Scalar) => true,
+                (Transcript, Transcript) => true,
+                (Point, Point) => true,
+                (Rng, Rng) => true,
+                (Tuple(ts1), Tuple(ts2)) => ts1 == ts2,
+                (Array(t1, l1), Array(t2, l2)) => t1 == t2 && l1 == l2,
+                (Any(t1, s1), Any(t2, s2)) => t1 == t2 && s1 == s2,
+                _ => false,
+            }
+        }
+    }
+
+    impl<Rt: RuntimeType, P> Eq for Typ<Rt, P> where P: Eq {}
+
     impl<Rt: RuntimeType, P> Typ<Rt, P> {
         pub fn unwrap_poly(&self) -> &P {
             use Typ::*;
             match self {
                 Poly(p) => p,
                 _ => panic!("called unwrap_poly on non-poly type"),
+            }
+        }
+
+        pub fn try_unwrap_poly(&self) -> Option<&P> {
+            use Typ::*;
+            match self {
+                Poly(p) => Some(p),
+                _ => None,
+            }
+        }
+
+        pub fn try_unwrap_point_base(&self) -> Option<u32> {
+            use Typ::*;
+            match self {
+                PointBase { log_n } => Some(*log_n),
+                _ => None,
+            }
+        }
+
+        pub fn hashable(&self) -> bool {
+            use Typ::*;
+            match self {
+                Scalar | Poly(..) | Point => true,
+                _ => false,
+            }
+        }
+
+        pub fn try_unwrap_tuple(&self) -> Option<&Vec<Typ<Rt, P>>> {
+            use Typ::*;
+            match self {
+                Tuple(ts) => Some(ts),
+                _ => None,
+            }
+        }
+
+        pub fn try_unwrap_array(&self) -> Option<(&Typ<Rt, P>, usize)> {
+            use Typ::*;
+            match self {
+                Array(t, l) => Some((t.as_ref(), *l)),
+                _ => None,
             }
         }
     }

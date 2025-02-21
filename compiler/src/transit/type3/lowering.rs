@@ -317,7 +317,6 @@ fn lower_instruction<'s, Rt: RuntimeType>(
                 });
             }
             VertexNode::Entry => todo!(),
-            VertexNode::Return => {}
             _ => {
                 emit_func::emit_func(
                     ids,

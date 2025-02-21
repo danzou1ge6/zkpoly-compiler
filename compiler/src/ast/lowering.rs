@@ -1,10 +1,17 @@
 use std::collections::BTreeMap;
-use zkpoly_common::{define_usize_id, digraph::internal::Digraph, heap::Heap, typ::PolyType};
-use zkpoly_runtime::args::{ConstantId, RuntimeType, Variable};
+use zkpoly_common::{
+    arith::{Arith, BinOp, UnrOp},
+    define_usize_id,
+    digraph::internal::Digraph,
+    heap::Heap,
+    typ::PolyType,
+};
 use zkpoly_memory_pool::PinnedMemoryPool;
+use zkpoly_runtime::args::{ConstantId, RuntimeType, Variable};
 
 use super::{
     transit::type2::{self, partial_typed, VertexId},
+    transit::SourceInfo,
     Function, FunctionUntyped,
 };
 
@@ -23,9 +30,39 @@ impl<Rt: RuntimeType> Typ<Rt> {
     pub fn coef() -> Self {
         Self::Poly((PolyType::Coef, None))
     }
+
+    pub fn try_to_type2(self) -> Option<type2::Typ<Rt>> {
+        use type2::typ::template::Typ::*;
+        match self {
+            Poly((ptyp, deg)) => Some(Poly((ptyp, deg?))),
+            PointBase { log_n } => Some(PointBase { log_n }),
+            Scalar => Some(Scalar),
+            Transcript => Some(Transcript),
+            Point => Some(Point),
+            Rng => Some(Rng),
+            Tuple(elements) => Some(Tuple(
+                elements
+                    .into_iter()
+                    .map(|x| x.try_to_type2())
+                    .collect::<Option<Vec<_>>>()?,
+            )),
+            Array(t, len) => Some(Array(Box::new(t.try_to_type2()?), len)),
+            Any(tid, size) => Some(Any(tid, size)),
+            _Phantom(..) => unreachable!(),
+        }
+    }
 }
 
 pub type Vertex<'s, Rt: RuntimeType> = partial_typed::Vertex<'s, Option<Typ<Rt>>>;
+
+impl<'s, Rt: RuntimeType> Vertex<'s, Rt> {
+    pub fn try_to_type2_typ(&self) -> Option<type2::Typ<Rt>> {
+        self.typ()
+            .as_ref()
+            .map(|typ| typ.clone().try_to_type2())
+            .flatten()
+    }
+}
 
 pub struct Constant<Rt: RuntimeType> {
     pub(crate) name: Option<String>,
@@ -38,6 +75,8 @@ define_usize_id!(UserFunctionId);
 
 pub type UserFunctionTable<Rt: RuntimeType> = Heap<UserFunctionId, Function<Rt>>;
 
+mod type_inferer;
+
 pub struct Cg<'s, Rt: RuntimeType> {
     pub(crate) g: Digraph<VertexId, Vertex<'s, Rt>>,
     pub(crate) mapping: BTreeMap<*const u8, VertexId>,
@@ -45,6 +84,7 @@ pub struct Cg<'s, Rt: RuntimeType> {
     pub(crate) user_function_table: UserFunctionTable<Rt>,
     pub(crate) user_function_id_mapping: BTreeMap<*const u8, UserFunctionId>,
     pub(crate) allocator: PinnedMemoryPool,
+    pub(crate) outputs: Vec<VertexId>,
 }
 
 impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
@@ -79,3 +119,4 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
         &mut self.allocator
     }
 }
+

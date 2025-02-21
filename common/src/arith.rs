@@ -36,6 +36,13 @@ impl SpOp {
             }
         }
     }
+
+    pub fn support_coef(&self) -> bool {
+        match self {
+            Self::Div=> false,
+            _ => true,
+        }
+    }
 }
 
 mod op_template {
@@ -65,10 +72,28 @@ pub enum ArithBinOp {
     Div,
 }
 
+impl ArithBinOp {
+    pub fn support_coef(&self) -> bool {
+        match self {
+            ArithBinOp::Add | ArithBinOp::Sub => true,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum ArithUnrOp {
     Neg,
     Inv,
+}
+
+impl ArithUnrOp {
+    pub fn support_coef(&self) -> bool {
+        match self {
+            ArithUnrOp::Neg => true,
+            _ => false,
+        }
+    }
 }
 
 pub type BinOp = op_template::BinOp<ArithBinOp, ArithBinOp, SpOp>;
@@ -219,12 +244,15 @@ where
             .map(|&i| self.g.vertex(i).op.unwrap_global().clone())
     }
 
-    pub fn mutable_uses<'a>(
-        &'a self,
-    ) -> Box<dyn Iterator<Item = OuterId> + 'a> {
+    pub fn mutable_uses<'a>(&'a self) -> Box<dyn Iterator<Item = OuterId> + 'a> {
         let mut results = Vec::new();
         self.g.0 .0.iter().for_each(|v| {
-            if let Operation::Input { outer_id, mutability, .. } = & v.op {
+            if let Operation::Input {
+                outer_id,
+                mutability,
+                ..
+            } = &v.op
+            {
                 if *mutability == Mutability::Mut {
                     results.push(*outer_id);
                 }
@@ -233,12 +261,15 @@ where
         Box::new(results.into_iter())
     }
 
-    pub fn mutable_uses_mut<'a>(
-        &'a mut self,
-    ) -> Box<dyn Iterator<Item = &'a mut OuterId> + 'a> {
+    pub fn mutable_uses_mut<'a>(&'a mut self) -> Box<dyn Iterator<Item = &'a mut OuterId> + 'a> {
         let mut results = Vec::new();
         self.g.0 .0.iter_mut().for_each(|v| {
-            if let Operation::Input { outer_id, mutability, .. } = & mut v.op {
+            if let Operation::Input {
+                outer_id,
+                mutability,
+                ..
+            } = &mut v.op
+            {
                 if *mutability == Mutability::Mut {
                     results.push(outer_id);
                 }
@@ -250,11 +281,16 @@ where
     pub fn outputs_inplace<'a, 'b>(
         &'b self,
         mut mutable_scalars: usize,
-        mut mutable_polys: usize, 
+        mut mutable_polys: usize,
     ) -> Box<dyn Iterator<Item = Option<OuterId>> + 'b> {
         let mut results = Vec::new();
         self.g.0 .0.iter().for_each(|v| {
-            if let Operation::Input { outer_id, mutability, typ } = & v.op {
+            if let Operation::Input {
+                outer_id,
+                mutability,
+                typ,
+            } = &v.op
+            {
                 match typ {
                     FusedType::Scalar => {
                         if mutable_scalars > 0 && *mutability == Mutability::Mut {
