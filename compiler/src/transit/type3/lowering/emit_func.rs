@@ -117,9 +117,9 @@ pub fn emit_func<'s, Rt: RuntimeType>(
                 arg: scalars.iter().map(|r| reg_id2var_id(*r)).collect(),
             });
         }
-        VertexNode::DistributePowers { .. } => {
-            let poly = todo!();
-            let powers = todo!();
+        VertexNode::DistributePowers { poly, powers } => {
+            let poly = reg_id2var_id(*poly);
+            let powers = reg_id2var_id(*powers);
             emit(Instruction::FuncCall {
                 func_id: f_id,
                 arg_mut: vec![poly],

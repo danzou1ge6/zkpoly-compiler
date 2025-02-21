@@ -135,8 +135,8 @@ pub mod template {
             poly: I,
         },
         DistributePowers {
-            scalar: I,
             poly: I,
+            powers: I
         },
     }
 
@@ -172,7 +172,7 @@ pub mod template {
                 EvaluatePoly { poly, at } => Box::new([poly, at].into_iter()),
                 BatchedInvert(x) => Box::new([x].into_iter()),
                 ScanMul { x0, poly } => Box::new([x0, poly].into_iter()),
-                DistributePowers { scalar, poly } => Box::new([scalar, poly].into_iter()),
+                DistributePowers { powers, poly } => Box::new([poly, powers].into_iter()),
                 _ => Box::new(std::iter::empty()),
             }
         }
@@ -205,7 +205,7 @@ pub mod template {
                 EvaluatePoly { poly, at } => Box::new([*poly, *at].into_iter()),
                 BatchedInvert(x) => Box::new([*x].into_iter()),
                 ScanMul { x0, poly } => Box::new([*x0, *poly].into_iter()),
-                DistributePowers { scalar, poly } => Box::new([*scalar, *poly].into_iter()),
+                DistributePowers { powers, poly } => Box::new([*poly, *powers].into_iter()),
                 _ => Box::new(std::iter::empty()),
             }
         }
@@ -449,9 +449,9 @@ where
                 x0: mapping(*x0),
                 poly: mapping(*poly),
             },
-            DistributePowers { poly, scalar } => DistributePowers {
+            DistributePowers { poly, powers } => DistributePowers {
                 poly: mapping(*poly),
-                scalar: mapping(*scalar),
+                powers: mapping(*powers),
             },
         }
     }
@@ -554,7 +554,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
                 let (_, len) = self.g.vertex(*poly).typ().unwrap_poly();
                 Some((temporary_space::poly_scan::<Rt>(*len as usize, libs), Gpu))
             }
-            DistributePowers { .. } => todo!(),
+            DistributePowers { .. } => None,
         }
     }
 }

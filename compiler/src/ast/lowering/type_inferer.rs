@@ -381,9 +381,15 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
                 let deg = self.try_unwrap_poly_typ(cg, *poly, PolyType::Lagrange, &err)?;
                 type2::Typ::Poly((PolyType::Lagrange, deg))
             }
-            ScanMul { x0, poly } | DistributePowers { scalar: x0, poly } => {
+            ScanMul { x0, poly } => {
                 let deg = self.try_unwrap_poly_typ(cg, *poly, PolyType::Lagrange, &err)?;
                 self.try_unwrap_scalar(cg, *x0, &err)?;
+                type2::Typ::Poly((PolyType::Lagrange, deg))
+            }
+            DistributePowers { poly, powers } => {
+                let deg = self.try_unwrap_poly_typ(cg, *poly, PolyType::Lagrange, &err)?;
+                let _powers_deg =
+                    self.try_unwrap_poly_typ(cg, *powers, PolyType::Lagrange, &err)?;
                 type2::Typ::Poly((PolyType::Lagrange, deg))
             }
         };

@@ -16,7 +16,7 @@ pub enum PolyLagrangeNode<Rt: RuntimeType> {
     RotateIdx(PolyLagrange<Rt>, i32),
     Blind(PolyLagrange<Rt>, u64, u64),
     Slice(PolyLagrange<Rt>, u64, u64),
-    DistributePowers(PolyLagrange<Rt>, Scalar<Rt>),
+    DistributePowers(PolyLagrange<Rt>, PolyLagrange<Rt>),
     ScanMul(PolyLagrange<Rt>, Scalar<Rt>),
     Common(CommonNode<Rt>),
 }
@@ -95,11 +95,11 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for PolyLagrange<Rt> {
                         self.src_lowered(),
                     )
                 }
-                DistributePowers(poly, scalar) => {
+                DistributePowers(poly, powers) => {
                     let poly = poly.erase(cg);
-                    let scalar = scalar.erase(cg);
+                    let powers = powers.erase(cg);
                     Vertex::new(
-                        VertexNode::DistributePowers { poly, scalar },
+                        VertexNode::DistributePowers { poly, powers },
                         Some(Typ::lagrange()),
                         self.src_lowered(),
                     )
@@ -205,7 +205,7 @@ impl<Rt: RuntimeType> PolyLagrange<Rt> {
     }
 
     #[track_caller]
-    pub fn distribute_powers(&self, power: &Scalar<Rt>) -> Self {
+    pub fn distribute_powers(&self, power: &PolyLagrange<Rt>) -> Self {
         let src = SourceInfo::new(Location::caller().clone(), None);
         PolyLagrange::new(
             PolyLagrangeNode::DistributePowers(self.clone(), power.clone()),

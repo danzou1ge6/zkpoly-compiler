@@ -49,10 +49,11 @@
         - [ ] 为切片多项式算术算子编译并生成算子函数
 - 运行时
     - CPU算子
-        -![ ] Blind算子
-        -![ ] Interplote算子
-        -![ ] AssemblePoly算子
-        -![ ] 接入Transcript
+        -![x] Blind算子
+        -![x] Interplote算子
+        -![x] AssemblePoly算子
+        -![x] 接入Transcript
     -![x] 加载常数指令
+    -![ ] 加载输入指令
     - MSM算子
         - [ ] 各GPU流作为参数输入
