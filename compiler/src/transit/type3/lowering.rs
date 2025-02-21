@@ -372,8 +372,8 @@ fn lower_instruction<'s, Rt: RuntimeType>(
             let vars = oprands.iter().map(|&id| reg_id2var_id(id)).collect();
             emit(Instruction::AssembleTuple { vars, dst });
         }
-        super::InstructionNode::Move { id, from } => unimplemented!(),
-        super::InstructionNode::SetPolyMeta { id, from, meta } => unimplemented!(),
+        super::InstructionNode::Move { id, from } => todo!(),
+        super::InstructionNode::SetPolyMeta { id, from, meta } => todo!(),
     };
 }
 

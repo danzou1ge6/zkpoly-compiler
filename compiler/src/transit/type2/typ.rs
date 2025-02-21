@@ -149,9 +149,9 @@ where
             Poly((_, deg)) => Size::Single(*deg * size_of::<Rt::Field>() as u64),
             PointBase { log_n } => Size::Single((1 << log_n) * 2 * size_of::<Rt::Field>() as u64),
             Scalar => Size::Single(size_of::<Rt::Field>() as u64),
-            Transcript => unimplemented!(),
+            Transcript => Size::Single(size_of::<Rt::Trans>() as u64),
             Point => Size::Single(2 * size_of::<Rt::Field>() as u64),
-            Rng => unimplemented!(),
+            Rng => unimplemented!("Rng is currently not put in any register"),
             Tuple(ts) => Size::Tuple(
                 ts.iter()
                     .map(|t| match t.size() {
