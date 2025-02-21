@@ -316,7 +316,7 @@ fn lower_instruction<'s, Rt: RuntimeType>(
                     end: *end_pos as usize,
                 });
             }
-            VertexNode::Entry => todo!(),
+            VertexNode::Entry(idx) => todo!(),
             _ => {
                 emit_func::emit_func(
                     ids,

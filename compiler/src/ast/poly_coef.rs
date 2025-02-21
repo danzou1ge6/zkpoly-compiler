@@ -11,7 +11,6 @@ pub enum PolyCoefNode<Rt: RuntimeType> {
     Arith(CoefArith<PolyCoef<Rt>, Scalar<Rt>>),
     New(PolyInit, u64),
     Constant(Vec<Rt::Field>),
-    Entry(u64),
     FromLagrange(PolyLagrange<Rt>),
     Extend(PolyCoef<Rt>, u64),
     Assemble(Vec<Scalar<Rt>>, u64),
@@ -52,7 +51,6 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for PolyCoef<Rt> {
                     Some(Typ::coef_with_deg(data.len() as u64)),
                 )
             }
-            Entry(deg) => todo!("track entry ID"),
             FromLagrange(values) => {
                 let values = values.erase(cg);
                 new_vertex(
@@ -151,12 +149,6 @@ impl<Rt: RuntimeType> PolyCoef<Rt> {
     pub fn constant(values: Vec<Rt::Field>) -> Self {
         let src = SourceInfo::new(Location::caller().clone(), None);
         PolyCoef::new(PolyCoefNode::Constant(values), src)
-    }
-
-    #[track_caller]
-    pub fn entry(deg: u64) -> Self {
-        let src = SourceInfo::new(Location::caller().clone(), None);
-        PolyCoef::new(PolyCoefNode::Entry(deg), src)
     }
 
     #[track_caller]

@@ -11,7 +11,6 @@ pub enum PolyLagrangeNode<Rt: RuntimeType> {
     Arith(LagrangeArith<PolyLagrange<Rt>, Scalar<Rt>>),
     New(PolyInit, u64),
     Constant(Vec<Rt::Field>),
-    Entry(u64),
     FromCoef(PolyCoef<Rt>),
     RotateIdx(PolyLagrange<Rt>, i32),
     Blind(PolyLagrange<Rt>, u64, u64),
@@ -57,7 +56,6 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for PolyLagrange<Rt> {
                         self.src_lowered(),
                     )
                 }
-                Entry(deg) => todo!("keep entry ID for runtime to lookup input"),
                 FromCoef(coefs) => {
                     let coefs = coefs.erase(cg);
                     Vertex::new(
@@ -178,12 +176,6 @@ impl<Rt: RuntimeType> PolyLagrange<Rt> {
     pub fn constant(data: Vec<Rt::Field>) -> Self {
         let src = SourceInfo::new(Location::caller().clone(), None);
         PolyLagrange::new(PolyLagrangeNode::Constant(data), src)
-    }
-
-    #[track_caller]
-    pub fn entry(deg: u64) -> Self {
-        let src = SourceInfo::new(Location::caller().clone(), None);
-        PolyLagrange::new(PolyLagrangeNode::Entry(deg), src)
     }
 
     #[track_caller]

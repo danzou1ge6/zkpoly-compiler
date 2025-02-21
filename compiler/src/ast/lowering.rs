@@ -51,6 +51,30 @@ impl<Rt: RuntimeType> Typ<Rt> {
             _Phantom(..) => unreachable!(),
         }
     }
+
+    pub fn compatible_with_type2(&self, t2typ: &type2::Typ<Rt>) -> bool {
+        use type2::typ::template::Typ::*;
+        match (self, t2typ) {
+            (Poly((ptyp, deg1)), Poly((ptyp2, deg2))) => {
+                ptyp == ptyp2 && deg1.is_none() || deg1.unwrap() == *deg2
+            }
+            (PointBase { log_n: log_n1 }, PointBase { log_n: log_n2 }) => log_n1 == log_n2,
+            (Scalar, Scalar) => true,
+            (Transcript, Transcript) => true,
+            (Point, Point) => true,
+            (Rng, Rng) => true,
+            (Tuple(elements1), Tuple(elements2)) => {
+                elements1.len() == elements2.len()
+                    && elements1
+                        .iter()
+                        .zip(elements2.iter())
+                        .all(|(x, y)| x.compatible_with_type2(y))
+            }
+            (Array(t1, len1), Array(t2, len2)) => t1.compatible_with_type2(t2) && len1 == len2,
+            (Any(tid1, size1), Any(tid2, size2)) => tid1 == tid2 && size1 == size2,
+            _ => false
+        }
+    }
 }
 
 pub type Vertex<'s, Rt: RuntimeType> = partial_typed::Vertex<'s, Option<Typ<Rt>>>;
@@ -119,4 +143,3 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
         &mut self.allocator
     }
 }
-

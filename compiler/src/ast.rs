@@ -7,7 +7,7 @@ use zkpoly_runtime::{
     args::{RuntimeType, Variable},
 };
 
-use self::transit::type2::{self, VertexId, VertexNode};
+use self::transit::type2::{self, EntryId, VertexId, VertexNode};
 
 pub mod lowering;
 
@@ -25,6 +25,7 @@ pub trait CommonConstructors<Rt: RuntimeType> {
         src: SourceInfo,
     ) -> Self;
     fn from_array_get(array: ArrayUntyped<Rt>, idx: usize, src: SourceInfo) -> Self;
+    fn from_entry(idx: EntryId, src: SourceInfo) -> Self;
 }
 
 #[derive(Debug)]
@@ -32,6 +33,7 @@ pub enum CommonNode<Rt: RuntimeType> {
     TupleGet(TupleUntyped<Rt>, usize),
     ArrayGet(ArrayUntyped<Rt>, usize),
     FunctionCall(FunctionUntyped<Rt>, Vec<AstVertex<Rt>>),
+    Entry(EntryId)
 }
 
 impl<Rt: RuntimeType> CommonNode<Rt> {
@@ -43,6 +45,9 @@ impl<Rt: RuntimeType> CommonNode<Rt> {
     }
     fn from_function_call(f: FunctionUntyped<Rt>, args: Vec<AstVertex<Rt>>) -> Self {
         Self::FunctionCall(f, args)
+    }
+    fn from_entry(id: EntryId) -> Self {
+        Self::Entry(id)
     }
 }
 
@@ -65,6 +70,10 @@ where
     fn from_array_get(array: ArrayUntyped<Rt>, idx: usize, src: SourceInfo) -> Self {
         (CommonNode::from_array_get(array, idx), src).into()
     }
+
+    fn from_entry(id: EntryId, src: SourceInfo) -> Self {
+        (CommonNode::from_entry(id), src).into()
+    }
 }
 
 impl<Rt: RuntimeType> CommonNode<Rt> {
@@ -83,6 +92,9 @@ impl<Rt: RuntimeType> CommonNode<Rt> {
                 let args = args.iter().map(|x| x.erase(cg)).collect();
                 Vertex::new(VertexNode::UserFunction(fid, args), None, src)
             },
+            CommonNode::Entry(id) => {
+                Vertex::new(VertexNode::Entry(*id), None, src)
+            }
         }
     }
 }

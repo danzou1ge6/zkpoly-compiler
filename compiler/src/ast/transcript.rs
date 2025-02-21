@@ -2,7 +2,6 @@ use super::{transit::HashTyp, *};
 
 #[derive(Debug)]
 pub enum TranscriptNode<Rt: RuntimeType> {
-    Entry,
     HashScalar(Transcript<Rt>, Scalar<Rt>, HashTyp),
     HashLagrange(Transcript<Rt>, PolyLagrange<Rt>, HashTyp),
     HashCoef(Transcript<Rt>, PolyCoef<Rt>, HashTyp),
@@ -43,7 +42,6 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for Transcript<Rt> {
 
             use TranscriptNode::*;
             match &self.inner.t {
-                Entry => todo!("track entry ID"),
                 HashScalar(t, s, hash_typ) => {
                     hash_transcript(t, s, hash_typ, cg, self.src_lowered())
                 }
@@ -76,12 +74,6 @@ impl<Rt: RuntimeType> RuntimeCorrespondance<Rt> for Transcript<Rt> {
 }
 
 impl<Rt: RuntimeType> Transcript<Rt> {
-    #[track_caller]
-    pub fn entry(name: String) -> Self {
-        let src = SourceInfo::new(Location::caller().clone(), Some(name));
-        Self::new(TranscriptNode::Entry, src)
-    }
-
     #[track_caller]
     pub fn hash_scalar(&self, data: &Scalar<Rt>, hash_typ: HashTyp) -> Self {
         let src = SourceInfo::new(Location::caller().clone(), None);

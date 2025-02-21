@@ -22,6 +22,7 @@ pub enum ErrorNode<Rt: RuntimeType> {
     ArrayIndexOutofBound { index: usize, len: usize },
     ExpectTranscript,
     KateDivisionPolyDegreeTooSmall,
+    IncompatibleWithAnnotation(type2::Typ<Rt>, Typ<Rt>),
 }
 
 #[derive(Debug, Clone)]
@@ -204,7 +205,7 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
             }
             SingleArith(a) => self.infer_single_arith(cg, a, &err)?,
             Arith { .. } => panic!("ArithGraph cannot come from AST"),
-            Entry => v
+            Entry(..) => v
                 .try_to_type2_typ()
                 .expect("entry point of graph should have type annotation from AST"),
             Ntt { s, to, from, .. } => {
@@ -217,7 +218,7 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
             }
             Slice(vin, begin, end) => {
                 let deg = self.try_unwrap_poly_typ(cg, *vin, PolyType::Lagrange, err)?;
-                if !(0 <= *begin && *begin < *end && *end <= deg) {
+                if !(*begin < *end && *end <= deg) {
                     return Err(err(ErrorNode::BadSlice {
                         begin: *begin,
                         end: *end,
@@ -393,6 +394,14 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
                 type2::Typ::Poly((PolyType::Lagrange, deg))
             }
         };
+        if let Some(annotated_typ) = v.typ() {
+            if !annotated_typ.compatible_with_type2(&typ) {
+                return Err(err(ErrorNode::IncompatibleWithAnnotation(
+                    typ.clone(),
+                    annotated_typ.clone(),
+                )));
+            }
+        }
         Ok(typ)
     }
 }

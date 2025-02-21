@@ -6,6 +6,7 @@
 use crate::transit::{self, PolyInit, SourceInfo};
 pub use typ::Typ;
 use zkpoly_common::arith;
+use zkpoly_common::define_usize_id;
 use zkpoly_common::digraph;
 use zkpoly_common::heap::UsizeId;
 use zkpoly_common::load_dynamic::Libs;
@@ -73,10 +74,12 @@ pub enum Device {
     PreferGpu,
 }
 
+define_usize_id!(EntryId);
+
 pub mod template {
     use zkpoly_common::msm_config::MsmConfig;
 
-    use super::{arith, transit, NttAlgorithm, PolyInit, PolyType};
+    use super::{arith, transit, NttAlgorithm, PolyInit, PolyType, EntryId};
 
     #[derive(Debug, Clone)]
     pub enum VertexNode<I, A, C, E> {
@@ -92,7 +95,7 @@ pub mod template {
             mut_polys: usize,
             chunking: Option<u64>,
         },
-        Entry,
+        Entry(EntryId),
         /// Convert a local from one representation to another
         Ntt {
             s: I,
@@ -399,7 +402,7 @@ where
                 mut_scalars: *mut_scalars,
                 mut_polys: *mut_polys,
             },
-            Entry => Entry,
+            Entry(idx) => Entry(*idx),
             Ntt { alg, s, to, from } => Ntt {
                 alg: alg.relabeled(&mut mapping),
                 s: mapping(*s),
@@ -478,7 +481,7 @@ where
                     Gpu
                 }
             }
-            Entry => Cpu,
+            Entry(..) => Cpu,
             Ntt { .. } => CoProcess,
             RotateIdx(..) => unreachable!(),
             Slice(..) => unreachable!(),
@@ -518,7 +521,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
             Arith { .. } => None,
             NewPoly(..) => None,
             Constant(..) => None,
-            Entry => None,
+            Entry(..) => None,
             Ntt { .. } => None,
             RotateIdx(..) => None,
             Slice(..) => None,

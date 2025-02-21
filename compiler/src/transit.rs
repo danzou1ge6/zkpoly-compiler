@@ -54,24 +54,8 @@ pub enum PolyInit {
 #[derive(Debug, Clone)]
 pub struct Cg<I, V> {
     pub(crate) inputs: Vec<I>,
-    pub(crate) outputs: Vec<I>,
+    pub(crate) output: I,
     pub(crate) g: Digraph<I, V>,
-}
-
-impl<I, V> Cg<I, V> {
-    pub fn new() -> Self {
-        Self {
-            inputs: Vec::new(),
-            outputs: Vec::new(),
-            g: Digraph::new(),
-        }
-    }
-}
-
-impl<I, V> Default for Cg<I, V> {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 #[derive(Debug, Clone, Copy)]

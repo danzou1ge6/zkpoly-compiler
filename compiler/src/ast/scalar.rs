@@ -8,7 +8,6 @@ use super::*;
 pub enum ScalarNode<Rt: RuntimeType> {
     Arith(ScalarArith<Scalar<Rt>>),
     Constant(Rt::Field),
-    Entry,
     EvaluatePoly(PolyCoef<Rt>, Scalar<Rt>),
     Common(CommonNode<Rt>),
 }
@@ -37,7 +36,6 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for Scalar<Rt> {
                         cg.add_constant(Scalar::to_variable(rt::scalar::Scalar::from_ff(x)), None);
                     new_vertex(VertexNode::Constant(constant), Some(Typ::Scalar))
                 }
-                Entry => todo!("track entry ID"),
                 EvaluatePoly(poly, scalar) => {
                     let poly = poly.erase(cg);
                     let at = scalar.erase(cg);
@@ -102,12 +100,6 @@ impl<Rt: RuntimeType> Scalar<Rt> {
     pub fn constant(data: Rt::Field) -> Self {
         let src = SourceInfo::new(Location::caller().clone(), None);
         Scalar::new(ScalarNode::Constant(data), src)
-    }
-
-    #[track_caller]
-    pub fn entry() -> Self {
-        let src = SourceInfo::new(Location::caller().clone(), None);
-        Scalar::new(ScalarNode::Entry, src)
     }
 }
 
