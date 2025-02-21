@@ -88,7 +88,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                         Scalar => unwrap_scalar_mut
                     );
                 }
-                DeviceType::Disk => todo!(),
+                DeviceType::Disk => unimplemented!("Disk will be supported in later development"),
             },
             DeviceType::GPU { .. } => match dst_device {
                 DeviceType::CPU => {
@@ -115,9 +115,9 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                         Scalar => unwrap_scalar_mut
                     );
                 }
-                DeviceType::Disk => todo!(),
+                DeviceType::Disk => unimplemented!(),
             },
-            DeviceType::Disk => todo!(),
+            DeviceType::Disk => unimplemented!(),
         }
     }
 }

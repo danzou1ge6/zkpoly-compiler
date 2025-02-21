@@ -110,17 +110,16 @@ pub fn emit_func<'s, Rt: RuntimeType>(
             generate_scan_mul(poly, temp, res, x0, stream.unwrap(), f_id, emit);
         }
         VertexNode::AssmblePoly(_, scalars) => {
-            let scalars = scalars.iter().map(|id| reg_id2var_id(*id)).collect::<Vec<_>>();
             let target = reg_id2var_id(outputs[0]);
             emit(Instruction::FuncCall {
                 func_id: f_id,
                 arg_mut: vec![target],
-                arg: scalars,
+                arg: scalars.iter().map(|r| reg_id2var_id(*r)).collect(),
             });
         }
-        VertexNode::DistributePowers { .. } => {
-            let poly = unimplemented!();
-            let powers = unimplemented!();
+        VertexNode::DistributePowers { poly, powers } => {
+            let poly = reg_id2var_id(*poly);
+            let powers = reg_id2var_id(*powers);
             emit(Instruction::FuncCall {
                 func_id: f_id,
                 arg_mut: vec![poly],

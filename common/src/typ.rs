@@ -21,7 +21,7 @@ impl Slice {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PolyType {
     Coef,
     Lagrange,

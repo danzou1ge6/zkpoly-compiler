@@ -36,6 +36,13 @@ impl SpOp {
             }
         }
     }
+
+    pub fn support_coef(&self) -> bool {
+        match self {
+            Self::Div => false,
+            _ => true,
+        }
+    }
 }
 
 mod op_template {
@@ -65,10 +72,28 @@ pub enum ArithBinOp {
     Div,
 }
 
+impl ArithBinOp {
+    pub fn support_coef(&self) -> bool {
+        match self {
+            ArithBinOp::Add | ArithBinOp::Sub => true,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum ArithUnrOp {
     Neg,
     Inv,
+}
+
+impl ArithUnrOp {
+    pub fn support_coef(&self) -> bool {
+        match self {
+            ArithUnrOp::Neg => true,
+            _ => false,
+        }
+    }
 }
 
 pub type BinOp = op_template::BinOp<ArithBinOp, ArithBinOp, SpOp>;

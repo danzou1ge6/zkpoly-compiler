@@ -1,11 +1,12 @@
 - 编译前端
     -![x] 抽象语法树构造器
-    - 翻译抽象语法树到Type2中间表示
+    - 抽象语法树构造器
         -![x] 为各个抽象语法树节点类型实现ast::TypeEraseable
         -![x] 为各个抽象语法树节点类型实现和ast::RuntimeCorrespondance
         -![x] 宏展开不同参数数量的用户函数
     -![x] 将常量添加到常量表
-    -![ ] 类型重建
+    -![x] 类型重建
+    -![ ] 将抽象语法树转换为Type2中间表示
     - [ ] 用户函数可以使用内存分配器
 - 编译后端
     - Type2中间表示
@@ -48,10 +49,11 @@
         - [ ] 为切片多项式算术算子编译并生成算子函数
 - 运行时
     - CPU算子
-        -![ ] Blind算子
-        -![ ] Interplote算子
-        -![ ] AssemblePoly算子
-        -![ ] 接入Transcript
+        -![x] Blind算子
+        -![x] Interplote算子
+        -![x] AssemblePoly算子
+        -![x] 接入Transcript
     -![x] 加载常数指令
+    -![ ] 加载输入指令
     - MSM算子
         - [ ] 各GPU流作为参数输入
