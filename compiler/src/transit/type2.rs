@@ -67,6 +67,40 @@ where
     }
 }
 
+impl<I> NttAlgorithm<I>
+where
+    I: Copy + Default,
+{
+    pub fn decide_alg<Rt: RuntimeType>(
+        len: usize,
+        memory_limit: usize,
+        recompute_len: usize,
+    ) -> Self {
+        let field_sz = size_of::<Rt::Field>();
+        let total_sz = len * field_sz;
+        let recompute_sz = recompute_len * field_sz;
+        let temp_id = I::default(); // 0 for later allocate
+        if total_sz * 3 < memory_limit {
+            Self::Precomputed(temp_id)
+        } else if total_sz * 2 + recompute_sz < memory_limit {
+            Self::Standard {
+                pq: temp_id,
+                omega: temp_id,
+            }
+        } else if total_sz * 3 < memory_limit * 2 {
+            // 1.5
+            Self::Precomputed(temp_id)
+        } else if total_sz + recompute_sz < memory_limit {
+            Self::Standard {
+                pq: temp_id,
+                omega: temp_id,
+            }
+        } else {
+            unimplemented!("out of core ntt is unimplemented")
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Device {
     Gpu,
@@ -152,6 +186,25 @@ pub mod template {
     where
         I: Copy,
     {
+        pub fn unwrap_constant(&self) -> &C {
+            match self {
+                Self::Constant(constant) => constant,
+                _ => panic!("this is not constant"),
+            }
+        }
+        pub fn unwrap_ntt_alg_mut(&mut self) -> &mut NttAlgorithm<I> {
+            match self {
+                Self::Ntt { alg, .. } => alg,
+                _ => panic!("this is not ntt"),
+            }
+        }
+
+        pub fn unwrap_msm(&mut self) -> (&mut Vec<I>, &mut Vec<I>, &mut MsmConfig) {
+            match self {
+                Self::Msm { polys, points, alg } => (polys, points, alg),
+                _ => panic!("this is not msm"),
+            }
+        }
         pub fn uses_mut<'a>(&'a mut self) -> Box<dyn Iterator<Item = &'a mut I> + 'a> {
             use VertexNode::*;
             match self {
@@ -597,6 +650,7 @@ pub mod graph_scheduling;
 pub mod kernel_fusion;
 pub mod manage_inverse;
 pub mod memory_planning;
+pub mod precompute;
 pub mod temporary_space;
 pub mod typ;
 pub mod user_function;

@@ -1,3 +1,7 @@
+use std::collections::BTreeMap;
+
+use halo2curves::ff::{Field, PrimeField};
+
 /// Computes smallest k such that
 ///   2^k >= [`x`]
 pub fn min_power_of_2_above(n: usize) -> usize {
@@ -29,5 +33,46 @@ pub fn log2(x: u64) -> Option<u32> {
         Some(r)
     } else {
         None
+    }
+}
+
+pub struct GenOmega<F> {
+    omegas: BTreeMap<(u32, bool), F>,
+}
+
+impl<F: PrimeField> GenOmega<F> {
+    pub fn new() -> Self {
+        Self {
+            omegas: BTreeMap::new(),
+        }
+    }
+
+    // adopted from halo2
+    pub fn get_omega(&mut self, k: u32, inv: bool) -> F {
+        assert!(k <= F::S);
+
+        let omega = self.omegas.get(&(k, inv));
+        if omega.is_some() {
+            return omega.unwrap().clone();
+        }
+
+        let mut omega = F::ROOT_OF_UNITY;
+
+        // Get omega, the 2^{k}'th root of unity
+        // The loop computes omega = omega^{2 ^ (S - k)}
+        // Notice that omega ^ {2 ^ k} = omega ^ {2^S} = 1.
+        for _ in k..F::S {
+            omega = omega.square();
+        }
+
+        self.omegas.insert((k, false), omega);
+
+        if inv {
+            let inv_omega = omega.invert().unwrap();
+            self.omegas.insert((k, true), inv_omega);
+            inv_omega
+        } else {
+            omega
+        }
     }
 }

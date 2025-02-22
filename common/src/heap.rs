@@ -10,7 +10,7 @@ pub trait UsizeId:
 #[macro_export]
 macro_rules! define_usize_id {
     ($name:ident) => {
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
         pub struct $name(usize);
         impl From<usize> for $name {
             fn from(value: usize) -> Self {

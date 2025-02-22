@@ -10,3 +10,4 @@ zkpoly_runtime = { path = "../runtime" }
 zkpoly_common = { path = "../common" }
 zkpoly_core = { path = "../core" }
 zkpoly_memory_pool = { path = "../memory_pool" }
+halo2curves = { version = "0.6.0", default-features = false }
