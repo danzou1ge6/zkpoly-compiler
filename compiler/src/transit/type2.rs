@@ -658,6 +658,7 @@ pub mod kernel_fusion;
 pub mod manage_inverse;
 pub mod memory_planning;
 pub mod precompute;
+pub mod pretty_print;
 pub mod temporary_space;
 pub mod typ;
 pub mod user_function;
