@@ -18,6 +18,7 @@ pub enum Value<Rt: RuntimeType> {
 }
 
 pub struct FunctionInCell<Rt: RuntimeType> {
+    n_args: usize,
     value: Cell<Option<Value<Rt>>>,
     name: String,
     ret_typ: type2::Typ<Rt>,
@@ -27,6 +28,7 @@ impl<Rt: RuntimeType> FunctionInCell<Rt> {
     pub fn take(&self) -> Function<Rt> {
         let value = self.value.take().unwrap();
         Function {
+            n_args: self.n_args,
             value,
             name: self.name.clone(),
             ret_typ: self.ret_typ.clone(),
@@ -41,6 +43,7 @@ impl<Rt: RuntimeType> std::fmt::Debug for FunctionInCell<Rt> {
 }
 
 pub struct Function<Rt: RuntimeType> {
+    pub(crate) n_args: usize,
     pub(crate) value: Value<Rt>,
     pub(crate) name: String,
     pub(crate) ret_typ: type2::Typ<Rt>,
@@ -49,9 +52,10 @@ pub struct Function<Rt: RuntimeType> {
 pub(super) type FunctionUntyped<Rt: RuntimeType> = Outer<FunctionInCell<Rt>>;
 
 impl<Rt: RuntimeType> FunctionUntyped<Rt> {
-    pub fn new_fn(name: String, f: ValueFn<Rt>, ret_typ: type2::Typ<Rt>, src: SourceInfo) -> Self {
+    pub fn new_fn(name: String, f: ValueFn<Rt>, n_args: usize, ret_typ: type2::Typ<Rt>, src: SourceInfo) -> Self {
         FunctionUntyped::new(
             FunctionInCell {
+                n_args,
                 value: Cell::new(Some(Value::Fn(f))),
                 name,
                 ret_typ,
@@ -63,11 +67,13 @@ impl<Rt: RuntimeType> FunctionUntyped<Rt> {
     pub fn new_mut(
         name: String,
         f: ValueMut<Rt>,
+        n_args: usize,
         ret_typ: type2::Typ<Rt>,
         src: SourceInfo,
     ) -> Self {
         FunctionUntyped::new(
             FunctionInCell {
+                n_args,
                 value: Cell::new(Some(Value::Mut(f))),
                 name,
                 ret_typ,
@@ -79,11 +85,13 @@ impl<Rt: RuntimeType> FunctionUntyped<Rt> {
     pub fn new_once(
         name: String,
         f: ValueOnce<Rt>,
+        n_args: usize,
         ret_typ: type2::Typ<Rt>,
         src: SourceInfo,
     ) -> Self {
         FunctionUntyped::new(
             FunctionInCell {
+                n_args,
                 value: Cell::new(Some(Value::Once(f))),
                 name,
                 ret_typ,
@@ -98,7 +106,7 @@ pub struct MutMarker;
 pub struct OnceMarker;
 
 macro_rules! define_function_fn {
-    ($($n:tt => ($($i:tt $arg:ident $T:ident),+)),*) => {
+    ($($n:tt $m:tt => ($($i:tt $arg:ident $T:ident),+)),*) => {
         $(
             pub type $n<Rt: RuntimeType, $($T), +, R> = Phantomed<FunctionUntyped<Rt>, ($($T), +, R, FnMarker)>;
 
@@ -135,7 +143,7 @@ macro_rules! define_function_fn {
                         Ok(R::to_variable(r))
                     };
                     let src = SourceInfo::new(Location::caller().clone(), Some(name.clone()));
-                    Self::wrap(FunctionUntyped::new_fn(name, Box::new(f), ret_typ, src))
+                    Self::wrap(FunctionUntyped::new_fn(name, Box::new(f), $m, ret_typ, src))
                 }
             }
         )*
@@ -143,13 +151,13 @@ macro_rules! define_function_fn {
 }
 
 define_function_fn! {
-    FunctionFn1 => (0 arg0 T0),
-    FunctionFn2 => (0 arg0 T0, 1 arg1 T1),
-    FunctionFn3 => (0 arg0 T0, 1 arg1 T1, 2 arg2 T2),
-    FunctionFn4 => (0 arg0 T0, 1 arg1 T1, 2 arg2 T2, 3 arg3 T3),
-    FunctionFn5 => (0 arg0 T0, 1 arg1 T1, 2 arg2 T2, 3 arg3 T3, 4 arg4 T4),
-    FunctionFn6 => (0 arg0 T0, 1 arg1 T1, 2 arg2 T2, 3 arg3 T3, 4 arg4 T4, 5 arg5 T5),
-    FunctionFn7 => (0 arg0 T0, 1 arg1 T1, 2 arg2 T2, 3 arg3 T3, 4 arg4 T4, 5 arg5 T5, 6 arg6 T6)
+    FunctionFn1 1 => (0 arg0 T0),
+    FunctionFn2 2 => (0 arg0 T0, 1 arg1 T1),
+    FunctionFn3 3 => (0 arg0 T0, 1 arg1 T1, 2 arg2 T2),
+    FunctionFn4 4 => (0 arg0 T0, 1 arg1 T1, 2 arg2 T2, 3 arg3 T3),
+    FunctionFn5 5 => (0 arg0 T0, 1 arg1 T1, 2 arg2 T2, 3 arg3 T3, 4 arg4 T4),
+    FunctionFn6 6 => (0 arg0 T0, 1 arg1 T1, 2 arg2 T2, 3 arg3 T3, 4 arg4 T4, 5 arg5 T5),
+    FunctionFn7 7 => (0 arg0 T0, 1 arg1 T1, 2 arg2 T2, 3 arg3 T3, 4 arg4 T4, 5 arg5 T5, 6 arg6 T6)
 }
 
 pub struct PhantomedNoClone<T, P> {
@@ -170,7 +178,7 @@ impl<T, P> PhantomedNoClone<T, P> {
 }
 
 macro_rules! define_function_mut {
-    ($($n:tt => ($($i:tt $arg:ident $T:ident),+)),*) => {
+    ($($n:tt $m:tt => ($($i:tt $arg:ident $T:ident),+)),*) => {
         $(
             pub type $n<Rt: RuntimeType, $($T), +, R> = PhantomedNoClone<FunctionUntyped<Rt>, ($($T), +, R, MutMarker)>;
 
@@ -207,7 +215,7 @@ macro_rules! define_function_mut {
                         Ok(R::to_variable(r))
                     };
                     let src = SourceInfo::new(Location::caller().clone(), Some(name.clone()));
-                    Self::wrap(FunctionUntyped::new_mut(name, Box::new(f), ret_typ, src))
+                    Self::wrap(FunctionUntyped::new_mut(name, Box::new(f), $m, ret_typ, src))
                 }
             }
         )*
@@ -215,17 +223,17 @@ macro_rules! define_function_mut {
 }
 
 define_function_mut! {
-    FunctionMut1 => (0 arg0 T0),
-    FunctionMut2 => (0 arg0 T0, 1 arg1 T1),
-    FunctionMut3 => (0 arg0 T0, 1 arg1 T1, 2 arg2 T2),
-    FunctionMut4 => (0 arg0 T0, 1 arg1 T1, 2 arg2 T2, 3 arg3 T3),
-    FunctionMut5 => (0 arg0 T0, 1 arg1 T1, 2 arg2 T2, 3 arg3 T3, 4 arg4 T4),
-    FunctionMut6 => (0 arg0 T0, 1 arg1 T1, 2 arg2 T2, 3 arg3 T3, 4 arg4 T4, 5 arg5 T5),
-    FunctionMut7 => (0 arg0 T0, 1 arg1 T1, 2 arg2 T2, 3 arg3 T3, 4 arg4 T4, 5 arg5 T5, 6 arg6 T6)
+    FunctionMut1 1 => (0 arg0 T0),
+    FunctionMut2 2 => (0 arg0 T0, 1 arg1 T1),
+    FunctionMut3 3 => (0 arg0 T0, 1 arg1 T1, 2 arg2 T2),
+    FunctionMut4 4 => (0 arg0 T0, 1 arg1 T1, 2 arg2 T2, 3 arg3 T3),
+    FunctionMut5 5 => (0 arg0 T0, 1 arg1 T1, 2 arg2 T2, 3 arg3 T3, 4 arg4 T4),
+    FunctionMut6 6 => (0 arg0 T0, 1 arg1 T1, 2 arg2 T2, 3 arg3 T3, 4 arg4 T4, 5 arg5 T5),
+    FunctionMut7 7 => (0 arg0 T0, 1 arg1 T1, 2 arg2 T2, 3 arg3 T3, 4 arg4 T4, 5 arg5 T5, 6 arg6 T6)
 }
 
 macro_rules! define_function_once {
-    ($($n:tt => ($($i:tt $arg:ident $T:ident),+)),*) => {
+    ($($n:tt $m:tt => ($($i:tt $arg:ident $T:ident),+)),*) => {
         $(
             pub type $n<Rt: RuntimeType, $($T), +, R> = PhantomedNoClone<FunctionUntyped<Rt>, ($($T), +, R, OnceMarker)>;
 
@@ -262,7 +270,7 @@ macro_rules! define_function_once {
                         Ok(R::to_variable(r))
                     };
                     let src = SourceInfo::new(Location::caller().clone(), Some(name.clone()));
-                    Self::wrap(FunctionUntyped::new_once(name, Box::new(f), ret_typ, src))
+                    Self::wrap(FunctionUntyped::new_once(name, Box::new(f), $m, ret_typ, src))
                 }
             }
         )*
@@ -270,11 +278,11 @@ macro_rules! define_function_once {
 }
 
 define_function_once! {
-    FunctionOnce1 => (0 arg0 T0),
-    FunctionOnce2 => (0 arg0 T0, 1 arg1 T1),
-    FunctionOnce3 => (0 arg0 T0, 1 arg1 T1, 2 arg2 T2),
-    FunctionOnce4 => (0 arg0 T0, 1 arg1 T1, 2 arg2 T2, 3 arg3 T3),
-    FunctionOnce5 => (0 arg0 T0, 1 arg1 T1, 2 arg2 T2, 3 arg3 T3, 4 arg4 T4),
-    FunctionOnce6 => (0 arg0 T0, 1 arg1 T1, 2 arg2 T2, 3 arg3 T3, 4 arg4 T4, 5 arg5 T5),
-    FunctionOnce7 => (0 arg0 T0, 1 arg1 T1, 2 arg2 T2, 3 arg3 T3, 4 arg4 T4, 5 arg5 T5, 6 arg6 T6)
+    FunctionOnce1 1 => (0 arg0 T0),
+    FunctionOnce2 2 => (0 arg0 T0, 1 arg1 T1),
+    FunctionOnce3 3 => (0 arg0 T0, 1 arg1 T1, 2 arg2 T2),
+    FunctionOnce4 4 => (0 arg0 T0, 1 arg1 T1, 2 arg2 T2, 3 arg3 T3),
+    FunctionOnce5 5 => (0 arg0 T0, 1 arg1 T1, 2 arg2 T2, 3 arg3 T3, 4 arg4 T4),
+    FunctionOnce6 6 => (0 arg0 T0, 1 arg1 T1, 2 arg2 T2, 3 arg3 T3, 4 arg4 T4, 5 arg5 T5),
+    FunctionOnce7 7 => (0 arg0 T0, 1 arg1 T1, 2 arg2 T2, 3 arg3 T3, 4 arg4 T4, 5 arg5 T5, 6 arg6 T6)
 }

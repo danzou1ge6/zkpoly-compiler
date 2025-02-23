@@ -6,15 +6,14 @@ use zkpoly_runtime::args::{RuntimeType, Variable};
 use zkpoly_runtime::error::RuntimeError;
 
 #[derive(Debug, Clone)]
-pub struct FunctionType<Rt: RuntimeType> {
-    pub(crate) args: Vec<(Typ<Rt>, Mutability)>,
-    pub(crate) ret: Typ<Rt>,
+pub struct FunctionType {
+    pub(crate) args: Vec<Mutability>,
     pub(crate) ret_inplace: Vec<Option<usize>>,
 }
 
 pub struct Function<Rt: RuntimeType> {
-    pub f: ast::Function<Rt>,
-    pub typ: FunctionType<Rt>,
+    pub f: ast::user_function::Function<Rt>,
+    pub typ: FunctionType,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

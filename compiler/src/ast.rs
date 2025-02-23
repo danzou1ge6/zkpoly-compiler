@@ -358,5 +358,4 @@ pub use transcript::{Transcript, TranscriptNode};
 pub use tuple::{
     Tuple10, Tuple2, Tuple3, Tuple4, Tuple5, Tuple6, Tuple7, Tuple8, Tuple9, TupleNode,
 };
-pub use user_function::Function;
 pub use whatever::{Whatever, WhateverNode};

@@ -53,7 +53,6 @@ pub enum PolyInit {
 /// [`I`]: vertex ID
 #[derive(Debug, Clone)]
 pub struct Cg<I, V> {
-    pub(crate) inputs: Vec<I>,
     pub(crate) output: I,
     pub(crate) g: Digraph<I, V>,
 }
@@ -88,6 +87,10 @@ impl<N, T, S> Vertex<N, T, S> {
     }
     pub fn src_mut(&mut self) -> &mut S {
         &mut self.2
+    }
+
+    pub fn map_typ<T2>(self, f: impl FnOnce(T) -> T2) -> Vertex<N, T2, S> {
+        Vertex(self.0, f(self.1), self.2)
     }
 }
 

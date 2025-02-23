@@ -214,6 +214,9 @@ where
     pub fn map_by_ref<V1, I1>(&self, f: &mut impl FnMut(I, &V) -> V1) -> Digraph<I1, V1> {
         Digraph(self.0.map_by_ref(f))
     }
+    pub fn map_by_ref_result<V1, I1, E>(&self, mut f: impl FnMut(I, &V) -> Result<V1, E>) -> Result<Digraph<I1, V1>, E> {
+        Ok(Digraph(self.0.map_by_ref_result(&mut f)?))
+    }
     pub fn vertices(&self) -> impl Iterator<Item = I> {
         self.0.ids()
     }

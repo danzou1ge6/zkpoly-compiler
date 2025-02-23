@@ -3,6 +3,7 @@
 //! therefore polynomial operations are transformed into vector expressions.
 //! Also, vertices of the computation graph still contain expression trees.
 
+use crate::ast;
 use crate::transit::{self, PolyInit, SourceInfo};
 pub use typ::Typ;
 use zkpoly_common::arith;
@@ -394,8 +395,8 @@ where
                     .args
                     .iter()
                     .zip(args.iter_mut())
-                    .filter(|((_, arg_mutability), _)| {
-                        arg_mutability == &user_function::Mutability::Mutable
+                    .filter(|(&arg_mutability, _)| {
+                        arg_mutability == user_function::Mutability::Mutable
                     })
                     .map(|(_, arg)| arg);
                 Box::new(r)
@@ -644,6 +645,12 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
             DistributePowers { .. } => None,
         }
     }
+}
+
+pub struct Program<'s, Rt: RuntimeType> {
+    pub(crate) cg: Cg<'s, Rt>,
+    pub(crate) user_function_table: user_function::Table<Rt>,
+    pub(crate) consant_table: ast::lowering::ConstantTable<Rt>
 }
 
 pub mod graph_scheduling;

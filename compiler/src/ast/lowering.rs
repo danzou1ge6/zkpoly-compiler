@@ -12,7 +12,8 @@ use zkpoly_runtime::args::{ConstantId, RuntimeType, Variable};
 use super::{
     transit::type2::{self, partial_typed, VertexId},
     transit::SourceInfo,
-    Function, FunctionUntyped,
+    user_function::Function,
+    FunctionUntyped,
 };
 
 pub type Typ<Rt: RuntimeType> = type2::typ::template::Typ<Rt, (PolyType, Option<u64>)>;
@@ -72,7 +73,7 @@ impl<Rt: RuntimeType> Typ<Rt> {
             }
             (Array(t1, len1), Array(t2, len2)) => t1.compatible_with_type2(t2) && len1 == len2,
             (Any(tid1, size1), Any(tid2, size2)) => tid1 == tid2 && size1 == size2,
-            _ => false
+            _ => false,
         }
     }
 }
@@ -108,7 +109,6 @@ pub struct Cg<'s, Rt: RuntimeType> {
     pub(crate) user_function_table: UserFunctionTable<Rt>,
     pub(crate) user_function_id_mapping: BTreeMap<*const u8, UserFunctionId>,
     pub(crate) allocator: PinnedMemoryPool,
-    pub(crate) outputs: Vec<VertexId>,
 }
 
 impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
@@ -141,5 +141,55 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
 
     pub fn allocator(&mut self) -> &mut PinnedMemoryPool {
         &mut self.allocator
+    }
+
+    pub fn lower(
+        self,
+        output: VertexId,
+    ) -> Result<type2::Program<'s, Rt>, type_inferer::Error<'s, Rt>> {
+        let mut inferer = type_inferer::TypeInferer::new();
+        let types: Digraph<VertexId, _> = self
+            .g
+            .map_by_ref_result(|vid, _| inferer.infer(&self, vid))?;
+        let g: Digraph<VertexId, _> = self
+            .g
+            .map(&mut |vid, v| v.map_typ(|_| types.vertex(vid).clone()));
+
+        let uf_table: Heap<UserFunctionId, _> = self.user_function_table.map(&mut |_, f| {
+            let typ = type2::user_function::FunctionType {
+                args: vec![type2::user_function::Mutability::Immutable; f.n_args],
+                ret_inplace: f.ret_typ.iter().map(|_| None).collect(),
+            };
+            type2::user_function::Function { typ, f }
+        });
+
+        Ok(type2::Program {
+            cg: crate::transit::Cg { output, g },
+            user_function_table: uf_table,
+            consant_table: self.constant_table,
+        })
+    }
+
+    pub fn empty(log2_memory_pool_max_size: u32) -> Self {
+        Self {
+            g: Digraph::new(),
+            mapping: BTreeMap::new(),
+            constant_table: Heap::new(),
+            user_function_table: Heap::new(),
+            user_function_id_mapping: BTreeMap::new(),
+            allocator: PinnedMemoryPool::new(log2_memory_pool_max_size, std::mem::size_of::<u32>()),
+        }
+    }
+
+    pub fn new(output_v: impl super::TypeEraseable<Rt>, log2_memory_pool_max_size: u32) -> (Self, VertexId) {
+        let mut cg = Self::empty(log2_memory_pool_max_size);
+        let output_vid = output_v.erase(&mut cg);
+        let src_info = cg.g.vertex(output_vid).src().clone();
+        let return_vid = cg.g.add_vertex(Vertex::new(
+            type2::VertexNode::Return(output_vid),
+            None,
+            src_info,
+        ));
+        (cg, return_vid)
     }
 }

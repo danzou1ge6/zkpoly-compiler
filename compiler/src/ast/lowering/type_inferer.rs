@@ -37,8 +37,9 @@ impl<'s, Rt: RuntimeType> Error<'s, Rt> {
     }
 }
 
-struct TypeInferer<Rt: RuntimeType> {
+pub struct TypeInferer<Rt: RuntimeType> {
     vertex_typ: BTreeMap<VertexId, type2::Typ<Rt>>,
+    max_poly_deg: u64
 }
 
 fn try_unwrap_poly_typ<'s, Rt: RuntimeType>(
@@ -56,16 +57,24 @@ fn try_unwrap_poly_typ<'s, Rt: RuntimeType>(
 }
 
 impl<Rt: RuntimeType> TypeInferer<Rt> {
+    pub fn new() -> Self {
+        Self {
+            vertex_typ: BTreeMap::new(),
+            max_poly_deg: 0
+        }
+    }
+
     fn try_unwrap_poly<'s, 'a>(
         &mut self,
         cg: &'a Cg<'s, Rt>,
         vid: VertexId,
         err: &impl Fn(ErrorNode<Rt>) -> Error<'s, Rt>,
     ) -> Result<(PolyType, u64), Error<'s, Rt>> {
-        self.infer(cg, vid)?
+        let (pty, deg) = self.infer(cg, vid)?
             .try_unwrap_poly()
             .cloned()
-            .ok_or_else(|| err(ErrorNode::ExpectPolynomial))
+            .ok_or_else(|| err(ErrorNode::ExpectPolynomial))?;
+        Ok((pty, deg))
     }
 
     fn try_unwrap_poly_typ<'s, 'a>(
@@ -76,7 +85,8 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
         err: impl Fn(ErrorNode<Rt>) -> Error<'s, Rt>,
     ) -> Result<u64, Error<'s, Rt>> {
         let typ = self.infer(cg, vid)?;
-        try_unwrap_poly_typ(&typ, required_ptyp, err)
+        let deg = try_unwrap_poly_typ(&typ, required_ptyp, err)?;
+        Ok(deg)
     }
 
     fn try_unwrap_scalar<'s, 'a>(
@@ -175,7 +185,7 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
             }
         }
     }
-    fn infer<'s>(
+    pub fn infer<'s>(
         &mut self,
         cg: &Cg<'s, Rt>,
         vid: VertexId,
@@ -394,7 +404,7 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
                     self.try_unwrap_poly_typ(cg, *powers, PolyType::Lagrange, &err)?;
                 type2::Typ::Poly((PolyType::Lagrange, deg))
             }
-            ScalarInvert { val } => panic!("ScalarInvert cannot come from AST"),
+            ScalarInvert { .. } => panic!("ScalarInvert cannot come from AST"),
         };
         if let Some(annotated_typ) = v.typ() {
             if !annotated_typ.compatible_with_type2(&typ) {
@@ -404,6 +414,17 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
                 )));
             }
         }
+
+        if let Some((_, deg)) = typ.try_unwrap_poly() {
+            self.max_poly_deg = self.max_poly_deg.max(*deg);
+        }
+
+        self.vertex_typ.insert(vid, typ.clone());
+
         Ok(typ)
+    }
+    
+    pub fn max_poly_deg(&self) -> u64 {
+        self.max_poly_deg
     }
 }
