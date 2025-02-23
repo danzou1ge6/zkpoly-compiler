@@ -123,14 +123,7 @@ fn convert_to_runtime_func<Rt: RuntimeType>(
                   -> Result<(), RuntimeError> {
                 assert_eq!(mut_var.len(), 1);
                 assert_eq!(var.len(), n_args);
-                let res = fn_mut(var);
-                match res {
-                    Ok(val) => {
-                        *mut_var[0] = val;
-                        Ok(())
-                    }
-                    Err(e) => Err(e),
-                }
+                fn_mut(mut_var[0], var)
             };
             zkpoly_runtime::functions::Function {
                 name,
@@ -143,14 +136,7 @@ fn convert_to_runtime_func<Rt: RuntimeType>(
                   -> Result<(), RuntimeError> {
                 assert_eq!(mut_var.len(), 1);
                 assert_eq!(var.len(), n_args);
-                let res = fn_once(var);
-                match res {
-                    Ok(val) => {
-                        *mut_var[0] = val;
-                        Ok(())
-                    }
-                    Err(e) => Err(e),
-                }
+                fn_once(mut_var[0], var)
             };
             zkpoly_runtime::functions::Function {
                 name,
@@ -165,14 +151,7 @@ fn convert_to_runtime_func<Rt: RuntimeType>(
                   -> Result<(), RuntimeError> {
                 assert_eq!(mut_var.len(), 1);
                 assert_eq!(var.len(), n_args);
-                let res = f(var);
-                match res {
-                    Ok(val) => {
-                        *mut_var[0] = val;
-                        Ok(())
-                    }
-                    Err(e) => Err(e),
-                }
+                f(mut_var[0], var)
             };
             zkpoly_runtime::functions::Function {
                 name,
