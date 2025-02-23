@@ -102,9 +102,11 @@ impl<Rt: RuntimeType> CommonNode<Rt> {
 pub trait RuntimeCorrespondance<Rt: RuntimeType> {
     type Rtc;
     type RtcBorrowed<'a>;
+    type RtcBorrowedMut<'a>;
 
     fn to_variable(x: Self::Rtc) -> Variable<Rt>;
     fn try_borrow_variable(var: &Variable<Rt>) -> Option<Self::RtcBorrowed<'_>>;
+    fn try_borrow_variable_mut(var: &mut Variable<Rt>) -> Option<Self::RtcBorrowedMut<'_>>;
 }
 
 #[derive(Debug)]

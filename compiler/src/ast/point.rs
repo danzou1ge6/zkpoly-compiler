@@ -37,12 +37,20 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for PrecomputedPoints<Rt> {
 impl<Rt: RuntimeType> RuntimeCorrespondance<Rt> for PrecomputedPoints<Rt> {
     type Rtc = rt::point::PointArray<Rt::PointAffine>;
     type RtcBorrowed<'a> = &'a Self::Rtc;
+    type RtcBorrowedMut<'a> = &'a mut Self::Rtc;
 
     fn to_variable(x: Self::Rtc) -> Variable<Rt> {
         Variable::PointArray(x)
     }
 
     fn try_borrow_variable(var: &Variable<Rt>) -> Option<Self::RtcBorrowed<'_>> {
+        match var {
+            Variable::PointArray(x) => Some(x),
+            _ => None,
+        }
+    }
+
+    fn try_borrow_variable_mut(var: &mut Variable<Rt>) -> Option<Self::RtcBorrowedMut<'_>> {
         match var {
             Variable::PointArray(x) => Some(x),
             _ => None,
@@ -74,6 +82,7 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for Point<Rt> {
 impl<Rt: RuntimeType> RuntimeCorrespondance<Rt> for Point<Rt> {
     type Rtc = Rt::PointAffine;
     type RtcBorrowed<'a> = &'a Self::Rtc;
+    type RtcBorrowedMut<'a> = &'a mut Self::Rtc;
 
     fn to_variable(x: Self::Rtc) -> Variable<Rt> {
         Variable::Point(rt::point::Point::new(x))
@@ -81,6 +90,13 @@ impl<Rt: RuntimeType> RuntimeCorrespondance<Rt> for Point<Rt> {
     fn try_borrow_variable(var: &Variable<Rt>) -> Option<Self::RtcBorrowed<'_>> {
         match var {
             Variable::Point(x) => Some(&x.value),
+            _ => None,
+        }
+    }
+
+    fn try_borrow_variable_mut(var: &mut Variable<Rt>) -> Option<Self::RtcBorrowedMut<'_>> {
+        match var {
+            Variable::Point(x) => Some(&mut x.value),
             _ => None,
         }
     }

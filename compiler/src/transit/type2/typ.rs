@@ -16,7 +16,7 @@ pub mod template {
         Rng,
         Tuple(Vec<Typ<Rt, P>>),
         Array(Box<Typ<Rt, P>>, usize),
-        Any(any::TypeId, u64),
+        Any(any::TypeId, usize),
         _Phantom(PhantomData<Rt>),
     }
 
@@ -143,6 +143,14 @@ impl<Rt> Typ<Rt>
 where
     Rt: RuntimeType,
 {
+    pub fn lagrange(deg: u64) -> Self {
+        Typ::Poly((PolyType::Lagrange, deg))
+    }
+
+    pub fn coef(deg: u64) -> Self {
+        Typ::Poly((PolyType::Coef, deg))
+    }
+
     pub fn size(&self) -> Size {
         use template::Typ::*;
         match self {

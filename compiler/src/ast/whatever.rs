@@ -59,6 +59,7 @@ where
 {
     type Rtc = T;
     type RtcBorrowed<'a> = &'a Self::Rtc;
+    type RtcBorrowedMut<'a> = &'a mut Arc<dyn std::any::Any + Send + Sync>;
 
     fn to_variable(x: Self::Rtc) -> Variable<Rt> {
         Variable::Any(Arc::new(x))
@@ -67,6 +68,12 @@ where
     fn try_borrow_variable(var: &Variable<Rt>) -> Option<Self::RtcBorrowed<'_>> {
         match var {
             Variable::Any(x) => Some(x.downcast_ref().unwrap()),
+            _ => None,
+        }
+    }
+    fn try_borrow_variable_mut(var: &mut Variable<Rt>) -> Option<Self::RtcBorrowedMut<'_>> {
+        match var {
+            Variable::Any(x) => Some(x),
             _ => None,
         }
     }

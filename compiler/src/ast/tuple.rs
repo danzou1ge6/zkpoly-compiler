@@ -25,7 +25,7 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for TupleUntyped<Rt> {
 pub(super) type TupleUntyped<Rt: RuntimeType> = Outer<TupleNode<Rt>>;
 
 macro_rules! define_tuples {
-    ($($n:tt => ($($m:ident $i:tt $T:ident),+)),*) => {
+    ($($n:tt $ni:tt => ($($m:ident $i:tt $T:ident),+)),*) => {
         $(
             pub type $n<$($T),+, Rt: RuntimeType> = Phantomed<TupleUntyped<Rt>, ($($T),+, Rt)>;
 
@@ -38,6 +38,7 @@ macro_rules! define_tuples {
             impl<$($T: RuntimeCorrespondance<Rt>),+, Rt: RuntimeType> RuntimeCorrespondance<Rt> for $n<$($T),+, Rt> {
                 type Rtc = ($($T::Rtc),+,);
                 type RtcBorrowed<'a> = ($($T::RtcBorrowed<'a>),+,);
+                type RtcBorrowedMut<'a> = ($($T::RtcBorrowedMut<'a>),+,);
 
                 fn to_variable(x: Self::Rtc) -> Variable<Rt> {
                     Variable::Tuple(vec![$($T::to_variable(x.$i)),+,])
@@ -46,6 +47,19 @@ macro_rules! define_tuples {
                 fn try_borrow_variable(var: &Variable<Rt>) -> Option<Self::RtcBorrowed<'_>> {
                     match var {
                         Variable::Tuple(t) => Some(($($T::try_borrow_variable(&t[$i])?),+,)),
+                        _ => None
+                    }
+                }
+
+                fn try_borrow_variable_mut(var: &mut Variable<Rt>) -> Option<Self::RtcBorrowedMut<'_>> {
+                    match var {
+                        Variable::Tuple(t) => {
+                            assert!(t.len() == $ni);
+                            let ptr = t.as_mut_ptr();
+                            unsafe {
+                                Some(($($T::try_borrow_variable_mut(&mut *ptr.add($i))?),+,))
+                            }
+                        }
                         _ => None
                     }
                 }
@@ -65,15 +79,15 @@ macro_rules! define_tuples {
 }
 
 define_tuples! {
-    Tuple2 => (get0 0 T0, get1 1 T1),
-    Tuple3 => (get0 0 T0, get1 1 T1, get2 2 T2),
-    Tuple4 => (get0 0 T0, get1 1 T1, get2 2 T2, get3 3 T3),
-    Tuple5 => (get0 0 T0, get1 1 T1, get2 2 T2, get3 3 T3, get4 4 T4),
-    Tuple6 => (get0 0 T0, get1 1 T1, get2 2 T2, get3 3 T3, get4 4 T4, get5 5 T5),
-    Tuple7 => (get0 0 T0, get1 1 T1, get2 2 T2, get3 3 T3, get4 4 T4, get5 5 T5, get6 6 T6),
-    Tuple8 => (get0 0 T0, get1 1 T1, get2 2 T2, get3 3 T3, get4 4 T4, get5 5 T5, get6 6 T6, get7 7 T7),
-    Tuple9 => (get0 0 T0, get1 1 T1, get2 2 T2, get3 3 T3, get4 4 T4, get5 5 T5, get6 6 T6, get7 7 T7, get8 8 T8),
-    Tuple10 => (get0 0 T0, get1 1 T1, get2 2 T2, get3 3 T3, get4 4 T4, get5 5 T5, get6 6 T6, get7 7 T7, get8 8 T8, get9 9 T9)
+    Tuple2 2 => (get0 0 T0, get1 1 T1),
+    Tuple3 3 => (get0 0 T0, get1 1 T1, get2 2 T2),
+    Tuple4 4 => (get0 0 T0, get1 1 T1, get2 2 T2, get3 3 T3),
+    Tuple5 5 => (get0 0 T0, get1 1 T1, get2 2 T2, get3 3 T3, get4 4 T4),
+    Tuple6 6 => (get0 0 T0, get1 1 T1, get2 2 T2, get3 3 T3, get4 4 T4, get5 5 T5),
+    Tuple7 7 => (get0 0 T0, get1 1 T1, get2 2 T2, get3 3 T3, get4 4 T4, get5 5 T5, get6 6 T6),
+    Tuple8 8 => (get0 0 T0, get1 1 T1, get2 2 T2, get3 3 T3, get4 4 T4, get5 5 T5, get6 6 T6, get7 7 T7),
+    Tuple9 9 => (get0 0 T0, get1 1 T1, get2 2 T2, get3 3 T3, get4 4 T4, get5 5 T5, get6 6 T6, get7 7 T7, get8 8 T8),
+    Tuple10 10 => (get0 0 T0, get1 1 T1, get2 2 T2, get3 3 T3, get4 4 T4, get5 5 T5, get6 6 T6, get7 7 T7, get8 8 T8, get9 9 T9)
 }
 
 impl<Rt: RuntimeType> Tuple2<Transcript<Rt>, Scalar<Rt>, Rt> {

@@ -2,14 +2,16 @@ use super::*;
 use std::cell::Cell;
 use zkpoly_runtime::error::{Result as RuntimeResult, RuntimeError};
 
-pub type ValueMut<Rt: RuntimeType> =
-    Box<dyn FnMut(Vec<&Variable<Rt>>) -> RuntimeResult<Variable<Rt>> + Send + Sync + 'static>;
+pub type ValueMut<Rt: RuntimeType> = Box<
+    dyn FnMut(&mut Variable<Rt>, Vec<&Variable<Rt>>) -> RuntimeResult<()> + Send + Sync + 'static,
+>;
 
-pub type ValueOnce<Rt: RuntimeType> =
-    Box<dyn FnOnce(Vec<&Variable<Rt>>) -> RuntimeResult<Variable<Rt>> + Send + Sync + 'static>;
+pub type ValueOnce<Rt: RuntimeType> = Box<
+    dyn FnOnce(&mut Variable<Rt>, Vec<&Variable<Rt>>) -> RuntimeResult<()> + Send + Sync + 'static,
+>;
 
 pub type ValueFn<Rt: RuntimeType> =
-    Box<dyn Fn(Vec<&Variable<Rt>>) -> RuntimeResult<Variable<Rt>> + Send + Sync + 'static>;
+    Box<dyn Fn(&mut Variable<Rt>, Vec<&Variable<Rt>>) -> RuntimeResult<()> + Send + Sync + 'static>;
 
 pub enum Value<Rt: RuntimeType> {
     Mut(ValueMut<Rt>),
@@ -52,7 +54,13 @@ pub struct Function<Rt: RuntimeType> {
 pub(super) type FunctionUntyped<Rt: RuntimeType> = Outer<FunctionInCell<Rt>>;
 
 impl<Rt: RuntimeType> FunctionUntyped<Rt> {
-    pub fn new_fn(name: String, f: ValueFn<Rt>, n_args: usize, ret_typ: type2::Typ<Rt>, src: SourceInfo) -> Self {
+    pub fn new_fn(
+        name: String,
+        f: ValueFn<Rt>,
+        n_args: usize,
+        ret_typ: type2::Typ<Rt>,
+        src: SourceInfo,
+    ) -> Self {
         FunctionUntyped::new(
             FunctionInCell {
                 n_args,
@@ -105,6 +113,40 @@ pub struct FnMarker;
 pub struct MutMarker;
 pub struct OnceMarker;
 
+pub type FunctionFn0<Rt: RuntimeType, R> = Phantomed<FunctionUntyped<Rt>, (R, FnMarker)>;
+
+impl<Rt: RuntimeType, R> FunctionFn0<Rt, R>
+where
+    R: CommonConstructors<Rt>,
+{
+    #[track_caller]
+    pub fn call(&self) -> R {
+        let args = vec![];
+        let src = SourceInfo::new(Location::caller().clone(), None);
+        R::from_function_call(self.t.clone(), args, src)
+    }
+}
+
+impl<Rt: RuntimeType, R> FunctionFn0<Rt, R>
+where
+    R: RuntimeCorrespondance<Rt>,
+{
+    #[track_caller]
+    pub fn new(
+        name: String,
+        f: impl for<'a> Fn(R::RtcBorrowedMut<'a>) -> RuntimeResult<()> + Send + Sync + 'static,
+        ret_typ: type2::Typ<Rt>,
+    ) -> Self {
+        let f = move |r: &mut Variable<Rt>, _args: Vec<&Variable<Rt>>| -> RuntimeResult<()> {
+            let r = R::try_borrow_variable_mut(r).ok_or(RuntimeError::VariableTypError)?;
+            f(r)?;
+            Ok(())
+        };
+        let src = SourceInfo::new(Location::caller().clone(), Some(name.clone()));
+        Self::wrap(FunctionUntyped::new_fn(name, Box::new(f), 0, ret_typ, src))
+    }
+}
+
 macro_rules! define_function_fn {
     ($($n:tt $m:tt => ($($i:tt $arg:ident $T:ident),+)),*) => {
         $(
@@ -129,18 +171,19 @@ macro_rules! define_function_fn {
                 #[track_caller]
                 pub fn new(
                     name: String,
-                    f: impl for<'a> Fn($($T::RtcBorrowed<'a>),+) -> RuntimeResult<R::Rtc>
+                    f: impl for<'a> Fn(R::RtcBorrowedMut<'a>, $($T::RtcBorrowed<'a>),+) -> RuntimeResult<()>
                         + Send
                         + Sync
                         + 'static,
                     ret_typ: type2::Typ<Rt>,
                 ) -> Self {
-                    let f = move |args: Vec<&Variable<Rt>>| -> RuntimeResult<Variable<Rt>> {
+                    let f = move |r: &mut Variable<Rt>, args: Vec<&Variable<Rt>>| -> RuntimeResult<()> {
                         $(
                             let $arg = $T::try_borrow_variable(&args[$i]).ok_or(RuntimeError::VariableTypError)?;
                         )+
-                        let r = f($($arg),+)?;
-                        Ok(R::to_variable(r))
+                        let r = R::try_borrow_variable_mut(r)
+                            .ok_or(RuntimeError::VariableTypError)?;
+                        f(r, $($arg),+)
                     };
                     let src = SourceInfo::new(Location::caller().clone(), Some(name.clone()));
                     Self::wrap(FunctionUntyped::new_fn(name, Box::new(f), $m, ret_typ, src))
@@ -201,18 +244,18 @@ macro_rules! define_function_mut {
                 #[track_caller]
                 pub fn new(
                     name: String,
-                    f: impl for<'a> Fn($($T::RtcBorrowed<'a>),+) -> RuntimeResult<R::Rtc>
+                    mut f: impl for<'a> FnMut(R::RtcBorrowedMut<'a>, $($T::RtcBorrowed<'a>),+) -> RuntimeResult<()>
                         + Send
                         + Sync
                         + 'static,
                     ret_typ: type2::Typ<Rt>,
                 ) -> Self {
-                    let f = move |args: Vec<&Variable<Rt>>| -> RuntimeResult<Variable<Rt>> {
+                    let f = move |r: &mut Variable<Rt>, args: Vec<&Variable<Rt>>| -> RuntimeResult<()> {
                         $(
                             let $arg = $T::try_borrow_variable(&args[$i]).ok_or(RuntimeError::VariableTypError)?;
                         )+
-                        let r = f($($arg),+)?;
-                        Ok(R::to_variable(r))
+                        let r = R::try_borrow_variable_mut(r).ok_or(RuntimeError::VariableTypError)?;
+                        f(r, $($arg),+)
                     };
                     let src = SourceInfo::new(Location::caller().clone(), Some(name.clone()));
                     Self::wrap(FunctionUntyped::new_mut(name, Box::new(f), $m, ret_typ, src))
@@ -256,18 +299,18 @@ macro_rules! define_function_once {
                 #[track_caller]
                 pub fn new(
                     name: String,
-                    f: impl for<'a> Fn($($T::RtcBorrowed<'a>),+) -> RuntimeResult<R::Rtc>
+                    f: impl for<'a> FnOnce(R::RtcBorrowedMut<'a>, $($T::RtcBorrowed<'a>),+) -> RuntimeResult<()>
                         + Send
                         + Sync
                         + 'static,
                     ret_typ: type2::Typ<Rt>,
                 ) -> Self {
-                    let f = move |args: Vec<&Variable<Rt>>| -> RuntimeResult<Variable<Rt>> {
+                    let f = move |r: &mut Variable<Rt>, args: Vec<&Variable<Rt>>| -> RuntimeResult<()> {
                         $(
-                            let $arg = $T::try_borrow_variable(&args[$i]).ok_or(RuntimeError::VariableTypError)?;
+                            let $arg = $T::try_borrow_variable(args[$i]).ok_or(RuntimeError::VariableTypError)?;
                         )+
-                        let r = f($($arg),+)?;
-                        Ok(R::to_variable(r))
+                        let r = R::try_borrow_variable_mut(r).ok_or(RuntimeError::VariableTypError)?;
+                        f(r, $($arg),+)
                     };
                     let src = SourceInfo::new(Location::caller().clone(), Some(name.clone()));
                     Self::wrap(FunctionUntyped::new_once(name, Box::new(f), $m, ret_typ, src))

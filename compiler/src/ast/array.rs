@@ -102,6 +102,7 @@ where
 {
     type Rtc = Vec<T::Rtc>;
     type RtcBorrowed<'a> = Vec<T::RtcBorrowed<'a>>;
+    type RtcBorrowedMut<'a> = Vec<T::RtcBorrowedMut<'a>>;
 
     fn to_variable(x: Self::Rtc) -> Variable<Rt> {
         Variable::Tuple(x.into_iter().map(T::to_variable).collect())
@@ -112,6 +113,16 @@ where
             Variable::Tuple(t) => t
                 .iter()
                 .map(|v| T::try_borrow_variable(v))
+                .collect::<Option<_>>(),
+            _ => None,
+        }
+    }
+
+    fn try_borrow_variable_mut(var: &mut Variable<Rt>) -> Option<Self::RtcBorrowedMut<'_>> {
+        match var {
+            Variable::Tuple(t) => t
+                .iter_mut()
+                .map(|v| T::try_borrow_variable_mut(v))
                 .collect::<Option<_>>(),
             _ => None,
         }
