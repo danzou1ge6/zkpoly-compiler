@@ -1,7 +1,8 @@
 use crate::transit::Cg;
 
 use super::*;
-use std::io::Write;
+use std::{fmt::Debug, io::Write};
+use zkpoly_common::arith::ExprId;
 use zkpoly_runtime::args::RuntimeType;
 
 /// Write the computation graph in DOT format
@@ -36,7 +37,7 @@ pub fn write_graph<'s, Rt: RuntimeType>(
     // Write nodes
     for vid in cg.g.vertices() {
         let vertex = cg.g.vertex(vid);
-        let label = format_node_label(&vertex);
+        let label = format_node_label::<VertexId, Rt>(vertex.node());
 
         // Get node style and color
         let style = match vertex.device() {
@@ -70,15 +71,22 @@ pub fn write_graph<'s, Rt: RuntimeType>(
     writeln!(writer, "}}")
 }
 
-fn format_node_label<'s, Rt: RuntimeType>(vertex: &Vertex<'s, Rt>) -> String {
+pub fn format_node_label<'s, Vid: UsizeId + Debug, Rt: RuntimeType>(
+    vertex_node: &template::VertexNode<
+        Vid,
+        arith::ArithGraph<Vid, ExprId>,
+        ConstantId,
+        user_function::Id,
+    >,
+) -> String {
     use template::VertexNode::*;
-    match vertex.node() {
+    match vertex_node {
         NewPoly(deg, ..) => format!("NewPoly\\n(deg={})", deg),
         Constant(_) => String::from("Constant"),
         Extend(_, deg) => format!("Extend\\n(deg={})", deg),
         SingleArith(arith) => {
             format!("arith: {:?}", arith)
-        },
+        }
         Arith { chunking, .. } => {
             if chunking.is_some() {
                 format!("Arith\\n(chunked)")
@@ -110,7 +118,7 @@ fn format_node_label<'s, Rt: RuntimeType>(vertex: &Vertex<'s, Rt>) -> String {
     }
 }
 
-fn get_node_color<I, A, C, E>(node: &template::VertexNode<I, A, C, E>) -> &'static str {
+pub fn get_node_color<I, A, C, E>(node: &template::VertexNode<I, A, C, E>) -> &'static str {
     use template::VertexNode::*;
     match node {
         NewPoly(..) => "#A5D6A7",  // Light green
