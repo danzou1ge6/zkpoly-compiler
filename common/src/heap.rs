@@ -96,13 +96,16 @@ impl<I: UsizeId, T> Heap<I, T> {
             PhantomData,
         )
     }
-    pub fn map_by_ref_result<I1, T1, E>(&self, f: &mut impl FnMut(I, &T) -> Result<T1, E>) -> Result<Heap<I1, T1>, E> {
+    pub fn map_by_ref_result<I1, T1, E>(
+        &self,
+        f: &mut impl FnMut(I, &T) -> Result<T1, E>,
+    ) -> Result<Heap<I1, T1>, E> {
         Ok(Heap(
             self.0
-             .iter()
-             .enumerate()
-             .map(|(i, x)| f(i.into(), x))
-             .collect::<Result<Vec<_>, _>>()?,
+                .iter()
+                .enumerate()
+                .map(|(i, x)| f(i.into(), x))
+                .collect::<Result<Vec<_>, _>>()?,
             PhantomData,
         ))
     }

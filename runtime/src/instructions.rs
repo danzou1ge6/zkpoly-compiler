@@ -86,8 +86,19 @@ pub enum Instruction {
     },
 
     Return(VariableId),
-
     // SetSliceMeta { // for directly operating on the meta data of
 
     // }
+}
+
+pub fn print_instructions(instructions: &Vec<Instruction>, spaces: usize) {
+    let prefix = " ".repeat(spaces);
+    for (idx, instruct) in instructions.iter().enumerate() {
+        if let Instruction::Fork { new_thread, instructions } = instruct {
+            println!("{}{}: Fork: {:?}", prefix, idx, new_thread);
+            print_instructions(instructions, spaces + 2);
+        } else {
+            println!("{}{}: {:?}", prefix, idx, instruct);
+        }
+    }
 }

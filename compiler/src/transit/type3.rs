@@ -458,5 +458,6 @@ impl<'s, Rt: RuntimeType> Chunk<'s, Rt> {
 }
 
 pub mod lowering;
+pub mod pretty_print;
 pub mod track_splitting;
 pub mod typ;

@@ -181,7 +181,10 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
         }
     }
 
-    pub fn new(output_v: impl super::TypeEraseable<Rt>, log2_memory_pool_max_size: u32) -> (Self, VertexId) {
+    pub fn new(
+        output_v: impl super::TypeEraseable<Rt>,
+        log2_memory_pool_max_size: u32,
+    ) -> (Self, VertexId) {
         let mut cg = Self::empty(log2_memory_pool_max_size);
         let output_vid = output_v.erase(&mut cg);
         let src_info = cg.g.vertex(output_vid).src().clone();

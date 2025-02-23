@@ -303,7 +303,6 @@ fn lower_instruction<'s, Rt: RuntimeType>(
 ) {
     match &inst.node {
         super::InstructionNode::Type2 { ids, temp, vertex } => match vertex {
-            VertexNode::NewPoly(..) => todo!(),
             VertexNode::Constant(constant_id) => emit(Instruction::LoadConstant {
                 src: *constant_id,
                 dst: reg_id2var_id(ids[0]),
@@ -514,7 +513,8 @@ fn emit_multithread_instructions<'s, Rt: RuntimeType>(
     let (mut variable_id_allcoator, reg_id2var_id) = t3chunk.take_reg_id_allocator().decompose();
     let mut libs = t3chunk.take_libs();
 
-    let generated_functions = kernel_gen::get_function_id(&mut f_table, &t3chunk, &mut libs);
+    let generated_functions =
+        kernel_gen::get_function_id(&mut f_table, &t3chunk, todo!(), &mut libs);
 
     let stream2variable_id = StreamSpecific::new(|| variable_id_allcoator.alloc());
 

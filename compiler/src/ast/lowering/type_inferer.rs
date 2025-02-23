@@ -39,7 +39,7 @@ impl<'s, Rt: RuntimeType> Error<'s, Rt> {
 
 pub struct TypeInferer<Rt: RuntimeType> {
     vertex_typ: BTreeMap<VertexId, type2::Typ<Rt>>,
-    max_poly_deg: u64
+    max_poly_deg: u64,
 }
 
 fn try_unwrap_poly_typ<'s, Rt: RuntimeType>(
@@ -60,7 +60,7 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
     pub fn new() -> Self {
         Self {
             vertex_typ: BTreeMap::new(),
-            max_poly_deg: 0
+            max_poly_deg: 0,
         }
     }
 
@@ -70,7 +70,8 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
         vid: VertexId,
         err: &impl Fn(ErrorNode<Rt>) -> Error<'s, Rt>,
     ) -> Result<(PolyType, u64), Error<'s, Rt>> {
-        let (pty, deg) = self.infer(cg, vid)?
+        let (pty, deg) = self
+            .infer(cg, vid)?
             .try_unwrap_poly()
             .cloned()
             .ok_or_else(|| err(ErrorNode::ExpectPolynomial))?;
@@ -423,7 +424,7 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
 
         Ok(typ)
     }
-    
+
     pub fn max_poly_deg(&self) -> u64 {
         self.max_poly_deg
     }
