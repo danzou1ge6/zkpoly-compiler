@@ -190,7 +190,7 @@ where
             Rng => true,
             Tuple(..) => true,
             Array(..) => true,
-            Any(..) => false,
+            Any(..) => true,
             _Phantom(_) => unreachable!(),
         }
     }
