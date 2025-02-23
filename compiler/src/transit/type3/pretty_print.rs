@@ -43,22 +43,15 @@ pub fn write_graph<'s, Rt: RuntimeType>(
         // Write node with attributes
         writeln!(
             writer,
-            "  {} [label=\"{}\", style=\"{}\", fillcolor=\"{}\"]",
-            idx.0, label, style, color
+            "  {} [label=\"{}, instruction id: {}\", style=\"{}\", fillcolor=\"{}\"]",
+            idx.0, label, idx.0, style, color
         )?;
     }
 
     // Write edges for data dependencies
-    let assigned_at = chunk.assigned_at();
     for (from_idx, instruction) in chunk.iter_instructions() {
         for use_id in instruction.uses() {
-            if let Some(def_idx) = assigned_at.get(&use_id) {
-                writeln!(
-                    writer,
-                    "  {} -> {} [label=\"R{}\"]",
-                    def_idx.0, from_idx.0, use_id.0
-                )?;
-            }
+            writeln!(writer, "  {} -> {}", use_id.0, from_idx.0,)?;
         }
     }
 
