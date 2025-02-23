@@ -115,7 +115,7 @@ define_usize_id!(EntryId);
 pub mod template {
     use zkpoly_common::msm_config::MsmConfig;
 
-    use super::{arith, transit, NttAlgorithm, PolyInit, PolyType, EntryId};
+    use super::{arith, transit, EntryId, NttAlgorithm, PolyInit, PolyType};
 
     #[derive(Debug, Clone)]
     pub enum VertexNode<I, A, C, E> {
@@ -650,7 +650,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
 pub struct Program<'s, Rt: RuntimeType> {
     pub(crate) cg: Cg<'s, Rt>,
     pub(crate) user_function_table: user_function::Table<Rt>,
-    pub(crate) consant_table: ast::lowering::ConstantTable<Rt>
+    pub(crate) consant_table: ast::lowering::ConstantTable<Rt>,
 }
 
 pub mod graph_scheduling;

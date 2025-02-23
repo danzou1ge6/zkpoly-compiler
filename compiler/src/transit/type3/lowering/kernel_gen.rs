@@ -1,5 +1,9 @@
-use crate::transit::type2::NttAlgorithm;
+use crate::ast;
+use crate::ast::lowering::{UserFunctionId, UserFunctionTable};
+use crate::transit::type2::{self, NttAlgorithm};
 use std::collections::BTreeMap;
+use std::sync::Mutex;
+use zkpoly_common::heap::Heap;
 use zkpoly_common::load_dynamic::Libs;
 use zkpoly_common::msm_config::MsmConfig;
 use zkpoly_common::typ::PolyType;
@@ -12,7 +16,8 @@ use zkpoly_core::ntt::{DistributePowers, RecomputeNtt, SsipNtt};
 use zkpoly_core::poly::{
     KateDivision, PolyEval, PolyInvert, PolyOneCoef, PolyOneLagrange, PolyScan, PolyZero, ScalarInv,
 };
-use zkpoly_runtime::args::RuntimeType;
+use zkpoly_runtime::args::{RuntimeType, Variable};
+use zkpoly_runtime::error::RuntimeError;
 use zkpoly_runtime::functions::{FunctionId, FunctionTable, RegisteredFunction};
 
 use super::super::template::InstructionNode;
@@ -33,7 +38,7 @@ pub enum KernelType {
     HashTranscript,
     HashTranscriptWrite,
     SqueezeScalar,
-    UserFunction,
+    UserFunction(type2::user_function::Id),
     DistributePowers,
     NewOneLagrange,
     NewOneCoef,
@@ -63,7 +68,7 @@ impl KernelType {
                 &crate::transit::HashTyp::NoWriteProof => Some(Self::HashTranscript),
             },
             VertexNode::SqueezeScalar(_) => Some(Self::SqueezeScalar),
-            VertexNode::UserFunction(..) => Some(Self::UserFunction),
+            VertexNode::UserFunction(id, _) => Some(Self::UserFunction(*id)),
             VertexNode::DistributePowers { .. } => Some(Self::DistributePowers),
             VertexNode::NewPoly(_, init_num, typ) => {
                 let typ = typ.clone();
@@ -72,7 +77,6 @@ impl KernelType {
                     crate::ast::PolyInit::Ones => match typ {
                         PolyType::Lagrange => Some(Self::NewOneLagrange),
                         PolyType::Coef => Some(Self::NewOneCoef),
-                        _ => unreachable!(),
                     },
                 }
             }
@@ -107,12 +111,87 @@ impl GeneratedFunctions {
     }
 }
 
+fn convert_to_runtime_func<Rt: RuntimeType>(
+    func: ast::user_function::Function<Rt>,
+) -> zkpoly_runtime::functions::Function<Rt> {
+    let name = func.name.clone();
+    let n_args = func.n_args;
+    match func.value {
+        ast::user_function::Value::Mut(mut fn_mut) => {
+            let rust_func = move |mut mut_var: Vec<&mut Variable<Rt>>,
+                                  var: Vec<&Variable<Rt>>|
+                  -> Result<(), RuntimeError> {
+                assert_eq!(mut_var.len(), 1);
+                assert_eq!(var.len(), n_args);
+                let res = fn_mut(var);
+                match res {
+                    Ok(val) => {
+                        *mut_var[0] = val;
+                        Ok(())
+                    }
+                    Err(e) => Err(e),
+                }
+            };
+            zkpoly_runtime::functions::Function {
+                name,
+                f: zkpoly_runtime::functions::FunctionValue::FnMut(Mutex::new(Box::new(rust_func))),
+            }
+        }
+        ast::user_function::Value::Once(fn_once) => {
+            let rust_func = move |mut mut_var: Vec<&mut Variable<Rt>>,
+                                  var: Vec<&Variable<Rt>>|
+                  -> Result<(), RuntimeError> {
+                assert_eq!(mut_var.len(), 1);
+                assert_eq!(var.len(), n_args);
+                let res = fn_once(var);
+                match res {
+                    Ok(val) => {
+                        *mut_var[0] = val;
+                        Ok(())
+                    }
+                    Err(e) => Err(e),
+                }
+            };
+            zkpoly_runtime::functions::Function {
+                name,
+                f: zkpoly_runtime::functions::FunctionValue::FnOnce(Mutex::new(Some(Box::new(
+                    rust_func,
+                )))),
+            }
+        }
+        ast::user_function::Value::Fn(f) => {
+            let rust_func = move |mut mut_var: Vec<&mut Variable<Rt>>,
+                                  var: Vec<&Variable<Rt>>|
+                  -> Result<(), RuntimeError> {
+                assert_eq!(mut_var.len(), 1);
+                assert_eq!(var.len(), n_args);
+                let res = f(var);
+                match res {
+                    Ok(val) => {
+                        *mut_var[0] = val;
+                        Ok(())
+                    }
+                    Err(e) => Err(e),
+                }
+            };
+            zkpoly_runtime::functions::Function {
+                name,
+                f: zkpoly_runtime::functions::FunctionValue::Fn(Box::new(rust_func)),
+            }
+        }
+    }
+}
+
 pub fn get_function_id<'s, Rt: RuntimeType>(
     f_table: &mut FunctionTable<Rt>,
     program: &Chunk<'s, Rt>,
+    user_ftable: UserFunctionTable<Rt>,
     libs: &mut Libs,
 ) -> GeneratedFunctions {
     gen_fused_kernels(program);
+
+    let mut uf_table: Heap<UserFunctionId, _> = user_ftable.map(&mut (|_, f| Some(f)));
+
     let mut inst2func = BTreeMap::new();
     let mut kernel2func: BTreeMap<KernelType, FunctionId> = BTreeMap::new();
     for (id, instruct) in program.iter_instructions() {
@@ -200,7 +279,12 @@ pub fn get_function_id<'s, Rt: RuntimeType>(
                     kernel2func.insert(kernel_type, func_id);
                     inst2func.insert(id, func_id);
                 }
-                KernelType::UserFunction => todo!(),
+                KernelType::UserFunction(uf_id) => {
+                    let func = uf_table[*uf_id].take().unwrap();
+                    let func_id = f_table.push(convert_to_runtime_func(func));
+                    kernel2func.insert(kernel_type, func_id);
+                    inst2func.insert(id, func_id);
+                }
                 KernelType::DistributePowers => {
                     let distribute_powers = DistributePowers::new(libs);
                     let func_id = f_table.push(distribute_powers.get_fn());

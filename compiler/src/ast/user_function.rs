@@ -52,7 +52,13 @@ pub struct Function<Rt: RuntimeType> {
 pub(super) type FunctionUntyped<Rt: RuntimeType> = Outer<FunctionInCell<Rt>>;
 
 impl<Rt: RuntimeType> FunctionUntyped<Rt> {
-    pub fn new_fn(name: String, f: ValueFn<Rt>, n_args: usize, ret_typ: type2::Typ<Rt>, src: SourceInfo) -> Self {
+    pub fn new_fn(
+        name: String,
+        f: ValueFn<Rt>,
+        n_args: usize,
+        ret_typ: type2::Typ<Rt>,
+        src: SourceInfo,
+    ) -> Self {
         FunctionUntyped::new(
             FunctionInCell {
                 n_args,

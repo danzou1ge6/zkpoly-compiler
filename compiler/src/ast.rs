@@ -33,7 +33,7 @@ pub enum CommonNode<Rt: RuntimeType> {
     TupleGet(TupleUntyped<Rt>, usize),
     ArrayGet(ArrayUntyped<Rt>, usize),
     FunctionCall(FunctionUntyped<Rt>, Vec<AstVertex<Rt>>),
-    Entry(EntryId)
+    Entry(EntryId),
 }
 
 impl<Rt: RuntimeType> CommonNode<Rt> {
@@ -91,10 +91,8 @@ impl<Rt: RuntimeType> CommonNode<Rt> {
                 let fid = cg.add_function(f.clone());
                 let args = args.iter().map(|x| x.erase(cg)).collect();
                 Vertex::new(VertexNode::UserFunction(fid, args), None, src)
-            },
-            CommonNode::Entry(id) => {
-                Vertex::new(VertexNode::Entry(*id), None, src)
             }
+            CommonNode::Entry(id) => Vertex::new(VertexNode::Entry(*id), None, src),
         }
     }
 }
