@@ -7,7 +7,8 @@ use zkpoly_common::{
     typ::PolyType,
 };
 use zkpoly_memory_pool::PinnedMemoryPool;
-use zkpoly_runtime::args::{ConstantId, RuntimeType, Variable};
+use zkpoly_runtime::args::{RuntimeType, Variable};
+pub use zkpoly_runtime::args::ConstantId;
 
 use super::{
     transit::type2::{self, partial_typed, VertexId},
@@ -92,6 +93,15 @@ impl<'s, Rt: RuntimeType> Vertex<'s, Rt> {
 pub struct Constant<Rt: RuntimeType> {
     pub(crate) name: Option<String>,
     pub(crate) value: Variable<Rt>,
+}
+
+impl<Rt: RuntimeType> Constant<Rt> {
+    pub fn new(value: Variable<Rt>, name: String) -> Self {
+        Self {
+            name: Some(name),
+            value,
+        }
+    }
 }
 
 pub type ConstantTable<Rt: RuntimeType> = Heap<ConstantId, Constant<Rt>>;

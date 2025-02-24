@@ -1,9 +1,16 @@
 //! Data structures for Stage 2 Tree Transit IR.
-//! This type of IR has NTT automatically inserted,
-//! therefore polynomial operations are transformed into vector expressions.
-//! Also, vertices of the computation graph still contain expression trees.
+//! Passes:
+//! AST >
+//! - INTT Mending
+//! - Precompute NTT and MSM constants
+//! - Arithmetic Kernel Fusion
+//! - Graph Scheduling
+//! - Memory Planning
+//! > Type3
+
 
 use crate::ast;
+pub use ast::lowering::{ConstantTable, Constant, ConstantId};
 use crate::transit::{self, PolyInit, SourceInfo};
 pub use typ::Typ;
 use zkpoly_common::arith;
@@ -12,7 +19,7 @@ use zkpoly_common::digraph;
 use zkpoly_common::heap::UsizeId;
 use zkpoly_common::load_dynamic::Libs;
 pub use zkpoly_common::typ::PolyType;
-pub use zkpoly_runtime::args::{Constant, ConstantId, RuntimeType, Variable};
+pub use zkpoly_runtime::args::{RuntimeType, Variable};
 pub use zkpoly_runtime::error::RuntimeError;
 use zkpoly_runtime::scalar::Scalar;
 
@@ -650,7 +657,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
 pub struct Program<'s, Rt: RuntimeType> {
     pub(crate) cg: Cg<'s, Rt>,
     pub(crate) user_function_table: user_function::Table<Rt>,
-    pub(crate) consant_table: ast::lowering::ConstantTable<Rt>,
+    pub(crate) consant_table: ConstantTable<Rt>,
 }
 
 pub mod graph_scheduling;
@@ -662,3 +669,4 @@ pub mod pretty_print;
 pub mod temporary_space;
 pub mod typ;
 pub mod user_function;
+pub mod intt_mending;
