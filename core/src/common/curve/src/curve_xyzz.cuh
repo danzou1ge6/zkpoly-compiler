@@ -57,9 +57,9 @@ namespace curve
                 y.store(p + Element::LIMBS);
             }
 
-            // static __device__ __host__ __forceinline__ PointAffine identity() {
-            //     return PointAffine(Element::zero(), Element::zero());
-            // }
+            static __device__ __host__ __forceinline__ PointAffine identity() {
+                return PointAffine(Element::zero(), Element::zero());
+            }
 
             __device__ __host__ __forceinline__ bool is_identity() const & {
                 return y.is_zero();
@@ -81,7 +81,7 @@ namespace curve
             }
 
             __device__ __host__ __forceinline__ PointXYZZ to_point() const& {
-                // if unlikely(is_identity()) return PointXYZZ::identity();
+                if unlikely(is_identity()) return PointXYZZ::identity();
                 auto res = PointXYZZ(x, y, Element::one(), Element::one());
                 return res;
             }
@@ -292,7 +292,7 @@ namespace curve
                 if (LAZY_MODULOS)
                 {
                     if unlikely(this->is_identity()) return rhs.to_point();
-                    // if unlikely(rhs.is_identity()) return *this;
+                    if unlikely(rhs.is_identity()) return *this;
                     auto u2 = rhs.x.template mul<false>(zz);
                     auto s2 = rhs.y.template mul<false>(zzz);
                     auto p = u2.sub_modulo_mm2(x);
@@ -314,7 +314,7 @@ namespace curve
                     sum = PointXYZZ(x3, y3, zz3, zzz3);
                 } else {
                     if unlikely(this->is_identity()) return rhs.to_point();
-                    // if unlikely(rhs.is_identity()) return *this;
+                    if unlikely(rhs.is_identity()) return *this;
                     auto u2 = rhs.x * zz;
                     auto s2 = rhs.y * zzz;
                     auto p = u2 - x;
