@@ -115,7 +115,7 @@ ZKPoly efficiently supports common operations required in zero-knowledge proofs:
 
 - NVIDIA GPU with CUDA support
 - CUDA Toolkit installed
-- Rust 1.45.0 or higher
+- Rust 1.81.0 or higher
 
 ### Environment Variables
 
