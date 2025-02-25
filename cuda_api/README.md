@@ -15,7 +15,6 @@ This library provides a safe Rust interface to NVIDIA's CUDA runtime API, enabli
 
 - NVIDIA GPU with CUDA support
 - CUDA Toolkit installed
-- Rust 1.45.0 or higher
 
 ## Installation
 

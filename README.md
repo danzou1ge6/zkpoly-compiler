@@ -151,40 +151,6 @@ let point = Scalar::from_u64(2);
 let result = c.evaluate_at(point); // 5 + 7*2 + 3*2² = 5 + 14 + 12 = 31
 ```
 
-### Zero-Knowledge Proof Circuit
-
-```rust
-use zkpoly_compiler::{ast::*, transit::*};
-
-// Define a simple ZKP computation function
-fn create_zkp_circuit() {
-    // Create inputs
-    let secret = Scalar::new("secret");
-    let public_value = Scalar::new("public");
-    
-    // Compute commitment
-    let g = Point::generator();
-    let commitment = g * secret;
-    
-    // Verify relationship
-    let computed = commitment * public_value;
-    let expected = g * (secret * public_value);
-    
-    // Create constraint ensuring computed == expected
-    let is_valid = computed.equals(expected);
-    
-    return is_valid;
-}
-
-// Compile the circuit
-let compiler = Compiler::new();
-let program = compiler.compile(create_zkp_circuit);
-
-// Execute the compiled program
-let runtime = Runtime::new();
-let result = runtime.execute(program, {"public": 42});
-```
-
 ## Performance Considerations
 
 - **Memory Transfer**: Data transfer between CPU and GPU can be a bottleneck; minimize when possible
