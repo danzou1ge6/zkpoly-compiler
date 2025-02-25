@@ -305,6 +305,20 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     let var = self.variable[var_id].write().unwrap().take().unwrap();
                     return Some(var);
                 }
+                Instruction::SetSliceMeta {
+                    src,
+                    dst,
+                    offset,
+                    len,
+                } => {
+                    let src_guard = self.variable[src].read().unwrap();
+                    let poly = src_guard.as_ref().unwrap().unwrap_scalar_array().clone();
+                    drop(src_guard);
+                    poly.set_slice_raw(offset, len);
+                    let mut dst_guard = self.variable[dst].write().unwrap();
+                    assert!(dst_guard.is_none());
+                    *dst_guard = Some(Variable::ScalarArray(poly));
+                }
             }
         }
         if !self.main_thread {
