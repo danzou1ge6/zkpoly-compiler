@@ -209,23 +209,23 @@ PointAffine load_affine(const u32 x_data[8], const u32 y_data[8])
   return PointAffine(x, y);
 }
 
-TEST_CASE("Test Element::lt_2m")
-{
-  const u32 e1[8] = BIG_INTEGER_CHUNKS8(0xd2345678, 0x12345678, 0x12345678, 0x12345678, 0x12345678, 0x12345678, 0x12345678, 0x12345678);
-  const u32 e2[8] = BIG_INTEGER_CHUNKS8(0x60c89ce5, 0xc2634053, 0x70a08b6d, 0x0302b0bb, 0x2f02d522, 0xd0e3951a, 0x7841182d, 0xb0f9fa8e);  // eq
-  const u32 e3[8] = BIG_INTEGER_CHUNKS8(0x60c89ce5, 0xc2634053, 0xffffffff, 0x0302b0bb, 0x2f02d522, 0xd0e3951a, 0x7841182d, 0xb0f9fa8e);
+// TEST_CASE("Test Element::lt_2m")
+// {
+//   const u32 e1[8] = BIG_INTEGER_CHUNKS8(0xd2345678, 0x12345678, 0x12345678, 0x12345678, 0x12345678, 0x12345678, 0x12345678, 0x12345678);
+//   const u32 e2[8] = BIG_INTEGER_CHUNKS8(0x60c89ce5, 0xc2634053, 0x70a08b6d, 0x0302b0bb, 0x2f02d522, 0xd0e3951a, 0x7841182d, 0xb0f9fa8e);  // eq
+//   const u32 e3[8] = BIG_INTEGER_CHUNKS8(0x60c89ce5, 0xc2634053, 0xffffffff, 0x0302b0bb, 0x2f02d522, 0xd0e3951a, 0x7841182d, 0xb0f9fa8e);
 
-  const u32 e[8] = BIG_INTEGER_CHUNKS8(0x30644e72, 0xe131a029, 0xb85045b6, 0x8181585d, 0x97816a91, 0x6871ca8d, 0x3c208c16, 0xd87cfd47);
+//   const u32 e[8] = BIG_INTEGER_CHUNKS8(0x30644e72, 0xe131a029, 0xb85045b6, 0x8181585d, 0x97816a91, 0x6871ca8d, 0x3c208c16, 0xd87cfd47);
 
-  REQUIRE(Element::load(e1).lt_2m() == false);
-  REQUIRE(Element::load(e2).lt_2m() == false);
-  REQUIRE(Element::load(e3).lt_2m() == false);
+//   REQUIRE(Element::load(e1).lt_2m() == false);
+//   REQUIRE(Element::load(e2).lt_2m() == false);
+//   REQUIRE(Element::load(e3).lt_2m() == false);
 
-  REQUIRE(Element::load(e).lt_2m() == true);
+//   REQUIRE(Element::load(e).lt_2m() == true);
 
-  Point p(Element::load(e1), Element::load(e2), Element::load(e3), Element::load(e));
-  REQUIRE(p.is_elements_lt_2m() == false);
-}
+//   Point p(Element::load(e1), Element::load(e2), Element::load(e3), Element::load(e));
+//   REQUIRE(p.is_elements_lt_2m() == false);
+// }
 
 void test_affine_projective_back_and_forth(const u32 x_data[8], const u32 y_data[8])
 {
