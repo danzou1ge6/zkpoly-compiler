@@ -91,6 +91,14 @@ pub mod template {
                 _ => None,
             }
         }
+
+        pub fn unwrap_array(&self) -> (&Typ<Rt, P>, usize) {
+            use Typ::*;
+            match self {
+                Array(t, l) => (t.as_ref(), *l),
+                _ => panic!("called unwrap_array on non-array type"),
+            }
+        }
     }
 }
 

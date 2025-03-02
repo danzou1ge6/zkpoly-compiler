@@ -82,35 +82,50 @@ impl<Rt: RuntimeType> RuntimeCorrespondance<Rt> for Transcript<Rt> {
 
 impl<Rt: RuntimeType> Transcript<Rt> {
     #[track_caller]
-    pub fn hash_scalar(&self, data: &Scalar<Rt>, hash_typ: HashTyp) -> Self {
+    pub fn hash_scalar(&mut self, data: &Scalar<Rt>, hash_typ: HashTyp) {
         let src = SourceInfo::new(Location::caller().clone(), None);
-        Self::new(
+        let t = Self::new(
             TranscriptNode::HashScalar(self.clone(), data.clone(), hash_typ),
             src,
-        )
+        );
+        *self = t;
     }
 
     #[track_caller]
-    pub fn hash_lagrange(&self, data: &PolyLagrange<Rt>, hash_typ: HashTyp) -> Self {
+    pub fn hash_lagrange(&mut self, data: &PolyLagrange<Rt>, hash_typ: HashTyp) {
         let src = SourceInfo::new(Location::caller().clone(), None);
-        Self::new(
+        let t = Self::new(
             TranscriptNode::HashLagrange(self.clone(), data.clone(), hash_typ),
             src,
-        )
+        );
+        *self = t;
     }
 
     #[track_caller]
-    pub fn hash_coef(&self, data: &PolyCoef<Rt>, hash_typ: HashTyp) -> Self {
+    pub fn hash_coef(&mut self, data: &PolyCoef<Rt>, hash_typ: HashTyp) {
         let src = SourceInfo::new(Location::caller().clone(), None);
-        Self::new(
+        let t = Self::new(
             TranscriptNode::HashCoef(self.clone(), data.clone(), hash_typ),
             src,
-        )
+        );
+        *self = t;
     }
 
     #[track_caller]
-    pub fn squeeze_challenge_scalar(&self) -> Tuple2<Transcript<Rt>, Scalar<Rt>, Rt> {
+    pub fn hash_point(&mut self, data: &Point<Rt>, hash_typ: HashTyp) {
         let src = SourceInfo::new(Location::caller().clone(), None);
-        Tuple2::from_squeeze_scalar(self.clone(), src)
+        let t = Self::new(
+            TranscriptNode::HashPoint(self.clone(), data.clone(), hash_typ),
+            src,
+        );
+        *self = t;
+    }
+
+    #[track_caller]
+    pub fn squeeze_challenge_scalar(&mut self) -> Scalar<Rt> {
+        let src = SourceInfo::new(Location::caller().clone(), None);
+        let (t, s) = Tuple2::from_squeeze_scalar(self.clone(), src).unpack();
+        *self = t;
+        s
     }
 }

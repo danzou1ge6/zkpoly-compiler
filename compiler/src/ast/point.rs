@@ -1,17 +1,22 @@
+use zkpoly_memory_pool::PinnedMemoryPool;
+
 use super::*;
 use crate::utils::log2;
 
 #[derive(Debug, Clone)]
-pub struct PrecomputedPointsData<Rt: RuntimeType>(Vec<Rt::PointAffine>, u32);
+pub struct PrecomputedPointsData<Rt: RuntimeType>(rt::point::PointArray<Rt::PointAffine>, u32);
 
 pub type PrecomputedPoints<Rt: RuntimeType> = Outer<PrecomputedPointsData<Rt>>;
 
 impl<Rt: RuntimeType> PrecomputedPoints<Rt> {
     #[track_caller]
-    pub fn construct(points: Vec<Rt::PointAffine>) -> Self {
+    pub fn construct(points: &[Rt::PointAffine], allocator: &mut PinnedMemoryPool) -> Self {
         if let Some(log_n) = log2(points.len() as u64) {
             let src = SourceInfo::new(Location::caller().clone(), None);
-            Self::new(PrecomputedPointsData(points, log_n), src)
+            Self::new(
+                PrecomputedPointsData(rt::point::PointArray::from_vec(points, allocator), log_n),
+                src,
+            )
         } else {
             panic!("points length must be power of 2");
         }
@@ -21,8 +26,8 @@ impl<Rt: RuntimeType> PrecomputedPoints<Rt> {
 impl<Rt: RuntimeType> TypeEraseable<Rt> for PrecomputedPoints<Rt> {
     fn erase<'s>(&self, cg: &mut Cg<'s, Rt>) -> VertexId {
         cg.lookup_or_insert_with(self.as_ptr(), |cg| {
-            let scalar_array = rt::point::PointArray::from_vec(&self.inner.t.0, cg.allocator());
-            let constant = cg.add_constant(PrecomputedPoints::to_variable(scalar_array), None);
+            let constant =
+                cg.add_constant(PrecomputedPoints::to_variable(self.inner.t.0.clone()), None);
             Vertex::new(
                 VertexNode::Constant(constant),
                 Some(Typ::PointBase {
@@ -103,23 +108,23 @@ impl<Rt: RuntimeType> RuntimeCorrespondance<Rt> for Point<Rt> {
 }
 
 pub fn msm_coef<Rt: RuntimeType>(
-    polys: &[PolyCoef<Rt>],
-    points: PrecomputedPoints<Rt>,
-) -> Array<Rt, Scalar<Rt>> {
+    polys: impl Iterator<Item = PolyCoef<Rt>>,
+    points: &PrecomputedPoints<Rt>,
+) -> Array<Rt, Point<Rt>> {
     let src = SourceInfo::new(Location::caller().clone(), None);
     Array::wrap(ArrayUntyped::new(
-        ArrayNode::MsmCoef(polys.to_vec(), points),
+        ArrayNode::MsmCoef(polys.collect(), points.clone()),
         src,
     ))
 }
 
 pub fn msm_lagrange<Rt: RuntimeType>(
-    polys: &[PolyLagrange<Rt>],
-    points: PrecomputedPoints<Rt>,
-) -> Array<Rt, Scalar<Rt>> {
+    polys: impl Iterator<Item = PolyLagrange<Rt>>,
+    points: &PrecomputedPoints<Rt>,
+) -> Array<Rt, Point<Rt>> {
     let src = SourceInfo::new(Location::caller().clone(), None);
     Array::wrap(ArrayUntyped::new(
-        ArrayNode::MsmLagrange(polys.to_vec(), points),
+        ArrayNode::MsmLagrange(polys.collect(), points.clone()),
         src,
     ))
 }

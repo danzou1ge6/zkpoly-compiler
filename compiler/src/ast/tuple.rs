@@ -65,6 +65,12 @@ macro_rules! define_tuples {
                 }
             }
 
+            impl<$($T: CommonConstructors<Rt> + Clone +'static),+, Rt: RuntimeType> From<(CommonNode<Rt>, SourceInfo)> for $n<$($T),+, Rt> {
+                fn from((cn, src): (CommonNode<Rt>, SourceInfo)) -> Self {
+                    Phantomed::wrap(TupleUntyped::new(TupleNode::Common(cn), src))
+                }
+            }
+
             impl<$($T: CommonConstructors<Rt> + Clone + 'static),+, Rt: RuntimeType> $n<$($T),+, Rt> {
                 $(
                     #[track_caller]
@@ -73,6 +79,14 @@ macro_rules! define_tuples {
                         $T::from_tuple_get(self.t.clone(), $i, src)
                     }
                 )+
+
+                #[track_caller]
+                pub fn unpack(&self) -> ($($T),+,) {
+                    let src = SourceInfo::new(Location::caller().clone(), None);
+                    (
+                        ($($T::from_tuple_get(self.t.clone(), $i, src.clone())),+,)
+                    )
+                }
             }
         )*
     };

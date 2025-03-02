@@ -164,7 +164,7 @@ fn convert_to_runtime_func<Rt: RuntimeType>(
 pub fn get_function_id<'s, Rt: RuntimeType>(
     f_table: &mut FunctionTable<Rt>,
     program: &Chunk<'s, Rt>,
-    user_ftable: UserFunctionTable<Rt>,
+    user_ftable: type2::user_function::Table<Rt>,
     libs: &mut Libs,
 ) -> GeneratedFunctions {
     gen_fused_kernels(program);
@@ -260,7 +260,7 @@ pub fn get_function_id<'s, Rt: RuntimeType>(
                 }
                 KernelType::UserFunction(uf_id) => {
                     let func = uf_table[*uf_id].take().unwrap();
-                    let func_id = f_table.push(convert_to_runtime_func(func));
+                    let func_id = f_table.push(convert_to_runtime_func(func.f));
                     kernel2func.insert(kernel_type, func_id);
                     inst2func.insert(id, func_id);
                 }

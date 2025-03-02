@@ -402,6 +402,12 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                                     head, arg
                                 );
                             }
+                            UnrOp::P(ArithUnrOp::Pow(power)) => {
+                                kernel += &format!(
+                                    "auto {TMP_PREFIX}{} = {TMP_PREFIX}{}.pow({});\n",
+                                    head, arg, power
+                                );
+                            }
                             UnrOp::S(ArithUnrOp::Neg) => {
                                 kernel +=
                                     &format!("auto {TMP_PREFIX}{} = -{TMP_PREFIX}{};\n", head, arg);
@@ -411,6 +417,12 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                                 kernel += &format!(
                                     "auto {TMP_PREFIX}{} = {TMP_PREFIX}{}.invert();\n",
                                     head, arg
+                                );
+                            }
+                            UnrOp::S(ArithUnrOp::Pow(power)) => {
+                                kernel += &format!(
+                                    "auto {TMP_PREFIX}{} = {TMP_PREFIX}{}.pow({});\n",
+                                    head, arg, power
                                 );
                             }
                         }

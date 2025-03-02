@@ -59,7 +59,7 @@ where
 {
     type Rtc = T;
     type RtcBorrowed<'a> = &'a Self::Rtc;
-    type RtcBorrowedMut<'a> = &'a mut Arc<dyn std::any::Any + Send + Sync>;
+    type RtcBorrowedMut<'a> = Box<dyn FnOnce(Self::Rtc) + 'a>;
 
     fn to_variable(x: Self::Rtc) -> Variable<Rt> {
         Variable::Any(Arc::new(x))
@@ -73,7 +73,7 @@ where
     }
     fn try_borrow_variable_mut(var: &mut Variable<Rt>) -> Option<Self::RtcBorrowedMut<'_>> {
         match var {
-            Variable::Any(x) => Some(x),
+            Variable::Any(x) => Some(Box::new(|t| *x = Arc::new(t))),
             _ => None,
         }
     }
@@ -81,8 +81,8 @@ where
 
 impl<Rt: RuntimeType, T> Whatever<Rt, T> {
     #[track_caller]
-    pub fn constant(data: impl any::Any + Send + Sync) -> Self {
-        let src = SourceInfo::new(Location::caller().clone(), None);
+    pub fn constant(data: impl any::Any + Send + Sync, name: String) -> Self {
+        let src = SourceInfo::new(Location::caller().clone(), Some(name));
         let untyped = WhateverUntyped::new(WhateverNode::Constant(Cell::new(Box::new(data))), src);
         Phantomed::wrap(untyped)
     }

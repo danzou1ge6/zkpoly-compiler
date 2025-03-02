@@ -162,100 +162,101 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
             None
         }
     }
+}
 
-    pub fn fuse_arith(&mut self) {
-        let succ: Heap<VertexId, BTreeSet<VertexId>> = self.g.successors();
-        let mut book = vec![false; self.g.order()];
-        let dfs_order = self.g.dfs().map(|(id, _)| id).collect::<Vec<_>>();
-        for id in dfs_order {
-            let id_usize: usize = id.clone().into();
-            if !book[id_usize] {
-                let mut vid2arith = BTreeMap::new();
-                let mut ag = ArithGraph {
-                    inputs: Vec::new(),
-                    outputs: Vec::new(),
-                    g: Digraph::new(),
-                };
-                let mut output_v = Vec::new();
-                let mut src_info = Vec::new();
-                self.fuse_it(
-                    id,
-                    &mut book,
-                    &mut vid2arith,
-                    &succ,
-                    &mut ag,
-                    &mut output_v,
-                    &mut src_info,
-                );
+pub fn fuse_arith<'s, Rt: RuntimeType>(mut cg: Cg<'s, Rt>) -> Cg<'s, Rt> {
+    let succ: Heap<VertexId, BTreeSet<VertexId>> = cg.g.successors();
+    let mut book = vec![false; cg.g.order()];
+    let dfs_order = cg.g.dfs().map(|(id, _)| id).collect::<Vec<_>>();
+    for id in dfs_order {
+        let id_usize: usize = id.clone().into();
+        if !book[id_usize] {
+            let mut vid2arith = BTreeMap::new();
+            let mut ag = ArithGraph {
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+                g: Digraph::new(),
+            };
+            let mut output_v = Vec::new();
+            let mut src_info = Vec::new();
+            cg.fuse_it(
+                id,
+                &mut book,
+                &mut vid2arith,
+                &succ,
+                &mut ag,
+                &mut output_v,
+                &mut src_info,
+            );
 
-                let (mut mut_scalars, mut mut_polys) =
-                    self.check_mutability(&mut ag, &succ, None).unwrap(); // first call to get mutable input counts
+            let (mut mut_scalars, mut mut_polys) =
+                cg.check_mutability(&mut ag, &succ, None).unwrap(); // first call to get mutable input counts
 
-                // push the node
-                let mut output_scalars = 0;
-                let mut output_polys = 0;
-                let output_types = output_v
-                    .iter()
-                    .map(|output_i /*(targetid, old_src_id)*/| {
-                        let old_src = output_i[0].1;
-                        let old = self.g.vertex(old_src);
-                        match self.get_fuse_type(old_src) {
-                            FusedType::Scalar => output_scalars += 1,
-                            FusedType::ScalarArray => output_polys += 1,
-                        }
-                        old.typ().clone()
-                    })
-                    .collect::<Vec<_>>();
+            // push the node
+            let mut output_scalars = 0;
+            let mut output_polys = 0;
+            let output_types = output_v
+                .iter()
+                .map(|output_i /*(targetid, old_src_id)*/| {
+                    let old_src = output_i[0].1;
+                    let old = cg.g.vertex(old_src);
+                    match cg.get_fuse_type(old_src) {
+                        FusedType::Scalar => output_scalars += 1,
+                        FusedType::ScalarArray => output_polys += 1,
+                    }
+                    old.typ().clone()
+                })
+                .collect::<Vec<_>>();
 
-                mut_scalars = mut_scalars.min(output_scalars);
-                mut_polys = mut_polys.min(output_polys);
+            mut_scalars = mut_scalars.min(output_scalars);
+            mut_polys = mut_polys.min(output_polys);
 
-                // second call to actually update the inputs need to be mutable
-                self.check_mutability(&mut ag, &succ, Some((mut_scalars, mut_polys)));
+            // second call to actually update the inputs need to be mutable
+            cg.check_mutability(&mut ag, &succ, Some((mut_scalars, mut_polys)));
 
-                assert_eq!(output_types.len(), ag.outputs.len());
-                let typ = super::typ::template::Typ::Tuple(output_types.clone());
+            assert_eq!(output_types.len(), ag.outputs.len());
+            let typ = super::typ::template::Typ::Tuple(output_types.clone());
 
-                let node_id = self.g.add_vertex(Vertex::new(
-                    VertexNode::Arith {
-                        arith: ag,
-                        mut_scalars,
-                        mut_polys,
-                        chunking: None,
-                    },
-                    typ,
+            let node_id = cg.g.add_vertex(Vertex::new(
+                VertexNode::Arith {
+                    arith: ag,
+                    mut_scalars,
+                    mut_polys,
+                    chunking: None,
+                },
+                typ,
+                SourceInfo::new(
+                    crate::transit::Locations::Multi(src_info.clone()),
+                    Some("fused_arith".to_string()),
+                ),
+            ));
+
+            // add tuple get to unzip the result
+            let mut output_get = Vec::new();
+            for (id, typ) in output_types.iter().enumerate() {
+                let get = cg.g.add_vertex(Vertex::new(
+                    VertexNode::TupleGet(node_id, id),
+                    typ.clone(),
                     SourceInfo::new(
                         crate::transit::Locations::Multi(src_info.clone()),
-                        Some("fused_arith".to_string()),
+                        Some("fused_arith_tuple_get".to_string()),
                     ),
                 ));
+                output_get.push(get);
+            }
 
-                // add tuple get to unzip the result
-                let mut output_get = Vec::new();
-                for (id, typ) in output_types.iter().enumerate() {
-                    let get = self.g.add_vertex(Vertex::new(
-                        VertexNode::TupleGet(node_id, id),
-                        typ.clone(),
-                        SourceInfo::new(
-                            crate::transit::Locations::Multi(src_info.clone()),
-                            Some("fused_arith_tuple_get".to_string()),
-                        ),
-                    ));
-                    output_get.push(get);
-                }
-
-                // modify the succ
-                for i in 0..output_v.len() {
-                    let new_src = output_get[i];
-                    for (target, old_src) in output_v[i].iter() {
-                        for src in self.g.vertex_mut(*target).uses_mut() {
-                            if *src == *old_src {
-                                *src = new_src;
-                            }
+            // modify the succ
+            for i in 0..output_v.len() {
+                let new_src = output_get[i];
+                for (target, old_src) in output_v[i].iter() {
+                    for src in cg.g.vertex_mut(*target).uses_mut() {
+                        if *src == *old_src {
+                            *src = new_src;
                         }
                     }
                 }
             }
         }
     }
+    cg
 }

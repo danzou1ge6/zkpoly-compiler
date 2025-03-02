@@ -75,9 +75,35 @@ where
     T: CommonConstructors<Rt>,
 {
     #[track_caller]
-    fn index(&self, index: usize) -> T {
+    pub fn index(&self, index: usize) -> T {
         let src = SourceInfo::new(Location::caller().clone(), None);
         T::from_array_get(self.t.clone(), index, src)
+    }
+
+    pub fn len(&self) -> Option<usize> {
+        use ArrayNode::*;
+        match &self.t.inner.t {
+            Construct(elems) => Some(elems.len()),
+            MsmCoef(polys, ..) => Some(polys.len()),
+            MsmLagrange(polys, ..) => Some(polys.len()),
+            Common(CommonNode::FunctionCall(f, _)) => {
+                let (_, len) = f.inner.t.ret_typ.unwrap_array();
+                Some(len)
+            }
+            _ => None,
+        }
+    }
+
+    #[track_caller]
+    pub fn iter(&self) -> impl Iterator<Item = T> {
+        let src = SourceInfo::new(Location::caller().clone(), None);
+        if let Some(len) = self.len() {
+            let t = self.t.clone();
+            let src = src.clone();
+            (0..len).map(move |i| T::from_array_get(t.clone(), i, src.clone()))
+        } else {
+            panic!("cannot iterate over array with unknown length")
+        }
     }
 }
 

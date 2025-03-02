@@ -3,15 +3,15 @@
 //! AST >
 //! - INTT Mending
 //! - Precompute NTT and MSM constants
+//! - Manage Inversions
 //! - Arithmetic Kernel Fusion
 //! - Graph Scheduling
 //! - Memory Planning
 //! > Type3
 
-
 use crate::ast;
-pub use ast::lowering::{ConstantTable, Constant, ConstantId};
 use crate::transit::{self, PolyInit, SourceInfo};
+pub use ast::lowering::{Constant, ConstantId, ConstantTable};
 pub use typ::Typ;
 use zkpoly_common::arith;
 use zkpoly_common::define_usize_id;
@@ -19,6 +19,7 @@ use zkpoly_common::digraph;
 use zkpoly_common::heap::UsizeId;
 use zkpoly_common::load_dynamic::Libs;
 pub use zkpoly_common::typ::PolyType;
+use zkpoly_memory_pool::PinnedMemoryPool;
 pub use zkpoly_runtime::args::{RuntimeType, Variable};
 pub use zkpoly_runtime::error::RuntimeError;
 use zkpoly_runtime::scalar::Scalar;
@@ -188,6 +189,7 @@ pub mod template {
             poly: I,
             powers: I,
         },
+        IndexPoly(I, u64),
     }
 
     impl<I, C, E> VertexNode<I, arith::ArithGraph<I, arith::ExprId>, C, E>
@@ -244,6 +246,7 @@ pub mod template {
                 ScanMul { x0, poly } => Box::new([x0, poly].into_iter()),
                 DistributePowers { powers, poly } => Box::new([poly, powers].into_iter()),
                 Return(x) => Box::new([x].into_iter()),
+                IndexPoly(x, _) => Box::new([x].into_iter()),
                 _ => Box::new(std::iter::empty()),
             }
         }
@@ -279,6 +282,7 @@ pub mod template {
                 ScanMul { x0, poly } => Box::new([*x0, *poly].into_iter()),
                 DistributePowers { powers, poly } => Box::new([*poly, *powers].into_iter()),
                 Return(x) => Box::new([*x].into_iter()),
+                IndexPoly(x, _) => Box::new([*x].into_iter()),
                 _ => Box::new(std::iter::empty()),
             }
         }
@@ -544,6 +548,7 @@ where
                 powers: mapping(*powers),
             },
             ScalarInvert { val } => ScalarInvert { val: mapping(*val) },
+            IndexPoly(x, idx) => IndexPoly(mapping(*x), *idx),
         }
     }
 
@@ -590,6 +595,7 @@ where
             BatchedInvert(..) => Gpu,
             ScanMul { .. } => Gpu,
             DistributePowers { .. } => Gpu,
+            IndexPoly(..) => on_device(device),
         }
     }
 }
@@ -650,6 +656,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
                 Some((temporary_space::poly_scan::<Rt>(*len as usize, libs), Gpu))
             }
             DistributePowers { .. } => None,
+            IndexPoly(..) => None,
         }
     }
 }
@@ -658,9 +665,11 @@ pub struct Program<'s, Rt: RuntimeType> {
     pub(crate) cg: Cg<'s, Rt>,
     pub(crate) user_function_table: user_function::Table<Rt>,
     pub(crate) consant_table: ConstantTable<Rt>,
+    pub(crate) memory_pool: PinnedMemoryPool
 }
 
 pub mod graph_scheduling;
+pub mod intt_mending;
 pub mod kernel_fusion;
 pub mod manage_inverse;
 pub mod memory_planning;
@@ -669,4 +678,3 @@ pub mod pretty_print;
 pub mod temporary_space;
 pub mod typ;
 pub mod user_function;
-pub mod intt_mending;

@@ -17,7 +17,7 @@ pub type VariableTable<T> = heap::Heap<VariableId, RwLock<Option<Variable<T>>>>;
 pub type ConstantTable<T> = heap::Heap<ConstantId, Mutex<Option<Constant<T>>>>;
 
 pub trait RuntimeType: 'static + Clone + Send + Sync + Debug {
-    type PointAffine: CurveAffine;
+    type PointAffine: CurveAffine<ScalarExt = Self::Field>;
     type Field: PrimeField
         + Into<<Self::PointAffine as CurveAffine>::ScalarExt>
         + From<<Self::PointAffine as CurveAffine>::ScalarExt>;

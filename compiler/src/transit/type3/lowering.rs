@@ -1,4 +1,7 @@
 use std::collections::BTreeMap;
+use std::sync::Mutex;
+
+use crate::transit::type2;
 
 use super::track_splitting::split;
 use super::{Track, VertexNode};
@@ -6,7 +9,7 @@ use kernel_gen::GeneratedFunctions;
 use zkpoly_common::define_usize_id;
 use zkpoly_common::heap::{Heap, IdAllocator};
 use zkpoly_common::typ::Typ;
-use zkpoly_runtime::args::{RuntimeType, VariableId};
+use zkpoly_runtime::args::{Constant, ConstantTable, RuntimeType, VariableId};
 use zkpoly_runtime::devices::{DeviceType, Event, EventTable, ThreadId};
 use zkpoly_runtime::functions::FunctionTable;
 use zkpoly_runtime::instructions::Instruction;
@@ -501,6 +504,7 @@ pub struct Chunk<Rt: RuntimeType> {
 
 fn emit_multithread_instructions<'s, Rt: RuntimeType>(
     mut t3chunk: super::Chunk<'s, Rt>,
+    t2uf_table: type2::user_function::Table<Rt>,
 ) -> (
     MultithreadChunk,
     FunctionTable<Rt>,
@@ -514,7 +518,7 @@ fn emit_multithread_instructions<'s, Rt: RuntimeType>(
     let mut libs = t3chunk.take_libs();
 
     let generated_functions =
-        kernel_gen::get_function_id(&mut f_table, &t3chunk, todo!(), &mut libs);
+        kernel_gen::get_function_id(&mut f_table, &t3chunk, t2uf_table, &mut libs);
 
     let stream2variable_id = StreamSpecific::new(|| variable_id_allcoator.alloc());
 
@@ -590,14 +594,28 @@ fn emit_multithread_instructions<'s, Rt: RuntimeType>(
     (chunk, f_table, event_table, stream2variable_id)
 }
 
-pub fn lower<'s, Rt: RuntimeType>(mut t3chunk: super::Chunk<'s, Rt>) -> Chunk<Rt> {
+pub fn lower_constants<Rt: RuntimeType>(
+    const_table: type2::ConstantTable<Rt>,
+) -> ConstantTable<Rt> {
+    const_table.map(&mut |_, c| {
+        Mutex::new(Some(Constant {
+            name: c.name.unwrap_or_else(String::new),
+            value: c.value,
+        }))
+    })
+}
+
+pub fn lower<'s, Rt: RuntimeType>(
+    t3chunk: super::Chunk<'s, Rt>,
+    t2uf_table: type2::user_function::Table<Rt>,
+) -> Chunk<Rt> {
     let (mut mt_chunk, f_table, event_table, stream2variable_id) =
-        emit_multithread_instructions(t3chunk);
+        emit_multithread_instructions(t3chunk, t2uf_table);
 
     let mut instructions = Vec::new();
 
     // Create streams
-    stream2variable_id.iter().for_each(|(stream, &var_id)| {
+    stream2variable_id.iter().for_each(|(_stream, &var_id)| {
         instructions.push(Instruction::Allocate {
             device: DeviceType::CPU,
             typ: Typ::Stream,
@@ -611,7 +629,7 @@ pub fn lower<'s, Rt: RuntimeType>(mut t3chunk: super::Chunk<'s, Rt>) -> Chunk<Rt
         .primary_thread_id
         .iter()
         .filter(|(pthread, _)| *pthread != PrimaryThread::main())
-        .for_each(|(pthread, &thread)| {
+        .for_each(|(_pthread, &thread)| {
             instructions.push(Instruction::Fork {
                 new_thread: thread,
                 instructions: mt_chunk.thread_instructions(thread).cloned().collect(),

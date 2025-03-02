@@ -12,7 +12,7 @@
     - Type2中间表示
         -![x] 添加Extend顶点
         -![x] 移除LiteralScalar顶点
-        -![ ] 在Entry顶点中添加EntryId标记输入
+        -![x] 在Entry顶点中添加EntryId标记输入
     - NTT算子
         -![x] 预计算旋转因子
     - MSM算子

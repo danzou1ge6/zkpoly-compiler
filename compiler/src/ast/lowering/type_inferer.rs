@@ -23,6 +23,7 @@ pub enum ErrorNode<Rt: RuntimeType> {
     ExpectTranscript,
     KateDivisionPolyDegreeTooSmall,
     IncompatibleWithAnnotation(type2::Typ<Rt>, Typ<Rt>),
+    IndexPolyOutOfBound { index: u64, len: u64 },
 }
 
 #[derive(Debug, Clone)]
@@ -205,14 +206,14 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
                 .try_to_type2_typ()
                 .expect("a constant vertex should have complete type annotation from AST"),
             Extend(vin, to_deg) => {
-                let deg = self.try_unwrap_poly_typ(cg, *vin, PolyType::Coef, err)?;
+                let (pty, deg) = self.try_unwrap_poly(cg, *vin, &err)?;
                 if deg >= *to_deg {
                     return Err(err(ErrorNode::ExtendToSmallerDegree {
                         from: deg,
                         to: *to_deg,
                     }));
                 }
-                type2::Typ::Poly((PolyType::Coef, *to_deg))
+                type2::Typ::Poly((pty, *to_deg))
             }
             SingleArith(a) => self.infer_single_arith(cg, a, &err)?,
             Arith { .. } => panic!("ArithGraph cannot come from AST"),
@@ -224,12 +225,12 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
                 let deg = self.try_unwrap_poly_typ(cg, *s, *from, err)?;
                 type2::Typ::Poly((*to, deg))
             }
-            RotateIdx(vin, _) | Blind(vin, ..) => {
+            RotateIdx(vin, _) => {
                 let deg = self.try_unwrap_poly_typ(cg, *vin, PolyType::Lagrange, err)?;
                 type2::Typ::Poly((PolyType::Lagrange, deg))
             }
-            Slice(vin, begin, end) => {
-                let deg = self.try_unwrap_poly_typ(cg, *vin, PolyType::Lagrange, err)?;
+            Blind(vin, begin, end) | Slice(vin, begin, end) => {
+                let (pty, deg) = self.try_unwrap_poly(cg, *vin, &err)?;
                 if !(*begin < *end && *end <= deg) {
                     return Err(err(ErrorNode::BadSlice {
                         begin: *begin,
@@ -238,7 +239,7 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
                     }));
                 }
 
-                type2::Typ::Poly((PolyType::Lagrange, *end - *begin))
+                type2::Typ::Poly((pty, *end - *begin))
             }
             Interpolate { xs, ys } => {
                 if xs.len() != ys.len() {
@@ -400,12 +401,24 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
                 type2::Typ::Poly((PolyType::Lagrange, deg))
             }
             DistributePowers { poly, powers } => {
-                let deg = self.try_unwrap_poly_typ(cg, *poly, PolyType::Lagrange, &err)?;
+                let (pty, deg) = self.try_unwrap_poly(cg, *poly, &err)?;
                 let _powers_deg =
                     self.try_unwrap_poly_typ(cg, *powers, PolyType::Lagrange, &err)?;
-                type2::Typ::Poly((PolyType::Lagrange, deg))
+                type2::Typ::Poly((pty, deg))
             }
             ScalarInvert { .. } => panic!("ScalarInvert cannot come from AST"),
+            IndexPoly(poly, idx) => {
+                let (_, deg) = self.try_unwrap_poly(cg, *poly, &err)?;
+
+                if *idx >= deg {
+                    return Err(err(ErrorNode::IndexPolyOutOfBound {
+                        index: *idx,
+                        len: deg,
+                    }));
+                }
+
+                type2::Typ::Scalar
+            }
         };
         if let Some(annotated_typ) = v.typ() {
             if !annotated_typ.compatible_with_type2(&typ) {

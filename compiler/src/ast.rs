@@ -1,6 +1,6 @@
 pub use crate::transit::{self, PolyInit};
 use std::{fmt::Debug, marker::PhantomData, panic::Location, rc::Rc};
-use zkpoly_common::arith;
+use zkpoly_common::{arith, heap::IdAllocator};
 pub use zkpoly_runtime::args::{Constant, ConstantId};
 use zkpoly_runtime::{
     self as rt,
@@ -25,7 +25,7 @@ pub trait CommonConstructors<Rt: RuntimeType> {
         src: SourceInfo,
     ) -> Self;
     fn from_array_get(array: ArrayUntyped<Rt>, idx: usize, src: SourceInfo) -> Self;
-    fn from_entry(idx: EntryId, src: SourceInfo) -> Self;
+    fn from_entry(idx: EntryId, typ: type2::Typ<Rt>, src: SourceInfo) -> Self;
 }
 
 #[derive(Debug)]
@@ -33,7 +33,7 @@ pub enum CommonNode<Rt: RuntimeType> {
     TupleGet(TupleUntyped<Rt>, usize),
     ArrayGet(ArrayUntyped<Rt>, usize),
     FunctionCall(FunctionUntyped<Rt>, Vec<AstVertex<Rt>>),
-    Entry(EntryId),
+    Entry(EntryId, type2::Typ<Rt>),
 }
 
 impl<Rt: RuntimeType> CommonNode<Rt> {
@@ -46,8 +46,8 @@ impl<Rt: RuntimeType> CommonNode<Rt> {
     fn from_function_call(f: FunctionUntyped<Rt>, args: Vec<AstVertex<Rt>>) -> Self {
         Self::FunctionCall(f, args)
     }
-    fn from_entry(id: EntryId) -> Self {
-        Self::Entry(id)
+    fn from_entry(id: EntryId, typ: type2::Typ<Rt>) -> Self {
+        Self::Entry(id, typ)
     }
 }
 
@@ -71,8 +71,8 @@ where
         (CommonNode::from_array_get(array, idx), src).into()
     }
 
-    fn from_entry(id: EntryId, src: SourceInfo) -> Self {
-        (CommonNode::from_entry(id), src).into()
+    fn from_entry(id: EntryId, typ: type2::Typ<Rt>, src: SourceInfo) -> Self {
+        (CommonNode::from_entry(id, typ), src).into()
     }
 }
 
@@ -92,8 +92,29 @@ impl<Rt: RuntimeType> CommonNode<Rt> {
                 let args = args.iter().map(|x| x.erase(cg)).collect();
                 Vertex::new(VertexNode::UserFunction(fid, args), None, src)
             }
-            CommonNode::Entry(id) => Vertex::new(VertexNode::Entry(*id), None, src),
+            CommonNode::Entry(id, typ) => Vertex::new(
+                VertexNode::Entry(*id),
+                Some(Typ::from_type2(typ.clone())),
+                src,
+            ),
         }
+    }
+}
+
+pub struct EntryDefiner(IdAllocator<EntryId>);
+
+impl EntryDefiner {
+    pub fn new() -> Self {
+        Self(IdAllocator::new())
+    }
+
+    #[track_caller]
+    pub fn define<Rt: RuntimeType, T>(&mut self, name: String, typ: type2::Typ<Rt>) -> T
+    where
+        T: CommonConstructors<Rt>,
+    {
+        let src = SourceInfo::new(Location::caller().clone(), Some(name));
+        T::from_entry(self.0.alloc(), typ, src)
     }
 }
 
@@ -163,6 +184,10 @@ impl<T> Outer<T> {
 
     pub fn src_lowered(&self) -> transit::SourceInfo<'static> {
         self.inner.src.clone().into()
+    }
+
+    pub fn is(&self, rhs: &Self) -> bool {
+        self.as_ptr() == rhs.as_ptr()
     }
 }
 
@@ -259,6 +284,7 @@ impl<P, S> LagrangeArith<P, S> {
 pub enum CoefArith<P, S> {
     AddPp(P, P),
     AddPs(P, S),
+    MulPs(P, S),
     SubPp(P, P),
     SubPs(P, S),
     SubSp(S, P),
@@ -283,6 +309,11 @@ impl<P, S> CoefArith<P, S> {
                 let lhs = lhs.erase(cg);
                 let rhs = rhs.erase(cg);
                 Arith::Bin(BinOp::Sp(SpOp::Add), rhs, lhs)
+            }
+            MulPs(lhs, rhs) => {
+                let lhs = lhs.erase(cg);
+                let rhs = rhs.erase(cg);
+                Arith::Bin(BinOp::Sp(SpOp::Mul), rhs, lhs)
             }
             SubPp(lhs, rhs) => {
                 let lhs = lhs.erase(cg);

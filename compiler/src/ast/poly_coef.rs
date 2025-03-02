@@ -1,8 +1,9 @@
-use std::ops::{Add, Neg, Sub};
+use std::ops::{Add, Mul, Neg, Sub};
 
 use zkpoly_common::typ::PolyType;
 
 use type2::NttAlgorithm;
+use zkpoly_memory_pool::PinnedMemoryPool;
 
 use super::*;
 
@@ -10,7 +11,7 @@ use super::*;
 pub enum PolyCoefNode<Rt: RuntimeType> {
     Arith(CoefArith<PolyCoef<Rt>, Scalar<Rt>>),
     New(PolyInit, u64),
-    Constant(Vec<Rt::Field>),
+    Constant(rt::scalar::ScalarArray<Rt::Field>),
     FromLagrange(PolyLagrange<Rt>),
     Extend(PolyCoef<Rt>, u64),
     Assemble(Vec<Scalar<Rt>>, u64),
@@ -18,6 +19,10 @@ pub enum PolyCoefNode<Rt: RuntimeType> {
         xs: Vec<Scalar<Rt>>,
         ys: Vec<Scalar<Rt>>,
     },
+    Slice(PolyCoef<Rt>, u64, u64),
+    DistributePowers(PolyCoef<Rt>, PolyLagrange<Rt>),
+    Blind(PolyCoef<Rt>, u64, u64),
+    KateDivision(PolyCoef<Rt>, Scalar<Rt>),
     Common(CommonNode<Rt>),
 }
 
@@ -44,9 +49,8 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for PolyCoef<Rt> {
                 Some(Typ::coef()),
             ),
             Constant(data) => {
-                let value = rt::scalar::ScalarArray::from_vec(&data, cg.allocator());
                 let constant_id =
-                    cg.add_constant(PolyCoef::to_variable(value), self.src().name.clone());
+                    cg.add_constant(PolyCoef::to_variable(data.clone()), self.src().name.clone());
                 new_vertex(
                     VertexNode::Constant(constant_id),
                     Some(Typ::coef_with_deg(data.len() as u64)),
@@ -87,6 +91,32 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for PolyCoef<Rt> {
                     Some(Typ::coef_with_deg(deg)),
                 )
             }
+            Slice(operand, start, end) => {
+                let operand = operand.erase(cg);
+                Vertex::new(
+                    VertexNode::Slice(operand, *start, *end),
+                    Some(Typ::coef()),
+                    self.src_lowered(),
+                )
+            }
+            DistributePowers(poly, powers) => {
+                let poly = poly.erase(cg);
+                let powers = powers.erase(cg);
+                Vertex::new(
+                    VertexNode::DistributePowers { poly, powers },
+                    Some(Typ::coef()),
+                    self.src_lowered(),
+                )
+            }
+            Blind(operand, begin, end) => {
+                let operand = operand.erase(cg);
+                new_vertex(VertexNode::Blind(operand, *begin, *end), Some(Typ::coef()))
+            }
+            KateDivision(lhs, b) => {
+                let lhs = lhs.erase(cg);
+                let b = b.erase(cg);
+                new_vertex(VertexNode::KateDivision(lhs, b), Some(Typ::coef()))
+            }
             Common(cn) => cn.vertex(cg, self.src_lowered()),
         })
     }
@@ -117,29 +147,29 @@ impl<Rt: RuntimeType> RuntimeCorrespondance<Rt> for PolyCoef<Rt> {
 
 impl<Rt: RuntimeType> PolyCoef<Rt> {
     fn pp_op(
-        &self,
-        rhs: &PolyCoef<Rt>,
+        self,
+        rhs: PolyCoef<Rt>,
         op: fn(PolyCoef<Rt>, PolyCoef<Rt>) -> CoefArith<PolyCoef<Rt>, Scalar<Rt>>,
         src: SourceInfo,
     ) -> Self {
-        PolyCoef::new(PolyCoefNode::Arith(op(self.clone(), rhs.clone())), src)
+        PolyCoef::new(PolyCoefNode::Arith(op(self, rhs)), src)
     }
 
     pub(super) fn ps_op(
-        &self,
-        rhs: &Scalar<Rt>,
+        self,
+        rhs: Scalar<Rt>,
         op: fn(PolyCoef<Rt>, Scalar<Rt>) -> CoefArith<PolyCoef<Rt>, Scalar<Rt>>,
         src: SourceInfo,
     ) -> Self {
-        PolyCoef::new(PolyCoefNode::Arith(op(self.clone(), rhs.clone())), src)
+        PolyCoef::new(PolyCoefNode::Arith(op(self, rhs)), src)
     }
 
     fn unr_op(
-        &self,
+        self,
         op: fn(PolyCoef<Rt>) -> CoefArith<PolyCoef<Rt>, Scalar<Rt>>,
         src: SourceInfo,
     ) -> Self {
-        PolyCoef::new(PolyCoefNode::Arith(op(self.clone())), src)
+        PolyCoef::new(PolyCoefNode::Arith(op(self)), src)
     }
 
     #[track_caller]
@@ -155,9 +185,29 @@ impl<Rt: RuntimeType> PolyCoef<Rt> {
     }
 
     #[track_caller]
-    pub fn constant(values: Vec<Rt::Field>) -> Self {
+    pub fn constant(values: &[Rt::Field], allocator: &mut PinnedMemoryPool) -> Self {
         let src = SourceInfo::new(Location::caller().clone(), None);
-        PolyCoef::new(PolyCoefNode::Constant(values), src)
+        PolyCoef::new(
+            PolyCoefNode::Constant(rt::scalar::ScalarArray::from_vec(values, allocator)),
+            src,
+        )
+    }
+
+    #[track_caller]
+    pub fn constant_from_iter(
+        values: impl Iterator<Item = Rt::Field>,
+        len: u64,
+        allocator: &mut PinnedMemoryPool,
+    ) -> Self {
+        let src = SourceInfo::new(Location::caller().clone(), None);
+        PolyCoef::new(
+            PolyCoefNode::Constant(rt::scalar::ScalarArray::from_iter(
+                values,
+                len as usize,
+                allocator,
+            )),
+            src,
+        )
     }
 
     #[track_caller]
@@ -185,6 +235,21 @@ impl<Rt: RuntimeType> PolyCoef<Rt> {
     }
 
     #[track_caller]
+    pub fn slice(&self, start: u64, end: u64) -> Self {
+        let src = SourceInfo::new(Location::caller().clone(), None);
+        PolyCoef::new(PolyCoefNode::Slice(self.clone(), start, end), src)
+    }
+
+    #[track_caller]
+    pub fn distribute_powers(&self, power: &PolyLagrange<Rt>) -> Self {
+        let src = SourceInfo::new(Location::caller().clone(), None);
+        PolyCoef::new(
+            PolyCoefNode::DistributePowers(self.clone(), power.clone()),
+            src,
+        )
+    }
+
+    #[track_caller]
     pub fn evaluate(&self, x: &Scalar<Rt>) -> Scalar<Rt> {
         let src = SourceInfo::new(Location::caller().clone(), None);
         Scalar::new(
@@ -192,49 +257,84 @@ impl<Rt: RuntimeType> PolyCoef<Rt> {
             src,
         )
     }
+
+    #[track_caller]
+    pub fn index(&self, idx: u64) -> Scalar<Rt> {
+        let src = SourceInfo::new(Location::caller().clone(), None);
+        Scalar::new(scalar::ScalarNode::IndexCoef(self.clone(), idx), src)
+    }
+
+    #[track_caller]
+    pub fn blind(&self, begin: u64, end: u64) -> Self {
+        let src = SourceInfo::new(Location::caller().clone(), None);
+        PolyCoef::new(PolyCoefNode::Blind(self.clone(), begin, end), src)
+    }
+
+    #[track_caller]
+    pub fn random(deg: u64) -> Self {
+        let src = SourceInfo::new(Location::caller().clone(), None);
+        let zeros = PolyCoef::new(PolyCoefNode::New(PolyInit::Zeros, deg), src.clone());
+        PolyCoef::new(PolyCoefNode::Blind(zeros, 0, deg), src.clone())
+    }
+
+    #[track_caller]
+    pub fn kate_div(&self, b: &Scalar<Rt>) -> Self {
+        let src = SourceInfo::new(Location::caller().clone(), None);
+        PolyCoef::new(PolyCoefNode::KateDivision(self.clone(), b.clone()), src)
+    }
 }
 
-impl<Rt: RuntimeType> Add<&PolyCoef<Rt>> for &PolyCoef<Rt> {
+impl<Rt: RuntimeType> Add<PolyCoef<Rt>> for PolyCoef<Rt> {
     type Output = PolyCoef<Rt>;
 
     #[track_caller]
-    fn add(self, rhs: &PolyCoef<Rt>) -> Self::Output {
+    fn add(self, rhs: PolyCoef<Rt>) -> Self::Output {
         let src = SourceInfo::new(Location::caller().clone(), None);
         self.pp_op(rhs, CoefArith::AddPp, src)
     }
 }
 
-impl<Rt: RuntimeType> Sub<&PolyCoef<Rt>> for &PolyCoef<Rt> {
+impl<Rt: RuntimeType> Sub<PolyCoef<Rt>> for PolyCoef<Rt> {
     type Output = PolyCoef<Rt>;
 
     #[track_caller]
-    fn sub(self, rhs: &PolyCoef<Rt>) -> Self::Output {
+    fn sub(self, rhs: PolyCoef<Rt>) -> Self::Output {
         let src = SourceInfo::new(Location::caller().clone(), None);
         self.pp_op(rhs, CoefArith::SubPp, src)
     }
 }
 
-impl<Rt: RuntimeType> Add<&Scalar<Rt>> for &PolyCoef<Rt> {
+impl<Rt: RuntimeType> Add<Scalar<Rt>> for PolyCoef<Rt> {
     type Output = PolyCoef<Rt>;
 
     #[track_caller]
-    fn add(self, rhs: &Scalar<Rt>) -> Self::Output {
+    fn add(self, rhs: Scalar<Rt>) -> Self::Output {
         let src = SourceInfo::new(Location::caller().clone(), None);
         self.ps_op(rhs, CoefArith::AddPs, src)
     }
 }
 
-impl<Rt: RuntimeType> Sub<&Scalar<Rt>> for &PolyCoef<Rt> {
+impl<Rt: RuntimeType> Sub<Scalar<Rt>> for PolyCoef<Rt> {
     type Output = PolyCoef<Rt>;
 
     #[track_caller]
-    fn sub(self, rhs: &Scalar<Rt>) -> Self::Output {
+    fn sub(self, rhs: Scalar<Rt>) -> Self::Output {
         let src = SourceInfo::new(Location::caller().clone(), None);
         self.ps_op(rhs, CoefArith::SubPs, src)
     }
 }
 
-impl<Rt: RuntimeType> Neg for &PolyCoef<Rt> {
+impl<Rt: RuntimeType> Mul<Scalar<Rt>> for PolyCoef<Rt> {
+    type Output = PolyCoef<Rt>;
+
+    #[track_caller]
+    fn mul(self, rhs: Scalar<Rt>) -> Self::Output {
+        let src = SourceInfo::new(Location::caller().clone(), None);
+        self.ps_op(rhs, CoefArith::MulPs, src)
+    }
+}
+
+impl<Rt: RuntimeType> Neg for PolyCoef<Rt> {
     type Output = PolyCoef<Rt>;
 
     #[track_caller]

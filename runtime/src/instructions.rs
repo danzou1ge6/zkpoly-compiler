@@ -1,3 +1,5 @@
+use std::io::Write;
+
 use crate::args::{ConstantId, VariableId};
 use crate::devices::{DeviceType, EventId, ThreadId};
 use crate::functions::FunctionId;
@@ -91,14 +93,27 @@ pub enum Instruction {
     // }
 }
 
-pub fn print_instructions(instructions: &Vec<Instruction>, spaces: usize) {
+fn print_instructions_indented(
+    instructions: &[Instruction],
+    spaces: usize,
+    writer: &mut impl Write,
+) -> std::io::Result<()> {
     let prefix = " ".repeat(spaces);
     for (idx, instruct) in instructions.iter().enumerate() {
-        if let Instruction::Fork { new_thread, instructions } = instruct {
-            println!("{}{}: Fork: {:?}", prefix, idx, new_thread);
-            print_instructions(instructions, spaces + 2);
+        if let Instruction::Fork {
+            new_thread,
+            instructions,
+        } = instruct
+        {
+            writeln!(writer, "{}{}: Fork: {:?}", prefix, idx, new_thread)?;
+            print_instructions_indented(instructions, spaces + 2, writer)?;
         } else {
-            println!("{}{}: {:?}", prefix, idx, instruct);
+            writeln!(writer, "{}{}: {:?}", prefix, idx, instruct)?;
         }
     }
+    Ok(())
+}
+
+pub fn print_instructions(instructions: &[Instruction], writer: &mut impl Write) -> std::io::Result<()> {
+    print_instructions_indented(instructions, 0, writer)
 }

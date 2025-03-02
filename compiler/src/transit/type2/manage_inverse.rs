@@ -5,108 +5,107 @@ use crate::transit::Vertex;
 
 use super::{Cg, VertexNode};
 
-impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
-    pub fn manage_inverse(&mut self) {
-        let order = self.g.dfs().map(|(id, _)| id).collect::<Vec<_>>();
-        for id in order.iter() {
-            let vertex = self.g.vertex(*id).clone();
-            if let VertexNode::SingleArith(arith) = vertex.node() {
-                match arith {
-                    Arith::Bin(bin_op, lhs, rhs) => match bin_op {
-                        BinOp::Pp(op) => {
-                            if *op == ArithBinOp::Div {
-                                let inv_rhs = self.g.add_vertex(Vertex::new(
-                                    VertexNode::BatchedInvert(*rhs),
-                                    vertex.typ().clone(),
-                                    vertex.src().clone(),
-                                ));
-                                *self.g.vertex_mut(*id) = Vertex::new(
-                                    VertexNode::SingleArith(Arith::Bin(
-                                        BinOp::Pp(ArithBinOp::Mul),
-                                        *lhs,
-                                        inv_rhs,
-                                    )),
-                                    vertex.typ().clone(),
-                                    vertex.src().clone(),
-                                );
-                            }
+pub fn manage_inverse<'s, Rt: RuntimeType>(mut cg: Cg<'s, Rt>) -> Cg<'s, Rt> {
+    let order = cg.g.dfs().map(|(id, _)| id).collect::<Vec<_>>();
+    for id in order.iter() {
+        let vertex = cg.g.vertex(*id).clone();
+        if let VertexNode::SingleArith(arith) = vertex.node() {
+            match arith {
+                Arith::Bin(bin_op, lhs, rhs) => match bin_op {
+                    BinOp::Pp(op) => {
+                        if *op == ArithBinOp::Div {
+                            let inv_rhs = cg.g.add_vertex(Vertex::new(
+                                VertexNode::BatchedInvert(*rhs),
+                                vertex.typ().clone(),
+                                vertex.src().clone(),
+                            ));
+                            *cg.g.vertex_mut(*id) = Vertex::new(
+                                VertexNode::SingleArith(Arith::Bin(
+                                    BinOp::Pp(ArithBinOp::Mul),
+                                    *lhs,
+                                    inv_rhs,
+                                )),
+                                vertex.typ().clone(),
+                                vertex.src().clone(),
+                            );
                         }
-                        BinOp::Sp(op) => match op {
-                            SpOp::Div => {
-                                let inv_rhs = self.g.add_vertex(Vertex::new(
-                                    VertexNode::BatchedInvert(*rhs),
-                                    vertex.typ().clone(),
-                                    vertex.src().clone(),
-                                ));
-                                *self.g.vertex_mut(*id) = Vertex::new(
-                                    VertexNode::SingleArith(Arith::Bin(
-                                        BinOp::Sp(SpOp::Mul),
-                                        *lhs,
-                                        inv_rhs,
-                                    )),
-                                    vertex.typ().clone(),
-                                    vertex.src().clone(),
-                                );
-                            }
-                            SpOp::DivBy => {
-                                let inv_lhs = self.g.add_vertex(Vertex::new(
-                                    VertexNode::ScalarInvert { val: *lhs },
-                                    vertex.typ().clone(),
-                                    vertex.src().clone(),
-                                ));
-                                *self.g.vertex_mut(*id) = Vertex::new(
-                                    VertexNode::SingleArith(Arith::Bin(
-                                        BinOp::Sp(SpOp::Mul),
-                                        inv_lhs,
-                                        *rhs,
-                                    )),
-                                    vertex.typ().clone(),
-                                    vertex.src().clone(),
-                                );
-                            }
-                            _ => {}
-                        },
-                        BinOp::Ss(op) => {
-                            if *op == ArithBinOp::Div {
-                                let inv_rhs = self.g.add_vertex(Vertex::new(
-                                    VertexNode::ScalarInvert { val: *rhs },
-                                    vertex.typ().clone(),
-                                    vertex.src().clone(),
-                                ));
-                                *self.g.vertex_mut(*id) = Vertex::new(
-                                    VertexNode::SingleArith(Arith::Bin(
-                                        BinOp::Ss(ArithBinOp::Mul),
-                                        *lhs,
-                                        inv_rhs,
-                                    )),
-                                    vertex.typ().clone(),
-                                    vertex.src().clone(),
-                                );
-                            }
+                    }
+                    BinOp::Sp(op) => match op {
+                        SpOp::Div => {
+                            let inv_rhs = cg.g.add_vertex(Vertex::new(
+                                VertexNode::BatchedInvert(*rhs),
+                                vertex.typ().clone(),
+                                vertex.src().clone(),
+                            ));
+                            *cg.g.vertex_mut(*id) = Vertex::new(
+                                VertexNode::SingleArith(Arith::Bin(
+                                    BinOp::Sp(SpOp::Mul),
+                                    *lhs,
+                                    inv_rhs,
+                                )),
+                                vertex.typ().clone(),
+                                vertex.src().clone(),
+                            );
                         }
+                        SpOp::DivBy => {
+                            let inv_lhs = cg.g.add_vertex(Vertex::new(
+                                VertexNode::ScalarInvert { val: *lhs },
+                                vertex.typ().clone(),
+                                vertex.src().clone(),
+                            ));
+                            *cg.g.vertex_mut(*id) = Vertex::new(
+                                VertexNode::SingleArith(Arith::Bin(
+                                    BinOp::Sp(SpOp::Mul),
+                                    inv_lhs,
+                                    *rhs,
+                                )),
+                                vertex.typ().clone(),
+                                vertex.src().clone(),
+                            );
+                        }
+                        _ => {}
                     },
-                    Arith::Unr(unr_op, target) => match unr_op {
-                        UnrOp::P(op) => {
-                            if *op == ArithUnrOp::Inv {
-                                *self.g.vertex_mut(*id) = Vertex::new(
-                                    VertexNode::BatchedInvert(*target),
-                                    vertex.typ().clone(),
-                                    vertex.src().clone(),
-                                );
-                            }
+                    BinOp::Ss(op) => {
+                        if *op == ArithBinOp::Div {
+                            let inv_rhs = cg.g.add_vertex(Vertex::new(
+                                VertexNode::ScalarInvert { val: *rhs },
+                                vertex.typ().clone(),
+                                vertex.src().clone(),
+                            ));
+                            *cg.g.vertex_mut(*id) = Vertex::new(
+                                VertexNode::SingleArith(Arith::Bin(
+                                    BinOp::Ss(ArithBinOp::Mul),
+                                    *lhs,
+                                    inv_rhs,
+                                )),
+                                vertex.typ().clone(),
+                                vertex.src().clone(),
+                            );
                         }
-                        UnrOp::S(op) => {
-                            if *op == ArithUnrOp::Inv {
-                                *self.g.vertex_mut(*id) = Vertex::new(
-                                    VertexNode::ScalarInvert { val: *target },
-                                    vertex.typ().clone(),
-                                    vertex.src().clone(),
-                                );
-                            }
+                    }
+                },
+                Arith::Unr(unr_op, target) => match unr_op {
+                    UnrOp::P(op) => {
+                        if *op == ArithUnrOp::Inv {
+                            *cg.g.vertex_mut(*id) = Vertex::new(
+                                VertexNode::BatchedInvert(*target),
+                                vertex.typ().clone(),
+                                vertex.src().clone(),
+                            );
                         }
-                    },
-                }
+                    }
+                    UnrOp::S(op) => {
+                        if *op == ArithUnrOp::Inv {
+                            *cg.g.vertex_mut(*id) = Vertex::new(
+                                VertexNode::ScalarInvert { val: *target },
+                                vertex.typ().clone(),
+                                vertex.src().clone(),
+                            );
+                        }
+                    }
+                },
             }
         }
     }
+    cg
 }

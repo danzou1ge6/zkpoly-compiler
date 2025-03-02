@@ -43,6 +43,14 @@ impl<F: Field> Scalar<F> {
         r
     }
 
+    pub fn to_ff(&self) -> F {
+        unsafe {
+            let mut r = F::ZERO;
+            self.value.copy_to(&mut r, 1);
+            r
+        }
+    }
+
     pub fn as_ref(&self) -> &F {
         unsafe { &*self.value }
     }
@@ -165,6 +173,20 @@ impl<F: Field> ScalarArray<F> {
         let r = Self::alloc_cpu(v.len(), allocator);
         unsafe {
             std::ptr::copy_nonoverlapping(v.as_ptr(), r.values, v.len());
+        }
+        r
+    }
+
+    pub fn from_iter(
+        v: impl Iterator<Item = F>,
+        len: usize,
+        allocator: &mut PinnedMemoryPool,
+    ) -> Self {
+        let r = Self::alloc_cpu(len, allocator);
+        for (i, x) in v.take(len).enumerate() {
+            unsafe {
+                *r.values.add(i) = x;
+            }
         }
         r
     }

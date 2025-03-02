@@ -5,10 +5,28 @@ use std::{fmt::Debug, io::Write};
 use zkpoly_common::arith::ExprId;
 use zkpoly_runtime::args::RuntimeType;
 
-/// Write the computation graph in DOT format
 pub fn write_graph<'s, Rt: RuntimeType>(
-    cg: Cg<VertexId, Vertex<'s, Rt>>,
-    mut writer: impl Write,
+    cg: &Cg<VertexId, Vertex<'s, Rt>>,
+    writer: &mut impl Write,
+) -> std::io::Result<()> {
+    let seq = cg.g.vertices();
+    write_graph_with_optional_seq(cg, writer, seq, false)
+}
+
+pub fn write_graph_with_seq<'s, Rt: RuntimeType>(
+    cg: &Cg<VertexId, Vertex<'s, Rt>>,
+    writer: &mut impl Write,
+    seq: impl Iterator<Item = VertexId>,
+) -> std::io::Result<()> {
+    write_graph_with_optional_seq(cg, writer, seq, true)
+}
+
+/// Write the computation graph in DOT format
+fn write_graph_with_optional_seq<'s, Rt: RuntimeType>(
+    cg: &Cg<VertexId, Vertex<'s, Rt>>,
+    writer: &mut impl Write,
+    seq: impl Iterator<Item = VertexId>,
+    print_seq: bool,
 ) -> std::io::Result<()> {
     // Write the DOT header
     writeln!(writer, "digraph ComputationGraph {{")?;
@@ -35,9 +53,13 @@ pub fn write_graph<'s, Rt: RuntimeType>(
     writeln!(writer, "  ]")?;
 
     // Write nodes
-    for vid in cg.g.vertices() {
+    for (i, vid) in seq.enumerate() {
         let vertex = cg.g.vertex(vid);
-        let label = format_node_label::<VertexId, Rt>(vertex.node());
+        let mut label = format_node_label::<VertexId, Rt>(vertex.node());
+
+        if print_seq {
+            label.push_str(&format!("({})", i));
+        }
 
         // Get node style and color
         let style = match vertex.device() {
@@ -115,6 +137,7 @@ pub fn format_node_label<'s, Vid: UsizeId + Debug, Rt: RuntimeType>(
         ScanMul { .. } => String::from("ScanMul"),
         DistributePowers { .. } => String::from("DistPowers"),
         ScalarInvert { .. } => String::from("ScalarInvert"),
+        IndexPoly(_, idx) => format!("IndexPoly({})", idx),
     }
 }
 
@@ -194,7 +217,7 @@ mod tests {
         > = Cg { g, output: v2 };
 
         let mut buffer = Vec::new();
-        write_graph::<MyRuntimeType>(cg, &mut buffer)?;
+        write_graph::<MyRuntimeType>(&cg, &mut buffer)?;
 
         // Convert to string and verify basic content
         let output = String::from_utf8(buffer).unwrap();

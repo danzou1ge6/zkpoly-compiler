@@ -7,14 +7,15 @@ use zkpoly_common::{
     typ::PolyType,
 };
 use zkpoly_memory_pool::PinnedMemoryPool;
-use zkpoly_runtime::args::{RuntimeType, Variable};
+use zkpoly_runtime as rt;
 pub use zkpoly_runtime::args::ConstantId;
+use zkpoly_runtime::args::{RuntimeType, Variable};
 
 use super::{
     transit::type2::{self, partial_typed, VertexId},
     transit::SourceInfo,
     user_function::Function,
-    FunctionUntyped,
+    FunctionUntyped, RuntimeCorrespondance,
 };
 
 pub type Typ<Rt: RuntimeType> = type2::typ::template::Typ<Rt, (PolyType, Option<u64>)>;
@@ -50,6 +51,27 @@ impl<Rt: RuntimeType> Typ<Rt> {
             )),
             Array(t, len) => Some(Array(Box::new(t.try_to_type2()?), len)),
             Any(tid, size) => Some(Any(tid, size)),
+            _Phantom(..) => unreachable!(),
+        }
+    }
+
+    pub fn from_type2(t2typ: type2::Typ<Rt>) -> Self {
+        use type2::typ::template::Typ::*;
+        match t2typ {
+            Poly((ptyp, deg)) => Self::Poly((ptyp, Some(deg))),
+            PointBase { log_n } => Self::PointBase { log_n },
+            Scalar => Self::Scalar,
+            Transcript => Self::Transcript,
+            Point => Self::Point,
+            Rng => Self::Rng,
+            Tuple(elements) => Self::Tuple(
+                elements
+                    .into_iter()
+                    .map(|x| Self::from_type2(x))
+                    .collect::<Vec<_>>(),
+            ),
+            Array(t, len) => Self::Array(Box::new(Self::from_type2(*t)), len),
+            Any(tid, size) => Self::Any(tid, size),
             _Phantom(..) => unreachable!(),
         }
     }
@@ -111,6 +133,7 @@ define_usize_id!(UserFunctionId);
 pub type UserFunctionTable<Rt: RuntimeType> = Heap<UserFunctionId, Function<Rt>>;
 
 mod type_inferer;
+pub use type_inferer::{Error, ErrorNode};
 
 pub struct Cg<'s, Rt: RuntimeType> {
     pub(crate) g: Digraph<VertexId, Vertex<'s, Rt>>,
@@ -119,6 +142,8 @@ pub struct Cg<'s, Rt: RuntimeType> {
     pub(crate) user_function_table: UserFunctionTable<Rt>,
     pub(crate) user_function_id_mapping: BTreeMap<*const u8, UserFunctionId>,
     pub(crate) allocator: PinnedMemoryPool,
+    pub(crate) one: ConstantId,
+    pub(crate) zero: ConstantId,
 }
 
 impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
@@ -177,25 +202,41 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
             cg: crate::transit::Cg { output, g },
             user_function_table: uf_table,
             consant_table: self.constant_table,
+            memory_pool: self.allocator
         })
     }
 
-    pub fn empty(log2_memory_pool_max_size: u32) -> Self {
+    pub fn empty(allocator: PinnedMemoryPool) -> Self {
+        let mut constant_table = Heap::new();
+        let one = constant_table.push(Constant::new(
+            super::Scalar::to_variable(rt::scalar::Scalar::from_ff(
+                &<Rt::Field as group::ff::Field>::ONE,
+            )),
+            "scalar_one".to_string(),
+        ));
+        let zero = constant_table.push(Constant::new(
+            super::Scalar::to_variable(rt::scalar::Scalar::from_ff(
+                &<Rt::Field as group::ff::Field>::ZERO,
+            )),
+            "scalar_zero".to_string(),
+        ));
         Self {
             g: Digraph::new(),
             mapping: BTreeMap::new(),
-            constant_table: Heap::new(),
             user_function_table: Heap::new(),
+            constant_table,
             user_function_id_mapping: BTreeMap::new(),
-            allocator: PinnedMemoryPool::new(log2_memory_pool_max_size, std::mem::size_of::<u32>()),
+            allocator,
+            one,
+            zero,
         }
     }
 
     pub fn new(
         output_v: impl super::TypeEraseable<Rt>,
-        log2_memory_pool_max_size: u32,
+        allocator: PinnedMemoryPool
     ) -> (Self, VertexId) {
-        let mut cg = Self::empty(log2_memory_pool_max_size);
+        let mut cg = Self::empty(allocator);
         let output_vid = output_v.erase(&mut cg);
         let src_info = cg.g.vertex(output_vid).src().clone();
         let return_vid = cg.g.add_vertex(Vertex::new(

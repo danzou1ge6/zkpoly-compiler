@@ -85,6 +85,7 @@ impl ArithBinOp {
 pub enum ArithUnrOp {
     Neg,
     Inv,
+    Pow(u32),
 }
 
 impl ArithUnrOp {

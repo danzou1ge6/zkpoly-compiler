@@ -23,7 +23,7 @@ pub struct FunctionInCell<Rt: RuntimeType> {
     n_args: usize,
     value: Cell<Option<Value<Rt>>>,
     name: String,
-    ret_typ: type2::Typ<Rt>,
+    pub(super) ret_typ: type2::Typ<Rt>,
 }
 
 impl<Rt: RuntimeType> FunctionInCell<Rt> {
