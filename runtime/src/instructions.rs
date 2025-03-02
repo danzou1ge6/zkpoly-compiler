@@ -88,9 +88,13 @@ pub enum Instruction {
     },
 
     Return(VariableId),
-    // SetSliceMeta { // for directly operating on the meta data of
-
-    // }
+    SetSliceMeta {
+        // for directly operating on the meta data of
+        src: VariableId,
+        dst: VariableId,
+        offset: usize,
+        len: usize,
+    },
 }
 
 fn print_instructions_indented(
@@ -117,3 +121,4 @@ fn print_instructions_indented(
 pub fn print_instructions(instructions: &[Instruction], writer: &mut impl Write) -> std::io::Result<()> {
     print_instructions_indented(instructions, 0, writer)
 }
+
