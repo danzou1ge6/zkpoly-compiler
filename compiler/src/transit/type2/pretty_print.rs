@@ -55,7 +55,20 @@ fn write_graph_with_optional_seq<'s, Rt: RuntimeType>(
     // Write nodes
     for (i, vid) in seq.enumerate() {
         let vertex = cg.g.vertex(vid);
-        let mut label = format_node_label::<VertexId, Rt>(vertex.node());
+
+        if let template::VertexNode::Arith { arith, .. } = vertex.node() {
+            writeln!(writer, "  subgraph arith{} {{", vid.0)?;
+            arith::pretty_print::print_subgraph_vertices(
+                arith,
+                &format!("{}_arith_", vid.0),
+                format!("{}", vid.0),
+                writer,
+            )?;
+            writeln!(writer, "  }}")?;
+            continue;
+        }
+
+        let mut label = format_node_label(vertex.node());
 
         if print_seq {
             label.push_str(&format!("({})", i));
@@ -72,20 +85,35 @@ fn write_graph_with_optional_seq<'s, Rt: RuntimeType>(
         // Write node with attributes
         writeln!(
             writer,
-            "  {} [label=\"{}\", style=\"{}\", fillcolor=\"{}\"]",
-            vid.0, label, style, color
+            "  {} [label=\"{}\\n{:?}\", style=\"{}\", fillcolor=\"{}\"]",
+            vid.0,
+            label,
+            vertex.typ(),
+            style,
+            color
         )?;
     }
 
     // Write edges
     for to_vid in cg.g.vertices() {
         let vertex = cg.g.vertex(to_vid);
-        for from_vid in vertex.uses() {
-            let edge_label = format!("{:?}", vertex.typ());
+
+        if let template::VertexNode::Arith { arith, .. } = vertex.node() {
+            arith::pretty_print::print_subgraph_edges(
+                arith,
+                &format!("{}_arith_", to_vid.0),
+                format!("{}", to_vid.0),
+                |ivid| format!("{}", ivid.0),
+                writer,
+            )?;
+            continue;
+        }
+
+        for (from_vid, label) in format_labeled_uses(vertex.node()) {
             writeln!(
                 writer,
                 "  {} -> {} [label=\"{}\"]",
-                from_vid.0, to_vid.0, edge_label
+                from_vid.0, to_vid.0, label
             )?;
         }
     }
@@ -93,7 +121,7 @@ fn write_graph_with_optional_seq<'s, Rt: RuntimeType>(
     writeln!(writer, "}}")
 }
 
-pub fn format_node_label<'s, Vid: UsizeId + Debug, Rt: RuntimeType>(
+pub fn format_node_label<'s, Vid: UsizeId + Debug>(
     vertex_node: &template::VertexNode<
         Vid,
         arith::ArithGraph<Vid, ExprId>,
@@ -138,6 +166,63 @@ pub fn format_node_label<'s, Vid: UsizeId + Debug, Rt: RuntimeType>(
         DistributePowers { .. } => String::from("DistPowers"),
         ScalarInvert { .. } => String::from("ScalarInvert"),
         IndexPoly(_, idx) => format!("IndexPoly({})", idx),
+    }
+}
+
+fn format_labeled_uses<'s, Vid: UsizeId + Debug>(
+    vertex_node: &template::VertexNode<
+        Vid,
+        arith::ArithGraph<Vid, ExprId>,
+        ConstantId,
+        user_function::Id,
+    >,
+) -> Vec<(Vid, String)> {
+    use template::VertexNode::*;
+    match vertex_node {
+        Interpolate { xs, ys } => xs
+            .iter()
+            .copied()
+            .enumerate()
+            .map(|(i, x)| (x, format!("x{}", i)))
+            .chain(
+                ys.iter()
+                    .copied()
+                    .enumerate()
+                    .map(|(i, y)| (y, format!("y{}", i))),
+            )
+            .collect(),
+        Array(xs) | AssmblePoly(_, xs) => xs
+            .iter()
+            .copied()
+            .enumerate()
+            .map(|(i, x)| (x, format!("{}", i)))
+            .collect(),
+        Msm { polys, points, .. } => polys
+            .iter()
+            .copied()
+            .enumerate()
+            .map(|(i, x)| (x, format!("poly{}", i)))
+            .chain(
+                points
+                    .iter()
+                    .copied()
+                    .enumerate()
+                    .map(|(i, x)| (x, format!("point{}", i))),
+            )
+            .collect(),
+        HashTranscript {
+            transcript, value, ..
+        } => vec![
+            (*transcript, "transcript".to_string()),
+            (*value, "value".to_string()),
+        ],
+        KateDivision(lhs, rhs) => vec![(*lhs, "lhs".to_string()), (*rhs, "rhs".to_string())],
+        EvaluatePoly { poly, at } => vec![(*poly, "poly".to_string()), (*at, "at".to_string())],
+        ScanMul { x0, poly } => vec![(*x0, "x0".to_string()), (*poly, "poly".to_string())],
+        DistributePowers { poly, powers } => {
+            vec![(*poly, "poly".to_string()), (*powers, "powers".to_string())]
+        }
+        _ => vertex_node.uses().map(|u| (u, String::new())).collect(),
     }
 }
 

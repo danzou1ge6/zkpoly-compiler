@@ -61,7 +61,7 @@ pub fn write_graph<'s, Rt: RuntimeType>(
 fn format_node_label<'s, Rt: RuntimeType>(instruction: &Instruction<'s>) -> String {
     use template::InstructionNode::*;
     match &instruction.node {
-        Type2 { vertex, .. } => type2::pretty_print::format_node_label::<RegisterId, Rt>(vertex),
+        Type2 { vertex, .. } => type2::pretty_print::format_node_label(vertex),
 
         GpuMalloc { id, addr } => format!("GPU Malloc\nR{} @ A{}", id.0, addr.0),
         GpuFree { id } => format!("GPU Free\nR{}", id.0),
