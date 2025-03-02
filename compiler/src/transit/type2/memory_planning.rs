@@ -551,14 +551,16 @@ fn ensure_same_type(
     if let Some(reg_id) = candidate_regs.clone().find(|&r| code.typ_of(r) == &typ) {
         reg_id
     } else {
-        let (_, meta) = typ.unwrap_poly();
+        let (deg, meta) = typ.unwrap_poly();
         let meta = meta.clone();
         let reg_id = candidate_regs.next().unwrap().clone();
         let new_reg = code.alloc_register_id(typ);
+        let (slice_offset, slice_len) = meta.offset_and_len(deg as u64);
         code.emit(Instruction::new_no_src(InstructionNode::SetPolyMeta {
             id: new_reg,
             from: reg_id,
-            meta,
+            offset: slice_offset,
+            len: slice_len
         }));
         ctx.add_residence_for_object(obj_id, new_reg, device);
         new_reg

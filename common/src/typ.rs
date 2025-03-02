@@ -37,6 +37,14 @@ impl PolyMeta {
     pub fn plain() -> Self {
         PolyMeta::Rotated(0)
     }
+
+    pub fn offset_and_len(&self, deg: u64) -> (u64, u64) {
+        use PolyMeta::*;
+        match self {
+            Sliced(Slice(start, len)) => (*start, *len),
+            Rotated(rot) => ((deg as i64 + *rot as i64) as u64, deg),
+        }
+    }
 }
 
 pub mod template {

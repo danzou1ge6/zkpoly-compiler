@@ -8,7 +8,7 @@ use super::{Track, VertexNode};
 use kernel_gen::GeneratedFunctions;
 use zkpoly_common::define_usize_id;
 use zkpoly_common::heap::{Heap, IdAllocator};
-use zkpoly_common::typ::Typ;
+use zkpoly_common::typ::{PolyMeta, Typ};
 use zkpoly_runtime::args::{Constant, ConstantTable, RuntimeType, VariableId};
 use zkpoly_runtime::devices::{DeviceType, Event, EventTable, ThreadId};
 use zkpoly_runtime::functions::FunctionTable;
@@ -376,7 +376,17 @@ fn lower_instruction<'s, Rt: RuntimeType>(
             emit(Instruction::AssembleTuple { vars, dst });
         }
         super::InstructionNode::Move { id, from } => todo!(),
-        super::InstructionNode::SetPolyMeta { id, from, meta } => todo!(),
+        super::InstructionNode::SetPolyMeta {
+            id,
+            from,
+            offset,
+            len,
+        } => emit(Instruction::SetSliceMeta {
+            src: reg_id2var_id(*from),
+            dst: reg_id2var_id(*id),
+            offset: *offset as usize,
+            len: *len as usize,
+        }),
     };
 }
 

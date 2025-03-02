@@ -173,7 +173,8 @@ pub mod template {
         SetPolyMeta {
             id: I,
             from: I,
-            meta: PolyMeta,
+            offset: u64,
+            len: u64
         },
     }
 
