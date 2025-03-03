@@ -1,5 +1,5 @@
 use std::any::type_name;
-use std::ffi::{c_longlong, c_ulonglong};
+use std::ffi::c_ulonglong;
 use std::marker::PhantomData;
 use std::os::raw::c_uint;
 
@@ -9,6 +9,8 @@ use zkpoly_cuda_api::cuda_check;
 use zkpoly_runtime::args::{RuntimeType, Variable};
 use zkpoly_runtime::error::RuntimeError;
 use zkpoly_runtime::scalar::ScalarArray;
+
+use crate::poly_ptr::PolyPtr;
 
 use super::build_func::{resolve_type, xmake_config, xmake_run};
 use zkpoly_common::load_dynamic::Libs;
@@ -23,8 +25,7 @@ pub struct SsipNtt<T: RuntimeType> {
     c_func: Symbol<
         'static,
         unsafe extern "C" fn(
-            x: *mut c_uint,
-            x_rotate: c_longlong,
+            x: PolyPtr,
             twiddle: *const c_uint,
             log_len: c_uint,
             stream: cudaStream_t,
@@ -53,8 +54,7 @@ pub struct RecomputeNtt<T: RuntimeType> {
     c_func: Symbol<
         'static,
         unsafe extern "C" fn(
-            x: *mut c_uint,
-            x_rotate: c_longlong,
+            x: PolyPtr,
             pq: *const c_uint,
             pq_deg: c_uint,
             omegas: *const c_uint,
@@ -71,11 +71,9 @@ pub struct DistributePowers<T: RuntimeType> {
     c_func: Symbol<
         'static,
         unsafe extern "C" fn(
-            x: *mut c_uint,
-            x_rotate: c_longlong,
+            x: PolyPtr,
             powers: *const c_uint,
             power_num: c_ulonglong,
-            len: c_ulonglong,
             stream: cudaStream_t,
         ) -> cudaError_t,
     >,
@@ -126,11 +124,9 @@ impl<T: RuntimeType> RegisteredFunction<T> for DistributePowers<T> {
             unsafe {
                 cuda_check!(cudaSetDevice(stream.get_device()));
                 cuda_check!((c_func)(
-                    x.values as *mut c_uint,
-                    x.get_rotation() as i64,
+                    PolyPtr::from(x),
                     powers.values as *const c_uint,
                     powers.len as u64,
-                    x.len as c_ulonglong,
                     stream.raw(),
                 ));
             }
@@ -179,8 +175,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for SsipNtt<T> {
             unsafe {
                 cuda_check!(cudaSetDevice(stream.get_device()));
                 cuda_check!((c_func)(
-                    x.values as *mut c_uint,
-                    x.get_rotation() as i64,
+                    PolyPtr::from(x),
                     twiddle.values as *const c_uint,
                     log_len,
                     stream.raw(),
@@ -275,8 +270,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for RecomputeNtt<T> {
             unsafe {
                 cuda_check!(cudaSetDevice(stream.get_device()));
                 cuda_check!((c_func)(
-                    x.values as *mut c_uint,
-                    x.get_rotation() as i64,
+                    PolyPtr::from(x),
                     pq.values as *const c_uint,
                     pq_deg,
                     omegas.values as *const c_uint,

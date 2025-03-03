@@ -1,13 +1,13 @@
 pub use crate::transit::{self, PolyInit};
 use std::{fmt::Debug, marker::PhantomData, panic::Location, rc::Rc};
 use zkpoly_common::{arith, heap::IdAllocator};
-pub use zkpoly_runtime::args::{Constant, ConstantId};
+pub use zkpoly_runtime::args::{Constant, ConstantId, EntryId};
 use zkpoly_runtime::{
     self as rt,
     args::{RuntimeType, Variable},
 };
 
-use self::transit::type2::{self, EntryId, VertexId, VertexNode};
+use self::transit::type2::{self, VertexId, VertexNode};
 
 pub mod lowering;
 

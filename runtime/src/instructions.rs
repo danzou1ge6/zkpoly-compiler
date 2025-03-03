@@ -1,6 +1,6 @@
 use std::io::Write;
 
-use crate::args::{ConstantId, VariableId};
+use crate::args::{ConstantId, EntryId, VariableId};
 use crate::devices::{DeviceType, EventId, ThreadId};
 use crate::functions::FunctionId;
 use zkpoly_common::typ::Typ;
@@ -95,6 +95,23 @@ pub enum Instruction {
         offset: usize,
         len: usize,
     },
+
+    GetScalarFromArray {
+        src: VariableId,
+        dst: VariableId,
+        idx: usize,
+        stream: Option<VariableId>,
+    },
+
+    MoveRegister {
+        src: VariableId,
+        dst: VariableId,
+    },
+
+    LoadInput {
+        src: EntryId,
+        dst: VariableId,
+    },
 }
 
 fn print_instructions_indented(
@@ -118,7 +135,9 @@ fn print_instructions_indented(
     Ok(())
 }
 
-pub fn print_instructions(instructions: &[Instruction], writer: &mut impl Write) -> std::io::Result<()> {
+pub fn print_instructions(
+    instructions: &[Instruction],
+    writer: &mut impl Write,
+) -> std::io::Result<()> {
     print_instructions_indented(instructions, 0, writer)
 }
-

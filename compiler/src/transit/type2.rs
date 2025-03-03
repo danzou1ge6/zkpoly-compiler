@@ -118,10 +118,9 @@ pub enum Device {
     PreferGpu,
 }
 
-define_usize_id!(EntryId);
-
 pub mod template {
     use zkpoly_common::msm_config::MsmConfig;
+    use zkpoly_runtime::args::EntryId;
 
     use super::{arith, transit, Device, EntryId, NttAlgorithm, PolyInit, PolyType};
 

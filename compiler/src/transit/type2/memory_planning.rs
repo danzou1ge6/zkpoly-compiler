@@ -560,7 +560,7 @@ fn ensure_same_type(
             id: new_reg,
             from: reg_id,
             offset: slice_offset,
-            len: slice_len
+            len: slice_len,
         }));
         ctx.add_residence_for_object(obj_id, new_reg, device);
         new_reg

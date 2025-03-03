@@ -2,7 +2,7 @@ use crate::gpu_buffer::GpuBuffer;
 use crate::point::{Point, PointArray};
 use crate::scalar::{Scalar, ScalarArray};
 use crate::transcript::{EncodedChallenge, TranscriptWrite};
-use group::ff::{Field, PrimeField};
+use group::ff::PrimeField;
 use pasta_curves::arithmetic::CurveAffine;
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
@@ -12,9 +12,11 @@ use zkpoly_cuda_api::stream::CudaStream;
 
 zkpoly_common::define_usize_id!(VariableId);
 zkpoly_common::define_usize_id!(ConstantId);
+zkpoly_common::define_usize_id!(EntryId);
 
 pub type VariableTable<T> = heap::Heap<VariableId, RwLock<Option<Variable<T>>>>;
 pub type ConstantTable<T> = heap::Heap<ConstantId, Mutex<Option<Constant<T>>>>;
+pub type EntryTable<T> = heap::Heap<EntryId, Mutex<Option<Variable<T>>>>;
 
 pub trait RuntimeType: 'static + Clone + Send + Sync + Debug {
     type PointAffine: CurveAffine<ScalarExt = Self::Field>;

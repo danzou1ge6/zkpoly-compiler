@@ -58,8 +58,7 @@ pub fn precompute<'s, Rt: RuntimeType>(
                 let old_alg = precompute_ntts.get(&(log_len, inv));
 
                 if old_alg.is_some() {
-                    *cg.g.vertex_mut(*id).node_mut().unwrap_ntt_alg_mut() =
-                        old_alg.unwrap().clone()
+                    *cg.g.vertex_mut(*id).node_mut().unwrap_ntt_alg_mut() = old_alg.unwrap().clone()
                 } else {
                     let omega = gen_omega.get_omega(log_len, inv);
                     let gen_pq_omegas = GenPqOmegas::<Rt>::new(libs);
