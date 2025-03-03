@@ -1,6 +1,6 @@
-use std::{fmt::Write, path::PathBuf};
+use std::{path::PathBuf, process::Command};
 
-use zkpoly_common::load_dynamic::Libs;
+use zkpoly_common::{digraph::internal::Digraph, load_dynamic::Libs};
 use zkpoly_memory_pool::PinnedMemoryPool;
 use zkpoly_runtime::args::{self, RuntimeType};
 
@@ -10,9 +10,10 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-pub struct Options {
+pub struct DebugOptions {
     debug_dir: PathBuf,
     debug_fresh_type2: bool,
+    debug_type_inference: bool,
     debug_intt_mending: bool,
     debug_precompute: bool,
     debug_manage_invers: bool,
@@ -20,30 +21,111 @@ pub struct Options {
     debug_graph_scheduling: bool,
     debug_fresh_type3: bool,
     debug_instructions: bool,
+    log: bool,
+}
+
+impl DebugOptions {
+    pub fn all(debug_dir: PathBuf) -> Self {
+        Self {
+            debug_dir,
+            debug_fresh_type2: true,
+            debug_intt_mending: true,
+            debug_type_inference: true,
+            debug_precompute: true,
+            debug_manage_invers: true,
+            debug_kernel_fusion: true,
+            debug_graph_scheduling: true,
+            debug_fresh_type3: true,
+            debug_instructions: true,
+            log: false,
+        }
+    }
+
+    pub fn with_log(mut self, log: bool) -> Self {
+        self.log = log;
+        self
+    }
+
+    fn log_suround<R, E>(
+        &self,
+        prologue: &str,
+        f: impl FnOnce() -> Result<R, E>,
+        epilogue: &str,
+    ) -> Result<R, E> {
+        if self.log {
+            println!("[Compiler]{}", prologue);
+        }
+        let r = f()?;
+        if self.log {
+            println!("[Compiler]{}", epilogue);
+        }
+        Ok(r)
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct HardwareInfo {
-    gpu_memory_limit: u64,
+    pub gpu_memory_limit: u64,
 }
 
-fn debug_type2<'s, Rt: RuntimeType>(f: PathBuf, cg: &type2::Cg<'s, Rt>) {
-    let mut f = std::fs::File::create(f).unwrap();
-    type2::pretty_print::write_graph(cg, &mut f).unwrap();
+fn debug_type2<'s, Ty: std::fmt::Debug>(
+    fpath: PathBuf,
+    g: &Digraph<type2::VertexId, type2::partial_typed::Vertex<'s, Ty>>,
+    output_vid: type2::VertexId,
+) {
+    let mut f = std::fs::File::create(&fpath).unwrap();
+    type2::pretty_print::write_graph(g, output_vid, &mut f).unwrap();
+    drop(f);
+
+    compile_dot(&fpath);
 }
+
+fn compile_dot(fpath: &PathBuf) {
+    let _ = Command::new("dot")
+        .arg("-Tsvg")
+        .arg(fpath)
+        .arg("-o")
+        .arg(fpath.with_extension("svg"))
+        .spawn();
+}
+
+#[derive(Debug, Clone)]
+pub struct Error<'s, Rt: RuntimeType>(pub ast::lowering::Error<'s, Rt>);
 
 pub fn ast2inst<Rt: RuntimeType>(
     ast: impl ast::TypeEraseable<Rt>,
     allocator: PinnedMemoryPool,
-    options: &Options,
+    options: &DebugOptions,
     hardware_info: &HardwareInfo,
-) -> Result<
-    (type3::lowering::Chunk<Rt>, args::ConstantTable<Rt>),
-    ast::lowering::Error<'static, Rt>,
-> {
+) -> Result<(type3::lowering::Chunk<Rt>, args::ConstantTable<Rt>), Error<'static, Rt>> {
     // First from AST to Type2
-    let (ast_cg, ast_output_vid) = ast::lowering::Cg::new(ast, allocator);
-    let t2prog = ast_cg.lower(ast_output_vid)?;
+    let (ast_cg, output_vid) = options.log_suround(
+        "Lowering AST to Type2...",
+        || Ok(ast::lowering::Cg::new(ast, allocator)),
+        "Done.",
+    )?;
+
+    if options.debug_fresh_type2 {
+        debug_type2(options.debug_dir.join("type2_fresh.dot"), &ast_cg.g, output_vid);
+    }
+
+    // Type inference
+    let t2prog = match options.log_suround(
+        "Inferring Type...",
+        || ast_cg.lower(output_vid),
+        "Done.",
+    ) {
+        Ok(t2prog) => Ok(t2prog),
+        Err((e, g)) => {
+            let fpath = options.debug_dir.join("type2_type_inference.dot");
+            let mut f = std::fs::File::create(&fpath).unwrap();
+            type2::pretty_print::write_optinally_typed_graph(&g, e.vid, output_vid, &mut f).unwrap();
+            drop(f);
+
+            compile_dot(&fpath);
+            Err(Error(e))
+        }
+    }?;
 
     let type2::Program {
         cg: t2cg,
@@ -53,58 +135,91 @@ pub fn ast2inst<Rt: RuntimeType>(
     } = t2prog;
     let mut libs = Libs::new();
 
-    if options.debug_fresh_type2 {
-        debug_type2(options.debug_dir.join("type2_fresh.dot"), &t2cg);
+    if options.debug_type_inference {
+        debug_type2(options.debug_dir.join("type2_type_inference.dot"), &t2cg.g, output_vid);
     }
 
     // Apply Type2 passes
     // - INTT Mending: Append division by n to end of each INTT
-    let t2cg = type2::intt_mending::mend(t2cg, &mut t2const_tab);
+    let t2cg = options.log_suround(
+        "Applying INTT Mending...",
+        || Ok(type2::intt_mending::mend(t2cg, &mut t2const_tab)),
+        "Done.",
+    )?;
 
     if options.debug_intt_mending {
-        debug_type2(options.debug_dir.join("type2_intt_mending.dot"), &t2cg);
+        debug_type2(options.debug_dir.join("type2_intt_mending.dot"), &t2cg.g, output_vid);
     }
 
     // - Precompute NTT and MSM constants
-    let t2cg = type2::precompute::precompute(
-        t2cg,
-        hardware_info.gpu_memory_limit as usize,
-        &mut libs,
-        &mut allocator,
-        &mut t2const_tab,
-    );
+    let t2cg = options.log_suround(
+        "Precomputing constants for NTT and MSM",
+        || {
+            Ok(type2::precompute::precompute(
+                t2cg,
+                hardware_info.gpu_memory_limit as usize,
+                &mut libs,
+                &mut allocator,
+                &mut t2const_tab,
+            ))
+        },
+        "Done.",
+    )?;
 
     if options.debug_precompute {
-        debug_type2(options.debug_dir.join("type2_precompute.dot"), &t2cg);
+        debug_type2(options.debug_dir.join("type2_precompute.dot"), &t2cg.g, output_vid);
     }
 
     // - Manage Inversions: Rewrite inversions of scalars and polynomials to dedicated operators
-    let t2cg = type2::manage_inverse::manage_inverse(t2cg);
+    let t2cg = options.log_suround(
+        "Managing inversions",
+        || Ok(type2::manage_inverse::manage_inverse(t2cg)),
+        "Done.",
+    )?;
 
     if options.debug_manage_invers {
-        debug_type2(options.debug_dir.join("type2_manage_invers.dot"), &t2cg);
+        debug_type2(options.debug_dir.join("type2_manage_invers.dot"), &t2cg.g, output_vid);
     }
 
     // - Arithmetic Kernel Fusion
-    let t2cg = type2::kernel_fusion::fuse_arith(t2cg);
+    let t2cg = options.log_suround(
+        "Fusing arithmetic kernels",
+        || Ok(type2::kernel_fusion::fuse_arith(t2cg)),
+        "Done.",
+    )?;
 
     if options.debug_kernel_fusion {
-        debug_type2(options.debug_dir.join("type2_kernel_fusion.dot"), &t2cg);
+        debug_type2(options.debug_dir.join("type2_kernel_fusion.dot"), &t2cg.g, output_vid);
     }
 
     // - Graph Scheduling
-    let (seq, _) = type2::graph_scheduling::schedule(&t2cg);
+    let (seq, _) = options.log_suround(
+        "Scheduling graph",
+        || Ok(type2::graph_scheduling::schedule(&t2cg)),
+        "Done.",
+    )?;
 
     if options.debug_graph_scheduling {
         let mut f =
             std::fs::File::create(options.debug_dir.join("type2_graph_scheduled.dot")).unwrap();
-        type2::pretty_print::write_graph_with_seq(&t2cg, &mut f, seq.iter().cloned()).unwrap();
+        type2::pretty_print::write_graph_with_seq(&t2cg.g, &mut f, seq.iter().cloned()).unwrap();
     }
 
     // To Type3 through Memory Planning
     let t3chunk =
-        type2::memory_planning::plan(hardware_info.gpu_memory_limit, &t2cg, &seq, &t2uf_tab)
-            .expect("The computation graph is using too much smithereen space");
+        options.log_suround(
+            "Planning memory",
+            || {
+                Ok(type2::memory_planning::plan(
+                    hardware_info.gpu_memory_limit,
+                    &t2cg,
+                    &seq,
+                    &t2uf_tab,
+                )
+                .expect("The computation graph is using too much smithereen space"))
+            },
+            "Done.",
+        )?;
 
     if options.debug_fresh_type3 {
         let mut f = std::fs::File::create(options.debug_dir.join("type3_fresh.dot")).unwrap();
@@ -112,12 +227,16 @@ pub fn ast2inst<Rt: RuntimeType>(
     }
 
     // To Runtime Instructions
-    let rt_chunk = type3::lowering::lower(t3chunk, t2uf_tab);
+    let rt_chunk = options.log_suround(
+        "Lowering Type3 to Runtime Instructions",
+        || Ok(type3::lowering::lower(t3chunk, t2uf_tab)),
+        "Done.",
+    )?;
     let rt_const_tab = type3::lowering::lower_constants(t2const_tab);
 
     if options.debug_instructions {
         let mut f = std::fs::File::create(options.debug_dir.join("instructions.txt")).unwrap();
-        zkpoly_runtime::instructions::print_instructions(&rt_chunk.instructions, &mut f);
+        zkpoly_runtime::instructions::print_instructions(&rt_chunk.instructions, &mut f).unwrap();
     }
 
     Ok((rt_chunk, rt_const_tab))

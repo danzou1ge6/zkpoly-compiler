@@ -2,39 +2,59 @@ use super::*;
 
 #[derive(Debug, Clone)]
 pub enum ErrorNode<Rt: RuntimeType> {
-    ExtendToSmallerDegree { from: u64, to: u64 },
+    ExtendToSmallerDegree {
+        from: u64,
+        to: u64,
+    },
     ExpectPolynomial,
     ExpectPolynomialType(PolyType),
     ArithOnDifferentPolynomialTypes,
-    ArithOnDifferentDegreePolynomials(u64, u64),
-    BadSlice { begin: u64, end: u64, deg: u64 },
+    ArithOnDifferentDegreeLagrangePolynomials(u64, u64),
+    BadSlice {
+        begin: u64,
+        end: u64,
+        deg: u64,
+    },
     ExpectScalar,
     InterpolateArgsDifferentLength(usize, usize),
     ArrayOfInconsistentTypes(usize, type2::Typ<Rt>, usize, type2::Typ<Rt>),
-    EmptyArray,
     ExpectPointBase,
-    MsmInconsistentInputLengths { expect: u64, found: u64 },
+    MsmInconsistentInputLengths {
+        points_len: u64,
+        poly_deg: u64,
+        poly_i: usize,
+    },
     MsmInconsistentInputPolyTypes(usize, PolyType, usize, PolyType),
     UnhashableToTranscript(type2::Typ<Rt>),
     ExpectTuple,
-    TupleIndexOutofBound { index: usize, len: usize },
+    TupleIndexOutofBound {
+        index: usize,
+        len: usize,
+    },
     ExpectArray,
-    ArrayIndexOutofBound { index: usize, len: usize },
+    ArrayIndexOutofBound {
+        index: usize,
+        len: usize,
+    },
     ExpectTranscript,
     KateDivisionPolyDegreeTooSmall,
     IncompatibleWithAnnotation(type2::Typ<Rt>, Typ<Rt>),
-    IndexPolyOutOfBound { index: u64, len: u64 },
+    IndexPolyOutOfBound {
+        index: u64,
+        len: u64,
+    },
 }
 
 #[derive(Debug, Clone)]
 pub struct Error<'s, Rt: RuntimeType> {
     pub node: ErrorNode<Rt>,
     pub at: SourceInfo<'s>,
+    pub vid: VertexId,
 }
 
 impl<'s, Rt: RuntimeType> Error<'s, Rt> {
-    pub fn new(node: ErrorNode<Rt>, at: SourceInfo<'s>) -> Self {
-        Self { node, at }
+    pub fn new(node: ErrorNode<Rt>, at: SourceInfo<'s>, vid: VertexId) -> Self {
+        Self { node, at, vid }
     }
 }
 
@@ -52,7 +72,7 @@ fn try_unwrap_poly_typ<'s, Rt: RuntimeType>(
         .try_unwrap_poly()
         .ok_or_else(|| err(ErrorNode::ExpectPolynomial))?;
     if *ptyp != required_ptyp {
-        return Err(err(ErrorNode::ExpectPolynomialType(PolyType::Coef)));
+        return Err(err(ErrorNode::ExpectPolynomialType(required_ptyp)));
     }
     Ok(*deg)
 }
@@ -63,6 +83,10 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
             vertex_typ: BTreeMap::new(),
             max_poly_deg: 0,
         }
+    }
+
+    pub fn get_typ(&self, vid: VertexId) -> Option<&type2::Typ<Rt>> {
+        self.vertex_typ.get(&vid)
     }
 
     fn try_unwrap_poly<'s, 'a>(
@@ -143,8 +167,8 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
                     if pty1 != pty2 {
                         return Err(err(ErrorNode::ArithOnDifferentPolynomialTypes));
                     }
-                    if deg1 != deg2 {
-                        return Err(err(ErrorNode::ArithOnDifferentDegreePolynomials(
+                    if deg1 != deg2 && pty1 == PolyType::Lagrange {
+                        return Err(err(ErrorNode::ArithOnDifferentDegreeLagrangePolynomials(
                             deg1, deg2,
                         )));
                     }
@@ -198,7 +222,7 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
 
         use type2::template::VertexNode::*;
         let v = cg.g.vertex(vid);
-        let err = |node| Error::new(node, v.src().clone());
+        let err = |node| Error::new(node, v.src().clone(), vid);
 
         let typ = match v.node() {
             NewPoly(deg, _, ptyp) => type2::Typ::Poly((*ptyp, *deg)),
@@ -229,7 +253,19 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
                 let deg = self.try_unwrap_poly_typ(cg, *vin, PolyType::Lagrange, err)?;
                 type2::Typ::Poly((PolyType::Lagrange, deg))
             }
-            Blind(vin, begin, end) | Slice(vin, begin, end) => {
+            Blind(vin, begin, end) => {
+                let (pty, deg) = self.try_unwrap_poly(cg, *vin, &err)?;
+                if !(*begin < *end && *end <= deg) {
+                    return Err(err(ErrorNode::BadSlice {
+                        begin: *begin,
+                        end: *end,
+                        deg,
+                    }));
+                }
+
+                type2::Typ::Poly((pty, deg))
+            }
+            Slice(vin, begin, end) => {
                 let (pty, deg) = self.try_unwrap_poly(cg, *vin, &err)?;
                 if !(*begin < *end && *end <= deg) {
                     return Err(err(ErrorNode::BadSlice {
@@ -258,9 +294,6 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
                 type2::Typ::Poly((PolyType::Coef, xs.len() as u64))
             }
             Array(elements) => {
-                if elements.is_empty() {
-                    return Err(err(ErrorNode::EmptyArray));
-                }
                 let len = elements.len();
 
                 let element_typ = elements
@@ -281,7 +314,7 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
                             Ok(Some(elem_typ))
                         }
                     })?
-                    .unwrap();
+                    .unwrap_or(type2::Typ::Scalar); // Default empty array to have element type scalar
 
                 type2::Typ::Array(Box::new(element_typ), len)
             }
@@ -309,8 +342,9 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
                         let (poly_pty, poly_deg) = self.try_unwrap_poly(cg, poly, &err)?;
                         if poly_deg != points_len {
                             return Err(err(ErrorNode::MsmInconsistentInputLengths {
-                                expect: points_len,
-                                found: poly_deg,
+                                points_len,
+                                poly_deg,
+                                poly_i: i,
                             }));
                         }
                         if let Some(pty) = pty {
@@ -326,7 +360,7 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
                     })?
                     .unwrap();
 
-                type2::Typ::Array(Box::new(type2::Typ::Scalar), polys.len())
+                type2::Typ::Array(Box::new(type2::Typ::Point), polys.len())
             }
             HashTranscript {
                 transcript, value, ..
@@ -384,10 +418,10 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
                 }
 
                 self.try_unwrap_scalar(cg, *b, &err)?;
-                type2::Typ::Poly((PolyType::Coef, deg - 1))
+                type2::Typ::Poly((PolyType::Coef, deg))
             }
             EvaluatePoly { poly, at: b } => {
-                let _deg = self.try_unwrap_poly_typ(cg, *poly, PolyType::Lagrange, &err)?;
+                let _deg = self.try_unwrap_poly_typ(cg, *poly, PolyType::Coef, &err)?;
                 self.try_unwrap_scalar(cg, *b, &err)?;
                 type2::Typ::Scalar
             }

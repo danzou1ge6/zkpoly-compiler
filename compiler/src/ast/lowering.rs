@@ -181,29 +181,44 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
     pub fn lower(
         self,
         output: VertexId,
-    ) -> Result<type2::Program<'s, Rt>, type_inferer::Error<'s, Rt>> {
+    ) -> Result<
+        type2::Program<'s, Rt>,
+        (
+            type_inferer::Error<'s, Rt>,
+            Digraph<VertexId, type2::partial_typed::Vertex<'s, Option<type2::Typ<Rt>>>>,
+        ),
+    > {
         let mut inferer = type_inferer::TypeInferer::new();
-        let types: Digraph<VertexId, _> = self
-            .g
-            .map_by_ref_result(|vid, _| inferer.infer(&self, vid))?;
-        let g: Digraph<VertexId, _> = self
-            .g
-            .map(&mut |vid, v| v.map_typ(|_| types.vertex(vid).clone()));
+        match self.g.map_by_ref_result(|vid, _| inferer.infer(&self, vid)) {
+            Ok(types) => {
+                let g: Digraph<VertexId, _> = self
+                    .g
+                    .map(&mut |vid, v| v.map_typ(|_| types.vertex(vid).clone()));
 
-        let uf_table: Heap<UserFunctionId, _> = self.user_function_table.map(&mut |_, f| {
-            let typ = type2::user_function::FunctionType {
-                args: vec![type2::user_function::Mutability::Immutable; f.n_args],
-                ret_inplace: f.ret_typ.iter().map(|_| None).collect(),
-            };
-            type2::user_function::Function { typ, f }
-        });
+                let uf_table: Heap<UserFunctionId, _> =
+                    self.user_function_table.map(&mut |_, f| {
+                        let typ = type2::user_function::FunctionType {
+                            args: vec![type2::user_function::Mutability::Immutable; f.n_args],
+                            ret_inplace: f.ret_typ.iter().map(|_| None).collect(),
+                        };
+                        type2::user_function::Function { typ, f }
+                    });
 
-        Ok(type2::Program {
-            cg: crate::transit::Cg { output, g },
-            user_function_table: uf_table,
-            consant_table: self.constant_table,
-            memory_pool: self.allocator
-        })
+                Ok(type2::Program {
+                    cg: crate::transit::Cg { output, g },
+                    user_function_table: uf_table,
+                    consant_table: self.constant_table,
+                    memory_pool: self.allocator,
+                })
+            }
+            Err(e) => {
+                let g: Digraph<VertexId, _> = self
+                    .g
+                    .map(&mut |vid, v| v.map_typ(|_| inferer.get_typ(vid).cloned()));
+
+                Err((e, g))
+            }
+        }
     }
 
     pub fn empty(allocator: PinnedMemoryPool) -> Self {
@@ -234,7 +249,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
 
     pub fn new(
         output_v: impl super::TypeEraseable<Rt>,
-        allocator: PinnedMemoryPool
+        allocator: PinnedMemoryPool,
     ) -> (Self, VertexId) {
         let mut cg = Self::empty(allocator);
         let output_vid = output_v.erase(&mut cg);
