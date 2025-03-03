@@ -6,7 +6,7 @@ use crate::transit::Vertex;
 use super::{Cg, VertexNode};
 
 pub fn manage_inverse<'s, Rt: RuntimeType>(mut cg: Cg<'s, Rt>) -> Cg<'s, Rt> {
-    let order = cg.g.dfs().map(|(id, _)| id).collect::<Vec<_>>();
+    let order = cg.g.vertices().collect::<Vec<_>>();
     for id in order.iter() {
         let vertex = cg.g.vertex(*id).clone();
         if let VertexNode::SingleArith(arith) = vertex.node() {
