@@ -7,9 +7,10 @@ use crate::transit::SourceInfo;
 
 use super::{Cg, Vertex, VertexId, VertexNode};
 use zkpoly_common::{
-    arith::{Arith, ArithGraph, ArithVertex, ExprId, FusedType, Mutability, Operation},
+    arith::{self, Arith, ArithGraph, ArithVertex, ExprId, FusedType, Mutability, Operation},
     digraph::internal::Digraph,
     heap::Heap,
+    typ::PolyType,
 };
 use zkpoly_runtime::args::RuntimeType;
 
@@ -21,7 +22,26 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
             return false;
         }
         match v.node() {
-            VertexNode::SingleArith(_) => true,
+            VertexNode::SingleArith(a) => match a {
+                Arith::Bin(arith::BinOp::Pp(op), lhs, rhs) => {
+                    if matches!(op, arith::ArithBinOp::Add | arith::ArithBinOp::Sub) {
+                        let (pty1, deg1) = self.g.vertex(*lhs).typ().unwrap_poly();
+                        let (pty2, deg2) = self.g.vertex(*rhs).typ().unwrap_poly();
+                        if *deg1 == *deg2 {
+                            true
+                        } else {
+                            // Only when lhs and rhs both are under coefficient representation
+                            // can they have different degrees.
+                            // In this case, they cannot be fused.
+                            assert!(*pty1 == PolyType::Coef && *pty2 == PolyType::Coef);
+                            false
+                        }
+                    } else {
+                        true
+                    }
+                }
+                _ => true,
+            },
             _ => false,
         }
     }
@@ -96,7 +116,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
                     ),
                 });
                 vid2arith.insert(vid, my_arith);
-                let mut write_back = false;
+                let mut output_rank = None;
                 for node in succ[vid].iter() {
                     if vid2arith.contains_key(node) {
                         continue;
@@ -104,15 +124,13 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
                     if self.can_fuse(*node, book) {
                         self.fuse_it(*node, book, vid2arith, succ, ag, output_v, src_info);
                     } else {
-                        if !write_back {
-                            output_v.push(Vec::new())
+                        if output_rank.is_none() {
+                            output_rank = Some(output_v.len());
+                            output_v.push(Vec::new());
+                            ag.outputs.push(my_arith);
                         };
-                        write_back = true;
-                        output_v[ag.outputs.len()].push((*node, vid));
+                        output_v[output_rank.unwrap()].push((*node, vid));
                     }
-                }
-                if write_back {
-                    ag.outputs.push(my_arith);
                 }
             }
             _ => panic!("can only fuse single arith"),
@@ -167,10 +185,9 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
 pub fn fuse_arith<'s, Rt: RuntimeType>(mut cg: Cg<'s, Rt>) -> Cg<'s, Rt> {
     let succ: Heap<VertexId, BTreeSet<VertexId>> = cg.g.successors();
     let mut book = vec![false; cg.g.order()];
-    let dfs_order = cg.g.dfs().map(|(id, _)| id).collect::<Vec<_>>();
-    for id in dfs_order {
-        let id_usize: usize = id.clone().into();
-        if !book[id_usize] {
+    let order = cg.g.vertices().collect::<Vec<_>>();
+    for id in order {
+        if cg.can_fuse(id, &mut book) {
             let mut vid2arith = BTreeMap::new();
             let mut ag = ArithGraph {
                 inputs: Vec::new(),
