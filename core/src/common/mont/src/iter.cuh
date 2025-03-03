@@ -233,22 +233,6 @@ __device__ __host__ __forceinline__ RotatingIterator<const Element> make_rotatin
     return RotatingIterator<const Element>(data, rotate, length);
 }
 
-struct PolyPtr {
-    u32* ptr;
-    usize len;
-    i64 rotate;
-    usize offset;
-    usize whole_len;
-};
-
-struct ConstPolyPtr {
-    const u32* ptr;
-    usize len;
-    i64 rotate;
-    usize offset;
-    usize whole_len;
-};
-
 } // namespace mont
 
 // 特化std::iterator_traits

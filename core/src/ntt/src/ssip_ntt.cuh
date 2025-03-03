@@ -4,7 +4,7 @@
 namespace detail {
 
 template <typename Field>
-__global__ void ssip_ntt_stage1_warp_no_twiddle (RotatingIterator<Field> x, u32 log_len, u32 log_stride, u32 deg, u32 group_sz, const u32 * roots) {
+__global__ void ssip_ntt_stage1_warp_no_twiddle (SliceIterator<Field> x, u32 log_len, u32 log_stride, u32 deg, u32 group_sz, const u32 * roots) {
     constexpr usize WORDS = Field::LIMBS;
     static_assert(WORDS % 4 == 0);
     constexpr u32 io_group = 1 << (log2_int(WORDS - 1) - 1);
@@ -140,7 +140,7 @@ __global__ void ssip_ntt_stage1_warp_no_twiddle (RotatingIterator<Field> x, u32 
 }
 
 template <typename Field>
-__global__ void ssip_ntt_stage2_warp_no_share_no_twiddle (RotatingIterator<Field> data, u32 log_len, u32 log_stride, u32 deg, u32 group_sz, const u32 * roots) {
+__global__ void ssip_ntt_stage2_warp_no_share_no_twiddle (SliceIterator<Field> data, u32 log_len, u32 log_stride, u32 deg, u32 group_sz, const u32 * roots) {
     const static usize WORDS = Field::LIMBS;
     static_assert(WORDS % 4 == 0);
     constexpr u32 io_group = 1 << (log2_int(WORDS - 1) - 1);
@@ -497,14 +497,16 @@ __global__ void ssip_ntt_stage2_warp_no_share_no_twiddle (RotatingIterator<Field
 }
 
 template <typename Field>
-cudaError_t ssip_ntt(u32 *x, i64 x_rotate, const u32 *twiddle, u32 log_len, cudaStream_t stream, const u32 max_threads_stage1_log, const u32 max_threads_stage2_log) {
+cudaError_t ssip_ntt(PolyPtr x, const u32 *twiddle, u32 log_len, cudaStream_t stream, const u32 max_threads_stage1_log, const u32 max_threads_stage2_log) {
     static const usize WORDS = Field::LIMBS;
     constexpr u32 io_group = 1 << (log2_int(WORDS - 1) - 1);
 
     if (log_len == 0) return cudaSuccess;
 
     u64 len = 1 << log_len;
-    auto x_iter = make_rotating_iter(reinterpret_cast<Field*>(x), x_rotate, len);
+    assert(len == x.len);
+
+    auto x_iter = make_slice_iter<Field>(x);
 
     // plan partition for NTT stages
     u32 total_deg_stage1 = (log_len + 1) / 2;

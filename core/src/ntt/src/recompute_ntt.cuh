@@ -18,7 +18,7 @@ namespace detail {
     }
 
     template <typename Field, u32 io_group>
-    __global__ void ssip_ntt_stage1_warp_recompute (RotatingIterator<Field> x, const u32 * pq, u32 log_len, u32 log_stride, u32 deg, u32 max_deg, u32 group_sz, const u32 * omegas) {
+    __global__ void ssip_ntt_stage1_warp_recompute (SliceIterator<Field> x, const u32 * pq, u32 log_len, u32 log_stride, u32 deg, u32 max_deg, u32 group_sz, const u32 * omegas) {
         const static usize WORDS = Field::LIMBS;
         extern __shared__ u32 s[];
 
@@ -163,7 +163,7 @@ namespace detail {
     }
 
     template <typename Field, u32 io_group>
-    __global__ void SSIP_NTT_stage2_warp_recompute (RotatingIterator<Field> data, const u32 * pq, u32 log_len, u32 log_stride, u32 deg, u32 max_deg, u32 group_sz, const u32 * omegas) {
+    __global__ void SSIP_NTT_stage2_warp_recompute (SliceIterator<Field> data, const u32 * pq, u32 log_len, u32 log_stride, u32 deg, u32 max_deg, u32 group_sz, const u32 * omegas) {
         const static usize WORDS = Field::LIMBS;
         extern __shared__ u32 s[];
 
@@ -357,12 +357,13 @@ namespace detail {
     }
 
     template <typename Field>
-    cudaError_t recompute_ntt(u32 *x, i64 x_rotate, const u32 *pq_d, u32 pq_deg, const u32 *omegas_d, u32 log_len, cudaStream_t stream, const u32 max_threads_stage1_log, const u32 max_threads_stage2_log) {
+    cudaError_t recompute_ntt(PolyPtr x, const u32 *pq_d, u32 pq_deg, const u32 *omegas_d, u32 log_len, cudaStream_t stream, const u32 max_threads_stage1_log, const u32 max_threads_stage2_log) {
         static const usize WORDS = Field::LIMBS;
         if (log_len == 0) return cudaSuccess;
         u64 len = 1 << log_len;
 
-        auto x_iter = make_rotating_iter(reinterpret_cast<Field*>(x), x_rotate, len);
+        assert(len == x.len);
+        auto x_iter = make_slice_iter<Field>(x);
 
         // plan partition for NTT stages
         u32 total_deg_stage1 = (log_len + 1) / 2;

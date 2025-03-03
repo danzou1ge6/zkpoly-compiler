@@ -137,7 +137,8 @@ int main() {
     CUDA_CHECK(cudaMalloc(&d_data, length * WORDS * sizeof(uint)));
     CUDA_CHECK(cudaMemcpy(d_data, data_gpu, length * WORDS * sizeof(uint), cudaMemcpyHostToDevice));
 
-    CUDA_CHECK(detail::recompute_ntt<Field>(d_data, 0, d_pq, max_deg, d_omegas, bits, 0, max_threads_stage1_log, max_threads_stage2_log));
+    auto d_ptr = PolyPtr{d_data, length, 0, 0, length};
+    CUDA_CHECK(detail::recompute_ntt<Field>(d_ptr, d_pq, max_deg, d_omegas, bits, 0, max_threads_stage1_log, max_threads_stage2_log));
 
     CUDA_CHECK(cudaMemcpy(data_gpu, d_data, length * WORDS * sizeof(uint), cudaMemcpyDeviceToHost));
     
