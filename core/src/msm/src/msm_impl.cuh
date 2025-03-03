@@ -44,6 +44,7 @@ namespace detail {
         u32 tid = blockIdx.x * blockDim.x + threadIdx.x;
         u32 stride = gridDim.x * blockDim.x;
         
+        u32 cnt_zero_local = 0;
         // Count into block-wide counter
         for (u32 i = tid; i < len; i += stride) {
             int bucket[Config::actual_windows];
@@ -58,13 +59,14 @@ namespace detail {
                 u32 physical_window_id = window_id % Config::n_windows;
                 u32 point_group = window_id / Config::n_windows;
                 if (bucket_id == 0) {
-                    atomicAdd(cnt_zero, 1);
+                    cnt_zero_local++;
                 }
                 u64 index = bucket_id | (sign << Config::s) | (physical_window_id << (Config::s + 1)) 
                 | ((point_group * len + i) << (Config::s + 1 + Config::window_bits));
                 indexs[(points_offset[physical_window_id] + point_group) * len + i] = index;
             }
         }
+        atomicAdd(cnt_zero, cnt_zero_local);
     }
 
     __device__ __forceinline__ void lock(unsigned short *mutex_ptr, u32 wait_limit = 16) {
