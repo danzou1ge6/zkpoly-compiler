@@ -78,8 +78,16 @@ fn format_node_label<'s, Rt: RuntimeType>(instruction: &Instruction<'s>) -> Stri
         }
         Transfer { id, from } => format!("Transfer\nR{} <- R{}", id.0, from.0),
         Move { id, from } => format!("Move\nR{} <- R{}", id.0, from.0),
-        SetPolyMeta { id, from, offset, len } => {
-            format!("SetPolyMeta\nR{} <- R{}\noffset={},len={}", id.0, from.0, offset, len)
+        SetPolyMeta {
+            id,
+            from,
+            offset,
+            len,
+        } => {
+            format!(
+                "SetPolyMeta\nR{} <- R{}\noffset={},len={}",
+                id.0, from.0, offset, len
+            )
         }
     }
 }

@@ -2,7 +2,7 @@ use crate::gpu_buffer::GpuBuffer;
 use crate::point::{Point, PointArray};
 use crate::scalar::{Scalar, ScalarArray};
 use crate::transcript::{EncodedChallenge, TranscriptWrite};
-use group::ff::{Field, PrimeField};
+use group::ff::PrimeField;
 use pasta_curves::arithmetic::CurveAffine;
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};

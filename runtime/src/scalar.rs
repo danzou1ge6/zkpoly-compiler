@@ -296,6 +296,19 @@ impl<F: Field> ScalarArray<F> {
         assert!(shift >= 0 && shift < self.len as i64); // normalized
         shift as usize
     }
+
+    pub fn get_ptr(&self, index: usize) -> *mut F {
+        assert!(index < self.len);
+        let (offset, mod_len) = if self.slice_info.is_none() {
+            (0, self.len)
+        } else {
+            let slice_info = self.slice_info.as_ref().unwrap();
+            (slice_info.offset, slice_info.whole_len)
+        };
+        let rotate = self.rotate as usize;
+        let actual_pos = (index + mod_len + offset - rotate) % mod_len;
+        unsafe { self.values.add(actual_pos) }
+    }
 }
 
 pub struct ScalarArrayIter<'a, F: Field> {
@@ -354,31 +367,13 @@ impl<F: Field> Index<usize> for ScalarArray<F> {
     type Output = F;
 
     fn index(&self, index: usize) -> &Self::Output {
-        assert!(index < self.len);
-        let (offset, mod_len) = if self.slice_info.is_none() {
-            (0, self.len)
-        } else {
-            let slice_info = self.slice_info.as_ref().unwrap();
-            (slice_info.offset, slice_info.whole_len)
-        };
-        let rotate = self.rotate as usize;
-        let actual_pos = (index + mod_len + offset - rotate) % mod_len;
-        unsafe { &*self.values.add(actual_pos) }
+        unsafe { &*self.get_ptr(index) }
     }
 }
 
 impl<F: Field> IndexMut<usize> for ScalarArray<F> {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        assert!(index < self.len);
-        let (offset, mod_len) = if self.slice_info.is_none() {
-            (0, self.len)
-        } else {
-            let slice_info = self.slice_info.as_ref().unwrap();
-            (slice_info.offset, slice_info.whole_len)
-        };
-        let rotate = self.rotate as usize;
-        let actual_pos = (index + mod_len + offset - rotate) % mod_len;
-        unsafe { &mut *self.values.add(actual_pos) }
+        unsafe { &mut *self.get_ptr(index) }
     }
 }
 

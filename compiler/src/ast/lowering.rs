@@ -202,7 +202,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
             cg: crate::transit::Cg { output, g },
             user_function_table: uf_table,
             consant_table: self.constant_table,
-            memory_pool: self.allocator
+            memory_pool: self.allocator,
         })
     }
 
@@ -234,7 +234,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
 
     pub fn new(
         output_v: impl super::TypeEraseable<Rt>,
-        allocator: PinnedMemoryPool
+        allocator: PinnedMemoryPool,
     ) -> (Self, VertexId) {
         let mut cg = Self::empty(allocator);
         let output_vid = output_v.erase(&mut cg);

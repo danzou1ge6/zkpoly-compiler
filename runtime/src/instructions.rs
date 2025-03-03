@@ -95,6 +95,13 @@ pub enum Instruction {
         offset: usize,
         len: usize,
     },
+
+    GetScalarFromArray {
+        src: VariableId,
+        dst: VariableId,
+        idx: usize,
+        stream: Option<VariableId>,
+    },
 }
 
 fn print_instructions_indented(
@@ -118,7 +125,9 @@ fn print_instructions_indented(
     Ok(())
 }
 
-pub fn print_instructions(instructions: &[Instruction], writer: &mut impl Write) -> std::io::Result<()> {
+pub fn print_instructions(
+    instructions: &[Instruction],
+    writer: &mut impl Write,
+) -> std::io::Result<()> {
     print_instructions_indented(instructions, 0, writer)
 }
-

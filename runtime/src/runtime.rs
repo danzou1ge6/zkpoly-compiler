@@ -319,6 +319,31 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     assert!(dst_guard.is_none());
                     *dst_guard = Some(Variable::ScalarArray(poly));
                 }
+                Instruction::GetScalarFromArray {
+                    src,
+                    dst,
+                    idx,
+                    stream,
+                } => {
+                    assert_ne!(src, dst);
+                    let src_guard = self.variable[src].read().unwrap();
+                    let mut dst_guard = self.variable[dst].write().unwrap();
+                    let poly = src_guard.as_ref().unwrap().unwrap_scalar_array();
+                    let scalar = dst_guard.as_mut().unwrap().unwrap_scalar_mut();
+                    assert_eq!(poly.device, scalar.device);
+                    match poly.device {
+                        DeviceType::CPU => {
+                            *scalar.as_mut() = poly[idx];
+                        }
+                        DeviceType::GPU { device_id } => {
+                            let stream_guard = self.variable[stream.unwrap()].read().unwrap();
+                            let stream = stream_guard.as_ref().unwrap().unwrap_stream();
+                            assert_eq!(stream.get_device(), device_id);
+                            stream.memcpy_d2d(scalar.value, poly.get_ptr(idx), 1);
+                        }
+                        DeviceType::Disk => unreachable!("scalar can't be on disk"),
+                    }
+                }
             }
         }
         if !self.main_thread {

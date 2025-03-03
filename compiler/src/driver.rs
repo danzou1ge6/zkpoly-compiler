@@ -37,10 +37,8 @@ pub fn ast2inst<Rt: RuntimeType>(
     allocator: PinnedMemoryPool,
     options: &Options,
     hardware_info: &HardwareInfo,
-) -> Result<
-    (type3::lowering::Chunk<Rt>, args::ConstantTable<Rt>),
-    ast::lowering::Error<'static, Rt>,
-> {
+) -> Result<(type3::lowering::Chunk<Rt>, args::ConstantTable<Rt>), ast::lowering::Error<'static, Rt>>
+{
     // First from AST to Type2
     let (ast_cg, ast_output_vid) = ast::lowering::Cg::new(ast, allocator);
     let t2prog = ast_cg.lower(ast_output_vid)?;
@@ -117,7 +115,7 @@ pub fn ast2inst<Rt: RuntimeType>(
 
     if options.debug_instructions {
         let mut f = std::fs::File::create(options.debug_dir.join("instructions.txt")).unwrap();
-        zkpoly_runtime::instructions::print_instructions(&rt_chunk.instructions, &mut f);
+        zkpoly_runtime::instructions::print_instructions(&rt_chunk.instructions, &mut f).unwrap();
     }
 
     Ok((rt_chunk, rt_const_tab))
