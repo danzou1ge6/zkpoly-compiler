@@ -27,6 +27,16 @@ pub struct DfsIterator<'g, I, V> {
     stack: Vec<I>,
 }
 
+impl<'g, I, V> Clone for DfsIterator<'g, I, V> where I: Clone {
+    fn clone(&self) -> Self {
+        Self {
+            g: self.g,
+            visited: self.visited.clone(),
+            stack: self.stack.clone(),
+        }
+    }
+}
+
 impl<'g, I, V> Iterator for DfsIterator<'g, I, V>
 where
     I: UsizeId,

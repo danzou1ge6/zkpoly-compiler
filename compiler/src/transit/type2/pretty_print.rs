@@ -1,32 +1,61 @@
-use crate::transit::Cg;
+use crate::transit::Locations;
 
 use super::*;
 use std::{fmt::Debug, io::Write};
-use zkpoly_common::arith::ExprId;
-use zkpoly_runtime::args::RuntimeType;
+use zkpoly_common::{arith::ExprId, digraph::internal::Digraph};
 
-pub fn write_graph<'s, Rt: RuntimeType>(
-    cg: &Cg<VertexId, Vertex<'s, Rt>>,
+pub fn write_graph<'s, Ty: Debug>(
+    g: &Digraph<VertexId, partial_typed::Vertex<'s, Ty>>,
+    output_vid: VertexId,
     writer: &mut impl Write,
 ) -> std::io::Result<()> {
-    let seq = cg.g.vertices();
-    write_graph_with_optional_seq(cg, writer, seq, false)
+    let seq = g.dfs().add_begin(output_vid).map(|(vid, _)| vid);
+    write_graph_with_optional_seq(g, writer, seq, false, |_, _| None)
 }
 
-pub fn write_graph_with_seq<'s, Rt: RuntimeType>(
-    cg: &Cg<VertexId, Vertex<'s, Rt>>,
+pub fn write_optinally_typed_graph<'s, Ty: Debug>(
+    g: &Digraph<VertexId, partial_typed::Vertex<'s, Option<Ty>>>,
+    error_vid: VertexId,
+    output_vid: VertexId,
     writer: &mut impl Write,
-    seq: impl Iterator<Item = VertexId>,
 ) -> std::io::Result<()> {
-    write_graph_with_optional_seq(cg, writer, seq, true)
+    let seq = g.dfs().add_begin(output_vid).map(|(vid, _)| vid);
+    write_graph_with_optional_seq(g, writer, seq, false, |vid, vertex| {
+        if vid == error_vid {
+            Some("#e74c3c") // red
+        } else {
+            if vertex.typ().is_some() {
+                Some("#2ecc71") // green
+            } else {
+                None
+            }
+        }
+    })
+}
+
+pub fn write_graph_with_seq<'s, Ty: Debug>(
+    g: &Digraph<VertexId, partial_typed::Vertex<'s, Ty>>,
+    writer: &mut impl Write,
+    seq: impl Iterator<Item = VertexId> + Clone,
+) -> std::io::Result<()> {
+    write_graph_with_optional_seq(g, writer, seq, true, |_, _| None)
+}
+
+fn format_source_info<'s>(src: &SourceInfo<'s>) -> String {
+    let loc = match &src.location {
+        Locations::Multi(locs) => &locs[0],
+        Locations::Single(loc) => loc,
+    };
+    format!("{}:{}:{}", loc.file(), loc.line(), loc.column())
 }
 
 /// Write the computation graph in DOT format
-fn write_graph_with_optional_seq<'s, Rt: RuntimeType>(
-    cg: &Cg<VertexId, Vertex<'s, Rt>>,
+fn write_graph_with_optional_seq<'s, Ty: Debug>(
+    g: &Digraph<VertexId, partial_typed::Vertex<'s, Ty>>,
     writer: &mut impl Write,
-    seq: impl Iterator<Item = VertexId>,
+    seq: impl Iterator<Item = VertexId> + Clone,
     print_seq: bool,
+    override_color: impl Fn(VertexId, &partial_typed::Vertex<'s, Ty>) -> Option<&'static str>,
 ) -> std::io::Result<()> {
     // Write the DOT header
     writeln!(writer, "digraph ComputationGraph {{")?;
@@ -53,14 +82,21 @@ fn write_graph_with_optional_seq<'s, Rt: RuntimeType>(
     writeln!(writer, "  ]")?;
 
     // Write nodes
-    for (i, vid) in seq.enumerate() {
-        let vertex = cg.g.vertex(vid);
+    for (i, vid) in seq.clone().enumerate() {
+        let vertex = g.vertex(vid);
 
         if let template::VertexNode::Arith { arith, .. } = vertex.node() {
-            writeln!(writer, "  subgraph arith{} {{", vid.0)?;
+            writeln!(writer, "  subgraph cluster_arith{} {{", vid.0)?;
+            writeln!(
+                writer,
+                "    label = \"{}\"",
+                format_source_info(vertex.src())
+            )?;
+            writeln!(writer, "    color = blue")?;
+            writeln!(writer, "    style = dashed")?;
             arith::pretty_print::print_subgraph_vertices(
                 arith,
-                &format!("{}_arith_", vid.0),
+                &format!("_{}_arith_", vid.0),
                 format!("{}", vid.0),
                 writer,
             )?;
@@ -75,33 +111,38 @@ fn write_graph_with_optional_seq<'s, Rt: RuntimeType>(
         }
 
         // Get node style and color
-        let style = match vertex.device() {
-            Device::Gpu => "filled",
-            Device::Cpu => "solid",
-            Device::PreferGpu => "dashed",
+        let (color, style) = if let Some(color) = override_color(vid, vertex) {
+            (color, "filled")
+        } else {
+            let style = match vertex.node().device() {
+                Device::Gpu => "filled",
+                Device::Cpu => "solid",
+                Device::PreferGpu => "dashed",
+            };
+            (get_node_color(vertex.node()), style)
         };
-        let color = get_node_color(vertex.node());
-
         // Write node with attributes
         writeln!(
             writer,
-            "  {} [label=\"{}\\n{:?}\", style=\"{}\", fillcolor=\"{}\"]",
+            "  {} [label=\"{}:{}\", tooltip=\"{:?}\\n@{}\", style=\"{}\", fillcolor=\"{}\"]",
+            vid.0,
             vid.0,
             label,
             vertex.typ(),
+            format_source_info(vertex.src()),
             style,
             color
         )?;
     }
 
     // Write edges
-    for to_vid in cg.g.vertices() {
-        let vertex = cg.g.vertex(to_vid);
+    for to_vid in seq {
+        let vertex = g.vertex(to_vid);
 
         if let template::VertexNode::Arith { arith, .. } = vertex.node() {
             arith::pretty_print::print_subgraph_edges(
                 arith,
-                &format!("{}_arith_", to_vid.0),
+                &format!("_{}_arith_", to_vid.0),
                 format!("{}", to_vid.0),
                 |ivid| format!("{}", ivid.0),
                 writer,
@@ -112,7 +153,7 @@ fn write_graph_with_optional_seq<'s, Rt: RuntimeType>(
         for (from_vid, label) in format_labeled_uses(vertex.node()) {
             writeln!(
                 writer,
-                "  {} -> {} [label=\"{}\"]",
+                "  {} -> {} [headlabel=\"{}\", labeldistance=2]",
                 from_vid.0, to_vid.0, label
             )?;
         }
@@ -134,8 +175,11 @@ pub fn format_node_label<'s, Vid: UsizeId + Debug>(
         NewPoly(deg, ..) => format!("NewPoly\\n(deg={})", deg),
         Constant(_) => String::from("Constant"),
         Extend(_, deg) => format!("Extend\\n(deg={})", deg),
-        SingleArith(arith) => {
-            format!("arith: {:?}", arith)
+        SingleArith(arith::Arith::Bin(op, ..)) => {
+            format!("SingleArith({:?})", op)
+        }
+        SingleArith(arith::Arith::Unr(op, ..)) => {
+            format!("SingleArith({:?})", op)
         }
         Arith { chunking, .. } => {
             if chunking.is_some() {
@@ -146,15 +190,15 @@ pub fn format_node_label<'s, Vid: UsizeId + Debug>(
         }
         Entry(id) => format!("Entry({:?})", id),
         Return(_) => String::from("Return"),
-        Ntt { from, to, .. } => format!("NTT\\n{:?} -> {:?}", from, to),
-        RotateIdx(_, idx) => format!("Rotate\\n({})", idx),
-        Slice(_, start, end) => format!("Slice\\n[{}:{}]", start, end),
+        Ntt { from, to, .. } => format!("NTT({:?} -> {:?})", from, to),
+        RotateIdx(_, idx) => format!("Rotate({})", idx),
+        Slice(_, start, end) => format!("Slice[{}:{}]", start, end),
         Interpolate { .. } => String::from("Interpolate"),
-        Blind(_, left, right) => format!("Blind\\n[{}:{}]", left, right),
+        Blind(_, left, right) => format!("Blind[{}:{}]", left, right),
         Array(_) => String::from("Array"),
-        AssmblePoly(deg, _) => format!("AssemblePoly\\n(deg={})", deg),
+        AssmblePoly(deg, _) => format!("AssemblePoly(deg={})", deg),
         Msm { .. } => String::from("MSM"),
-        HashTranscript { typ, .. } => format!("Hash\\n({:?})", typ),
+        HashTranscript { typ, .. } => format!("Hash({:?})", typ),
         SqueezeScalar(_) => String::from("SqueezeScalar"),
         TupleGet(_, idx) => format!("TupleGet({})", idx),
         ArrayGet(_, idx) => format!("ArrayGet({})", idx),
@@ -302,7 +346,7 @@ mod tests {
         > = Cg { g, output: v2 };
 
         let mut buffer = Vec::new();
-        write_graph::<MyRuntimeType>(&cg, &mut buffer)?;
+        write_graph(&cg.g, v2, &mut buffer)?;
 
         // Convert to string and verify basic content
         let output = String::from_utf8(buffer).unwrap();

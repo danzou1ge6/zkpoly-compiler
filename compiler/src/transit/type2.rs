@@ -123,7 +123,7 @@ define_usize_id!(EntryId);
 pub mod template {
     use zkpoly_common::msm_config::MsmConfig;
 
-    use super::{arith, transit, EntryId, NttAlgorithm, PolyInit, PolyType};
+    use super::{arith, transit, Device, EntryId, NttAlgorithm, PolyInit, PolyType};
 
     #[derive(Debug, Clone)]
     pub enum VertexNode<I, A, C, E> {
@@ -218,6 +218,7 @@ pub mod template {
         pub fn uses_mut<'a>(&'a mut self) -> Box<dyn Iterator<Item = &'a mut I> + 'a> {
             use VertexNode::*;
             match self {
+                Extend(x, _) => Box::new([x].into_iter()),
                 SingleArith(expr) => expr.uses_mut(),
                 ScalarInvert { val } => Box::new([val].into_iter()),
                 Arith { arith, .. } => arith.uses_mut(),
@@ -254,6 +255,7 @@ pub mod template {
         pub fn uses<'a>(&'a self) -> Box<dyn Iterator<Item = I> + 'a> {
             use VertexNode::*;
             match self {
+                Extend(x, _) => Box::new([*x].into_iter()),
                 SingleArith(expr) => expr.uses(),
                 ScalarInvert { val } => Box::new([*val].into_iter()),
                 Arith { arith, .. } => Box::new(arith.uses()),
@@ -287,6 +289,27 @@ pub mod template {
             }
         }
 
+        pub fn device(&self) -> Device {
+            use VertexNode::*;
+            match self {
+                NewPoly(..) | Extend(..) | ScalarInvert { .. } => Device::PreferGpu,
+                Arith { chunking, .. } => {
+                    if chunking.is_some() {
+                        Device::Cpu
+                    } else {
+                        Device::Gpu
+                    }
+                }
+                Ntt { .. } => Device::Gpu,
+                KateDivision(_, _) => Device::Gpu,
+                EvaluatePoly { .. } => Device::Gpu,
+                BatchedInvert(_) => Device::Gpu,
+                ScanMul { .. } => Device::Gpu,
+                DistributePowers { .. } => Device::Gpu,
+                _ => Device::Cpu,
+            }
+        }
+
         pub fn is_virtual(&self) -> bool {
             use VertexNode::*;
             match self {
@@ -296,11 +319,7 @@ pub mod template {
         }
 
         pub fn unexpcted_during_lowering(&self) -> bool {
-            use VertexNode::*;
-            match self {
-                SingleArith(..) => true,
-                x => x.is_virtual(),
-            }
+            self.is_virtual()
         }
 
         pub fn is_return(&self) -> bool {
@@ -322,10 +341,12 @@ pub type VertexNode = template::VertexNode<VertexId, Arith, ConstantId, user_fun
 
 pub type Vertex<'s, Rt> = transit::Vertex<VertexNode, Typ<Rt>, SourceInfo<'s>>;
 
-impl<'s, Rt: RuntimeType> digraph::internal::Predecessors<VertexId> for Vertex<'s, Rt> {
+impl<'s, I: UsizeId, C, E, T, S> digraph::internal::Predecessors<I>
+    for transit::Vertex<template::VertexNode<I, arith::ArithGraph<I, arith::ExprId>, C, E>, T, S>
+{
     #[allow(refining_impl_trait)]
-    fn predecessors<'a>(&'a self) -> Box<dyn Iterator<Item = VertexId> + 'a> {
-        self.uses()
+    fn predecessors<'a>(&'a self) -> Box<dyn Iterator<Item = I> + 'a> {
+        self.node().uses()
     }
 }
 
@@ -348,24 +369,7 @@ where
         self.typ().size().total()
     }
     pub fn device(&self) -> Device {
-        use template::VertexNode::*;
-        match self.node() {
-            NewPoly(..) | Extend(..) | ScalarInvert { .. } => Device::PreferGpu,
-            Arith { chunking, .. } => {
-                if chunking.is_some() {
-                    Device::Cpu
-                } else {
-                    Device::Gpu
-                }
-            }
-            Ntt { .. } => Device::Gpu,
-            KateDivision(_, _) => Device::Gpu,
-            EvaluatePoly { .. } => Device::Gpu,
-            BatchedInvert(_) => Device::Gpu,
-            ScanMul { .. } => Device::Gpu,
-            DistributePowers { .. } => Device::Gpu,
-            _ => Device::Cpu,
-        }
+        self.node().device()
     }
     pub fn mutable_uses<'a>(
         &'a self,
@@ -665,7 +669,7 @@ pub struct Program<'s, Rt: RuntimeType> {
     pub(crate) cg: Cg<'s, Rt>,
     pub(crate) user_function_table: user_function::Table<Rt>,
     pub(crate) consant_table: ConstantTable<Rt>,
-    pub(crate) memory_pool: PinnedMemoryPool
+    pub(crate) memory_pool: PinnedMemoryPool,
 }
 
 pub mod graph_scheduling;

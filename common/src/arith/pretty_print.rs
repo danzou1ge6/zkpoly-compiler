@@ -30,7 +30,7 @@ pub fn print_subgraph_vertices<I: Copy>(
     // Write output collection node
     writeln!(
         writer,
-        "  {} [label=\"{}\", style=solid]",
+        "    {} [label=\"{}\", style=solid]",
         all_output_id, "AllOutputs"
     )?;
 
@@ -50,7 +50,7 @@ pub fn print_subgraph_edges<I: Copy>(
         for (us, label) in labeled_uses(op).into_iter() {
             writeln!(
                 writer,
-                "  {}{} -> {}{} [label=\"{}\"]",
+                "  {}{} -> {}{} [headlabel=\"{}\", labeldistance=2]",
                 vertex_name_prefix, us.0, vertex_name_prefix, v.0, label
             )?;
         }
@@ -58,12 +58,10 @@ pub fn print_subgraph_edges<I: Copy>(
         if let Operation::Input { outer_id, .. } = op {
             writeln!(
                 writer,
-                "  {}{} -> {}{} [label=\"{}\"]",
-                vertex_name_prefix,
+                "  {} -> {}{}",
                 vid(*outer_id),
                 vertex_name_prefix,
                 v.0,
-                "in"
             )?;
         }
     }
@@ -71,7 +69,7 @@ pub fn print_subgraph_edges<I: Copy>(
     for (i, &output) in ag.outputs.iter().enumerate() {
         writeln!(
             writer,
-            "  {}{} -> {} [label=\"{}\"]",
+            "  {}{} -> {} [headlabel=\"{}\", labeldistance=2]",
             vertex_name_prefix, output.0, all_output_id, i
         )?;
     }

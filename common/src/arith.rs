@@ -5,7 +5,7 @@ use crate::{
 };
 
 /// Scalar-Polynomial operator
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SpOp {
     Add,
     Sub,
@@ -64,7 +64,7 @@ mod op_template {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ArithBinOp {
     Add,
     Sub,
@@ -81,7 +81,7 @@ impl ArithBinOp {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ArithUnrOp {
     Neg,
     Inv,

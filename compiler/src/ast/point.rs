@@ -107,6 +107,7 @@ impl<Rt: RuntimeType> RuntimeCorrespondance<Rt> for Point<Rt> {
     }
 }
 
+#[track_caller]
 pub fn msm_coef<Rt: RuntimeType>(
     polys: impl Iterator<Item = PolyCoef<Rt>>,
     points: &PrecomputedPoints<Rt>,
@@ -118,6 +119,7 @@ pub fn msm_coef<Rt: RuntimeType>(
     ))
 }
 
+#[track_caller]
 pub fn msm_lagrange<Rt: RuntimeType>(
     polys: impl Iterator<Item = PolyLagrange<Rt>>,
     points: &PrecomputedPoints<Rt>,
