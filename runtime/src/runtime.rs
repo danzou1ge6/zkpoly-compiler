@@ -5,7 +5,7 @@ use threadpool::ThreadPool;
 use zkpoly_common::load_dynamic::Libs;
 
 use crate::{
-    args::{ConstantTable, RuntimeType, Variable, VariableTable},
+    args::{ConstantTable, EntryTable, RuntimeType, Variable, VariableTable},
     async_rng::AsyncRng,
     devices::{DeviceType, Event, EventTable, ThreadTable},
     functions::{
@@ -26,6 +26,7 @@ pub struct Runtime<T: RuntimeType> {
     instructions: Vec<Instruction>,
     variable: VariableTable<T>,
     constant: ConstantTable<T>,
+    inputs: EntryTable<T>,
     pool: ThreadPool,
     funcs: FunctionTable<T>,
     events: EventTable,
@@ -41,6 +42,7 @@ impl<T: RuntimeType> Runtime<T> {
         instructions: Vec<Instruction>,
         variable: VariableTable<T>,
         constant: ConstantTable<T>,
+        inputs: EntryTable<T>,
         pool: ThreadPool,
         funcs: FunctionTable<T>,
         events: EventTable,
@@ -54,6 +56,7 @@ impl<T: RuntimeType> Runtime<T> {
             instructions,
             variable,
             constant,
+            inputs,
             pool,
             funcs,
             events,
@@ -68,6 +71,7 @@ impl<T: RuntimeType> Runtime<T> {
         let info = RuntimeInfo {
             variable: Arc::new(self.variable),
             constant: Arc::new(self.constant),
+            inputs: Arc::new(self.inputs),
             pool: Arc::new(self.pool),
             funcs: Arc::new(self.funcs),
             events: Arc::new(self.events),
@@ -89,6 +93,7 @@ impl<T: RuntimeType> Runtime<T> {
 pub struct RuntimeInfo<T: RuntimeType> {
     pub variable: Arc<VariableTable<T>>,
     pub constant: Arc<ConstantTable<T>>,
+    pub inputs: Arc<EntryTable<T>>,
     pub pool: Arc<ThreadPool>,
     pub funcs: Arc<FunctionTable<T>>,
     pub events: Arc<EventTable>,
@@ -343,6 +348,24 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                         }
                         DeviceType::Disk => unreachable!("scalar can't be on disk"),
                     }
+                }
+                Instruction::LoadInput { src, dst } => {
+                    let mut input_guard = self.inputs[src].lock().unwrap();
+                    let input = input_guard.take().unwrap();
+                    drop(input_guard);
+                    let mut guard = self.variable[dst].write().unwrap();
+                    assert!(guard.is_none());
+                    *guard = Some(input);
+                }
+                Instruction::MoveRegister { src, dst } => {
+                    if src == dst {
+                        continue;
+                    }
+                    let mut src_guard = self.variable[src].write().unwrap();
+                    let var = src_guard.take().unwrap();
+                    drop(src_guard);
+                    let mut dst_guard = self.variable[dst].write().unwrap();
+                    *dst_guard = Some(var);
                 }
             }
         }

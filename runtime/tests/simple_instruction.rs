@@ -3,12 +3,12 @@ use std::sync::RwLock;
 use halo2curves::bn256;
 use threadpool::ThreadPool;
 use zkpoly_common::load_dynamic::Libs;
-use zkpoly_common::typ::{PolyMeta, Typ};
+use zkpoly_common::typ::Typ;
 use zkpoly_core::poly::PolyAdd;
 use zkpoly_cuda_api::mem::CudaAllocator;
 use zkpoly_cuda_api::stream::CudaEvent;
 use zkpoly_memory_pool::PinnedMemoryPool;
-use zkpoly_runtime::args::{ConstantTable, RuntimeType, Variable, VariableTable};
+use zkpoly_runtime::args::{ConstantTable, EntryTable, RuntimeType, Variable, VariableTable};
 use zkpoly_runtime::async_rng::AsyncRng;
 use zkpoly_runtime::devices::{DeviceType, Event, EventTable, ThreadTable};
 use zkpoly_runtime::functions::*;
@@ -170,6 +170,7 @@ fn test_add() {
         instructions,
         variable,
         ConstantTable::new(),
+        EntryTable::new(),
         ThreadPool::new(1),
         funcs,
         events,

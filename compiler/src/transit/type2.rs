@@ -118,12 +118,11 @@ pub enum Device {
     PreferGpu,
 }
 
-define_usize_id!(EntryId);
-
 pub mod template {
     use zkpoly_common::msm_config::MsmConfig;
+    use zkpoly_runtime::args::EntryId;
 
-    use super::{arith, transit, EntryId, NttAlgorithm, PolyInit, PolyType};
+    use super::{arith, transit, NttAlgorithm, PolyInit, PolyType};
 
     #[derive(Debug, Clone)]
     pub enum VertexNode<I, A, C, E> {

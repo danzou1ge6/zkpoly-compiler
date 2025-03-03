@@ -1,6 +1,6 @@
 use std::io::Write;
 
-use crate::args::{ConstantId, VariableId};
+use crate::args::{ConstantId, EntryId, VariableId};
 use crate::devices::{DeviceType, EventId, ThreadId};
 use crate::functions::FunctionId;
 use zkpoly_common::typ::Typ;
@@ -101,6 +101,16 @@ pub enum Instruction {
         dst: VariableId,
         idx: usize,
         stream: Option<VariableId>,
+    },
+
+    MoveRegister {
+        src: VariableId,
+        dst: VariableId,
+    },
+
+    LoadInput {
+        src: EntryId,
+        dst: VariableId,
     },
 }
 
