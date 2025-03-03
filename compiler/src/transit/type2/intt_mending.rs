@@ -15,6 +15,7 @@ pub fn mend<'s, Rt: RuntimeType>(
     let order = cg.g.vertices().collect::<Vec<_>>();
 
     let mut divisors = BTreeMap::new();
+    let mut mended = BTreeMap::new();
 
     for vid in order {
         let replacements: BTreeMap<VertexId, VertexId> =
@@ -25,36 +26,40 @@ pub fn mend<'s, Rt: RuntimeType>(
                 .map(|pred| match cg.g.vertex(pred).node() {
                     VertexNode::Ntt { to, from, .. } if *from == PolyType::Lagrange => {
                         assert!(*to == PolyType::Coef);
-                        let (_, pred_deg) = cg.g.vertex(pred).typ().unwrap_poly();
-                        let pred_deg = *pred_deg;
 
-                        let divisor = *divisors.entry(pred_deg).or_insert_with(|| {
-                            let f = Rt::Field::from(pred_deg).invert().unwrap();
-                            let var = crate::ast::Scalar::to_variable(
-                                zkpoly_runtime::scalar::Scalar::from_ff(&f),
-                            );
-                            let cid = constant_table.push(super::Constant::new(
-                                var,
-                                format!("intt_divisor_{}", pred_deg),
-                            ));
-                            let v_constant = cg.g.add_vertex(Vertex::new(
-                                VertexNode::Constant(cid),
-                                Typ::Scalar,
+                        let replacement = *mended.entry(pred).or_insert_with(|| {
+                            let (_, pred_deg) = cg.g.vertex(pred).typ().unwrap_poly();
+                            let pred_deg = *pred_deg;
+
+                            let divisor = *divisors.entry(pred_deg).or_insert_with(|| {
+                                let f = Rt::Field::from(pred_deg).invert().unwrap();
+                                let var = crate::ast::Scalar::to_variable(
+                                    zkpoly_runtime::scalar::Scalar::from_ff(&f),
+                                );
+                                let cid = constant_table.push(super::Constant::new(
+                                    var,
+                                    format!("intt_divisor_{}", pred_deg),
+                                ));
+                                let v_constant = cg.g.add_vertex(Vertex::new(
+                                    VertexNode::Constant(cid),
+                                    Typ::Scalar,
+                                    cg.g.vertex(pred).src().clone(),
+                                ));
+                                v_constant
+                            });
+
+                            let v_div = cg.g.add_vertex(Vertex::new(
+                                VertexNode::SingleArith(arith::Arith::Bin(
+                                    arith::BinOp::Sp(arith::SpOp::Mul),
+                                    divisor,
+                                    pred,
+                                )),
+                                Typ::coef(pred_deg),
                                 cg.g.vertex(pred).src().clone(),
                             ));
-                            v_constant
+                            v_div
                         });
-
-                        let v_div = cg.g.add_vertex(Vertex::new(
-                            VertexNode::SingleArith(arith::Arith::Bin(
-                                arith::BinOp::Sp(arith::SpOp::Mul),
-                                divisor,
-                                pred,
-                            )),
-                            Typ::coef(pred_deg),
-                            cg.g.vertex(pred).src().clone(),
-                        ));
-                        (pred, v_div)
+                        (pred, replacement)
                     }
                     _ => (pred, pred),
                 })
