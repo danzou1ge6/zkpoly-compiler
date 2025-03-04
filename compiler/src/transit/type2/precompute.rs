@@ -31,7 +31,7 @@ pub fn precompute<'s, Rt: RuntimeType>(
     allocator: &mut PinnedMemoryPool,
     constant_tb: &mut ConstantTable<Rt>,
 ) -> Cg<'s, Rt> {
-    let order = cg.g.dfs().map(|(id, _)| id).collect::<Vec<_>>();
+    let order = cg.g.vertices().collect::<Vec<_>>();
     let mut gen_omega = GenOmega::<Rt::Field>::new();
     let mut precompute_ntts: BTreeMap<(u32, bool), NttAlgorithm<VertexId>> = BTreeMap::new();
 
