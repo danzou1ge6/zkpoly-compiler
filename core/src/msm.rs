@@ -64,7 +64,7 @@ impl<T: RuntimeType> MSMPrecompute<T> {
         xmake_run("msm");
 
         // load the dynamic library
-        let lib = libs.load("../lib/libmsm.so");
+        let lib = libs.load("libmsm.so");
         // get the function pointer
         let c_func = unsafe { lib.get(b"msm_precompute\0") }.unwrap();
         Self {
@@ -110,7 +110,7 @@ impl<T: RuntimeType> MSM<T> {
         xmake_run("msm");
 
         // load the dynamic library
-        let lib = libs.load("../lib/libmsm.so");
+        let lib = libs.load("libmsm.so");
         // get the function pointer
         let c_func = unsafe { lib.get(b"msm\0") }.unwrap();
         Self {

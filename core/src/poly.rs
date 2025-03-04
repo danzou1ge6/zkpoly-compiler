@@ -163,7 +163,7 @@ macro_rules! impl_poly_new {
                 let field_type = resolve_type(type_name::<T::Field>());
                 xmake_config("POLY_FIELD", field_type);
                 xmake_run("poly");
-                let lib = libs.load("../lib/libpoly.so");
+                let lib = libs.load("libpoly.so");
                 let c_func = unsafe { lib.get(concat!($symbol_name, "\0").as_bytes()) }.unwrap();
                 Self {
                     _marker: PhantomData,

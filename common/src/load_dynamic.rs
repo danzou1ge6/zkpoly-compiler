@@ -2,6 +2,8 @@ use std::{collections::HashMap, path::PathBuf};
 
 use libloading::Library;
 
+use crate::get_project_root::get_project_root;
+
 #[derive(Debug)]
 pub struct Libs {
     libs: HashMap<String, &'static Library>,
@@ -15,7 +17,8 @@ impl Libs {
     }
 
     pub fn load(&mut self, path: &str) -> &'static Library {
-        let absolute_path = PathBuf::from(path)
+        let path = PathBuf::from(get_project_root()).join("lib/").join(path);
+        let absolute_path = path
             .canonicalize()
             .unwrap()
             .to_string_lossy()

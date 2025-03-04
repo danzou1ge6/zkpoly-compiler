@@ -1,7 +1,6 @@
 use std::{
     any::type_name,
     collections::BTreeSet,
-    ffi::c_longlong,
     fs,
     marker::PhantomData,
     os::raw::{c_uint, c_ulonglong},
@@ -444,7 +443,7 @@ impl<T: RuntimeType> FusedKernel<T> {
         let field_type = resolve_type(type_name::<T::Field>());
         xmake_config("FUSED_FIELD", field_type);
         xmake_run("fused_kernels");
-        let lib = libs.load("../lib/libfused_kernels.so");
+        let lib = libs.load("libfused_kernels.so");
         // get the function pointer with the provided name (with null terminator)
         let c_func = unsafe { lib.get(format!("{}\0", name).as_bytes()) }
             .expect("Failed to load function pointer");

@@ -100,7 +100,7 @@ impl<T: RuntimeType> DistributePowers<T> {
         xmake_run("ntt");
 
         // load the dynamic library
-        let lib = libs.load("../lib/libntt.so");
+        let lib = libs.load("libntt.so");
         // get the function pointer
         let c_func = unsafe { lib.get(b"distribute_powers\0") }.unwrap();
         Self {
@@ -146,7 +146,7 @@ impl<T: RuntimeType> SsipNtt<T> {
         xmake_run("ntt");
 
         // load the dynamic library
-        let lib = libs.load("../lib/libntt.so");
+        let lib = libs.load("libntt.so");
         // get the function pointer
         let c_func = unsafe { lib.get(b"ssip_ntt\0") }.unwrap();
         Self {
@@ -199,7 +199,7 @@ impl<T: RuntimeType> SsipPrecompute<T> {
         xmake_run("ntt");
 
         // load the dynamic library
-        let lib = libs.load("../lib/libntt.so");
+        let lib = libs.load("libntt.so");
         // get the function pointer
         let c_func = unsafe { lib.get(b"ssip_precompute\0") }.unwrap();
         Self {
@@ -238,7 +238,7 @@ impl<T: RuntimeType> RecomputeNtt<T> {
         xmake_run("ntt");
 
         // load the dynamic library
-        let lib = libs.load("../lib/libntt.so");
+        let lib = libs.load("libntt.so");
         // get the function pointer
         let c_func = unsafe { lib.get(b"recompute_ntt\0") }.unwrap();
         Self {
@@ -296,7 +296,7 @@ impl<T: RuntimeType> GenPqOmegas<T> {
         xmake_run("ntt");
 
         // load the dynamic library
-        let lib = libs.load("../lib/libntt.so");
+        let lib = libs.load("libntt.so");
         // get the function pointer
         let c_func = unsafe { lib.get(b"gen_pq_omegas\0") }.unwrap();
         Self {

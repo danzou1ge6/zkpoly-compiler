@@ -30,7 +30,7 @@ impl<T: RuntimeType> SimpleFunc<T> {
         xmake_run("simple_add");
 
         // load the dynamic library
-        let lib = libs.load("../lib/libsimple_add.so");
+        let lib = libs.load("libsimple_add.so");
         // get the function pointer
         let c_func = unsafe { lib.get(b"simple_add\0") }.unwrap();
         Self {

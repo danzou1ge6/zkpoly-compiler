@@ -1,4 +1,5 @@
 use std::process::Command;
+use zkpoly_common::get_project_root::get_project_root;
 
 pub fn resolve_type(name: &str) -> &str {
     match name {
@@ -29,6 +30,7 @@ pub fn xmake_run(target: &str) {
     }
     // run twice because the bug of xmake not linking the library sometimes
     if !Command::new("xmake")
+        .current_dir(get_project_root())
         .arg("build")
         .arg(target)
         .output()
@@ -43,6 +45,7 @@ pub fn xmake_run(target: &str) {
 
 pub fn xmake_config(name: &str, value: &str) {
     if !Command::new("xmake")
+        .current_dir(get_project_root())
         .arg("f")
         .arg(format!("--{}={}", name, value))
         .output()
