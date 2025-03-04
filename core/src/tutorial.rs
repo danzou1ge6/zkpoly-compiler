@@ -24,10 +24,12 @@ pub struct SimpleFunc<T: RuntimeType> {
 
 impl<T: RuntimeType> SimpleFunc<T> {
     pub fn new(libs: &mut Libs) -> Self {
-        // compile the dynamic library according to the template
-        let field_type = resolve_type(type_name::<T::Field>());
-        xmake_config("SIMPLE_ADD_FIELD", field_type);
-        xmake_run("simple_add");
+        if !libs.contains("libsimple_add.so") {
+            // compile the dynamic library according to the template
+            let field_type = resolve_type(type_name::<T::Field>());
+            xmake_config("SIMPLE_ADD_FIELD", field_type);
+            xmake_run("simple_add");
+        }
 
         // load the dynamic library
         let lib = libs.load("libsimple_add.so");

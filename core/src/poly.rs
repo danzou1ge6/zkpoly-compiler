@@ -33,6 +33,8 @@ use zkpoly_runtime::functions::{Function, FunctionValue, RegisteredFunction};
 
 use crate::poly_ptr::{ConstPolyPtr, PolyPtr};
 
+static LIB_NAME: &str = "libpoly.so";
+
 pub struct PolyAdd<T: RuntimeType> {
     _marker: PhantomData<T>,
     c_func: Symbol<
@@ -160,9 +162,11 @@ macro_rules! impl_poly_new {
     ($struct_name:ident, $symbol_name:literal) => {
         impl<T: RuntimeType> $struct_name<T> {
             pub fn new(libs: &mut Libs) -> Self {
-                let field_type = resolve_type(type_name::<T::Field>());
-                xmake_config("POLY_FIELD", field_type);
-                xmake_run("poly");
+                if !libs.contains(LIB_NAME) {
+                    let field_type = resolve_type(type_name::<T::Field>());
+                    xmake_config("POLY_FIELD", field_type);
+                    xmake_run("poly");
+                }
                 let lib = libs.load("libpoly.so");
                 let c_func = unsafe { lib.get(concat!($symbol_name, "\0").as_bytes()) }.unwrap();
                 Self {

@@ -20,6 +20,8 @@ use zkpoly_cuda_api::bindings::{
     cudaError_cudaSuccess, cudaError_t, cudaGetErrorString, cudaSetDevice, cudaStream_t,
 };
 
+static LIB_NAME: &str = "libntt.so";
+
 pub struct SsipNtt<T: RuntimeType> {
     _marker: PhantomData<T>,
     c_func: Symbol<
@@ -93,14 +95,19 @@ pub struct GenPqOmegas<T: RuntimeType> {
     >,
 }
 
-impl<T: RuntimeType> DistributePowers<T> {
-    pub fn new(libs: &mut Libs) -> Self {
+fn load_lib<T: RuntimeType>(libs: &mut Libs) -> &'static libloading::Library {
+    if !libs.contains(LIB_NAME) {
         let field_type = resolve_type(type_name::<T::Field>());
         xmake_config("NTT_FIELD", field_type);
         xmake_run("ntt");
+    }
+    libs.load(LIB_NAME)
+}
 
+impl<T: RuntimeType> DistributePowers<T> {
+    pub fn new(libs: &mut Libs) -> Self {
         // load the dynamic library
-        let lib = libs.load("libntt.so");
+        let lib = load_lib::<T>(libs);
         // get the function pointer
         let c_func = unsafe { lib.get(b"distribute_powers\0") }.unwrap();
         Self {
@@ -141,12 +148,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for DistributePowers<T> {
 
 impl<T: RuntimeType> SsipNtt<T> {
     pub fn new(libs: &mut Libs) -> Self {
-        let field_type = resolve_type(type_name::<T::Field>());
-        xmake_config("NTT_FIELD", field_type);
-        xmake_run("ntt");
-
         // load the dynamic library
-        let lib = libs.load("libntt.so");
+        let lib = load_lib::<T>(libs);
         // get the function pointer
         let c_func = unsafe { lib.get(b"ssip_ntt\0") }.unwrap();
         Self {
@@ -194,12 +197,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for SsipNtt<T> {
 
 impl<T: RuntimeType> SsipPrecompute<T> {
     pub fn new(libs: &mut Libs) -> Self {
-        let field_type = resolve_type(type_name::<T::Field>());
-        xmake_config("NTT_FIELD", field_type);
-        xmake_run("ntt");
-
         // load the dynamic library
-        let lib = libs.load("libntt.so");
+        let lib = load_lib::<T>(libs);
         // get the function pointer
         let c_func = unsafe { lib.get(b"ssip_precompute\0") }.unwrap();
         Self {
@@ -233,12 +232,8 @@ impl<T: RuntimeType> SsipPrecompute<T> {
 
 impl<T: RuntimeType> RecomputeNtt<T> {
     pub fn new(libs: &mut Libs) -> Self {
-        let field_type = resolve_type(type_name::<T::Field>());
-        xmake_config("NTT_FIELD", field_type);
-        xmake_run("ntt");
-
         // load the dynamic library
-        let lib = libs.load("libntt.so");
+        let lib = load_lib::<T>(libs);
         // get the function pointer
         let c_func = unsafe { lib.get(b"recompute_ntt\0") }.unwrap();
         Self {
@@ -291,12 +286,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for RecomputeNtt<T> {
 
 impl<T: RuntimeType> GenPqOmegas<T> {
     pub fn new(libs: &mut Libs) -> Self {
-        let field_type = resolve_type(type_name::<T::Field>());
-        xmake_config("NTT_FIELD", field_type);
-        xmake_run("ntt");
-
         // load the dynamic library
-        let lib = libs.load("libntt.so");
+        let lib = load_lib::<T>(libs);
         // get the function pointer
         let c_func = unsafe { lib.get(b"gen_pq_omegas\0") }.unwrap();
         Self {

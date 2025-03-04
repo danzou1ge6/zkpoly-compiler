@@ -16,13 +16,16 @@ impl Libs {
         }
     }
 
+    pub fn contains(&self, path: &str) -> bool {
+        let path = PathBuf::from(get_project_root()).join("lib/").join(path);
+        let absolute_path = path.canonicalize().unwrap().to_string_lossy().to_string();
+
+        self.libs.contains_key(&absolute_path)
+    }
+
     pub fn load(&mut self, path: &str) -> &'static Library {
         let path = PathBuf::from(get_project_root()).join("lib/").join(path);
-        let absolute_path = path
-            .canonicalize()
-            .unwrap()
-            .to_string_lossy()
-            .to_string();
+        let absolute_path = path.canonicalize().unwrap().to_string_lossy().to_string();
 
         self.libs
             .entry(absolute_path.clone())

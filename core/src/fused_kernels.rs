@@ -27,7 +27,12 @@ use zkpoly_runtime::{
     functions::{Function, FunctionValue, RegisteredFunction},
 };
 
-use crate::{build_func::{resolve_type, xmake_config, xmake_run}, poly_ptr::{ConstPolyPtr, PolyPtr}};
+use crate::{
+    build_func::{resolve_type, xmake_config, xmake_run},
+    poly_ptr::{ConstPolyPtr, PolyPtr},
+};
+
+static LIB_NAME: &str = "libfused_kernels.so";
 
 pub struct FusedKernel<T: RuntimeType> {
     _marker: PhantomData<T>,
@@ -149,7 +154,9 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
             let id: usize = id.clone().into();
             match typ {
                 FusedType::ScalarArray => {
-                    let iter = format!("auto {ITER_PREFIX}{id} = mont::make_slice_iter<FUSED_FIELD>(vars[{i}]);");
+                    let iter = format!(
+                        "auto {ITER_PREFIX}{id} = mont::make_slice_iter<FUSED_FIELD>(vars[{i}]);"
+                    );
                     wrapper.push_str(&iter);
                 }
                 FusedType::Scalar => {
@@ -440,10 +447,12 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
 
 impl<T: RuntimeType> FusedKernel<T> {
     pub fn new(libs: &mut Libs, name: String) -> Self {
-        let field_type = resolve_type(type_name::<T::Field>());
-        xmake_config("FUSED_FIELD", field_type);
-        xmake_run("fused_kernels");
-        let lib = libs.load("libfused_kernels.so");
+        if !libs.contains(LIB_NAME) {
+            let field_type = resolve_type(type_name::<T::Field>());
+            xmake_config("FUSED_FIELD", field_type);
+            xmake_run("fused_kernels");
+        }
+        let lib = libs.load(LIB_NAME);
         // get the function pointer with the provided name (with null terminator)
         let c_func = unsafe { lib.get(format!("{}\0", name).as_bytes()) }
             .expect("Failed to load function pointer");
@@ -479,7 +488,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for FusedKernel<T> {
                         if len == 0 {
                             len = 1;
                         }
-                        ConstPolyPtr{
+                        ConstPolyPtr {
                             ptr: scalar.value as *const c_uint,
                             len: 1,
                             rotate: 0,
@@ -505,7 +514,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for FusedKernel<T> {
                         if len == 0 {
                             len = 1;
                         }
-                        PolyPtr{
+                        PolyPtr {
                             ptr: scalar.value as *mut c_uint,
                             len: 1,
                             rotate: 0,

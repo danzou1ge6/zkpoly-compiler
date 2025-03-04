@@ -15,6 +15,8 @@ use zkpoly_runtime::point::PointArray;
 
 use crate::build_func::{resolve_curve, xmake_config, xmake_run};
 
+static LIB_NAME: &str = "libmsm.so";
+
 pub struct MSM<T: RuntimeType> {
     _marker: PhantomData<T>,
     c_func: Symbol<
@@ -52,19 +54,21 @@ pub struct MSMPrecompute<T: RuntimeType> {
 
 impl<T: RuntimeType> MSMPrecompute<T> {
     pub fn new(libs: &mut Libs, config: MsmConfig) -> Self {
-        let (curve, bits) = resolve_curve(type_name::<T::PointAffine>());
-        xmake_config("MSM_BITS", bits.to_string().as_str());
-        xmake_config("MSM_CURVE", curve);
-        xmake_config("MSM_WINDOW_SIZE", config.window_size.to_string().as_str());
-        xmake_config(
-            "MSM_TARGET_WINDOWS",
-            config.target_window.to_string().as_str(),
-        );
-        xmake_config("MSM_DEBUG", (config.debug as u32).to_string().as_str());
-        xmake_run("msm");
+        if !libs.contains(LIB_NAME) {
+            let (curve, bits) = resolve_curve(type_name::<T::PointAffine>());
+            xmake_config("MSM_BITS", bits.to_string().as_str());
+            xmake_config("MSM_CURVE", curve);
+            xmake_config("MSM_WINDOW_SIZE", config.window_size.to_string().as_str());
+            xmake_config(
+                "MSM_TARGET_WINDOWS",
+                config.target_window.to_string().as_str(),
+            );
+            xmake_config("MSM_DEBUG", (config.debug as u32).to_string().as_str());
+            xmake_run("msm");
+        }
 
         // load the dynamic library
-        let lib = libs.load("libmsm.so");
+        let lib = libs.load(LIB_NAME);
         // get the function pointer
         let c_func = unsafe { lib.get(b"msm_precompute\0") }.unwrap();
         Self {
@@ -98,19 +102,21 @@ impl<T: RuntimeType> MSMPrecompute<T> {
 
 impl<T: RuntimeType> MSM<T> {
     pub fn new(libs: &mut Libs, config: MsmConfig) -> Self {
-        let (curve, bits) = resolve_curve(type_name::<T::PointAffine>());
-        xmake_config("MSM_BITS", bits.to_string().as_str());
-        xmake_config("MSM_CURVE", curve);
-        xmake_config("MSM_WINDOW_SIZE", config.window_size.to_string().as_str());
-        xmake_config(
-            "MSM_TARGET_WINDOWS",
-            config.target_window.to_string().as_str(),
-        );
-        xmake_config("MSM_DEBUG", (config.debug as u32).to_string().as_str());
-        xmake_run("msm");
+        if !libs.contains(LIB_NAME) {
+            let (curve, bits) = resolve_curve(type_name::<T::PointAffine>());
+            xmake_config("MSM_BITS", bits.to_string().as_str());
+            xmake_config("MSM_CURVE", curve);
+            xmake_config("MSM_WINDOW_SIZE", config.window_size.to_string().as_str());
+            xmake_config(
+                "MSM_TARGET_WINDOWS",
+                config.target_window.to_string().as_str(),
+            );
+            xmake_config("MSM_DEBUG", (config.debug as u32).to_string().as_str());
+            xmake_run("msm");
+        }
 
         // load the dynamic library
-        let lib = libs.load("libmsm.so");
+        let lib = libs.load(LIB_NAME);
         // get the function pointer
         let c_func = unsafe { lib.get(b"msm\0") }.unwrap();
         Self {
