@@ -39,8 +39,8 @@ fn main() {
         panic!("could not build the library");
     }
 
-    println!("cargo:rerun-if-changed={}", "cpp/src/*");
-    println!("cargo:rerun-if-changed={}", "cpp/wrapper/*");
+    println!("cargo:rerun-if-changed={}", "cpp/src/");
+    println!("cargo:rerun-if-changed={}", "cpp/wrapper/");
     println!("cargo:rerun-if-env-changed=CUDA_PATH");
 
     // Tell cargo to look for libraries in the specified directory
