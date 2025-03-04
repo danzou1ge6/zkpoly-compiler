@@ -28,7 +28,7 @@ use zkpoly_runtime::{
     functions::{Function, FunctionValue, RegisteredFunction},
 };
 
-use crate::build_func::{resolve_type, xmake_config, xmake_run};
+use crate::{build_func::{resolve_type, xmake_config, xmake_run}, poly_ptr::{ConstPolyPtr, PolyPtr}};
 
 pub struct FusedKernel<T: RuntimeType> {
     _marker: PhantomData<T>,
@@ -36,10 +36,8 @@ pub struct FusedKernel<T: RuntimeType> {
     c_func: Symbol<
         'static,
         unsafe extern "C" fn(
-            vars: *const *const c_uint,
-            var_rotates: *const c_longlong,
-            mut_vars: *const *mut c_uint,
-            mut_var_rotates: *const c_longlong,
+            vars: *const ConstPolyPtr,
+            mut_vars: *const PolyPtr,
             len: c_ulonglong,
             stream: cudaStream_t,
         ) -> cudaError_t,
@@ -130,7 +128,11 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
     fn gen_header(&self) -> String {
         let mut header = String::new();
         header.push_str("#include \"../../common/mont/src/field_impls.cuh\"\n");
-        header.push_str("#include \"../../common/mont/src/iter.cuh\"\n");
+        header.push_str("#include \"../../common/iter/src/iter.cuh\"\n");
+        header.push_str("#include <cuda_runtime.h>\n");
+        header.push_str("using iter::SliceIterator;\n");
+        header.push_str("using mont::u32;\n");
+        header.push_str("using iter::make_slice_iter\n");
         header
     }
 
@@ -141,18 +143,18 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
         wrapper.push_str("extern \"C\" cudaError_t ");
         wrapper.push_str(&self.name);
         wrapper.push_str(
-            "(uint const * const* vars, long long const * var_rotates, uint * const* mut_vars, long long const * mut_var_rotates unsigned long long len, cudaStream_t stream) {\n",
+            "(ConstPolyPtr const* vars, PolyPtr const* mut_vars, unsigned long long len, cudaStream_t stream) {\n",
         );
 
         for (i, (typ, id)) in self.vars.iter().enumerate() {
             let id: usize = id.clone().into();
             match typ {
                 FusedType::ScalarArray => {
-                    let iter = format!("auto {ITER_PREFIX}{id} = mont::make_rotating_iter(reinterpret_cast<const FUSED_FIELD*>(vars[{i}]), var_rotates[{i}], len);");
+                    let iter = format!("auto {ITER_PREFIX}{id} = mont::make_slice_iter<FUSED_FIELD>(vars[{i}]);");
                     wrapper.push_str(&iter);
                 }
                 FusedType::Scalar => {
-                    let scalar = format!("auto {SCALAR_PREFIX}{id} = reinterpret_cast<const FUSED_FIELD*>(vars[{i}]);");
+                    let scalar = format!("auto {SCALAR_PREFIX}{id} = reinterpret_cast<const FUSED_FIELD*>(vars[{i}].ptr);");
                     wrapper.push_str(&scalar);
                 }
             }
@@ -161,12 +163,12 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
             let id: usize = id.clone().into();
             match typ {
                 FusedType::ScalarArray => {
-                    let iter = format!("auto {ITER_PREFIX}{id} = mont::make_rotating_iter(reinterpret_cast<FUSED_FIELD*>(mut_vars[{i}]), mut_var_rotates[{i}], len);");
+                    let iter = format!("auto {ITER_PREFIX}{id} = mont::make_slice_iter<FUSED_FIELD>(mut_vars[{i}]);");
                     wrapper.push_str(&iter);
                 }
                 FusedType::Scalar => {
                     let scalar = format!(
-                        "auto {SCALAR_PREFIX}{id} = reinterpret_cast<FUSED_FIELD*>(mut_vars[{i}]);"
+                        "auto {SCALAR_PREFIX}{id} = reinterpret_cast<FUSED_FIELD*>(mut_vars[{i}].ptr);"
                     );
                     wrapper.push_str(&scalar);
                 }
@@ -222,7 +224,7 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                     kernel.push_str(", ");
                 }
                 FusedType::ScalarArray => {
-                    kernel.push_str("mont::RotatingIter<const Field> ");
+                    kernel.push_str("SliceIterator<const Field> ");
                     kernel.push_str(ITER_PREFIX);
                     kernel.push_str(&id.to_string());
                     kernel.push_str(", ");
@@ -240,7 +242,7 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                     kernel.push_str(", ");
                 }
                 FusedType::ScalarArray => {
-                    kernel.push_str("mont::RotatingIter<Field> ");
+                    kernel.push_str("SliceIterator<Field> ");
                     kernel.push_str(ITER_PREFIX);
                     kernel.push_str(&id.to_string());
                     kernel.push_str(", ");
@@ -457,12 +459,12 @@ impl<T: RuntimeType> FusedKernel<T> {
 impl<T: RuntimeType> RegisteredFunction<T> for FusedKernel<T> {
     fn get_fn(&self) -> Function<T> {
         let c_func = self.c_func.clone();
-        let rust_func = move |mut_var: Vec<&mut Variable<T>>,
+        let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
                               var: Vec<&Variable<T>>|
               -> Result<(), RuntimeError> {
             let mut len = 0;
             let stream = var[0].unwrap_stream();
-            let (vars, var_rotates) = var
+            let vars = var
                 .iter()
                 .skip(1)
                 .map(|v| match v {
@@ -472,22 +474,25 @@ impl<T: RuntimeType> RegisteredFunction<T> for FusedKernel<T> {
                         } else {
                             assert_eq!(len, poly.len);
                         }
-                        (
-                            poly.values as *const c_uint,
-                            poly.get_rotation() as c_longlong,
-                        )
+                        ConstPolyPtr::from(poly)
                     }
                     Variable::Scalar(scalar) => {
                         if len == 0 {
                             len = 1;
                         }
-                        (scalar.value as *const c_uint, 0 as c_longlong)
+                        ConstPolyPtr{
+                            ptr: scalar.value as *const c_uint,
+                            len: 1,
+                            rotate: 0,
+                            offset: 0,
+                            whole_len: 1,
+                        }
                     }
                     _ => unreachable!("Only scalars and scalar arrays are supported"),
                 })
-                .collect::<(Vec<_>, Vec<_>)>();
-            let (mut_vars, mut_var_rotates) = mut_var
-                .iter()
+                .collect::<Vec<_>>();
+            let mut_vars = mut_var
+                .iter_mut()
                 .map(|v| match v {
                     Variable::ScalarArray(poly) => {
                         if len == 0 || len == 1 {
@@ -495,28 +500,29 @@ impl<T: RuntimeType> RegisteredFunction<T> for FusedKernel<T> {
                         } else {
                             assert_eq!(len, poly.len);
                         }
-                        (
-                            poly.values as *mut c_uint,
-                            poly.get_rotation() as c_longlong,
-                        )
+                        PolyPtr::from(poly)
                     }
                     Variable::Scalar(scalar) => {
                         if len == 0 {
                             len = 1;
                         }
-                        (scalar.value as *mut c_uint, 0 as c_longlong)
+                        PolyPtr{
+                            ptr: scalar.value as *mut c_uint,
+                            len: 1,
+                            rotate: 0,
+                            offset: 0,
+                            whole_len: 1,
+                        }
                     }
                     _ => unreachable!("Only scalars and scalar arrays are supported"),
                 })
-                .collect::<(Vec<_>, Vec<_>)>();
+                .collect::<Vec<_>>();
             assert!(len > 0);
             unsafe {
                 cuda_check!(cudaSetDevice(stream.get_device()));
                 cuda_check!((c_func)(
                     vars.as_ptr(),
-                    var_rotates.as_ptr(),
                     mut_vars.as_ptr(),
-                    mut_var_rotates.as_ptr(),
                     len.try_into().unwrap(),
                     stream.raw()
                 ));
