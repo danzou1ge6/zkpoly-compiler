@@ -4,8 +4,8 @@ use std::{
     any::type_name,
     ffi::c_ulong,
     marker::PhantomData,
-    os::raw::{c_longlong, c_uint, c_ulonglong, c_void},
-    ptr::{self, null, null_mut},
+    os::raw::{c_uint, c_void},
+    ptr::{self, null_mut},
 };
 
 use group::ff::Field;
@@ -22,6 +22,7 @@ use zkpoly_runtime::{
     args::{RuntimeType, Variable},
     devices::DeviceType,
     error::RuntimeError,
+    runtime::transfer::Transfer,
 };
 
 use super::build_func::{resolve_type, xmake_config, xmake_run};
@@ -30,18 +31,16 @@ use zkpoly_common::load_dynamic::Libs;
 
 use zkpoly_runtime::functions::{Function, FunctionValue, RegisteredFunction};
 
+use crate::poly_ptr::{ConstPolyPtr, PolyPtr};
+
 pub struct PolyAdd<T: RuntimeType> {
     _marker: PhantomData<T>,
     c_func: Symbol<
         'static,
         unsafe extern "C" fn(
-            res: *mut c_uint,
-            r_rotate: c_longlong,
-            a: *const c_uint,
-            a_rotate: c_longlong,
-            b: *const c_uint,
-            b_rotate: c_longlong,
-            len: c_ulonglong,
+            res: PolyPtr,
+            a: ConstPolyPtr,
+            b: ConstPolyPtr,
             stream: cudaStream_t,
         ) -> cudaError_t,
     >,
@@ -52,13 +51,9 @@ pub struct PolySub<T: RuntimeType> {
     c_func: Symbol<
         'static,
         unsafe extern "C" fn(
-            res: *mut c_uint,
-            r_rotate: c_longlong,
-            a: *const c_uint,
-            a_rotate: c_longlong,
-            b: *const c_uint,
-            b_rotate: c_longlong,
-            len: c_ulonglong,
+            res: PolyPtr,
+            a: ConstPolyPtr,
+            b: ConstPolyPtr,
             stream: cudaStream_t,
         ) -> cudaError_t,
     >,
@@ -69,13 +64,9 @@ pub struct PolyMul<T: RuntimeType> {
     c_func: Symbol<
         'static,
         unsafe extern "C" fn(
-            res: *mut c_uint,
-            r_rotate: c_longlong,
-            a: *const c_uint,
-            a_rotate: c_longlong,
-            b: *const c_uint,
-            b_rotate: c_longlong,
-            len: c_ulonglong,
+            res: PolyPtr,
+            a: ConstPolyPtr,
+            b: ConstPolyPtr,
             stream: cudaStream_t,
         ) -> cudaError_t,
     >,
@@ -83,39 +74,20 @@ pub struct PolyMul<T: RuntimeType> {
 
 pub struct PolyZero<T: RuntimeType> {
     _marker: PhantomData<T>,
-    c_func: Symbol<
-        'static,
-        unsafe extern "C" fn(
-            target: *mut c_uint,
-            len: c_ulonglong,
-            stream: cudaStream_t,
-        ) -> cudaError_t,
-    >,
+    c_func:
+        Symbol<'static, unsafe extern "C" fn(target: PolyPtr, stream: cudaStream_t) -> cudaError_t>,
 }
 
 pub struct PolyOneLagrange<T: RuntimeType> {
     _marker: PhantomData<T>,
-    c_func: Symbol<
-        'static,
-        unsafe extern "C" fn(
-            target: *mut c_uint,
-            len: c_ulonglong,
-            stream: cudaStream_t,
-        ) -> cudaError_t,
-    >,
+    c_func:
+        Symbol<'static, unsafe extern "C" fn(target: PolyPtr, stream: cudaStream_t) -> cudaError_t>,
 }
 
 pub struct PolyOneCoef<T: RuntimeType> {
     _marker: PhantomData<T>,
-    c_func: Symbol<
-        'static,
-        unsafe extern "C" fn(
-            target: *mut c_uint,
-            rotate: c_longlong,
-            len: c_ulonglong,
-            stream: cudaStream_t,
-        ) -> cudaError_t,
-    >,
+    c_func:
+        Symbol<'static, unsafe extern "C" fn(target: PolyPtr, stream: cudaStream_t) -> cudaError_t>,
 }
 
 pub struct PolyEval<T: RuntimeType> {
@@ -125,11 +97,9 @@ pub struct PolyEval<T: RuntimeType> {
         unsafe extern "C" fn(
             temp_buf: *mut c_void,
             temp_buf_size: *mut c_ulong,
-            poly: *const c_uint,
+            poly: ConstPolyPtr,
             res: *mut c_uint,
             x: *const c_uint,
-            len: c_ulonglong,
-            rotate: c_longlong,
             stream: cudaStream_t,
         ) -> cudaError_t,
     >,
@@ -143,11 +113,9 @@ pub struct KateDivision<T: RuntimeType> {
             temp_buf: *mut c_void,
             temp_buf_size: *mut c_ulong,
             log_p: c_uint,
-            p: *const c_uint,
-            p_rotate: c_longlong,
+            p: ConstPolyPtr,
             b: *const c_uint,
-            q: *mut c_uint,
-            q_rotate: c_longlong,
+            q: PolyPtr,
             stream: cudaStream_t,
         ) -> cudaError_t,
     >,
@@ -160,12 +128,7 @@ pub struct PolyScan<T: RuntimeType> {
         unsafe extern "C" fn(
             temp_buffer: *mut c_void,
             buffer_size: *mut c_ulong,
-            poly: *const c_uint,
-            p_rotate: c_longlong,
-            target: *mut c_uint,
-            t_rotate: c_longlong,
-            x0: *const c_uint,
-            len: c_ulonglong,
+            target: PolyPtr,
             stream: cudaStream_t,
         ) -> cudaError_t,
     >,
@@ -178,9 +141,8 @@ pub struct PolyInvert<T: RuntimeType> {
         unsafe extern "C" fn(
             temp_buffer: *mut c_void,
             buffer_size: *mut c_ulong,
-            poly: *mut c_uint,
+            poly: PolyPtr,
             inv: *mut c_uint,
-            len: c_ulonglong,
             stream: cudaStream_t,
         ) -> cudaError_t,
     >,
@@ -262,9 +224,8 @@ impl<T: RuntimeType> PolyInvert<T> {
             cuda_check!((self.c_func)(
                 std::ptr::null_mut(),
                 &mut buf_size as *mut usize as *mut c_ulong,
+                PolyPtr::null(len),
                 null_mut(),
-                null_mut(),
-                len.try_into().unwrap(),
                 null_mut(),
             ));
         }
@@ -293,9 +254,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyInvert<T> {
                 cuda_check!(c_func(
                     temp_buf.ptr as *mut c_void,
                     null_mut(),
-                    target.values as *mut c_uint,
+                    PolyPtr::from(target),
                     inv.value as *mut c_uint,
-                    target.len.try_into().unwrap(),
                     stream.raw(),
                 ));
             }
@@ -315,12 +275,7 @@ impl<T: RuntimeType> PolyScan<T> {
             cuda_check!((self.c_func)(
                 std::ptr::null_mut(),
                 &mut buf_size as *mut usize as *mut c_ulong,
-                null(),
-                0,
-                null_mut(),
-                0,
-                null(),
-                len.try_into().unwrap(),
+                PolyPtr::null(len),
                 null_mut(),
             ));
         }
@@ -344,17 +299,19 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyScan<T> {
             assert_eq!(target.len, p.len);
             let x0 = var[1].unwrap_scalar();
             let stream = var[2].unwrap_stream();
+
+            stream.memcpy_d2d(target.get_ptr(0), x0.value, 1);
+
+            let mut target_slice = target.slice(1, target.len);
+            let p_slice = p.slice(0, p.len - 1);
+            p_slice.gpu2gpu(&mut target_slice, stream);
+
             unsafe {
                 cuda_check!(cudaSetDevice(stream.get_device()));
                 cuda_check!(c_func(
                     temp_buf.ptr as *mut c_void,
                     null_mut(),
-                    p.values as *const u32,
-                    p.get_rotation() as i64,
-                    target.values as *mut u32,
-                    target.get_rotation() as i64,
-                    x0.value as *const u32,
-                    p.len.try_into().unwrap(),
+                    PolyPtr::from(target),
                     stream.raw(),
                 ));
             }
@@ -385,11 +342,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyOneLagrange<T> {
                 let stream = var[0].unwrap_stream();
                 unsafe {
                     cuda_check!(cudaSetDevice(stream.get_device()));
-                    cuda_check!(c_func(
-                        target.values as *mut c_uint,
-                        target.len.try_into().unwrap(),
-                        stream.raw()
-                    ));
+                    cuda_check!(c_func(PolyPtr::from(target), stream.raw()));
                 }
             }
             Ok(())
@@ -424,12 +377,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyOneCoef<T> {
                 let stream = var[0].unwrap_stream();
                 unsafe {
                     cuda_check!(cudaSetDevice(stream.get_device()));
-                    cuda_check!(c_func(
-                        target.values as *mut c_uint,
-                        target.get_rotation() as i64,
-                        target.len.try_into().unwrap(),
-                        stream.raw()
-                    ));
+                    cuda_check!(c_func(PolyPtr::from(target), stream.raw()));
                 }
             }
             Ok(())
@@ -460,11 +408,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyZero<T> {
                 let stream = var[0].unwrap_stream();
                 unsafe {
                     cuda_check!(cudaSetDevice(stream.get_device()));
-                    cuda_check!(c_func(
-                        target.values as *mut c_uint,
-                        target.len.try_into().unwrap(),
-                        stream.raw()
-                    ));
+                    cuda_check!(c_func(PolyPtr::from(target), stream.raw()));
                 }
             }
             Ok(())
@@ -485,11 +429,9 @@ impl<T: RuntimeType> KateDivision<T> {
                 std::ptr::null_mut(),
                 &mut buf_size as *mut usize as *mut c_ulong,
                 log_p,
+                ConstPolyPtr::null(1 << log_p),
                 std::ptr::null(),
-                0,
-                std::ptr::null(),
-                std::ptr::null_mut(),
-                0,
+                PolyPtr::null(1 << log_p),
                 std::ptr::null_mut(),
             ));
         }
@@ -523,11 +465,9 @@ impl<T: RuntimeType> RegisteredFunction<T> for KateDivision<T> {
                     temp_buf.ptr as *mut c_void,
                     null_mut() as *mut c_ulong,
                     log_p,
-                    p.values as *const c_uint,
-                    p.get_rotation() as i64,
+                    ConstPolyPtr::from(p),
                     b.value as *const c_uint,
-                    res.values as *mut c_uint,
-                    res.get_rotation() as i64,
+                    PolyPtr::from(res),
                     stream.raw(),
                 ));
             }
@@ -548,11 +488,9 @@ impl<T: RuntimeType> PolyEval<T> {
             cuda_check!((self.c_func)(
                 std::ptr::null_mut(),
                 &mut buf_size as *mut usize as *mut c_ulong,
-                std::ptr::null(),
+                ConstPolyPtr::null(len),
                 std::ptr::null_mut(),
                 std::ptr::null(),
-                len.try_into().unwrap(),
-                0,
                 std::ptr::null_mut(),
             ));
         }
@@ -573,18 +511,15 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyEval<T> {
             let res = res_var[0].unwrap_scalar_mut();
             let poly = var[0].unwrap_scalar_array();
             let x = var[1].unwrap_scalar();
-            let len = poly.len;
             let stream = var[2].unwrap_stream();
             unsafe {
                 cuda_check!(cudaSetDevice(stream.get_device()));
                 cuda_check!(c_func(
                     temp_buf.ptr as *mut c_void,
                     null_mut() as *mut c_ulong,
-                    poly.values as *const c_uint,
+                    ConstPolyPtr::from(poly),
                     res.value as *mut c_uint,
                     x.value as *const c_uint,
-                    len.try_into().unwrap(),
-                    poly.get_rotation() as i64,
                     stream.raw(),
                 ))
             }
@@ -611,18 +546,13 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyAdd<T> {
             let res = mut_var[0].unwrap_scalar_array_mut();
             let a = var[0].unwrap_scalar_array();
             let b = var[1].unwrap_scalar_array();
-            let len = a.len;
             let stream = var[2].unwrap_stream();
             unsafe {
                 cuda_check!(cudaSetDevice(stream.get_device()));
                 cuda_check!(c_func(
-                    res.values as *mut c_uint,
-                    res.get_rotation() as i64,
-                    a.values as *const c_uint,
-                    a.get_rotation() as i64,
-                    b.values as *const c_uint,
-                    b.get_rotation() as i64,
-                    len as c_ulonglong,
+                    PolyPtr::from(res),
+                    ConstPolyPtr::from(a),
+                    ConstPolyPtr::from(b),
                     stream.raw(),
                 ));
             }
@@ -648,18 +578,13 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolySub<T> {
             let res = mut_var[0].unwrap_scalar_array_mut();
             let a = var[0].unwrap_scalar_array();
             let b = var[1].unwrap_scalar_array();
-            let len = a.len;
             let stream = var[2].unwrap_stream();
             unsafe {
                 cuda_check!(cudaSetDevice(stream.get_device()));
                 cuda_check!(c_func(
-                    res.values as *mut c_uint,
-                    res.get_rotation() as i64,
-                    a.values as *const c_uint,
-                    a.get_rotation() as i64,
-                    b.values as *const c_uint,
-                    b.get_rotation() as i64,
-                    len as c_ulonglong,
+                    PolyPtr::from(res),
+                    ConstPolyPtr::from(a),
+                    ConstPolyPtr::from(b),
                     stream.raw(),
                 ));
             }
@@ -685,18 +610,13 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyMul<T> {
             let res = mut_var[0].unwrap_scalar_array_mut();
             let a = var[0].unwrap_scalar_array();
             let b = var[1].unwrap_scalar_array();
-            let len = a.len;
             let stream = var[2].unwrap_stream();
             unsafe {
                 cuda_check!(cudaSetDevice(stream.get_device()));
                 cuda_check!(c_func(
-                    res.values as *mut c_uint,
-                    res.get_rotation() as i64,
-                    a.values as *const c_uint,
-                    a.get_rotation() as i64,
-                    b.values as *const c_uint,
-                    b.get_rotation() as i64,
-                    len as c_ulonglong,
+                    PolyPtr::from(res),
+                    ConstPolyPtr::from(a),
+                    ConstPolyPtr::from(b),
                     stream.raw(),
                 ));
             }

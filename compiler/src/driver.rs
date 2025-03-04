@@ -106,26 +106,28 @@ pub fn ast2inst<Rt: RuntimeType>(
     )?;
 
     if options.debug_fresh_type2 {
-        debug_type2(options.debug_dir.join("type2_fresh.dot"), &ast_cg.g, output_vid);
+        debug_type2(
+            options.debug_dir.join("type2_fresh.dot"),
+            &ast_cg.g,
+            output_vid,
+        );
     }
 
     // Type inference
-    let t2prog = match options.log_suround(
-        "Inferring Type...",
-        || ast_cg.lower(output_vid),
-        "Done.",
-    ) {
-        Ok(t2prog) => Ok(t2prog),
-        Err((e, g)) => {
-            let fpath = options.debug_dir.join("type2_type_inference.dot");
-            let mut f = std::fs::File::create(&fpath).unwrap();
-            type2::pretty_print::write_optinally_typed_graph(&g, e.vid, output_vid, &mut f).unwrap();
-            drop(f);
+    let t2prog =
+        match options.log_suround("Inferring Type...", || ast_cg.lower(output_vid), "Done.") {
+            Ok(t2prog) => Ok(t2prog),
+            Err((e, g)) => {
+                let fpath = options.debug_dir.join("type2_type_inference.dot");
+                let mut f = std::fs::File::create(&fpath).unwrap();
+                type2::pretty_print::write_optinally_typed_graph(&g, e.vid, output_vid, &mut f)
+                    .unwrap();
+                drop(f);
 
-            compile_dot(&fpath);
-            Err(Error(e))
-        }
-    }?;
+                compile_dot(&fpath);
+                Err(Error(e))
+            }
+        }?;
 
     let type2::Program {
         cg: t2cg,
@@ -136,7 +138,11 @@ pub fn ast2inst<Rt: RuntimeType>(
     let mut libs = Libs::new();
 
     if options.debug_type_inference {
-        debug_type2(options.debug_dir.join("type2_type_inference.dot"), &t2cg.g, output_vid);
+        debug_type2(
+            options.debug_dir.join("type2_type_inference.dot"),
+            &t2cg.g,
+            output_vid,
+        );
     }
 
     // Apply Type2 passes
@@ -148,7 +154,11 @@ pub fn ast2inst<Rt: RuntimeType>(
     )?;
 
     if options.debug_intt_mending {
-        debug_type2(options.debug_dir.join("type2_intt_mending.dot"), &t2cg.g, output_vid);
+        debug_type2(
+            options.debug_dir.join("type2_intt_mending.dot"),
+            &t2cg.g,
+            output_vid,
+        );
     }
 
     // - Precompute NTT and MSM constants
@@ -167,7 +177,11 @@ pub fn ast2inst<Rt: RuntimeType>(
     )?;
 
     if options.debug_precompute {
-        debug_type2(options.debug_dir.join("type2_precompute.dot"), &t2cg.g, output_vid);
+        debug_type2(
+            options.debug_dir.join("type2_precompute.dot"),
+            &t2cg.g,
+            output_vid,
+        );
     }
 
     // - Manage Inversions: Rewrite inversions of scalars and polynomials to dedicated operators
@@ -178,7 +192,11 @@ pub fn ast2inst<Rt: RuntimeType>(
     )?;
 
     if options.debug_manage_invers {
-        debug_type2(options.debug_dir.join("type2_manage_invers.dot"), &t2cg.g, output_vid);
+        debug_type2(
+            options.debug_dir.join("type2_manage_invers.dot"),
+            &t2cg.g,
+            output_vid,
+        );
     }
 
     // - Arithmetic Kernel Fusion
@@ -189,7 +207,11 @@ pub fn ast2inst<Rt: RuntimeType>(
     )?;
 
     if options.debug_kernel_fusion {
-        debug_type2(options.debug_dir.join("type2_kernel_fusion.dot"), &t2cg.g, output_vid);
+        debug_type2(
+            options.debug_dir.join("type2_kernel_fusion.dot"),
+            &t2cg.g,
+            output_vid,
+        );
     }
 
     // - Graph Scheduling

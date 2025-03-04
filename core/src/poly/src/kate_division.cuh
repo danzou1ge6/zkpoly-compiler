@@ -3,7 +3,7 @@
 namespace detail {
 
 template <typename Field>
-__global__ void kate_kernel(RotatingIterator<const Field> p, RotatingIterator<Field> q, const Field *pow_b, const Field *b, u32 len_p, u32 deg) {
+__global__ void kate_kernel(SliceIterator<const Field> p, SliceIterator<Field> q, const Field *pow_b, const Field *b, u32 len_p, u32 deg) {
     u32 index = blockIdx.x * blockDim.x + threadIdx.x;
     if (index >= len_p / 2) return;
     u32 seg_len = 1 << deg;
@@ -15,7 +15,7 @@ __global__ void kate_kernel(RotatingIterator<const Field> p, RotatingIterator<Fi
 }
 
 template <typename Field>
-__global__ void local_kate_kernel(RotatingIterator<const Field> p, RotatingIterator<Field> q, const Field *pow_b, const Field *b, u32 len_p, u32 max_deg) {
+__global__ void local_kate_kernel(SliceIterator<const Field> p, SliceIterator<Field> q, const Field *pow_b, const Field *b, u32 len_p, u32 max_deg) {
     extern __shared__ Field shared[];
     u32 index = blockIdx.x * blockDim.x + threadIdx.x;
     if (index >= len_p / 2) return;
@@ -46,7 +46,7 @@ __global__ void local_kate_kernel(RotatingIterator<const Field> p, RotatingItera
 
 // assume len_p = 2^k
 template <typename Field>
-cudaError_t kate_division(void *temp_buffer, usize *buffer_size, u32 log_p, const Field *p, i64 rotate_p, const Field *b, Field *q, i64 rotate_q, cudaStream_t stream) {
+cudaError_t kate_division(void *temp_buffer, usize *buffer_size, u32 log_p, ConstPolyPtr p, const Field *b, PolyPtr q, cudaStream_t stream) {
     u64 len_p = 1 << log_p;
     usize pow_sz = len_p / 2 * Field::LIMBS * sizeof(u32);
     if (temp_buffer == nullptr) {
@@ -58,8 +58,10 @@ cudaError_t kate_division(void *temp_buffer, usize *buffer_size, u32 log_p, cons
     u32 *pow_b = reinterpret_cast<u32*>(temp_buffer);
     CUDA_CHECK(get_pow_series<Field>(reinterpret_cast<char*>(temp_buffer) + pow_sz, nullptr, pow_b, b, len_p / 2, stream));
 
-    auto iter_p = make_rotating_iter(p, rotate_p, len_p);
-    auto iter_q = make_rotating_iter(q, rotate_q, len_p);
+    assert(p.len == len_p);
+    assert(q.len == len_p);
+    auto iter_p = make_slice_iter<Field>(p);
+    auto iter_q = make_slice_iter<Field>(q);
 
     u32 log_threads = 8;
     u32 threads = 1 << log_threads;

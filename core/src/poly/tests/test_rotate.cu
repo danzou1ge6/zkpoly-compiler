@@ -1,6 +1,6 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include <doctest/doctest.h>
-#include "../src/rotate.cuh"
+#include "rotate.cuh"
 #include "../src/common.cuh"
 #include <iostream>
 #include <chrono>
@@ -59,7 +59,7 @@ TEST_CASE("gpu rotation") {
         // Perform GPU rotation
         cudaStream_t stream;
         cudaStreamCreate(&stream);
-        detail::rotate<Field>(src_d, dst_d, len, shift, stream);
+        rotating<Field>(src_d, dst_d, len, shift, stream);
         cudaStreamSynchronize(stream);
 
         // Copy result back to host
@@ -119,12 +119,12 @@ TEST_CASE("gpu rotation reversibility") {
         std::cout << "Testing reversibility with shift = " << shift << std::endl;
         
         // Forward rotation
-        detail::rotate<Field>(d_original, 
+        rotating<Field>(d_original, 
                             d_intermediate, 
                             len, shift, stream);
         
         // Backward rotation (opposite shift)
-        detail::rotate<Field>(d_intermediate, d_final, 
+        rotating<Field>(d_intermediate, d_final, 
                             len, -shift, stream);
         
         cudaStreamSynchronize(stream);

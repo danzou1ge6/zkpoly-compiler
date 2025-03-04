@@ -21,12 +21,6 @@ target("test_kate_division")
     add_cuflags("--extended-lambda")
     add_packages("doctest")
 
-target("test_scan")
-    add_files("tests/test_scan.cu")
-    add_cugencodes("native")
-    add_cuflags("--extended-lambda")
-    add_packages("doctest")
-
 target("test_invert")
     add_files("tests/test_invert.cu")
     add_cugencodes("native")

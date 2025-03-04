@@ -1,7 +1,7 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include <doctest/doctest.h>
 #include "../src/poly_eval.cuh"
-#include "../src/rotate.cuh"
+#include "rotate.cuh"
 
 typedef bn254_fr::Element Field;
 
@@ -35,14 +35,15 @@ TEST_CASE("eval_basic") {
     cudaMemcpy(x_d, &x, Field::LIMBS * sizeof(uint), cudaMemcpyHostToDevice);
     uint *temp_buf;
     unsigned long temp_buf_size = 0;
-    detail::poly_eval<Field>(nullptr, &temp_buf_size, 0, 0, 0, len, 0, 0);
+    auto poly_ptr = ConstPolyPtr{reinterpret_cast<const uint*>(poly_d), len, 0, 0, len};
+    detail::poly_eval<Field>(nullptr, &temp_buf_size, poly_ptr, res_d, x_d, 0);
     cudaMalloc(&temp_buf, temp_buf_size);
 
     cudaEvent_t start, end;
     cudaEventCreate(&start);
     cudaEventCreate(&end);
     cudaEventRecord(start);
-    detail::poly_eval<Field>(temp_buf, nullptr, poly_d, res_d, x_d, len, 0, 0);
+    detail::poly_eval<Field>(temp_buf, nullptr, poly_ptr, res_d, x_d, 0);
     cudaEventRecord(end);
     cudaEventSynchronize(end);
     float milliseconds = 0;
@@ -76,17 +77,18 @@ TEST_CASE("eval with rotate") {
     Field *rotated_d;
     long long rotate = 1;
     cudaMalloc(&rotated_d, len * Field::LIMBS * sizeof(uint));
-    detail::rotate<Field>(poly_d, rotated_d, len, rotate, 0);
+    rotating(poly_d, rotated_d, len, rotate, 0);
     uint *temp_buf;
     unsigned long temp_buf_size = 0;
-    detail::poly_eval<Field>(nullptr, &temp_buf_size, 0, 0, 0, len, 0, 0);
+    auto poly_ptr = ConstPolyPtr{reinterpret_cast<const uint*>(rotated_d), len, rotate, 0, len};
+    detail::poly_eval<Field>(nullptr, &temp_buf_size, poly_ptr, 0, 0, 0);
     cudaMalloc(&temp_buf, temp_buf_size);
 
     cudaEvent_t start, end;
     cudaEventCreate(&start);
     cudaEventCreate(&end);
     cudaEventRecord(start);
-    detail::poly_eval<Field>(temp_buf, nullptr, rotated_d, res_d, x_d, len, rotate, 0);
+    detail::poly_eval<Field>(temp_buf, nullptr, poly_ptr, res_d, x_d, 0);
     cudaEventRecord(end);
     cudaEventSynchronize(end);
     float milliseconds = 0;

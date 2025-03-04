@@ -105,7 +105,7 @@ where
         while let Some((not_visited_vertex_id, _)) =
             visited.iter().find(|(_, flag)| **flag == false)
         {
-            self.dfs(*not_visited_vertex_id, &mut |vertex_id, from, vertex| {
+            self.dfs(*not_visited_vertex_id, &mut |vertex_id, _from, _vertex| {
                 if visited[&vertex_id] {
                     crychic = true;
                     true

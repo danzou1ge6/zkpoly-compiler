@@ -1,10 +1,10 @@
 #pragma once
-#include "common.cuh"
-
-namespace detail {
+#include <cuda_runtime.h>
+#include <cassert>
+#include "../../common/error/src/check.cuh"
 
 template <typename Field>
-cudaError_t rotate(const Field *src, Field *dst, u64 len, i64 shift, cudaStream_t stream) {
+cudaError_t rotating(const Field *src, Field *dst, unsigned long long len, long long shift, cudaStream_t stream) {
     assert(src != dst);
     if (shift == 0) {
         CUDA_CHECK(cudaMemcpyAsync(dst, src, sizeof(Field) * len, cudaMemcpyDeviceToDevice, stream));
@@ -20,5 +20,3 @@ cudaError_t rotate(const Field *src, Field *dst, u64 len, i64 shift, cudaStream_
 
     return cudaSuccess;
 }
-
-} // namespace detail

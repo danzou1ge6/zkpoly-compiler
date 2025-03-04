@@ -25,7 +25,7 @@ TEST_CASE("naive poly add") {
 
     u32 block = 1024;
     u32 grid = (len - 1) / block + 1;
-    auto a_iter = mont::make_rotating_iter(a_d, 0, len);
+    auto a_iter = detail::SliceIterator<Field>(a_d, len);
     detail::poly_add<Field><<<grid, block >>>(a_iter, a_iter, a_iter, len);
 
     cudaMemcpy(a_d, a, len * Field::LIMBS * sizeof(u32), cudaMemcpyHostToDevice);
@@ -76,7 +76,7 @@ TEST_CASE("naive poly mul") {
     cudaEventCreate(&start);
     cudaEventCreate(&end);
     cudaEventRecord(start);
-    auto a_iter = mont::make_rotating_iter(a_d, 0, len);
+    auto a_iter = detail::SliceIterator<Field>(a_d, len);
 
     detail::poly_mul<Field><<<grid, block >>>(a_iter, a_iter, a_iter, len);
 

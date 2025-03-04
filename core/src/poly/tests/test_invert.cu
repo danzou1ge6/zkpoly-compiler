@@ -35,7 +35,8 @@ TEST_CASE("gpu invert") {
 
     void *temp_buffer;
     usize buffer_size = 0;
-    detail::batched_invert<Field>(nullptr, &buffer_size, nullptr, nullptr, len, 0);
+    auto p_ptr = PolyPtr{reinterpret_cast<u32*>(p_d), len, 0, 0, len};
+    detail::batched_invert<Field>(nullptr, &buffer_size, p_ptr, nullptr, 0);
     cudaMalloc(&temp_buffer, buffer_size);
 
     cudaEvent_t start_gpu, end_gpu;
@@ -43,7 +44,7 @@ TEST_CASE("gpu invert") {
     cudaEventCreate(&end_gpu);
     cudaEventRecord(start_gpu);
 
-    detail::batched_invert<Field>(temp_buffer, 0, reinterpret_cast<u32*>(p_d), reinterpret_cast<u32*>(inv_d), len, 0);
+    detail::batched_invert<Field>(temp_buffer, 0, p_ptr, reinterpret_cast<u32*>(inv_d), 0);
 
     cudaEventRecord(end_gpu);
     cudaEventSynchronize(end_gpu);

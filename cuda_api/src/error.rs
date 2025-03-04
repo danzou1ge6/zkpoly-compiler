@@ -7,7 +7,9 @@ macro_rules! cuda_check {
                 "CUDA Error [{}:{}]: {}",
                 file!(),
                 line!(),
-                std::ffi::CStr::from_ptr(cudaGetErrorString(err)).to_str().unwrap()
+                std::ffi::CStr::from_ptr(cudaGetErrorString(err))
+                    .to_str()
+                    .unwrap()
             );
             panic!("CUDA Error");
         }

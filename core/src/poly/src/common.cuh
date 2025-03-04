@@ -1,15 +1,15 @@
 #pragma once
 #include "../../common/mont/src/field_impls.cuh"
 #include "../../common/error/src/check.cuh"
-#include "../../common/mont/src/iter.cuh"
+#include "../../common/iter/src/iter.cuh"
 
 namespace detail {
 using mont::u32;
 using mont::u64;
 using mont::usize;
 using mont::i64;
-using mont::RotatingIterator;
-using mont::make_rotating_iter;
+using iter::SliceIterator;
+using iter::make_slice_iter;
 
 constexpr u32 div_ceil(u32 a, u32 b) {
     return (a + b - 1) / b;

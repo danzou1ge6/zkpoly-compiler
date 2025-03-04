@@ -19,6 +19,30 @@ pub struct ConstPolyPtr {
     pub whole_len: usize,
 }
 
+impl PolyPtr {
+    pub fn null(len: usize) -> Self {
+        PolyPtr {
+            ptr: std::ptr::null_mut(),
+            len,
+            rotate: 0,
+            offset: 0,
+            whole_len: len,
+        }
+    }
+}
+
+impl ConstPolyPtr {
+    pub fn null(len: usize) -> Self {
+        ConstPolyPtr {
+            ptr: std::ptr::null(),
+            len,
+            rotate: 0,
+            offset: 0,
+            whole_len: len,
+        }
+    }
+}
+
 impl<F: Field> From<&mut ScalarArray<F>> for PolyPtr {
     fn from(poly: &mut ScalarArray<F>) -> Self {
         let len = poly.len;

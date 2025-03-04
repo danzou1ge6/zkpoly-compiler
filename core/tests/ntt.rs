@@ -5,7 +5,6 @@ static MAX_K: u32 = 20;
 
 use group::ff::Field;
 use halo2_proofs::arithmetic;
-use halo2_proofs::poly;
 use halo2_proofs::poly::EvaluationDomain;
 use halo2curves::ff::WithSmallOrderMulGroup;
 use rand_core::OsRng;
@@ -73,20 +72,25 @@ fn test_ssip_ntt() {
         let ptr_data: *mut MyField = stream.unwrap_stream().allocate(1 << (k + 1));
         let ptr_twiddle: *mut MyField = stream.unwrap_stream().allocate(1 << (k - 1));
 
-        let mut poly_gpu: Variable<MyRuntimeType> = Variable::ScalarArray(ScalarArray::<MyField>::new(
-            1 << (k + 1),
-            ptr_data,
-            DeviceType::GPU { device_id: 0 },
-        ));
+        let mut poly_gpu: Variable<MyRuntimeType> = Variable::ScalarArray(
+            ScalarArray::<MyField>::new(1 << (k + 1), ptr_data, DeviceType::GPU { device_id: 0 }),
+        );
         poly_gpu.unwrap_scalar_array_mut().rotate(3);
-        let mut poly_gpu_slice = Variable::ScalarArray(poly_gpu.unwrap_scalar_array_mut().slice(1 << k, 1 << (k + 1)));
+        let mut poly_gpu_slice = Variable::ScalarArray(
+            poly_gpu
+                .unwrap_scalar_array_mut()
+                .slice(1 << k, 1 << (k + 1)),
+        );
         let mut twiddle_gpu = Variable::ScalarArray(ScalarArray::<MyField>::new(
             1 << (k - 1),
             ptr_twiddle,
             DeviceType::GPU { device_id: 0 },
         ));
 
-        poly_cpu.cpu2gpu(poly_gpu_slice.unwrap_scalar_array_mut(), stream.unwrap_stream());
+        poly_cpu.cpu2gpu(
+            poly_gpu_slice.unwrap_scalar_array_mut(),
+            stream.unwrap_stream(),
+        );
         twiddle.cpu2gpu(
             twiddle_gpu.unwrap_scalar_array_mut(),
             stream.unwrap_stream(),
