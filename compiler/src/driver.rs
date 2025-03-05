@@ -1,4 +1,4 @@
-use std::{path::PathBuf, process::Command};
+use std::{io::Write, path::PathBuf, process::Command, thread::JoinHandle};
 
 use zkpoly_common::{digraph::internal::Digraph, load_dynamic::Libs};
 use zkpoly_memory_pool::PinnedMemoryPool;
@@ -68,25 +68,75 @@ pub struct HardwareInfo {
     pub gpu_memory_limit: u64,
 }
 
+static GRAPHVIZ_INTERACTIVE_HTML_1: &'static str = r#"
+<!DOCTYPE html>
+<html>
+<head>
+</head>
+<body>
+    <div id="graph-container">
+"#;
+
+static GRAPHVIZ_INTERACTIVE_HTML_2: &'static str = r#"
+   </div>
+
+    <script>
+    function setEdgeColor(edge, color) {
+      const elements = edge.querySelectorAll('path, polygon');
+      elements.forEach(element => {
+        element.setAttribute('stroke', color);
+        if (element.tagName.toLowerCase() === 'polygon') {
+          element.setAttribute('fill', color);
+        }
+      });
+    }
+    document.querySelectorAll('.node').forEach(node => {
+      let polygon =  node.querySelector('polygon')
+      node.addEventListener('click', en => {
+        document.querySelectorAll('.edge').forEach(edge => setEdgeColor(edge, '#0F0F0F0F'))
+        document.querySelectorAll('.' + node.id + '-neighbour').forEach(edge => setEdgeColor(edge, 'black'))
+      })
+    })
+    </script>
+</body>
+</html>
+"#;
+
 fn debug_type2<'s, Ty: std::fmt::Debug>(
     fpath: PathBuf,
     g: &Digraph<type2::VertexId, type2::partial_typed::Vertex<'s, Ty>>,
     output_vid: type2::VertexId,
-) {
+) -> JoinHandle<()> {
     let mut f = std::fs::File::create(&fpath).unwrap();
     type2::pretty_print::write_graph(g, output_vid, &mut f).unwrap();
     drop(f);
 
-    compile_dot(&fpath);
+    compile_dot(fpath)
 }
 
-fn compile_dot(fpath: &PathBuf) {
-    let _ = Command::new("dot")
-        .arg("-Tsvg")
-        .arg(fpath)
-        .arg("-o")
-        .arg(fpath.with_extension("svg"))
-        .spawn();
+fn compile_dot(fpath: PathBuf) -> JoinHandle<()> {
+    std::thread::spawn(move || {
+        let output_file = fpath.with_extension("html");
+        println!("[Visualizer] Compiling dot {}", fpath.to_string_lossy());
+
+        match Command::new("dot").arg("-Tsvg").arg(&fpath).output() {
+            Ok(out) => {
+                let mut f = std::fs::File::create(&output_file).unwrap();
+                f.write_all(GRAPHVIZ_INTERACTIVE_HTML_1.as_bytes()).unwrap();
+                f.write_all(&out.stdout).unwrap();
+                f.write_all(GRAPHVIZ_INTERACTIVE_HTML_2.as_bytes()).unwrap();
+                println!(
+                    "[Visualizer] Dot compiled {} successfully",
+                    fpath.to_string_lossy()
+                );
+            }
+            Err(e) => println!(
+                "[Visualizer] Dot compiling {} exited with error: {:?}",
+                fpath.to_string_lossy(),
+                &e
+            ),
+        }
+    })
 }
 
 fn check_type2_dag<'s, Rt: RuntimeType>(
@@ -102,10 +152,11 @@ fn check_type2_dag<'s, Rt: RuntimeType>(
             } else {
                 None
             }
-        }).unwrap();
+        })
+        .unwrap();
         drop(f);
 
-        compile_dot(&fpath);
+        compile_dot(fpath).join().unwrap();
         false
     } else {
         true
@@ -115,7 +166,29 @@ fn check_type2_dag<'s, Rt: RuntimeType>(
 #[derive(Debug, Clone)]
 pub enum Error<'s, Rt: RuntimeType> {
     Typ(ast::lowering::Error<'s, Rt>),
-    NotDag
+    NotDag,
+}
+
+struct Ctx(Vec<JoinHandle<()>>);
+
+impl Ctx {
+    fn new() -> Self {
+        Self(Vec::new())
+    }
+
+    fn join(&mut self) {
+        std::mem::take(&mut self.0).into_iter().for_each(|j| j.join().unwrap());
+    }
+
+    fn add(&mut self, j: JoinHandle<()>) {
+        self.0.push(j);
+    }
+
+    fn abort(&mut self, msg: &str) {
+        println!("[Compiler] Aborting: {}", msg);
+        self.join();
+        panic!("abort");
+    }
 }
 
 pub fn ast2inst<Rt: RuntimeType>(
@@ -124,6 +197,8 @@ pub fn ast2inst<Rt: RuntimeType>(
     options: &DebugOptions,
     hardware_info: &HardwareInfo,
 ) -> Result<(type3::lowering::Chunk<Rt>, args::ConstantTable<Rt>), Error<'static, Rt>> {
+    let mut ctx = Ctx::new();
+
     // First from AST to Type2
     let (ast_cg, output_vid) = options.log_suround(
         "Lowering AST to Type2...",
@@ -132,11 +207,11 @@ pub fn ast2inst<Rt: RuntimeType>(
     )?;
 
     if options.debug_fresh_type2 {
-        debug_type2(
+        ctx.add(debug_type2(
             options.debug_dir.join("type2_fresh.dot"),
             &ast_cg.g,
             output_vid,
-        );
+        ));
     }
 
     // Type inference
@@ -150,12 +225,16 @@ pub fn ast2inst<Rt: RuntimeType>(
                     .unwrap();
                 drop(f);
 
-                compile_dot(&fpath);
+                compile_dot(fpath);
                 Err(Error::Typ(e))
             }
         }?;
-    
-    if!check_type2_dag(options.debug_dir.join("type2_type_inference.dot"), &t2prog.cg.g, output_vid) {
+
+    if !check_type2_dag(
+        options.debug_dir.join("type2_type_inference.dot"),
+        &t2prog.cg.g,
+        output_vid,
+    ) {
         return Err(Error::NotDag);
     }
 
@@ -168,11 +247,11 @@ pub fn ast2inst<Rt: RuntimeType>(
     let mut libs = Libs::new();
 
     if options.debug_type_inference {
-        debug_type2(
+        ctx.add(debug_type2(
             options.debug_dir.join("type2_type_inference.dot"),
             &t2cg.g,
             output_vid,
-        );
+        ));
     }
 
     // Apply Type2 passes
@@ -183,44 +262,52 @@ pub fn ast2inst<Rt: RuntimeType>(
         "Done.",
     )?;
 
-    if !check_type2_dag(options.debug_dir.join("type2_intt_mending.dot"), &t2cg.g, output_vid) {
-        panic!("graph is not a DAG after INTT Mending");
+    if !check_type2_dag(
+        options.debug_dir.join("type2_intt_mending.dot"),
+        &t2cg.g,
+        output_vid,
+    ) {
+        ctx.abort("graph is not a DAG after INTT Mending");
     }
 
     if options.debug_intt_mending {
-        debug_type2(
+        ctx.add(debug_type2(
             options.debug_dir.join("type2_intt_mending.dot"),
             &t2cg.g,
             output_vid,
-        );
+        ));
     }
 
     // - Precompute NTT and MSM constants
-    let t2cg = options.log_suround(
-        "Precomputing constants for NTT and MSM",
-        || {
-            Ok(type2::precompute::precompute(
-                t2cg,
-                hardware_info.gpu_memory_limit as usize,
-                &mut libs,
-                &mut allocator,
-                &mut t2const_tab,
-            ))
-        },
-        "Done.",
-    )?;
+    // let t2cg = options.log_suround(
+    //     "Precomputing constants for NTT and MSM",
+    //     || {
+    //         Ok(type2::precompute::precompute(
+    //             t2cg,
+    //             hardware_info.gpu_memory_limit as usize,
+    //             &mut libs,
+    //             &mut allocator,
+    //             &mut t2const_tab,
+    //         ))
+    //     },
+    //     "Done.",
+    // )?;
 
-    if!check_type2_dag(options.debug_dir.join("type2_precompute.dot"), &t2cg.g, output_vid) {
-        panic!("graph is not a DAG after Precomputing");
-    }
+    // if !check_type2_dag(
+    //     options.debug_dir.join("type2_precompute.dot"),
+    //     &t2cg.g,
+    //     output_vid,
+    // ) {
+    //     ctx.abort("graph is not a DAG after Precomputing");
+    // }
 
-    if options.debug_precompute {
-        debug_type2(
-            options.debug_dir.join("type2_precompute.dot"),
-            &t2cg.g,
-            output_vid,
-        );
-    }
+    // if options.debug_precompute {
+    //     ctx.add(debug_type2(
+    //         options.debug_dir.join("type2_precompute.dot"),
+    //         &t2cg.g,
+    //         output_vid,
+    //     ));
+    // }
 
     // - Manage Inversions: Rewrite inversions of scalars and polynomials to dedicated operators
     let t2cg = options.log_suround(
@@ -229,16 +316,20 @@ pub fn ast2inst<Rt: RuntimeType>(
         "Done.",
     )?;
 
-    if!check_type2_dag(options.debug_dir.join("type2_manage_invers.dot"), &t2cg.g, output_vid) {
-        panic!("graph is not a DAG after Managing Inversions");
+    if !check_type2_dag(
+        options.debug_dir.join("type2_manage_invers.dot"),
+        &t2cg.g,
+        output_vid,
+    ) {
+        ctx.abort("graph is not a DAG after Managing Inversions");
     }
 
     if options.debug_manage_invers {
-        debug_type2(
+        ctx.add(debug_type2(
             options.debug_dir.join("type2_manage_invers.dot"),
             &t2cg.g,
             output_vid,
-        );
+        ));
     }
 
     // - Arithmetic Kernel Fusion
@@ -248,16 +339,20 @@ pub fn ast2inst<Rt: RuntimeType>(
         "Done.",
     )?;
 
-    if!check_type2_dag(options.debug_dir.join("type2_kernel_fusion.dot"), &t2cg.g, output_vid) {
-        panic!("graph is not a DAG after Arithmetic Kernel Fusion");
+    if !check_type2_dag(
+        options.debug_dir.join("type2_kernel_fusion.dot"),
+        &t2cg.g,
+        output_vid,
+    ) {
+        ctx.abort("graph is not a DAG after Arithmetic Kernel Fusion");
     }
 
     if options.debug_kernel_fusion {
-        debug_type2(
+        ctx.add(debug_type2(
             options.debug_dir.join("type2_kernel_fusion.dot"),
             &t2cg.g,
             output_vid,
-        );
+        ));
     }
 
     // - Graph Scheduling
@@ -268,12 +363,14 @@ pub fn ast2inst<Rt: RuntimeType>(
     )?;
 
     if options.debug_graph_scheduling {
+        let path = options.debug_dir.join("type2_graph_scheduled.dot");
         let mut f =
-            std::fs::File::create(options.debug_dir.join("type2_graph_scheduled.dot")).unwrap();
+            std::fs::File::create(&path).unwrap();
         type2::pretty_print::write_graph_with_seq(&t2cg.g, &mut f, seq.iter().cloned()).unwrap();
+        ctx.add(compile_dot(path));
     }
 
-    panic!("abort");
+    ctx.abort("Let's leave further passes for tomorrow");
 
     // To Type3 through Memory Planning
     let t3chunk =

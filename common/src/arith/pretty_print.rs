@@ -22,8 +22,8 @@ pub fn print_subgraph_vertices<I: Copy>(
 
         writeln!(
             writer,
-            "    {}{} [label=\"{}\", style=solid]",
-            vertex_name_prefix, v.0, label
+            "    {}{} [id = \"v{}{}\", label=\"{}\", style=solid]",
+            vertex_name_prefix, v.0, vertex_name_prefix, v.0, label
         )?;
     }
 
@@ -50,15 +50,20 @@ pub fn print_subgraph_edges<I: Copy>(
         for (us, label) in labeled_uses(op).into_iter() {
             writeln!(
                 writer,
-                "  {}{} -> {}{} [headlabel=\"{}\", labeldistance=2]",
-                vertex_name_prefix, us.0, vertex_name_prefix, v.0, label
+                "  {}{} -> {}{} [class = \"v{}{}-neighbour v{}{}-neighbour\", headlabel=\"{}\", labeldistance=2]",
+                vertex_name_prefix, us.0, vertex_name_prefix, v.0,
+                vertex_name_prefix, us.0, vertex_name_prefix, v.0,
+                label
             )?;
         }
         // Write external in-edges
         if let Operation::Input { outer_id, .. } = op {
             writeln!(
                 writer,
-                "  {} -> {}{}",
+                "  {} -> {}{} [class = \"v{}-neighbour v{}{}-neighbour\"]",
+                vid(*outer_id),
+                vertex_name_prefix,
+                v.0,
                 vid(*outer_id),
                 vertex_name_prefix,
                 v.0,

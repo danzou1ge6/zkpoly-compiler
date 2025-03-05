@@ -135,7 +135,8 @@ fn write_graph_with_optional_seq<'s, Ty: Debug>(
         // Write node with attributes
         writeln!(
             writer,
-            "  {} [label=\"{}:{}\", tooltip=\"{:?}\\n@{}\", style=\"{}\", fillcolor=\"{}\"]",
+            "  {} [id = \"v{}\",label=\"{}:{}\", tooltip=\"{:?}\\n@{}\", style=\"{}\", fillcolor=\"{}\"]",
+            vid.0,
             vid.0,
             vid.0,
             label,
@@ -164,8 +165,10 @@ fn write_graph_with_optional_seq<'s, Ty: Debug>(
         for (from_vid, label) in format_labeled_uses(vertex.node()) {
             writeln!(
                 writer,
-                "  {} -> {} [headlabel=\"{}\", labeldistance=2]",
-                from_vid.0, to_vid.0, label
+                "  {} -> {} [class = \"v{}-neighbour v{}-neighbour\"headlabel=\"{}\", labeldistance=2]",
+                from_vid.0, to_vid.0,
+                from_vid.0, to_vid.0,
+                label
             )?;
         }
     }
