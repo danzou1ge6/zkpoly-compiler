@@ -102,7 +102,8 @@ fn check_type2_dag<'s, Rt: RuntimeType>(
             } else {
                 None
             }
-        }).unwrap();
+        })
+        .unwrap();
         drop(f);
 
         compile_dot(&fpath);
@@ -115,7 +116,7 @@ fn check_type2_dag<'s, Rt: RuntimeType>(
 #[derive(Debug, Clone)]
 pub enum Error<'s, Rt: RuntimeType> {
     Typ(ast::lowering::Error<'s, Rt>),
-    NotDag
+    NotDag,
 }
 
 pub fn ast2inst<Rt: RuntimeType>(
@@ -154,8 +155,12 @@ pub fn ast2inst<Rt: RuntimeType>(
                 Err(Error::Typ(e))
             }
         }?;
-    
-    if!check_type2_dag(options.debug_dir.join("type2_type_inference.dot"), &t2prog.cg.g, output_vid) {
+
+    if !check_type2_dag(
+        options.debug_dir.join("type2_type_inference.dot"),
+        &t2prog.cg.g,
+        output_vid,
+    ) {
         return Err(Error::NotDag);
     }
 
@@ -183,7 +188,11 @@ pub fn ast2inst<Rt: RuntimeType>(
         "Done.",
     )?;
 
-    if !check_type2_dag(options.debug_dir.join("type2_intt_mending.dot"), &t2cg.g, output_vid) {
+    if !check_type2_dag(
+        options.debug_dir.join("type2_intt_mending.dot"),
+        &t2cg.g,
+        output_vid,
+    ) {
         panic!("graph is not a DAG after INTT Mending");
     }
 
@@ -196,21 +205,25 @@ pub fn ast2inst<Rt: RuntimeType>(
     }
 
     // - Precompute NTT and MSM constants
-    let t2cg = options.log_suround(
-        "Precomputing constants for NTT and MSM",
-        || {
-            Ok(type2::precompute::precompute(
-                t2cg,
-                hardware_info.gpu_memory_limit as usize,
-                &mut libs,
-                &mut allocator,
-                &mut t2const_tab,
-            ))
-        },
-        "Done.",
-    )?;
+    // let t2cg = options.log_suround(
+    //     "Precomputing constants for NTT and MSM",
+    //     || {
+    //         Ok(type2::precompute::precompute(
+    //             t2cg,
+    //             hardware_info.gpu_memory_limit as usize,
+    //             &mut libs,
+    //             &mut allocator,
+    //             &mut t2const_tab,
+    //         ))
+    //     },
+    //     "Done.",
+    // )?;
 
-    if!check_type2_dag(options.debug_dir.join("type2_precompute.dot"), &t2cg.g, output_vid) {
+    if !check_type2_dag(
+        options.debug_dir.join("type2_precompute.dot"),
+        &t2cg.g,
+        output_vid,
+    ) {
         panic!("graph is not a DAG after Precomputing");
     }
 
@@ -229,7 +242,11 @@ pub fn ast2inst<Rt: RuntimeType>(
         "Done.",
     )?;
 
-    if!check_type2_dag(options.debug_dir.join("type2_manage_invers.dot"), &t2cg.g, output_vid) {
+    if !check_type2_dag(
+        options.debug_dir.join("type2_manage_invers.dot"),
+        &t2cg.g,
+        output_vid,
+    ) {
         panic!("graph is not a DAG after Managing Inversions");
     }
 
@@ -248,7 +265,11 @@ pub fn ast2inst<Rt: RuntimeType>(
         "Done.",
     )?;
 
-    if!check_type2_dag(options.debug_dir.join("type2_kernel_fusion.dot"), &t2cg.g, output_vid) {
+    if !check_type2_dag(
+        options.debug_dir.join("type2_kernel_fusion.dot"),
+        &t2cg.g,
+        output_vid,
+    ) {
         panic!("graph is not a DAG after Arithmetic Kernel Fusion");
     }
 

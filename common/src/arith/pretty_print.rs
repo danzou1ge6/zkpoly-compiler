@@ -93,6 +93,9 @@ fn format_node_label<I>(op: &Operation<I, ExprId>) -> String {
         Operation::Output { typ, .. } => {
             format!("Output({:?})", typ)
         }
+        Operation::Todo => {
+            format!("Todo")
+        }
     }
 }
 
@@ -110,5 +113,6 @@ fn labeled_uses<I>(op: &Operation<I, ExprId>) -> Vec<(ExprId, &'static str)> {
             .map(|e| (*e, "in"))
             .chain(std::iter::once((*store_node, "store")))
             .collect(),
+        Operation::Todo => vec![],
     }
 }

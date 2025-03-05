@@ -321,9 +321,9 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                                 ArithBinOp::Div => {
                                     eprintln!("Warning: division is very expensive, consider using batched inv first");
                                     kernel += &format!(
-                                        "auto {TMP_PREFIX}{} = {TMP_PREFIX}{} * {TMP_PREFIX}{}.invert();\n",
-                                        head, lhs, rhs
-                                    );
+                                                    "auto {TMP_PREFIX}{} = {TMP_PREFIX}{} * {TMP_PREFIX}{}.invert();\n",
+                                                    head, lhs, rhs
+                                                );
                                 }
                             },
                             BinOp::Ss(op) => match op {
@@ -348,9 +348,9 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                                 ArithBinOp::Div => {
                                     eprintln!("Warning: division is very expensive, consider inverse the scalar first");
                                     kernel += &format!(
-                                        "auto {TMP_PREFIX}{} = {TMP_PREFIX}{} * {TMP_PREFIX}{}.invert();\n",
-                                        head, lhs, rhs
-                                    );
+                                                    "auto {TMP_PREFIX}{} = {TMP_PREFIX}{} * {TMP_PREFIX}{}.invert();\n",
+                                                    head, lhs, rhs
+                                                );
                                 }
                             },
                             BinOp::Sp(op) => match op {
@@ -381,16 +381,16 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                                 SpOp::Div => {
                                     eprintln!("Warning: division is very expensive, consider inverse first");
                                     kernel += &format!(
-                                        "auto {TMP_PREFIX}{} = {TMP_PREFIX}{} * {TMP_PREFIX}{}.invert();\n",
-                                        head, lhs, rhs
-                                    );
+                                                    "auto {TMP_PREFIX}{} = {TMP_PREFIX}{} * {TMP_PREFIX}{}.invert();\n",
+                                                    head, lhs, rhs
+                                                );
                                 }
                                 SpOp::DivBy => {
                                     eprintln!("Warning: division is very expensive, consider inverse first");
                                     kernel += &format!(
-                                        "auto {TMP_PREFIX}{} = {TMP_PREFIX}{} * {TMP_PREFIX}{}.invert();\n",
-                                        head, rhs, lhs
-                                    );
+                                                    "auto {TMP_PREFIX}{} = {TMP_PREFIX}{} * {TMP_PREFIX}{}.invert();\n",
+                                                    head, rhs, lhs
+                                                );
                                 }
                             },
                         }
@@ -436,6 +436,7 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                         }
                     }
                 },
+                Operation::Todo => unreachable!("todo can't appear here"),
             }
         }
 

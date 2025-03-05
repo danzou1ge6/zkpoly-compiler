@@ -155,6 +155,7 @@ pub enum Operation<OuterId, ArithIndex> {
         store_node: ArithIndex,
         in_node: Vec<ArithIndex>,
     },
+    Todo,
     // 0 is the output index, 1 is the index of the data to be stored
     // 2: the output's outer index is the same as some inputs' outer index
 }
@@ -281,7 +282,6 @@ where
 
     pub fn outputs_inplace<'a, 'b>(
         &'b self,
-        mut mutable_scalars: usize,
         mut mutable_polys: usize,
     ) -> Box<dyn Iterator<Item = Option<OuterId>> + 'b> {
         let mut results = Vec::new();
@@ -293,14 +293,6 @@ where
             } = &v.op
             {
                 match typ {
-                    FusedType::Scalar => {
-                        if mutable_scalars > 0 && *mutability == Mutability::Mut {
-                            mutable_scalars -= 1;
-                            results.push(Some(*outer_id));
-                        } else {
-                            results.push(None);
-                        }
-                    }
                     FusedType::ScalarArray => {
                         if mutable_polys > 0 && *mutability == Mutability::Mut {
                             mutable_polys -= 1;
@@ -309,6 +301,7 @@ where
                             results.push(None);
                         }
                     }
+                    FusedType::Scalar => results.push(None),
                 }
             }
         });
@@ -352,6 +345,7 @@ where
                     store_node: *store_node,
                     in_node: in_node.clone(),
                 },
+                Operation::Todo => Operation::Todo,
             };
 
             ArithVertex { op }
