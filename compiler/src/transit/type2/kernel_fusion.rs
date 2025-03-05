@@ -15,10 +15,16 @@ use zkpoly_common::{
 use zkpoly_runtime::args::RuntimeType;
 
 impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
-    fn can_fuse(&self, vid: VertexId, book: &Vec<bool>) -> bool {
+    fn can_fuse(
+        &self,
+        vid: VertexId,
+        fused: &Vec<usize>,
+        to: &Vec<bool>,
+        from: &Vec<bool>,
+    ) -> bool {
         let v = self.g.vertex(vid);
         let vid_usize: usize = vid.into();
-        if book[vid_usize] {
+        if fused[vid_usize] != 0 || to[vid_usize] || from[vid_usize] {
             return false;
         }
         match v.node() {
@@ -58,18 +64,23 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
     fn fuse_bwd(
         &self,
         vid: VertexId,
-        book: &mut Vec<bool>,
+        fused: &mut Vec<usize>,
+        to: &mut Vec<bool>,
+        from: &mut Vec<bool>,
         vid2arith: &mut BTreeMap<VertexId, ExprId>,
         succ: &Heap<VertexId, BTreeSet<VertexId>>,
         ag: &mut ArithGraph<VertexId, ExprId>,
         output_v: &mut Vec<Vec<(VertexId, VertexId)>>,
         src_info: &mut Vec<Location<'s>>,
+        fuse_id: usize,
     ) {
-        if vid2arith.contains_key(&vid) {
-            return;
+        if fused[usize::from(vid)] == fuse_id || vid2arith.contains_key(&vid) {
+            return; // is in the current fusion
         }
-        if self.can_fuse(vid, book) {
-            self.fuse_it(vid, book, vid2arith, succ, ag, output_v, src_info);
+        if self.can_fuse(vid, fused, to, from) {
+            self.fuse_it(
+                vid, fused, to, from, vid2arith, succ, ag, output_v, src_info, fuse_id,
+            );
         } else {
             let vid_arith = ag.g.add_vertex(ArithVertex {
                 op: {
@@ -85,44 +96,118 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
         }
     }
 
+    // use dfs to mark the "to" nodes
+    fn mark_fwd(
+        &self,
+        vid: VertexId,
+        to: &mut Vec<bool>,
+        succ: &Heap<VertexId, BTreeSet<VertexId>>,
+        start_mark: bool,
+        fused: &Vec<usize>,
+        from: &Vec<bool>,
+        fuse_id: usize,
+    ) {
+        let vid_usize: usize = vid.into();
+        if to[vid_usize] {
+            return;
+        }
+        let can_fuse = self.can_fuse(vid, fused, to, from);
+        if start_mark {
+            to[vid_usize] = true
+        }
+        let mut mark_next = start_mark;
+        if !can_fuse && fused[vid_usize] != fuse_id {
+            mark_next = true;
+        }
+        for fwd in succ[vid].iter() {
+            self.mark_fwd(*fwd, to, succ, mark_next, fused, from, fuse_id);
+        }
+    }
+
+    // use dfs to mark the "from" nodes
+    fn mark_bwd(
+        &self,
+        vid: VertexId,
+        from: &mut Vec<bool>,
+        start_mark: bool,
+        fused: &Vec<usize>,
+        to: &Vec<bool>,
+        fuse_id: usize,
+    ) {
+        let vid_usize: usize = vid.into();
+        if from[vid_usize] {
+            return;
+        }
+        let can_fuse = self.can_fuse(vid, fused, to, from);
+        if start_mark {
+            from[vid_usize] = true;
+        }
+        let mut mark_next = start_mark;
+        if !can_fuse && fused[vid_usize] != fuse_id {
+            mark_next = true;
+        }
+        for bwd in self.g.vertex(vid).uses() {
+            self.mark_bwd(bwd, from, mark_next, fused, to, fuse_id);
+        }
+    }
+
     fn fuse_it(
         &self,
         vid: VertexId,
-        book: &mut Vec<bool>,
+        fused: &mut Vec<usize>,
+        to: &mut Vec<bool>,
+        from: &mut Vec<bool>,
         vid2arith: &mut BTreeMap<VertexId, ExprId>,
         succ: &Heap<VertexId, BTreeSet<VertexId>>,
         ag: &mut ArithGraph<VertexId, ExprId>,
         output_v: &mut Vec<Vec<(VertexId, VertexId)>>, // output_v[rank in outputs]: vec[(targetid, old_src_id)]
         src_info: &mut Vec<Location<'s>>,
+        fuse_id: usize,
     ) {
         let v = self.g.vertex(vid);
         match v.node() {
             VertexNode::SingleArith(arith) => {
+                self.mark_bwd(vid, from, false, fused, to, fuse_id);
+                self.mark_fwd(vid, to, succ, false, fused, from, fuse_id);
+
                 let vid_usize: usize = vid.into();
-                book[vid_usize] = true;
+                fused[vid_usize] = fuse_id;
+                let my_arith = ag.g.add_vertex(ArithVertex {
+                    op: Operation::Todo, // for id gen
+                });
+
+                vid2arith.insert(vid, my_arith);
                 src_info.push(v.src().unwrap_location_single().clone());
                 match arith {
                     Arith::Bin(_, lhs, rhs) => {
-                        self.fuse_bwd(*lhs, book, vid2arith, succ, ag, output_v, src_info);
-                        self.fuse_bwd(*rhs, book, vid2arith, succ, ag, output_v, src_info);
+                        self.fuse_bwd(
+                            *lhs, fused, to, from, vid2arith, succ, ag, output_v, src_info, fuse_id,
+                        );
+                        self.fuse_bwd(
+                            *rhs, fused, to, from, vid2arith, succ, ag, output_v, src_info, fuse_id,
+                        );
                     }
                     Arith::Unr(_, src) => {
-                        self.fuse_bwd(*src, book, vid2arith, succ, ag, output_v, src_info);
+                        self.fuse_bwd(
+                            *src, fused, to, from, vid2arith, succ, ag, output_v, src_info, fuse_id,
+                        );
                     }
                 };
-                let my_arith = ag.g.add_vertex(ArithVertex {
+                *ag.g.vertex_mut(my_arith) = ArithVertex {
                     op: Operation::Arith(
                         arith.relabeled(&mut |vid| vid2arith.get(&vid).unwrap().clone()),
                     ),
-                });
-                vid2arith.insert(vid, my_arith);
+                };
                 let mut output_rank = None;
                 for node in succ[vid].iter() {
-                    if vid2arith.contains_key(node) {
-                        continue;
+                    if fused[usize::from(*node)] == fuse_id {
+                        continue; // is in the current fusion
                     }
-                    if self.can_fuse(*node, book) {
-                        self.fuse_it(*node, book, vid2arith, succ, ag, output_v, src_info);
+                    if self.can_fuse(*node, fused, to, from) {
+                        self.fuse_it(
+                            *node, fused, to, from, vid2arith, succ, ag, output_v, src_info,
+                            fuse_id,
+                        );
                     } else {
                         if output_rank.is_none() {
                             output_rank = Some(output_v.len());
@@ -141,12 +226,12 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
         &self,
         ag: &mut ArithGraph<VertexId, ExprId>,
         succ: &Heap<VertexId, BTreeSet<VertexId>>,
-        mut_limit: Option<(usize, usize)>,
-    ) -> Option<(usize, usize)> {
-        // change mutability
+        mut_limit: Option<usize>,
+    ) -> usize {
+        // change mutability of poly, scalars must be immutable
         let succ_arith = ag.g.successors();
-        let mut mut_scalars = 0;
         let mut mut_polys = 0;
+        let poly_limit = mut_limit.unwrap_or_default();
         for id in ag.inputs.iter() {
             let v = ag.g.vertex_mut(*id);
             if let Operation::Input {
@@ -156,16 +241,9 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
             } = &mut v.op
             {
                 if succ_arith[*id].len() == succ[*outer_id].len() {
-                    // *mutability = Mutability::Mut; TODO: change this to meet actual need of mutablility
-                    match typ {
-                        FusedType::Scalar => mut_scalars += 1,
-                        FusedType::ScalarArray => mut_polys += 1,
-                    }
-                    if mut_limit.is_some() {
-                        let (scalar_limit, poly_limit) = mut_limit.unwrap();
-                        if (*typ == FusedType::Scalar && scalar_limit <= mut_scalars)
-                            || (*typ == FusedType::ScalarArray && poly_limit <= mut_polys)
-                        {
+                    if *typ == FusedType::ScalarArray {
+                        mut_polys += 1;
+                        if mut_polys <= poly_limit {
                             *mutability = Mutability::Mut;
                         }
                     }
@@ -174,20 +252,19 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
                 panic!("arith vertex in the inputs table should be inputs")
             }
         }
-        if mut_limit.is_none() {
-            Some((mut_scalars, mut_polys))
-        } else {
-            None
-        }
+        mut_polys
     }
 }
 
 pub fn fuse_arith<'s, Rt: RuntimeType>(mut cg: Cg<'s, Rt>) -> Cg<'s, Rt> {
-    let succ: Heap<VertexId, BTreeSet<VertexId>> = cg.g.successors();
-    let mut book = vec![false; cg.g.order()];
+    let mut succ: Heap<VertexId, BTreeSet<VertexId>> = cg.g.successors();
+    let mut fused = vec![0; cg.g.order()];
     let order = cg.g.vertices().collect::<Vec<_>>();
+    let mut to = vec![false; cg.g.order()]; // vertexs rely on the current fused kernel
+    let mut from = vec![false; cg.g.order()]; // vertexs the current fused kernel relies on
+    let mut fuse_id = 1;
     for id in order {
-        if cg.can_fuse(id, &mut book) {
+        if cg.can_fuse(id, &mut fused, &mut to, &mut from) {
             let mut vid2arith = BTreeMap::new();
             let mut ag = ArithGraph {
                 inputs: Vec::new(),
@@ -198,38 +275,37 @@ pub fn fuse_arith<'s, Rt: RuntimeType>(mut cg: Cg<'s, Rt>) -> Cg<'s, Rt> {
             let mut src_info = Vec::new();
             cg.fuse_it(
                 id,
-                &mut book,
+                &mut fused,
+                &mut to,
+                &mut from,
                 &mut vid2arith,
                 &succ,
                 &mut ag,
                 &mut output_v,
                 &mut src_info,
+                fuse_id,
             );
 
-            let (mut mut_scalars, mut mut_polys) =
-                cg.check_mutability(&mut ag, &succ, None).unwrap(); // first call to get mutable input counts
+            let mut mut_polys = cg.check_mutability(&mut ag, &succ, None); // first call to get mutable input counts
 
             // push the node
-            let mut output_scalars = 0;
             let mut output_polys = 0;
             let output_types = output_v
                 .iter()
                 .map(|output_i /*(targetid, old_src_id)*/| {
                     let old_src = output_i[0].1;
                     let old = cg.g.vertex(old_src);
-                    match cg.get_fuse_type(old_src) {
-                        FusedType::Scalar => output_scalars += 1,
-                        FusedType::ScalarArray => output_polys += 1,
+                    if cg.get_fuse_type(old_src) == FusedType::ScalarArray {
+                        output_polys += 1
                     }
                     old.typ().clone()
                 })
                 .collect::<Vec<_>>();
 
-            mut_scalars = mut_scalars.min(output_scalars);
             mut_polys = mut_polys.min(output_polys);
 
             // second call to actually update the inputs need to be mutable
-            cg.check_mutability(&mut ag, &succ, Some((mut_scalars, mut_polys)));
+            cg.check_mutability(&mut ag, &succ, Some(mut_polys));
 
             assert_eq!(output_types.len(), ag.outputs.len());
             let typ = super::typ::template::Typ::Tuple(output_types.clone());
@@ -237,7 +313,6 @@ pub fn fuse_arith<'s, Rt: RuntimeType>(mut cg: Cg<'s, Rt>) -> Cg<'s, Rt> {
             let node_id = cg.g.add_vertex(Vertex::new(
                 VertexNode::Arith {
                     arith: ag,
-                    mut_scalars,
                     mut_polys,
                     chunking: None,
                 },
@@ -262,7 +337,7 @@ pub fn fuse_arith<'s, Rt: RuntimeType>(mut cg: Cg<'s, Rt>) -> Cg<'s, Rt> {
                 output_get.push(get);
             }
 
-            // modify the succ
+            // modify the consumers to depend on tuple get
             for i in 0..output_v.len() {
                 let new_src = output_get[i];
                 for (target, old_src) in output_v[i].iter() {
@@ -273,6 +348,41 @@ pub fn fuse_arith<'s, Rt: RuntimeType>(mut cg: Cg<'s, Rt>) -> Cg<'s, Rt> {
                     }
                 }
             }
+            // reconstruct succ and clear to and from
+            fuse_id += 1;
+            to = vec![false; cg.g.order()];
+            from = vec![false; cg.g.order()];
+            fused.resize(cg.g.order(), 0);
+            succ = cg.g.successors().map(&mut |_, v| {
+                v.into_iter()
+                    .filter(|suc_id| fused[usize::from(*suc_id)] == 0)
+                    .collect()
+            });
+
+            // // some check for succ and pred
+            // for (vid, succs) in succ.iter().enumerate() {
+            //     if fused[vid] != 0 {
+            //         continue;
+            //     }
+            //     for suc in succs {
+            //         if fused[usize::from(*suc)] != 0 {
+            //             panic!("shouldn't have suc to be a fused point");
+            //         }
+            //     }
+            // }
+
+            // for vid in cg.g.vertices() {
+            //     let vid_usize = usize::from(vid);
+            //     if fused[vid_usize] != 0 {
+            //         continue;
+            //     }
+            //     for pre in cg.g.vertex(vid).uses() {
+            //         let pre_usize = usize::from(pre);
+            //         if fused[pre_usize] != 0 {
+            //             panic!("shouldn't have pre to be a fused point");
+            //         }
+            //     }
+            // }
         }
     }
     cg

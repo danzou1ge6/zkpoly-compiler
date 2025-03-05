@@ -137,7 +137,6 @@ pub mod template {
         /// .1 is size of each chunk, if chunking is enabled
         Arith {
             arith: A,
-            mut_scalars: usize,
             mut_polys: usize,
             chunking: Option<u64>,
         },
@@ -436,11 +435,8 @@ where
                 }
             }
             Arith {
-                arith,
-                mut_scalars,
-                mut_polys,
-                ..
-            } => arith.outputs_inplace(*mut_scalars, *mut_polys),
+                arith, mut_polys, ..
+            } => arith.outputs_inplace(*mut_polys),
             Blind(poly, ..) => Box::new([Some(*poly)].into_iter()),
             BatchedInvert(poly) => Box::new([Some(*poly)].into_iter()),
             DistributePowers { poly, .. } => Box::new([Some(*poly)].into_iter()),
@@ -487,12 +483,10 @@ where
             Arith {
                 arith,
                 chunking,
-                mut_scalars,
                 mut_polys,
             } => Arith {
                 arith: arith.relabeled(mapping),
                 chunking: *chunking,
-                mut_scalars: *mut_scalars,
                 mut_polys: *mut_polys,
             },
             Entry(idx) => Entry(*idx),
