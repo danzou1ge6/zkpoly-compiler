@@ -89,8 +89,34 @@ fn compile_dot(fpath: &PathBuf) {
         .spawn();
 }
 
+fn check_type2_dag<'s, Rt: RuntimeType>(
+    fpath: PathBuf,
+    g: &Digraph<type2::VertexId, type2::Vertex<'s, Rt>>,
+    output_vid: type2::VertexId,
+) -> bool {
+    if let Some(cycle) = g.try_find_cycle() {
+        let mut f = std::fs::File::create(&fpath).unwrap();
+        type2::pretty_print::write_graph_with_vertices_colored(g, output_vid, &mut f, |vid, _| {
+            if cycle[vid] {
+                Some("#e74c3c")
+            } else {
+                None
+            }
+        }).unwrap();
+        drop(f);
+
+        compile_dot(&fpath);
+        false
+    } else {
+        true
+    }
+}
+
 #[derive(Debug, Clone)]
-pub struct Error<'s, Rt: RuntimeType>(pub ast::lowering::Error<'s, Rt>);
+pub enum Error<'s, Rt: RuntimeType> {
+    Typ(ast::lowering::Error<'s, Rt>),
+    NotDag
+}
 
 pub fn ast2inst<Rt: RuntimeType>(
     ast: impl ast::TypeEraseable<Rt>,
@@ -125,9 +151,13 @@ pub fn ast2inst<Rt: RuntimeType>(
                 drop(f);
 
                 compile_dot(&fpath);
-                Err(Error(e))
+                Err(Error::Typ(e))
             }
         }?;
+    
+    if!check_type2_dag(options.debug_dir.join("type2_type_inference.dot"), &t2prog.cg.g, output_vid) {
+        return Err(Error::NotDag);
+    }
 
     let type2::Program {
         cg: t2cg,
@@ -153,6 +183,10 @@ pub fn ast2inst<Rt: RuntimeType>(
         "Done.",
     )?;
 
+    if !check_type2_dag(options.debug_dir.join("type2_intt_mending.dot"), &t2cg.g, output_vid) {
+        panic!("graph is not a DAG after INTT Mending");
+    }
+
     if options.debug_intt_mending {
         debug_type2(
             options.debug_dir.join("type2_intt_mending.dot"),
@@ -176,6 +210,10 @@ pub fn ast2inst<Rt: RuntimeType>(
         "Done.",
     )?;
 
+    if!check_type2_dag(options.debug_dir.join("type2_precompute.dot"), &t2cg.g, output_vid) {
+        panic!("graph is not a DAG after Precomputing");
+    }
+
     if options.debug_precompute {
         debug_type2(
             options.debug_dir.join("type2_precompute.dot"),
@@ -191,6 +229,10 @@ pub fn ast2inst<Rt: RuntimeType>(
         "Done.",
     )?;
 
+    if!check_type2_dag(options.debug_dir.join("type2_manage_invers.dot"), &t2cg.g, output_vid) {
+        panic!("graph is not a DAG after Managing Inversions");
+    }
+
     if options.debug_manage_invers {
         debug_type2(
             options.debug_dir.join("type2_manage_invers.dot"),
@@ -205,6 +247,10 @@ pub fn ast2inst<Rt: RuntimeType>(
         || Ok(type2::kernel_fusion::fuse_arith(t2cg)),
         "Done.",
     )?;
+
+    if!check_type2_dag(options.debug_dir.join("type2_kernel_fusion.dot"), &t2cg.g, output_vid) {
+        panic!("graph is not a DAG after Arithmetic Kernel Fusion");
+    }
 
     if options.debug_kernel_fusion {
         debug_type2(
@@ -226,6 +272,8 @@ pub fn ast2inst<Rt: RuntimeType>(
             std::fs::File::create(options.debug_dir.join("type2_graph_scheduled.dot")).unwrap();
         type2::pretty_print::write_graph_with_seq(&t2cg.g, &mut f, seq.iter().cloned()).unwrap();
     }
+
+    panic!("abort");
 
     // To Type3 through Memory Planning
     let t3chunk =

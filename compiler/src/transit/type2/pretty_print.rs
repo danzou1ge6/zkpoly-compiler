@@ -33,6 +33,16 @@ pub fn write_optinally_typed_graph<'s, Ty: Debug>(
     })
 }
 
+pub fn write_graph_with_vertices_colored<'s, Ty: Debug>(
+    g: &Digraph<VertexId, partial_typed::Vertex<'s, Ty>>,
+    output_vid: VertexId,
+    writer: &mut impl Write,
+    override_color: impl Fn(VertexId, &partial_typed::Vertex<'s, Ty>) -> Option<&'static str>,
+) -> std::io::Result<()> {
+    let seq = g.dfs().add_begin(output_vid).map(|(vid, _)| vid);
+    write_graph_with_optional_seq(g, writer, seq, false, override_color)
+}
+
 pub fn write_graph_with_seq<'s, Ty: Debug>(
     g: &Digraph<VertexId, partial_typed::Vertex<'s, Ty>>,
     writer: &mut impl Write,
@@ -92,7 +102,8 @@ fn write_graph_with_optional_seq<'s, Ty: Debug>(
                 "    label = \"{}\"",
                 format_source_info(vertex.src())
             )?;
-            writeln!(writer, "    color = blue")?;
+            let color = override_color(vid, vertex).unwrap_or("blue");
+            writeln!(writer, "    color = \"{}\"", color)?;
             writeln!(writer, "    style = dashed")?;
             arith::pretty_print::print_subgraph_vertices(
                 arith,

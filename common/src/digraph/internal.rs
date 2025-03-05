@@ -141,6 +141,42 @@ where
     pub fn dfs_from<'g>(&'g self, i: I) -> DfsIterator<'g, I, V> {
         self.dfs().add_begin(i)
     }
+    pub fn try_find_cycle(&self) -> Option<Heap<I, bool>> {
+        fn dfs<I, V>(
+            g: &Digraph<I, V>,
+            visited: &mut Heap<I, bool>,
+            marker: &mut Heap<I, bool>,
+            i: I,
+        ) -> bool
+        where
+            I: UsizeId,
+            V: Predecessors<I>,
+        {
+            if marker[i] {
+                return false;
+            }
+            if visited[i] {
+                return true;
+            }
+            marker[i] = true;
+            visited[i] = true;
+            for succ in g.vertex(i).predecessors() {
+                if !dfs(g, visited, marker, succ) {
+                    return false;
+                }
+            }
+            marker[i] = false;
+            true
+        }
+        let mut visited = Heap::repeat(false, self.order());
+        let mut marker = Heap::repeat(false, self.order());
+        for i in self.vertices() {
+            if !dfs(self, &mut visited, &mut marker, i) {
+                return Some(marker);
+            }
+        }
+        None
+    }
     pub fn connected_component(&self, i: I) -> Heap<I, bool> {
         let mut visited = Heap::repeat(false, self.order());
         for v in self.dfs_from(i) {
