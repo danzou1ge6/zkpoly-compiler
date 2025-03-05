@@ -74,7 +74,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
         src_info: &mut Vec<Location<'s>>,
         fuse_id: usize,
     ) {
-        if fused[usize::from(vid)] == fuse_id {
+        if fused[usize::from(vid)] == fuse_id || vid2arith.contains_key(&vid) {
             return; // is in the current fusion
         }
         if self.can_fuse(vid, fused, to, from) {
