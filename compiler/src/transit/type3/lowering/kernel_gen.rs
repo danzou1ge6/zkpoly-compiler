@@ -1,8 +1,9 @@
 use crate::ast;
-use crate::ast::lowering::{UserFunctionId, UserFunctionTable};
+use crate::ast::lowering::UserFunctionId;
 use crate::transit::type2::{self, NttAlgorithm};
 use std::collections::BTreeMap;
 use std::sync::Mutex;
+use zkpoly_common::arith::{BinOp, UnrOp};
 use zkpoly_common::heap::Heap;
 use zkpoly_common::load_dynamic::Libs;
 use zkpoly_common::msm_config::MsmConfig;
@@ -14,7 +15,8 @@ use zkpoly_core::fused_kernels::{FusedKernel, FusedOp};
 use zkpoly_core::msm::MSM;
 use zkpoly_core::ntt::{DistributePowers, RecomputeNtt, SsipNtt};
 use zkpoly_core::poly::{
-    KateDivision, PolyEval, PolyInvert, PolyOneCoef, PolyOneLagrange, PolyScan, PolyZero, ScalarInv,
+    KateDivision, PolyAdd, PolyEval, PolyInvert, PolyOneCoef, PolyOneLagrange, PolyScan, PolySub,
+    PolyZero, ScalarInv, ScalarPow,
 };
 use zkpoly_runtime::args::{RuntimeType, Variable};
 use zkpoly_runtime::error::RuntimeError;
@@ -43,7 +45,12 @@ pub enum KernelType {
     NewOneLagrange,
     NewOneCoef,
     NewZero,
-    ScalarInvert,
+    ScalarInvert, // TODO: support both cpu and gpu
+    ScalarPow(u64),    // TODO: support both cpu and gpu
+    // there three kernels are mainly for input with different len
+    // which auto generated kernels can't handle
+    PolyAdd,
+    PolySub,
 }
 
 impl KernelType {
@@ -81,6 +88,20 @@ impl KernelType {
                 }
             }
             VertexNode::ScalarInvert { .. } => Some(Self::ScalarInvert),
+            VertexNode::SingleArith(arith) => match arith {
+                zkpoly_common::arith::Arith::Bin(BinOp::Pp(op), _, _) => match op {
+                    zkpoly_common::arith::ArithBinOp::Add => Some(Self::PolyAdd),
+                    zkpoly_common::arith::ArithBinOp::Sub => Some(Self::PolySub),
+                    _ => unreachable!(
+                        "div and mul can't have different len, so they should be handled in type2"
+                    ),
+                },
+                zkpoly_common::arith::Arith::Unr(UnrOp::S(op), _) => match op {
+                    zkpoly_common::arith::ArithUnrOp::Pow(exp) => Some(Self::ScalarPow(*exp)),
+                    _ => unreachable!("unr inv and neg should be tackled in type2"),
+                },
+                _ => unreachable!("most arith should be handled by fused kernels"),
+            },
             _ => None,
         }
     }
@@ -297,6 +318,24 @@ pub fn get_function_id<'s, Rt: RuntimeType>(
                 KernelType::ScalarInvert => {
                     let scalar_inv = ScalarInv::new(libs);
                     let func_id = f_table.push(scalar_inv.get_fn());
+                    kernel2func.insert(kernel_type, func_id);
+                    inst2func.insert(id, func_id);
+                }
+                KernelType::ScalarPow(exp) => {
+                    let scalar_pow = ScalarPow::new(libs, *exp);
+                    let func_id = f_table.push(scalar_pow.get_fn());
+                    kernel2func.insert(kernel_type, func_id);
+                    inst2func.insert(id, func_id);
+                }
+                KernelType::PolyAdd => {
+                    let poly_add = PolyAdd::new(libs);
+                    let func_id = f_table.push(poly_add.get_fn());
+                    kernel2func.insert(kernel_type, func_id);
+                    inst2func.insert(id, func_id);
+                }
+                KernelType::PolySub => {
+                    let poly_sub = PolySub::new(libs);
+                    let func_id = f_table.push(poly_sub.get_fn());
                     kernel2func.insert(kernel_type, func_id);
                     inst2func.insert(id, func_id);
                 }

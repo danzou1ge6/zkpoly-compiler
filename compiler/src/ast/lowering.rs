@@ -42,7 +42,6 @@ impl<Rt: RuntimeType> Typ<Rt> {
             Scalar => Some(Scalar),
             Transcript => Some(Transcript),
             Point => Some(Point),
-            Rng => Some(Rng),
             Tuple(elements) => Some(Tuple(
                 elements
                     .into_iter()
@@ -63,7 +62,6 @@ impl<Rt: RuntimeType> Typ<Rt> {
             Scalar => Self::Scalar,
             Transcript => Self::Transcript,
             Point => Self::Point,
-            Rng => Self::Rng,
             Tuple(elements) => Self::Tuple(
                 elements
                     .into_iter()
@@ -86,7 +84,6 @@ impl<Rt: RuntimeType> Typ<Rt> {
             (Scalar, Scalar) => true,
             (Transcript, Transcript) => true,
             (Point, Point) => true,
-            (Rng, Rng) => true,
             (Tuple(elements1), Tuple(elements2)) => {
                 elements1.len() == elements2.len()
                     && elements1

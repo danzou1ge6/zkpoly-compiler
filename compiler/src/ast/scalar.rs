@@ -133,7 +133,7 @@ impl<Rt: RuntimeType> Scalar<Rt> {
     }
 
     #[track_caller]
-    pub fn pow(&self, power: u32) -> Self {
+    pub fn pow(&self, power: u64) -> Self {
         let src = SourceInfo::new(Location::caller().clone(), None);
         self.clone().unr_op(ArithUnrOp::Pow(power), src)
     }

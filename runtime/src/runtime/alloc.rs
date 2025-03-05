@@ -83,7 +83,6 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     size: size as usize,
                 })
             }
-            Typ::Rng => todo!(),
         }
     }
 

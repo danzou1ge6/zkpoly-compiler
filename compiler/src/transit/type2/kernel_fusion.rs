@@ -7,7 +7,10 @@ use crate::transit::SourceInfo;
 
 use super::{Cg, Vertex, VertexId, VertexNode};
 use zkpoly_common::{
-    arith::{self, Arith, ArithGraph, ArithVertex, ExprId, FusedType, Mutability, Operation},
+    arith::{
+        self, Arith, ArithGraph, ArithUnrOp, ArithVertex, ExprId, FusedType, Mutability, Operation,
+        UnrOp,
+    },
     digraph::internal::Digraph,
     heap::Heap,
     typ::PolyType,
@@ -46,6 +49,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
                         true
                     }
                 }
+                Arith::Unr(UnrOp::S(ArithUnrOp::Pow(_)), _) => false,
                 _ => true,
             },
             _ => false,

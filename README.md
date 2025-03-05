@@ -121,6 +121,8 @@ ZKPoly efficiently supports common operations required in zero-knowledge proofs:
 
 ```
 export CUDA_PATH=/path/to/cuda  # Tell Cargo where CUDA is installed
+
+export ZKPOLY_COMPILER_PROJECT_ROOT=./zkpoly-compiler # Tell Cargo where the project is located
 ```
 
 ### Building

@@ -2,6 +2,7 @@ use crate::transit::type3::Device;
 
 use super::super::{RegisterId, VertexNode};
 use super::{Stream, StreamSpecific, Track};
+use zkpoly_common::arith::{self, ArithUnrOp, BinOp, UnrOp};
 use zkpoly_core::fused_kernels::gen_var_lists;
 use zkpoly_runtime::args::RuntimeType;
 use zkpoly_runtime::{args::VariableId, functions::FunctionId, instructions::Instruction};
@@ -199,6 +200,51 @@ pub fn emit_func<'s, Rt: RuntimeType>(
                 arg: args,
             });
         }
+        VertexNode::SingleArith(arith) => match arith {
+            arith::Arith::Bin(BinOp::Pp(op), lhs, rhs) => match op {
+                arith::ArithBinOp::Add => {
+                    let lhs = reg_id2var_id(*lhs);
+                    let rhs = reg_id2var_id(*rhs);
+                    let target = reg_id2var_id(outputs[0]);
+                    let stream = stream.unwrap();
+                    emit(Instruction::FuncCall {
+                        func_id: f_id,
+                        arg_mut: vec![target],
+                        arg: vec![lhs, rhs, stream],
+                    });
+                }
+                arith::ArithBinOp::Sub => {
+                    let lhs = reg_id2var_id(*lhs);
+                    let rhs = reg_id2var_id(*rhs);
+                    let target = reg_id2var_id(outputs[0]);
+                    let stream = stream.unwrap();
+                    emit(Instruction::FuncCall {
+                        func_id: f_id,
+                        arg_mut: vec![target],
+                        arg: vec![lhs, rhs, stream],
+                    });
+                }
+                _ => unreachable!(),
+            },
+            arith::Arith::Unr(UnrOp::S(ArithUnrOp::Pow(_)), target) => {
+                let target = reg_id2var_id(*target);
+                let device = t3chunk.register_devices[&outputs[0]];
+                if device == Device::Cpu {
+                    emit(Instruction::FuncCall {
+                        func_id: f_id,
+                        arg_mut: vec![target],
+                        arg: vec![],
+                    });
+                } else {
+                    emit(Instruction::FuncCall {
+                        func_id: f_id,
+                        arg_mut: vec![target],
+                        arg: vec![stream.unwrap()],
+                    });
+                }
+            }
+            _ => unreachable!(),
+        },
         _ => unimplemented!(),
     }
 }

@@ -9,11 +9,11 @@
 //! - Memory Planning
 //! > Type3
 
-use crate::ast;
+use crate::ast::{self, scalar};
 use crate::transit::{self, PolyInit, SourceInfo};
 pub use ast::lowering::{Constant, ConstantId, ConstantTable};
 pub use typ::Typ;
-use zkpoly_common::arith;
+use zkpoly_common::arith::{self, ArithUnrOp, UnrOp};
 use zkpoly_common::define_usize_id;
 use zkpoly_common::digraph;
 use zkpoly_common::heap::UsizeId;
@@ -119,7 +119,7 @@ pub enum Device {
 }
 
 pub mod template {
-    use zkpoly_common::msm_config::MsmConfig;
+    use zkpoly_common::{arith::{ArithUnrOp, UnrOp}, msm_config::MsmConfig};
     use zkpoly_runtime::args::EntryId;
 
     use super::{arith, transit, Device, NttAlgorithm, PolyInit, PolyType};
@@ -246,6 +246,9 @@ pub mod template {
                 DistributePowers { powers, poly } => Box::new([poly, powers].into_iter()),
                 Return(x) => Box::new([x].into_iter()),
                 IndexPoly(x, _) => Box::new([x].into_iter()),
+                SingleArith(arith::Arith::Unr(UnrOp::S(ArithUnrOp::Pow(_)), scalar)) => {
+                    Box::new([scalar].into_iter())
+                }
                 _ => Box::new(std::iter::empty()),
             }
         }
@@ -304,6 +307,12 @@ pub mod template {
                 BatchedInvert(_) => Device::Gpu,
                 ScanMul { .. } => Device::Gpu,
                 DistributePowers { .. } => Device::Gpu,
+                SingleArith(arith) => {
+                    match arith {
+                        zkpoly_common::arith::Arith::Bin(..) => Device::Gpu, // for add/sub with different len
+                        zkpoly_common::arith::Arith::Unr(..) => Device::PreferGpu, // for pow
+                    }
+                }
                 _ => Device::Cpu,
             }
         }
@@ -450,6 +459,9 @@ where
                     .map(|&i| Some(args[i?]))
                     .collect::<Vec<_>>();
                 Box::new(r.into_iter())
+            }
+            SingleArith(arith::Arith::Unr(UnrOp::S(ArithUnrOp::Pow(_)), scalar)) => {
+                Box::new([Some(*scalar)].into_iter())
             }
             _ => {
                 let len = self.typ().size().len();

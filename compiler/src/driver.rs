@@ -183,7 +183,9 @@ impl Ctx {
     }
 
     fn join(&mut self) {
-        std::mem::take(&mut self.0).into_iter().for_each(|j| j.join().unwrap());
+        std::mem::take(&mut self.0)
+            .into_iter()
+            .for_each(|j| j.join().unwrap());
     }
 
     fn add(&mut self, j: JoinHandle<()>) {
@@ -370,8 +372,7 @@ pub fn ast2inst<Rt: RuntimeType>(
 
     if options.debug_graph_scheduling {
         let path = options.debug_dir.join("type2_graph_scheduled.dot");
-        let mut f =
-            std::fs::File::create(&path).unwrap();
+        let mut f = std::fs::File::create(&path).unwrap();
         type2::pretty_print::write_graph_with_seq(&t2cg.g, &mut f, seq.iter().cloned()).unwrap();
         ctx.add(compile_dot(path));
     }

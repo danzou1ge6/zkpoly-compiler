@@ -1,14 +1,11 @@
 use zkpoly_common::{load_dynamic::Libs, msm_config::MsmConfig};
 use zkpoly_core::{
     msm::MSM,
-    ntt::SsipNtt,
     poly::{KateDivision, PolyEval, PolyInvert, PolyScan},
 };
 use zkpoly_runtime::args::RuntimeType;
 
-use super::NttAlgorithm;
-
-// msm can work on several cares, so its return type is Vec<usize>
+// msm can work on several cards, so its return type is Vec<usize>
 pub fn msm<Rt: RuntimeType>(msm_config: &MsmConfig, len: usize, libs: &mut Libs) -> Vec<u64> {
     let msm_impl = MSM::<Rt>::new(libs, msm_config.clone());
     assert_eq!(msm_config.cards.len(), 1);
