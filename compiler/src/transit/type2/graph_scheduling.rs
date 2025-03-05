@@ -11,11 +11,6 @@ fn choose_next_vertex<'s, Rt: RuntimeType>(
     successors: &Heap<VertexId, BTreeSet<VertexId>>,
     deg_out: &Heap<VertexId, usize>,
 ) -> VertexId {
-    if active_vertices.len() == 0 {
-        return ready_vertices.iter().next().unwrap().clone();
-    }
-    // Find ready successors of an active vertex with least unexecuted successors
-
     // Number of unexecuted successors of an active vertex, if the vertex has any ready successor
     let num_unexecuted_successors: Vec<(VertexId, usize)> = active_vertices
         .iter()
@@ -26,8 +21,13 @@ fn choose_next_vertex<'s, Rt: RuntimeType>(
                 .any(|succ| ready_vertices.contains(succ))
         })
         .collect();
-    assert!(num_unexecuted_successors.len() > 0);
 
+    // If no successor of an active vertex is ready, arbitarily choose one ready vertex
+    if num_unexecuted_successors.len() == 0 {
+        return ready_vertices.iter().next().unwrap().clone();
+    }
+
+    // Find ready successors of an active vertex with least unexecuted successors
     let min = num_unexecuted_successors
         .iter()
         .map(|(_, num)| num)
@@ -37,12 +37,11 @@ fn choose_next_vertex<'s, Rt: RuntimeType>(
     let candidate_vids: Vec<VertexId> = num_unexecuted_successors
         .into_iter()
         .filter_map(|(vid, num)| if num == min { Some(vid) } else { None })
-        .filter_map(|vid| {
-            if ready_vertices.contains(&vid) {
-                Some(vid)
-            } else {
-                None
-            }
+        .flat_map(|vid| {
+            successors[vid]
+                .iter()
+                .copied()
+                .filter(|succ| ready_vertices.contains(succ))
         })
         .collect();
 
@@ -72,11 +71,15 @@ pub fn schedule<'s, Rt: RuntimeType>(
 ) -> (Vec<VertexId>, BTreeMap<VertexId, usize>) {
     let connected = cg.g.connected_component(cg.output);
 
+    let successors = cg.g.successors();
     let mut active_vertices: BTreeSet<VertexId> = BTreeSet::new();
     // Number of unexecuted predecessors
     let mut deg_in = cg.g.degrees_in();
     // Number of unexecuted successors
-    let mut deg_out = cg.g.degrees_out();
+    let mut deg_out = successors.map_by_ref(&mut |_, successors| {
+        successors.iter().filter(|&&succ| connected[succ]).count()
+    });
+
     let mut ready_vertices: BTreeSet<VertexId> = deg_in
         .iter_with_id()
         .filter_map(|(vid, deg)| {
@@ -87,7 +90,6 @@ pub fn schedule<'s, Rt: RuntimeType>(
             }
         })
         .collect();
-    let successors = cg.g.successors();
 
     let mut counter: usize = 0;
     let mut seq = vec![];
@@ -100,8 +102,7 @@ pub fn schedule<'s, Rt: RuntimeType>(
 
         ready_vertices.remove(&vid);
         active_vertices.insert(vid);
-        let successors = successors[vid].clone();
-        for succ in successors {
+        for succ in successors[vid].iter().copied() {
             deg_in[succ] -= 1;
             if deg_in[succ] == 0 && connected[succ] {
                 ready_vertices.insert(succ);
