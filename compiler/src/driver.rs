@@ -82,10 +82,16 @@ static GRAPHVIZ_INTERACTIVE_HTML_2: &'static str = r#"
 
     <script>
     function setEdgeColor(edge, color) {
-      const elements = edge.querySelectorAll('path, polygon');
+      const elements = edge.querySelectorAll('path, polygon, text');
       elements.forEach(element => {
-        element.setAttribute('stroke', color);
+        if (element.tagName.toLowerCase() === 'path') {
+          element.setAttribute('stroke', color);
+        }
         if (element.tagName.toLowerCase() === 'polygon') {
+          element.setAttribute('stroke', color);
+          element.setAttribute('fill', color);
+        }
+        if (element.tagName.toLowerCase() === 'text') {
           element.setAttribute('fill', color);
         }
       });
@@ -392,6 +398,8 @@ pub fn ast2inst<Rt: RuntimeType>(
         let mut f = std::fs::File::create(options.debug_dir.join("type3_fresh.dot")).unwrap();
         type3::pretty_print::write_graph(&t3chunk, &mut f).unwrap();
     }
+
+    ctx.abort("Let's leave further passes for tomorrow");
 
     // To Runtime Instructions
     let rt_chunk = options.log_suround(

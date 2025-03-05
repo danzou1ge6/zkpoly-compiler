@@ -30,8 +30,8 @@ pub fn print_subgraph_vertices<I: Copy>(
     // Write output collection node
     writeln!(
         writer,
-        "    {} [label=\"{}\", style=solid]",
-        all_output_id, "AllOutputs"
+        "    {} [id = \"v{}\", label=\"{}\", style=solid]",
+        all_output_id, all_output_id, "AllOutputs"
     )?;
 
     Ok(())
@@ -74,7 +74,8 @@ pub fn print_subgraph_edges<I: Copy>(
     for (i, &output) in ag.outputs.iter().enumerate() {
         writeln!(
             writer,
-            "  {}{} -> {} [headlabel=\"{}\", labeldistance=2]",
+            "  {}{} -> {} [class = \"v{}{}-neighbour v{}-neighbour\", headlabel=\"{}\", labeldistance=2]",
+            vertex_name_prefix, output.0, all_output_id,
             vertex_name_prefix, output.0, all_output_id, i
         )?;
     }
