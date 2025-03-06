@@ -246,9 +246,6 @@ pub mod template {
                 DistributePowers { powers, poly } => Box::new([poly, powers].into_iter()),
                 Return(x) => Box::new([x].into_iter()),
                 IndexPoly(x, _) => Box::new([x].into_iter()),
-                SingleArith(arith::Arith::Unr(UnrOp::S(ArithUnrOp::Pow(_)), scalar)) => {
-                    Box::new([scalar].into_iter())
-                }
                 _ => Box::new(std::iter::empty()),
             }
         }
@@ -393,6 +390,9 @@ where
             Blind(poly, ..) => Box::new([*poly].into_iter()),
             BatchedInvert(poly) => Box::new([*poly].into_iter()),
             DistributePowers { poly, .. } => Box::new([*poly].into_iter()),
+            SingleArith(arith::Arith::Unr(UnrOp::S(ArithUnrOp::Pow(_)), scalar)) => {
+                Box::new([*scalar].into_iter())
+            }
             _ => Box::new([].into_iter()),
         }
     }
@@ -411,17 +411,8 @@ where
             Blind(poly, ..) => Box::new([poly].into_iter()),
             BatchedInvert(poly) => Box::new([poly].into_iter()),
             DistributePowers { poly, .. } => Box::new([poly].into_iter()),
-            UserFunction(fid, args) => {
-                let f_typ = &uf_table[*fid].typ;
-                let r = f_typ
-                    .args
-                    .iter()
-                    .zip(args.iter_mut())
-                    .filter(|(&arg_mutability, _)| {
-                        arg_mutability == user_function::Mutability::Mutable
-                    })
-                    .map(|(_, arg)| arg);
-                Box::new(r)
+            SingleArith(arith::Arith::Unr(UnrOp::S(ArithUnrOp::Pow(_)), scalar)) => {
+                Box::new([scalar].into_iter())
             }
             _ => Box::new([].into_iter()),
         }
