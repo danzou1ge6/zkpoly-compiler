@@ -754,7 +754,6 @@ fn lower_typ<Rt: RuntimeType>(t2typ: &super::Typ<Rt>, value: &Value) -> Typ {
             len: 2usize.pow(*log_n),
         },
         Transcript => Typ::Transcript,
-        Rng => Typ::Rng,
         Tuple(..) => panic!("tuple unexpected"),
         Array(..) => panic!("array unexpected"),
         Any(id, size) => Typ::Any(*id, *size as usize),

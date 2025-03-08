@@ -1,7 +1,9 @@
+use std::collections::BTreeSet;
+
 use crate::{
     define_usize_id,
     digraph::internal::{Digraph, Predecessors},
-    heap::UsizeId,
+    heap::{Heap, UsizeId},
 };
 
 /// Scalar-Polynomial operator
@@ -85,7 +87,7 @@ impl ArithBinOp {
 pub enum ArithUnrOp {
     Neg,
     Inv,
-    Pow(u32),
+    Pow(u64),
 }
 
 impl ArithUnrOp {
@@ -153,7 +155,7 @@ pub enum Operation<OuterId, ArithIndex> {
         outer_id: OuterId,
         typ: FusedType,
         store_node: ArithIndex,
-        in_node: Vec<ArithIndex>,
+        in_node: Option<ArithIndex>,
     },
     Todo,
     // 0 is the output index, 1 is the index of the data to be stored
@@ -172,7 +174,7 @@ impl<OuterId, ArithIndex> Operation<OuterId, ArithIndex> {
             _ => panic!("Vertex is not an arithmetic expression"),
         }
     }
-    pub fn unwrap_global(&self) -> &OuterId {
+    pub fn unwrap_input_outerid(&self) -> &OuterId {
         match self {
             Self::Input { outer_id, .. } => outer_id,
             _ => panic!("Vertex is not an input"),
@@ -193,7 +195,7 @@ where
                 ..
             } => {
                 let mut src = Vec::new();
-                in_node.iter().for_each(|&i| src.push(i));
+                if in_node.is_some() {src.push(in_node.unwrap());}
                 src.push(*store_node);
                 Box::new(src.into_iter())
             }
@@ -210,10 +212,14 @@ where
                 ..
             } => {
                 let store = store_node as *mut ArithIndex;
-                let mut result = Vec::with_capacity(in_node.len() + 1);
-                result.extend(in_node.iter_mut());
+                let mut result = Vec::new();
+                if let Some(in_id) = in_node {
+                    result.push(in_id);
+                }
                 // SAFETY: store_node is a unique mutable reference
-                unsafe { result.push(&mut *store) };
+                unsafe { 
+                    result.push(&mut *store)
+                };
                 Box::new(result.into_iter())
             }
             _ => Box::new(std::iter::empty()),
@@ -237,13 +243,48 @@ pub struct ArithGraph<OuterId, ArithIndex> {
 
 impl<OuterId, ArithIndex> ArithGraph<OuterId, ArithIndex>
 where
+    ArithIndex: UsizeId + 'static,
+    OuterId: UsizeId,
+{
+    pub fn change_mutability(
+        &mut self,
+        succ: &Heap<OuterId, BTreeSet<OuterId>>,
+        poly_limit: usize,
+    ) -> Vec<ArithIndex> {
+        // change mutability of poly, scalars must be immutable
+        let succ_arith = self.g.successors();
+        let mut mutable_inputs = Vec::new();
+        for id in self.inputs.iter() {
+            let v = self.g.vertex_mut(*id);
+            if let Operation::Input {
+                outer_id,
+                typ,
+                mutability,
+            } = &mut v.op
+            {
+                if succ_arith[*id].len() == succ[*outer_id].len() {
+                    if *typ == FusedType::ScalarArray && mutable_inputs.len() < poly_limit {
+                        mutable_inputs.push(*id);
+                        *mutability = Mutability::Mut;
+                    }
+                }
+            } else {
+                panic!("arith vertex in the inputs table should be inputs")
+            }
+        }
+        mutable_inputs
+    }
+}
+
+impl<OuterId, ArithIndex> ArithGraph<OuterId, ArithIndex>
+where
     ArithIndex: UsizeId,
     OuterId: Copy,
 {
     pub fn uses<'s>(&'s self) -> impl Iterator<Item = OuterId> + 's {
         self.inputs
             .iter()
-            .map(|&i| self.g.vertex(i).op.unwrap_global().clone())
+            .map(|&i| self.g.vertex(i).op.unwrap_input_outerid().clone())
     }
 
     pub fn mutable_uses<'a>(&'a self) -> Box<dyn Iterator<Item = OuterId> + 'a> {
@@ -282,29 +323,18 @@ where
 
     pub fn outputs_inplace<'a, 'b>(
         &'b self,
-        mut mutable_polys: usize,
     ) -> Box<dyn Iterator<Item = Option<OuterId>> + 'b> {
-        let mut results = Vec::new();
-        self.g.0 .0.iter().for_each(|v| {
-            if let Operation::Input {
-                outer_id,
-                mutability,
-                typ,
-            } = &v.op
-            {
-                match typ {
-                    FusedType::ScalarArray => {
-                        if mutable_polys > 0 && *mutability == Mutability::Mut {
-                            mutable_polys -= 1;
-                            results.push(Some(*outer_id));
-                        } else {
-                            results.push(None);
-                        }
-                    }
-                    FusedType::Scalar => results.push(None),
-                }
+
+        let results = self.outputs.iter().map(|output_id| {
+            if let Operation::Output {in_node, .. }  = self.g.vertex(*output_id).op {
+                if let Some(in_id) = in_node {
+                    Some(*self.g.vertex(in_id).op.unwrap_input_outerid())
+                } else { None}
+            } else {
+                panic!("output nodes should have op Output")
             }
-        });
+        }).collect::<Vec<_>>();
+
         Box::new(results.into_iter())
     }
 

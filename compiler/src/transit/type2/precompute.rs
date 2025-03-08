@@ -1,6 +1,5 @@
 use std::{collections::BTreeMap, panic::Location};
 
-use halo2curves::group::cofactor;
 use zkpoly_common::{load_dynamic::Libs, msm_config::MsmConfig, typ::PolyType};
 use zkpoly_core::{
     msm::MSMPrecompute,
@@ -39,7 +38,7 @@ pub fn precompute<'s, Rt: RuntimeType>(
     for id in order.iter() {
         let vertex = cg.g.vertex(*id).clone();
         match vertex.node() {
-            super::template::VertexNode::Ntt { s, to, from, alg } => {
+            super::template::VertexNode::Ntt { to, from, .. } => {
                 let inv = match to {
                     PolyType::Coef => {
                         assert_eq!(*from, PolyType::Lagrange);
@@ -49,7 +48,6 @@ pub fn precompute<'s, Rt: RuntimeType>(
                         assert_eq!(*from, PolyType::Coef);
                         false
                     }
-                    _ => unreachable!(),
                 };
                 let (_, len) = vertex.typ().unwrap_poly();
                 assert!(len.is_power_of_two());

@@ -73,3 +73,8 @@ cudaError_t inv_scalar(unsigned int* target, cudaStream_t stream) {
     detail::inverse_scalar<POLY_FIELD><<< 1, 1, 0, stream >>>(reinterpret_cast<POLY_FIELD*>(target));
     return cudaGetLastError();
 }
+
+cudaError_t scalar_pow(unsigned int* target, unsigned long long exp, cudaStream_t stream) {
+    detail::scalar_pow<POLY_FIELD><<< 1, 1, 0, stream >>>(reinterpret_cast<POLY_FIELD*>(target), exp);
+    return cudaGetLastError();
+}

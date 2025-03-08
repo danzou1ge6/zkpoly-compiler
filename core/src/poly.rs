@@ -2,10 +2,10 @@
 
 use std::{
     any::type_name,
-    ffi::c_ulong,
+    ffi::{c_ulong, c_ulonglong},
     marker::PhantomData,
     os::raw::{c_uint, c_void},
-    ptr::{self, null_mut},
+    ptr::null_mut,
 };
 
 use group::ff::Field;
@@ -158,6 +158,19 @@ pub struct ScalarInv<T: RuntimeType> {
     >,
 }
 
+pub struct ScalarPow<T: RuntimeType> {
+    _marker: PhantomData<T>,
+    c_func: Symbol<
+        'static,
+        unsafe extern "C" fn(
+            target: *mut c_uint,
+            exp: c_ulonglong,
+            stream: cudaStream_t,
+        ) -> cudaError_t,
+    >,
+    exp: u64,
+}
+
 macro_rules! impl_poly_new {
     ($struct_name:ident, $symbol_name:literal) => {
         impl<T: RuntimeType> $struct_name<T> {
@@ -189,6 +202,54 @@ impl_poly_new!(PolyAdd, "poly_add");
 impl_poly_new!(PolySub, "poly_sub");
 impl_poly_new!(PolyMul, "poly_mul");
 impl_poly_new!(ScalarInv, "inv_scalar");
+
+impl<T: RuntimeType> ScalarPow<T> {
+    pub fn new(libs: &mut Libs, exp: u64) -> Self {
+        if !libs.contains(LIB_NAME) {
+            let field_type = resolve_type(type_name::<T::Field>());
+            xmake_config("POLY_FIELD", field_type);
+            xmake_run("poly");
+        }
+        let lib = libs.load("libpoly.so");
+        let c_func = unsafe { lib.get(concat!("scalar_pow", "\0").as_bytes()) }.unwrap();
+        Self {
+            _marker: PhantomData,
+            c_func,
+            exp,
+        }
+    }
+}
+
+impl<T: RuntimeType> RegisteredFunction<T> for ScalarPow<T> {
+    fn get_fn(&self) -> Function<T> {
+        let c_func = self.c_func.clone();
+        let exp = self.exp.clone();
+        let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
+                              var: Vec<&Variable<T>>|
+              -> Result<(), RuntimeError> {
+            assert_eq!(mut_var.len(), 1);
+            if var.len() == 0 {
+                let scalar = mut_var[0].unwrap_scalar_mut();
+                *scalar.as_mut() = scalar.as_ref().pow(vec![exp]);
+            } else if var.len() == 1 {
+                let scalar = mut_var[0].unwrap_scalar_mut();
+                let stream = var[0].unwrap_stream();
+                unsafe {
+                    cuda_check!(cudaSetDevice(stream.get_device()));
+                    cuda_check!(c_func(scalar.value as *mut c_uint, exp, stream.raw()));
+                }
+            } else {
+                unreachable!("var len should be 1 or 2 for ScalarPow");
+            }
+
+            Ok(())
+        };
+        Function {
+            name: "scalar_pow".to_string(),
+            f: FunctionValue::Fn(Box::new(rust_func)),
+        }
+    }
+}
 
 impl<T: RuntimeType> RegisteredFunction<T> for ScalarInv<T> {
     fn get_fn(&self) -> Function<T> {
@@ -404,8 +465,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyZero<T> {
             let target = mut_var[0].unwrap_scalar_array_mut();
             if target.device == DeviceType::CPU {
                 assert_eq!(var.len(), 0);
-                unsafe {
-                    ptr::write_bytes(target.values, 0, target.len);
+                for num in target.iter_mut() {
+                    *num = T::Field::ZERO;
                 }
             } else {
                 assert_eq!(var.len(), 1);

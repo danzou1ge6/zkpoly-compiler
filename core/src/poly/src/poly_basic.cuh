@@ -49,6 +49,11 @@ namespace detail {
     }
 
     template <typename Field>
+    __global__ void scalar_pow(Field * target, u64 exp) {
+        *target = (*target).pow(exp);
+    }
+
+    template <typename Field>
     cudaError_t poly_zero(PolyPtr target, cudaStream_t stream) {
         u64 len = target.len;
         u32 block = 256;

@@ -13,7 +13,6 @@ pub mod template {
         Scalar,
         Transcript,
         Point,
-        Rng,
         Tuple(Vec<Typ<Rt, P>>),
         Array(Box<Typ<Rt, P>>, usize),
         Any(any::TypeId, usize),
@@ -32,7 +31,6 @@ pub mod template {
                 (Scalar, Scalar) => true,
                 (Transcript, Transcript) => true,
                 (Point, Point) => true,
-                (Rng, Rng) => true,
                 (Tuple(ts1), Tuple(ts2)) => ts1 == ts2,
                 (Array(t1, l1), Array(t2, l2)) => t1 == t2 && l1 == l2,
                 (Any(t1, s1), Any(t2, s2)) => t1 == t2 && s1 == s2,
@@ -167,7 +165,6 @@ where
             Scalar => Size::Single(size_of::<Rt::Field>() as u64),
             Transcript => Size::Single(size_of::<Rt::Trans>() as u64),
             Point => Size::Single(2 * size_of::<Rt::Field>() as u64),
-            Rng => unimplemented!("Rng is currently not put in any register"),
             Tuple(ts) => Size::Tuple(
                 ts.iter()
                     .map(|t| match t.size() {
@@ -203,7 +200,6 @@ where
             Scalar => true,
             Transcript => false,
             Point => true,
-            Rng => true,
             Tuple(..) => true,
             Array(..) => true,
             Any(..) => true,

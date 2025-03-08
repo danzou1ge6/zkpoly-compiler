@@ -22,3 +22,5 @@ extern "C" cudaError_t scan_mul(void * temp_buffer, unsigned long *buffer_size, 
 extern "C" cudaError_t batched_invert(void *temp_buffer, unsigned long *buffer_size, PolyPtr poly, unsigned int *inv, cudaStream_t stream);
 
 extern "C" cudaError_t inv_scalar(unsigned int* target, cudaStream_t stream);
+
+extern "C" cudaError_t scalar_pow(unsigned int* target, unsigned long long exp, cudaStream_t stream);

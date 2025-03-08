@@ -1114,6 +1114,24 @@ namespace mont
       return res;
     }
 
+    __host__ __device__ __forceinline__
+    Element pow(u64 p) const & {
+      auto res = one();
+      bool found_one = false;
+      #pragma unroll
+      for (int i = 63; i >= 0; i--)
+      {
+        if (found_one)
+          res = res.square();
+        if ((p >> i) & 1)
+        {
+          found_one = true;
+          res = res * (*this);
+        }
+      }
+      return res;
+    }
+
     __host__ __device__ __forceinline__ Element pow(u32 p, u32 deg = 31) const &
     {
       auto res = one();
