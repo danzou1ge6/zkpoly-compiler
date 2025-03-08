@@ -1,5 +1,5 @@
 use super::{Addr, AddrId, AddrMappingHandler, Instant, IntegralSize, Size};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use zkpoly_common::mm_heap::MmHeap;
 
 pub struct Transfer {
@@ -68,10 +68,15 @@ impl BlockStatus {
     }
 
     pub fn next_use(&self) -> usize {
+        self.try_next_use()
+            .expect("free block does not have next_use")
+    }
+
+    pub fn try_next_use(&self) -> Option<usize> {
         match self {
-            BlockStatus::Free(..) => panic!("free block does not have next_use"),
-            BlockStatus::Splitted(_, children_next_use) => children_next_use.max().unwrap().0,
-            BlockStatus::Occupied(_, next_use) => *next_use,
+            BlockStatus::Free(..) => None,
+            BlockStatus::Splitted(_, children_next_use) => Some(children_next_use.max().unwrap().0),
+            BlockStatus::Occupied(_, next_use) => Some(*next_use),
         }
     }
 
@@ -93,7 +98,7 @@ struct Block {
     addr: AddrId,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Allocator {
     capacity: u64,
     /// Log2 block sizes, from small to big
@@ -101,6 +106,122 @@ pub struct Allocator {
     blocks: BTreeMap<u32, BTreeMap<u64, Block>>,
     next_new_biggest_block_addr: u64,
     now: usize,
+}
+
+struct BlocksDebugger<'a>(&'a Allocator);
+
+impl<'a> std::fmt::Debug for BlocksDebugger<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fn fmt_block(
+            f: &mut std::fmt::Formatter<'_>,
+            lbs: u32,
+            addr: u64,
+            a: &Allocator,
+            depth: usize,
+            marker: &mut BTreeSet<(u32, u64)>,
+        ) -> std::fmt::Result {
+            match &a.blocks[&lbs][&addr].status {
+                BlockStatus::Free(..) => {}
+                BlockStatus::Occupied(lve_at, next_use) => write!(
+                    f,
+                    "{}({}, {}): Occupied({},{})\n",
+                    " ".repeat(depth * 2),
+                    lbs,
+                    addr,
+                    lve_at,
+                    if *next_use == usize::MAX {
+                        "INF".to_string()
+                    } else {
+                        next_use.to_string()
+                    }
+                )?,
+                BlockStatus::Splitted(live_at, children_next_use) => {
+                    write!(
+                        f,
+                        "{}({}, {}): Splitted({}, {})\n",
+                        " ".repeat(depth * 2),
+                        lbs,
+                        addr,
+                        live_at,
+                        {
+                            let next_use = children_next_use.min().unwrap();
+                            if next_use.0 == usize::MAX {
+                                "INF".to_string()
+                            } else {
+                                next_use.0.to_string()
+                            }
+                        }
+                    )?;
+                    for child_addr in a.child_addrs(addr, lbs).into_iter().flatten() {
+                        let child_lbs = a.child_lbs(lbs).unwrap();
+                        if let Some(next_use) =
+                            a.blocks[&child_lbs][&child_addr].status.try_next_use()
+                        {
+                            assert!(next_use == children_next_use[&addr])
+                        }
+                    }
+                    fmt_children(f, lbs, addr, a, depth + 1, marker)?;
+                }
+            };
+            Ok(())
+        }
+        fn fmt_children(
+            f: &mut std::fmt::Formatter<'_>,
+            lbs: u32,
+            addr: u64,
+            a: &Allocator,
+            depth: usize,
+            marker: &mut BTreeSet<(u32, u64)>,
+        ) -> std::fmt::Result {
+            for child_addr in a.child_addrs(addr, lbs).into_iter().flatten() {
+                let child_lbs = a.child_lbs(lbs).unwrap();
+                marker.insert((child_lbs, child_addr));
+                fmt_block(f, child_lbs, child_addr, a, depth, marker)?;
+            }
+            Ok(())
+        }
+
+        let max_lbs = self.0.max_lbs();
+        let mut marker = BTreeSet::new();
+
+        write!(f, "\n")?;
+
+        for (&addr, _) in self.0.blocks[&max_lbs].iter() {
+            fmt_block(f, max_lbs, addr, &self.0, 1, &mut marker)?;
+        }
+
+        for (&lbs, blocks) in self.0.blocks.iter().filter(|(lbs, _)| **lbs != max_lbs) {
+            for (&addr, _) in blocks.iter() {
+                if !marker.contains(&(lbs, addr)) {
+                    write!(
+                        f,
+                        "WARNING: block ({}, {}), parent ({}, {}) not included in tree",
+                        lbs,
+                        addr,
+                        self.0.parent_lbs(lbs).unwrap(),
+                        self.0.parent_addr(addr, lbs).unwrap()
+                    )?
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+impl std::fmt::Debug for Allocator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Allocator")
+            .field("capacity", &self.capacity)
+            .field("lbss", &self.lbss)
+            .field("blocks", &BlocksDebugger(&self))
+            .field(
+                "next_new_biggest_block_addr",
+                &self.next_new_biggest_block_addr,
+            )
+            .field("now", &self.now)
+            .finish()
+    }
 }
 
 impl Allocator {
@@ -116,7 +237,7 @@ impl Allocator {
     }
 
     pub fn tick(&mut self, t: Instant) {
-        assert!(t.0 > self.now);
+        assert!(self.now == 0 || t.0 > self.now);
         self.now = t.0;
     }
 
@@ -232,6 +353,9 @@ impl Allocator {
                 // For each nonfree child, first try find a free block to reassign the location of the child
                 let mut candidates_addrs = self.blocks[&child_lbs]
                     .iter()
+                    .filter(|(child_addr, _)| {
+                        self.parent_addr(**child_addr, child_lbs).unwrap() != addr
+                    })
                     .filter(|(_, can_block)| {
                         can_block
                             .status
@@ -248,6 +372,9 @@ impl Allocator {
                     // If no free block that accomodate the child for its whole lifetime, move the child to a free block
                     let mut candidate_addrs = self.blocks[&child_lbs]
                         .iter()
+                        .filter(|(child_addr, _)| {
+                            self.parent_addr(**child_addr, child_lbs).unwrap() != addr
+                        })
                         .filter(|(_, can_block)| can_block.status.free())
                         .filter(|(can_addr, _)| {
                             !reassign_dest2src.contains_key(&can_addr)
@@ -344,22 +471,34 @@ impl Allocator {
         mapping: &mut impl AddrMappingHandler,
     ) -> Option<(Vec<Transfer>, AddrId)> {
         if let Some(child_lbs) = self.child_lbs(lbs) {
-            let n_nonfree_blocks: Vec<(u64, usize)> = self.blocks[&lbs]
-                .iter()
-                .filter_map(|(addr, block)| {
-                    if let BlockStatus::Splitted(_, ref children_next_use) = &block.status {
-                        Some((*addr, children_next_use.len()))
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-
+            let n_nonfree_blocks: Vec<(u64, usize)> = self.blocks.get(&lbs).map_or_else(
+                || Vec::new(),
+                |lbs_blocks| {
+                    lbs_blocks
+                        .iter()
+                        .filter_map(|(addr, block)| {
+                            if let BlockStatus::Splitted(_, ref children_next_use) = &block.status {
+                                Some((*addr, children_next_use.len()))
+                            } else {
+                                None
+                            }
+                        })
+                        .collect()
+                },
+            );
+            if n_nonfree_blocks.len() <= 1 {
+                return None;
+            }
             // Take the block with the least non-free children to try emptying its children
             if let Some((addr, _)) = n_nonfree_blocks.iter().min_by_key(|(_, n)| *n).cloned() {
                 if let Some(transfers) = self
                     .plan_relocation_of_children::<ALLOW_TRANSFER>(addr, lbs, child_lbs, mapping)
                 {
+                    self.child_addrs(addr, child_lbs)
+                        .unwrap()
+                        .for_each(|child_addr| {
+                            self.blocks.get_mut(&child_lbs).unwrap().remove(&child_addr);
+                        });
                     return Some((transfers, self.addr_id_of(addr, lbs)));
                 }
             }
@@ -449,7 +588,7 @@ impl Allocator {
                     addr: Self::new_addr_id(addr, lbs, mapping),
                     status: BlockStatus::Free(self.now - 1),
                 };
-                self.blocks.get_mut(&lbs).unwrap().insert(addr, block);
+                self.blocks.entry(lbs).or_default().insert(addr, block);
             }
 
             self.block_mut(parent_addr, lbs).status = BlockStatus::Occupied(self.now, next_use);
@@ -476,21 +615,29 @@ impl Allocator {
         next_use: Instant,
         mapping: &mut impl AddrMappingHandler,
     ) -> Option<(Vec<Transfer>, AddrId)> {
-        self._allocate::<true>(size, next_use, mapping)
+        let r = self._allocate::<true>(size, next_use, mapping);
+        dbg!(self);
+        r
     }
 
-    fn gather_occupied_child_blocks(&self, addr: u64, lbs: u32, append: &mut impl FnMut(AddrId)) {
+    fn gather_and_remove_occupied_child_blocks(
+        &mut self,
+        addr: u64,
+        lbs: u32,
+        append: &mut impl FnMut(AddrId),
+    ) {
         match &self.blocks[&lbs][&addr].status {
             BlockStatus::Occupied(..) => {
                 append(self.blocks[&lbs][&addr].addr);
             }
             BlockStatus::Splitted(_, children_next_use) => {
-                for addr in children_next_use.keys().copied() {
-                    self.gather_occupied_child_blocks(addr, lbs, append);
+                for addr in children_next_use.keys().copied().collect::<Vec<_>>() {
+                    self.gather_and_remove_occupied_child_blocks(addr, lbs, append);
                 }
             }
             BlockStatus::Free(..) => {}
         }
+        self.blocks.get_mut(&lbs).unwrap().remove(&addr);
     }
 
     pub fn decide_and_realloc_victim(
@@ -550,7 +697,9 @@ impl Allocator {
             let addr = *addr;
 
             let mut occupied_blocks = Vec::new();
-            self.gather_occupied_child_blocks(addr, lbs, &mut |id| occupied_blocks.push(id));
+            self.gather_and_remove_occupied_child_blocks(addr, lbs, &mut |id| {
+                occupied_blocks.push(id)
+            });
 
             let now = self.now;
             let block = self.block_mut(addr, lbs);
@@ -611,5 +760,6 @@ impl Allocator {
         let (Addr(addr), bs) = mapping.get(addr_id);
         let lbs: IntegralSize = bs.try_into().expect("should be power of 2");
         self._deallocate::<true>(addr, lbs.0);
+        dbg!(self);
     }
 }

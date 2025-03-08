@@ -37,12 +37,13 @@ pub fn print_subgraph_vertices<I: Copy>(
     Ok(())
 }
 
-pub fn print_subgraph_edges<I: Copy>(
+pub fn print_subgraph_edges<I: Copy + Eq>(
     ag: &ArithGraph<I, ExprId>,
     vertex_name_prefix: &str,
     all_output_id: String,
     vid: impl Fn(I) -> String,
     writer: &mut impl Write,
+    edge_tooltips: Option<Vec<(I, String)>>,
 ) -> std::io::Result<()> {
     for v in ag.g.vertices() {
         let op = &ag.g.vertex(v).op;
@@ -58,15 +59,25 @@ pub fn print_subgraph_edges<I: Copy>(
         }
         // Write external in-edges
         if let Operation::Input { outer_id, .. } = op {
+            let tooltip = edge_tooltips.as_ref().map_or_else(
+                || "",
+                |xs| {
+                    xs.iter()
+                        .find(|(x, _)| x == outer_id)
+                        .map(|(_, x)| x)
+                        .unwrap()
+                },
+            );
             writeln!(
                 writer,
-                "  {} -> {}{} [class = \"v{}-neighbour v{}{}-neighbour\"]",
+                "  {} -> {}{} [class = \"v{}-neighbour v{}{}-neighbour\", edgetooltip = \"{}\"]",
                 vid(*outer_id),
                 vertex_name_prefix,
                 v.0,
                 vid(*outer_id),
                 vertex_name_prefix,
                 v.0,
+                tooltip
             )?;
         }
     }

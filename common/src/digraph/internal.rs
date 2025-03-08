@@ -282,3 +282,75 @@ impl<I, V> Digraph<I, V> {
         self.0.len()
     }
 }
+
+pub struct SubDigraph<'g, I, V> {
+    g: &'g Digraph<I, V>,
+    selector: Heap<I, bool>,
+    successors: Heap<I, BTreeSet<I>>,
+    order: usize,
+    degrees_in: Heap<I, usize>,
+}
+
+impl<'g, I, V> SubDigraph<'g, I, V>
+where
+    I: UsizeId,
+    V: Predecessors<I>,
+{
+    pub fn new(g: &'g Digraph<I, V>, selector: Heap<I, bool>) -> Self {
+        let mut succ = Heap::repeat(BTreeSet::new(), g.order());
+        for (vid, v) in g.0.iter_with_id().filter(|(id, _)| selector[*id]) {
+            for succ_id in v.predecessors().filter(|id| selector[*id]) {
+                succ[succ_id].insert(vid);
+            }
+        }
+        let order = selector.iter().filter(|&b| *b).count();
+        if g.order() != selector.len() {
+            panic!("selector length not equal to graph length")
+        }
+        Self {
+            g,
+            selector,
+            order,
+            successors: succ,
+            degrees_in: g.degrees_in(),
+        }
+    }
+
+    pub fn order(&self) -> usize {
+        self.order
+    }
+
+    pub fn topology_sort(&self) -> impl Iterator<Item = (I, &V)> {
+        let deg = self.degrees_in.clone();
+        let queue: VecDeque<I> = deg
+            .iter_with_id()
+            .filter_map(|(id, d)| if *d == 0 { Some(id) } else { None })
+            .collect();
+        TopologyIterator {
+            g: &self.g,
+            deg,
+            queue,
+            successors: &self.successors,
+        }
+    }
+
+    pub fn successors_of<'a>(&'a self, v: I) -> impl Iterator<Item = I> + 'a {
+        self.successors[v].iter().copied()
+    }
+
+    pub fn vertex(&self, i: I) -> &V {
+        if !self.selector[i] {
+            panic!("vertex not in subgraph")
+        }
+        self.g.vertex(i)
+    }
+
+    pub fn vertices<'s>(&'s self) -> impl Iterator<Item = I> + 's {
+        self.g.vertices().filter(|&i| self.selector[i])
+    }
+
+    pub fn remove_vertex(&mut self, i: I) {
+        self.selector[i] = false;
+        self.order -= 1;
+    }
+}

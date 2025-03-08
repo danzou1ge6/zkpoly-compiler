@@ -675,3 +675,5 @@ pub mod pretty_print;
 pub mod temporary_space;
 pub mod typ;
 pub mod user_function;
+pub mod decide_device;
+pub mod object_analysis;

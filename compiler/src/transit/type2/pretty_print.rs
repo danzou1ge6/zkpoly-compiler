@@ -10,7 +10,7 @@ pub fn write_graph<'s, Ty: Debug>(
     writer: &mut impl Write,
 ) -> std::io::Result<()> {
     let seq = g.dfs().add_begin(output_vid).map(|(vid, _)| vid);
-    write_graph_with_optional_seq(g, writer, seq, false, |_, _| None)
+    write_graph_with_optional_seq(g, writer, seq, false, |_, _| None, |_, _| None, |_, _| None)
 }
 
 pub fn write_optinally_typed_graph<'s, Ty: Debug>(
@@ -20,17 +20,25 @@ pub fn write_optinally_typed_graph<'s, Ty: Debug>(
     writer: &mut impl Write,
 ) -> std::io::Result<()> {
     let seq = g.dfs().add_begin(output_vid).map(|(vid, _)| vid);
-    write_graph_with_optional_seq(g, writer, seq, false, |vid, vertex| {
-        if vid == error_vid {
-            Some("#e74c3c") // red
-        } else {
-            if vertex.typ().is_some() {
-                Some("#2ecc71") // green
+    write_graph_with_optional_seq(
+        g,
+        writer,
+        seq,
+        false,
+        |vid, vertex| {
+            if vid == error_vid {
+                Some("#e74c3c") // red
             } else {
-                None
+                if vertex.typ().is_some() {
+                    Some("#2ecc71") // green
+                } else {
+                    None
+                }
             }
-        }
-    })
+        },
+        |_, _| None,
+        |_, _| None,
+    )
 }
 
 pub fn write_graph_with_vertices_colored<'s, Ty: Debug>(
@@ -40,7 +48,15 @@ pub fn write_graph_with_vertices_colored<'s, Ty: Debug>(
     override_color: impl Fn(VertexId, &partial_typed::Vertex<'s, Ty>) -> Option<&'static str>,
 ) -> std::io::Result<()> {
     let seq = g.dfs().add_begin(output_vid).map(|(vid, _)| vid);
-    write_graph_with_optional_seq(g, writer, seq, false, override_color)
+    write_graph_with_optional_seq(
+        g,
+        writer,
+        seq,
+        false,
+        override_color,
+        |_, _| None,
+        |_, _| None,
+    )
 }
 
 pub fn write_graph_with_seq<'s, Ty: Debug>(
@@ -48,7 +64,7 @@ pub fn write_graph_with_seq<'s, Ty: Debug>(
     writer: &mut impl Write,
     seq: impl Iterator<Item = VertexId> + Clone,
 ) -> std::io::Result<()> {
-    write_graph_with_optional_seq(g, writer, seq, true, |_, _| None)
+    write_graph_with_optional_seq(g, writer, seq, true, |_, _| None, |_, _| None, |_, _| None)
 }
 
 fn format_source_info<'s>(src: &SourceInfo<'s>) -> String {
@@ -60,12 +76,14 @@ fn format_source_info<'s>(src: &SourceInfo<'s>) -> String {
 }
 
 /// Write the computation graph in DOT format
-fn write_graph_with_optional_seq<'s, Ty: Debug>(
+pub fn write_graph_with_optional_seq<'s, Ty: Debug>(
     g: &Digraph<VertexId, partial_typed::Vertex<'s, Ty>>,
     writer: &mut impl Write,
     seq: impl Iterator<Item = VertexId> + Clone,
     print_seq: bool,
     override_color: impl Fn(VertexId, &partial_typed::Vertex<'s, Ty>) -> Option<&'static str>,
+    extra_tooltip: impl Fn(VertexId, &partial_typed::Vertex<'s, Ty>) -> Option<String>,
+    edge_tooltip: impl Fn(VertexId, &partial_typed::Vertex<'s, Ty>) -> Option<Vec<(VertexId, String)>>,
 ) -> std::io::Result<()> {
     // Write the DOT header
     writeln!(writer, "digraph ComputationGraph {{")?;
@@ -97,11 +115,22 @@ fn write_graph_with_optional_seq<'s, Ty: Debug>(
 
         if let template::VertexNode::Arith { arith, .. } = vertex.node() {
             writeln!(writer, "  subgraph cluster_arith{} {{", vid.0)?;
-            writeln!(
+
+            let mut label = format!("{}: ArithGraph", vid.0,);
+
+            if print_seq {
+                label.push_str(&format!("({})", i));
+            }
+
+            write!(writer, "    label = \"{}\"", label)?;
+            write!(
                 writer,
-                "    label = \"{}\"",
+                "    tooltip = \"{:?} {} @{}\"",
+                vertex.typ(),
+                extra_tooltip(vid, vertex).unwrap_or_default(),
                 format_source_info(vertex.src())
             )?;
+
             let color = override_color(vid, vertex).unwrap_or("blue");
             writeln!(writer, "    color = \"{}\"", color)?;
             writeln!(writer, "    style = dashed")?;
@@ -135,12 +164,13 @@ fn write_graph_with_optional_seq<'s, Ty: Debug>(
         // Write node with attributes
         writeln!(
             writer,
-            "  {} [id = \"v{}\",label=\"{}:{}\", tooltip=\"{:?}\\n@{}\", style=\"{}\", fillcolor=\"{}\"]",
+            "  {} [id = \"v{}\",label=\"{}:{}\", tooltip=\"{:?} {}\\n@{}\", style=\"{}\", fillcolor=\"{}\"]",
             vid.0,
             vid.0,
             vid.0,
             label,
             vertex.typ(),
+            extra_tooltip(vid, vertex).unwrap_or_default(),
             format_source_info(vertex.src()),
             style,
             color
@@ -151,6 +181,8 @@ fn write_graph_with_optional_seq<'s, Ty: Debug>(
     for to_vid in seq {
         let vertex = g.vertex(to_vid);
 
+        let tooltips = edge_tooltip(to_vid, vertex);
+
         if let template::VertexNode::Arith { arith, .. } = vertex.node() {
             arith::pretty_print::print_subgraph_edges(
                 arith,
@@ -158,17 +190,28 @@ fn write_graph_with_optional_seq<'s, Ty: Debug>(
                 format!("{}", to_vid.0),
                 |ivid| format!("{}", ivid.0),
                 writer,
+                tooltips,
             )?;
             continue;
         }
 
-        for (from_vid, label) in format_labeled_uses(vertex.node()) {
+        for (from_vid, label) in format_labeled_uses(vertex.node()).into_iter() {
+            let tooltip = tooltips.as_ref().map_or_else(
+                || "",
+                |xs| {
+                    xs.iter()
+                        .find(|(vid, _)| *vid == from_vid)
+                        .map(|(_, tooltip)| tooltip)
+                        .unwrap()
+                },
+            );
             writeln!(
                 writer,
-                "  {} -> {} [class = \"v{}-neighbour v{}-neighbour\"headlabel=\"{}\", labeldistance=2]",
+                "  {} -> {} [class = \"v{}-neighbour v{}-neighbour\"headlabel=\"{}\", labeldistance=2, edgetooltip=\"{}\"]",
                 from_vid.0, to_vid.0,
                 from_vid.0, to_vid.0,
-                label
+                label,
+                tooltip
             )?;
         }
     }

@@ -1,6 +1,16 @@
-use std::{io::Write, path::PathBuf, process::Command, thread::JoinHandle};
+use std::{
+    io::Write,
+    panic::PanicHookInfo,
+    path::PathBuf,
+    process::Command,
+    sync::{Arc, Mutex},
+    thread::JoinHandle,
+};
 
-use zkpoly_common::{digraph::internal::Digraph, load_dynamic::Libs};
+use zkpoly_common::{
+    digraph::internal::{Digraph, SubDigraph},
+    load_dynamic::Libs,
+};
 use zkpoly_memory_pool::PinnedMemoryPool;
 use zkpoly_runtime::args::{self, RuntimeType};
 
@@ -19,6 +29,8 @@ pub struct DebugOptions {
     debug_manage_invers: bool,
     debug_kernel_fusion: bool,
     debug_graph_scheduling: bool,
+    debug_obj_def_use: bool,
+    debug_obj_liveness: bool,
     debug_fresh_type3: bool,
     debug_instructions: bool,
     log: bool,
@@ -35,6 +47,8 @@ impl DebugOptions {
             debug_manage_invers: true,
             debug_kernel_fusion: true,
             debug_graph_scheduling: true,
+            debug_obj_def_use: true,
+            debug_obj_liveness: true,
             debug_fresh_type3: true,
             debug_instructions: true,
             log: false,
@@ -53,11 +67,11 @@ impl DebugOptions {
         epilogue: &str,
     ) -> Result<R, E> {
         if self.log {
-            println!("[Compiler]{}", prologue);
+            println!("[Compiler] {}", prologue);
         }
         let r = f()?;
         if self.log {
-            println!("[Compiler]{}", epilogue);
+            println!("[Compiler] {}", epilogue);
         }
         Ok(r)
     }
@@ -175,25 +189,44 @@ pub enum Error<'s, Rt: RuntimeType> {
     NotDag,
 }
 
-struct Ctx(Vec<JoinHandle<()>>);
+#[derive(Clone)]
+struct Ctx(
+    Arc<
+        Mutex<(
+            Vec<JoinHandle<()>>,
+            Box<dyn FnOnce(&PanicHookInfo<'_>) + Send + Sync>,
+        )>,
+    >,
+);
 
 impl Ctx {
     fn new() -> Self {
-        Self(Vec::new())
+        let hook = std::panic::take_hook();
+        let r = Self(Arc::new(Mutex::new((Vec::new(), hook))));
+        let r1 = r.clone();
+
+        std::panic::set_hook(Box::new(move |pi| {
+            r.abort(pi);
+        }));
+
+        r1
     }
 
-    fn join(&mut self) {
-        std::mem::take(&mut self.0).into_iter().for_each(|j| j.join().unwrap());
+    fn join(&self) {
+        std::mem::take::<Vec<_>>(self.0.lock().unwrap().0.as_mut())
+            .into_iter()
+            .for_each(|j| j.join().unwrap());
     }
 
-    fn add(&mut self, j: JoinHandle<()>) {
-        self.0.push(j);
+    fn add(&self, j: JoinHandle<()>) {
+        self.0.lock().unwrap().0.push(j);
     }
 
-    fn abort(&mut self, msg: &str) {
-        println!("[Compiler] Aborting: {}", msg);
+    fn abort(&self, pi: &std::panic::PanicHookInfo<'_>) {
         self.join();
-        panic!("abort");
+        let mut hook: Box<dyn FnOnce(&PanicHookInfo) + Send + Sync> = Box::new(|_| ());
+        std::mem::swap(&mut self.0.lock().unwrap().1, &mut hook);
+        hook(pi);
     }
 }
 
@@ -203,7 +236,7 @@ pub fn ast2inst<Rt: RuntimeType>(
     options: &DebugOptions,
     hardware_info: &HardwareInfo,
 ) -> Result<(type3::lowering::Chunk<Rt>, args::ConstantTable<Rt>), Error<'static, Rt>> {
-    let mut ctx = Ctx::new();
+    let ctx = Ctx::new();
 
     // First from AST to Type2
     let (ast_cg, output_vid) = options.log_suround(
@@ -250,7 +283,7 @@ pub fn ast2inst<Rt: RuntimeType>(
         user_function_table: t2uf_tab,
         memory_pool: mut allocator,
     } = t2prog;
-    let mut libs = Libs::new();
+    let libs = Libs::new();
 
     if options.debug_type_inference {
         ctx.add(debug_type2(
@@ -273,7 +306,7 @@ pub fn ast2inst<Rt: RuntimeType>(
         &t2cg.g,
         output_vid,
     ) {
-        ctx.abort("graph is not a DAG after INTT Mending");
+        panic!("graph is not a DAG after INTT Mending");
     }
 
     if options.debug_intt_mending {
@@ -304,7 +337,7 @@ pub fn ast2inst<Rt: RuntimeType>(
     //     &t2cg.g,
     //     output_vid,
     // ) {
-    //     ctx.abort("graph is not a DAG after Precomputing");
+    //     panic!("graph is not a DAG after Precomputing");
     // }
 
     // if options.debug_precompute {
@@ -327,7 +360,7 @@ pub fn ast2inst<Rt: RuntimeType>(
         &t2cg.g,
         output_vid,
     ) {
-        ctx.abort("graph is not a DAG after Managing Inversions");
+        panic!("graph is not a DAG after Managing Inversions");
     }
 
     if options.debug_manage_invers {
@@ -350,7 +383,7 @@ pub fn ast2inst<Rt: RuntimeType>(
         &t2cg.g,
         output_vid,
     ) {
-        ctx.abort("graph is not a DAG after Arithmetic Kernel Fusion");
+        panic!("graph is not a DAG after Arithmetic Kernel Fusion");
     }
 
     if options.debug_kernel_fusion {
@@ -370,36 +403,121 @@ pub fn ast2inst<Rt: RuntimeType>(
 
     if options.debug_graph_scheduling {
         let path = options.debug_dir.join("type2_graph_scheduled.dot");
-        let mut f =
-            std::fs::File::create(&path).unwrap();
+        let mut f = std::fs::File::create(&path).unwrap();
         type2::pretty_print::write_graph_with_seq(&t2cg.g, &mut f, seq.iter().cloned()).unwrap();
         ctx.add(compile_dot(path));
     }
 
-    ctx.abort("Let's leave further passes for tomorrow");
+    let g = SubDigraph::new(&t2cg.g, t2cg.g.connected_component(output_vid));
+
+    // - Decide Device
+    let devices = options.log_suround(
+        "Deciding device",
+        || Ok(type2::decide_device::decide(&g)),
+        "Done.",
+    )?;
+
+    // - Object Analysis
+    let (mut obj_def_use, mut obj_id_allocator) = options.log_suround(
+        "Analyzing object definitions and uses",
+        || {
+            Ok(type2::object_analysis::analyze_def_use(&g, &seq, |vid| {
+                devices[&vid]
+            }))
+        },
+        "Done.",
+    )?;
+
+    let vertex_inputs = options.log_suround(
+        "Planning vertex inputs",
+        || {
+            Ok(type2::object_analysis::plan_vertex_inputs(
+                &g,
+                &mut obj_def_use,
+                |vid| devices[&vid],
+                &mut obj_id_allocator,
+            ))
+        },
+        "Done",
+    )?;
+
+    if options.debug_obj_def_use {
+        let fpath = options.debug_dir.join("type2_object_def_use.dot");
+        let mut f = std::fs::File::create(&fpath).unwrap();
+        type2::pretty_print::write_graph_with_optional_seq(
+            &t2cg.g,
+            &mut f,
+            seq.iter().copied(),
+            true,
+            |vid, _| match devices[&vid] {
+                type3::Device::Cpu => Some("#FFFFFF"),
+                type3::Device::Gpu => Some("#A5D6A7"),
+                type3::Device::Stack => Some("#90CAF9"),
+            },
+            |vid, _| Some(format!("{:?}", &obj_def_use.values[&vid])),
+            |vid, v| {
+                Some(
+                    v.uses()
+                        .zip(vertex_inputs.input_of(vid).map(|vv| format!("{:?}", vv)))
+                        .collect(),
+                )
+            },
+        )
+        .unwrap();
+        ctx.add(compile_dot(fpath));
+    }
+
+    let obj_def_use = obj_def_use;
+    let (obj_dies_after, obj_dies_after_reversed) = options.log_suround(
+        "Analyzing object lifetimes",
+        || {
+            let d = type2::object_analysis::analyze_die_after(
+                &seq,
+                &devices,
+                &obj_def_use,
+                &vertex_inputs,
+            );
+            let r = d.reversed();
+            Ok((d, r))
+        },
+        "Done",
+    )?;
+
+    if options.debug_obj_liveness {
+        let fpath = options.debug_dir.join("type2_object_liveness.txt");
+        let mut f = std::fs::File::create(&fpath).unwrap();
+        write!(f, "{:?}", &obj_dies_after).unwrap();
+    }
 
     // To Type3 through Memory Planning
-    let t3chunk =
-        options.log_suround(
-            "Planning memory",
-            || {
-                Ok(type2::memory_planning::plan(
-                    hardware_info.gpu_memory_limit,
-                    &t2cg,
-                    &seq,
-                    &t2uf_tab,
-                )
-                .expect("The computation graph is using too much smithereen space"))
-            },
-            "Done.",
-        )?;
+    let t3chunk = options.log_suround(
+        "Planning memory",
+        || {
+            Ok(type2::memory_planning::plan(
+                hardware_info.gpu_memory_limit,
+                &t2cg,
+                &g,
+                &seq,
+                &obj_dies_after,
+                &obj_dies_after_reversed,
+                &obj_def_use,
+                &vertex_inputs,
+                &devices,
+                &t2uf_tab,
+                &mut obj_id_allocator,
+                libs,
+            )
+            .expect("The computation graph is using too much smithereen space"))
+        },
+        "Done.",
+    )?;
+
+    panic!("Let's leave further passes for tomorrow");
 
     if options.debug_fresh_type3 {
         let mut f = std::fs::File::create(options.debug_dir.join("type3_fresh.dot")).unwrap();
         type3::pretty_print::write_graph(&t3chunk, &mut f).unwrap();
     }
-
-    ctx.abort("Let's leave further passes for tomorrow");
 
     // To Runtime Instructions
     let rt_chunk = options.log_suround(

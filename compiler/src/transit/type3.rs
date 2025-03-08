@@ -74,6 +74,10 @@ impl Addr {
     pub fn offset(self, x: u64) -> Addr {
         Addr(self.0 + x)
     }
+
+    pub fn unoffset(self, x: u64) -> Addr {
+        Addr(self.0 - x)
+    }
 }
 
 impl Size {

@@ -1,13 +1,16 @@
 use std::collections::BTreeMap;
 
-use zkpoly_common::{define_usize_id, heap::IdAllocator, typ::PolyMeta};
+use zkpoly_common::{
+    define_usize_id, digraph::internal::SubDigraph, heap::IdAllocator, typ::PolyMeta,
+};
 use zkpoly_runtime::args::RuntimeType;
 
-use crate::transit::type3::{
-    typ::Slice as SliceRange, Device, DeviceSpecific, Size, SmithereenSize,
+use crate::transit::{
+    type2,
+    type3::{typ::Slice as SliceRange, Device, DeviceSpecific, Size, SmithereenSize},
 };
 
-use super::super::{Cg, Typ, VertexId};
+use super::{Cg, Typ, VertexId};
 
 define_usize_id!(ObjectId);
 
@@ -173,7 +176,19 @@ impl DeviceCollection {
 
 #[derive(Debug, Clone)]
 pub struct ObjectsDieAfterReversed {
-    pub after: BTreeMap<VertexId, BTreeMap<ObjectId, DeviceCollection>>,
+    after: BTreeMap<VertexId, BTreeMap<ObjectId, DeviceCollection>>,
+}
+
+impl ObjectsDieAfterReversed {
+    pub fn after<'a>(
+        &'a self,
+        vid: VertexId,
+    ) -> Box<dyn Iterator<Item = (ObjectId, &'a DeviceCollection)> + 'a> {
+        self.after.get(&vid).map_or_else(
+            || Box::new(std::iter::empty()) as Box<dyn Iterator<Item = _>>,
+            |x| Box::new(x.iter().map(|(vid, ds)| (*vid, ds))),
+        )
+    }
 }
 
 impl ObjectsDieAfter {
@@ -222,12 +237,23 @@ pub struct ObjectsDefUse {
     pub cloned_slices: BTreeMap<(ObjectId, PolyMeta), ObjectId>,
 }
 
+impl ObjectsDefUse {
+    pub fn def_at_device(&self, oid: ObjectId) -> Device {
+        let vid = self.defs[&oid];
+        self.values[&vid]
+            .iter()
+            .find(|v| v.object_id() == oid)
+            .unwrap()
+            .device
+    }
+}
+
 fn rotated_offset(begin: u64, offset: i64, cycle: u64) -> u64 {
     (begin as i64 + offset) as u64 % cycle
 }
 
 pub fn analyze_def_use<'s, Rt: RuntimeType>(
-    cg: &Cg<'s, Rt>,
+    g: &SubDigraph<'_, VertexId, type2::Vertex<'s, Rt>>,
     seq: &[VertexId],
     devices: impl Fn(VertexId) -> Device,
 ) -> (ObjectsDefUse, IdAllocator<ObjectId>) {
@@ -238,9 +264,9 @@ pub fn analyze_def_use<'s, Rt: RuntimeType>(
     let mut cloned_slices = BTreeMap::new();
 
     for &vid in seq.iter() {
-        let v = cg.g.vertex(vid);
+        let v = g.vertex(vid);
 
-        use super::super::template::VertexNode::*;
+        use super::template::VertexNode::*;
         match v.node() {
             TupleGet(pred, i) | ArrayGet(pred, i) => {
                 let pred_value = values[pred].clone();
@@ -393,19 +419,26 @@ pub fn analyze_def_use<'s, Rt: RuntimeType>(
 #[derive(Debug, Clone)]
 pub struct VertexInputs {
     pub(super) inputs: BTreeMap<VertexId, Vec<VertexValue>>,
+    /// a |-> b, s where a is cloned from s slicing into b
     pub(super) cloned_slices_reversed: BTreeMap<ObjectId, (ObjectId, PolyMeta)>,
 }
 
+impl VertexInputs {
+    pub fn input_of(&self, vid: VertexId) -> impl Iterator<Item = &VertexValue> {
+        self.inputs.get(&vid).unwrap().iter()
+    }
+}
+
 pub fn plan_vertex_inputs<'s, Rt: RuntimeType>(
-    cg: &Cg<'s, Rt>,
+    g: &SubDigraph<'_, VertexId, type2::Vertex<'s, Rt>>,
     def_use: &mut ObjectsDefUse,
     devices: impl Fn(VertexId) -> Device,
     obj_id_allocator: &mut IdAllocator<ObjectId>,
 ) -> VertexInputs {
     let mut inputs: BTreeMap<VertexId, Vec<VertexValue>> = BTreeMap::new();
 
-    for vid in cg.g.vertices() {
-        let v = cg.g.vertex(vid);
+    for vid in g.vertices() {
+        let v = g.vertex(vid);
 
         inputs.insert(
             vid,
@@ -416,7 +449,7 @@ pub fn plan_vertex_inputs<'s, Rt: RuntimeType>(
     }
 
     // - SlicedPoly not allowed on GPU
-    for vid in cg.g.vertices() {
+    for vid in g.vertices() {
         if devices(vid) != Device::Gpu {
             continue;
         }
@@ -451,10 +484,10 @@ pub fn plan_vertex_inputs<'s, Rt: RuntimeType>(
     }
 
     // - Input polynomials of MSM cannot be rotated or sliced
-    for vid in cg.g.vertices() {
-        use super::super::template::VertexNode::*;
-        match cg.g.vertex(vid).node() {
-            Msm { polys, .. } => inputs.get_mut(&vid).unwrap().iter_mut().for_each(|vv| {
+    for vid in g.vertices() {
+        use super::template::VertexNode::*;
+        match g.vertex(vid).node() {
+            Msm { .. } => inputs.get_mut(&vid).unwrap().iter_mut().for_each(|vv| {
                 let value = vv.unwrap_single_mut();
                 let obj_id = value.object_id();
 
@@ -489,7 +522,7 @@ pub fn plan_vertex_inputs<'s, Rt: RuntimeType>(
                             object_id: cloned_oj_id,
                         })
                     }
-                    _ => panic!("inputs of MSM must be polynomials"),
+                    _ => None,
                 };
 
                 if let Some(new_value) = new_value {
@@ -515,6 +548,7 @@ pub fn plan_vertex_inputs<'s, Rt: RuntimeType>(
 pub fn analyze_die_after(
     seq: &[VertexId],
     _devices: &BTreeMap<VertexId, Device>,
+    def_use: &ObjectsDefUse,
     vertex_inputs: &VertexInputs,
 ) -> ObjectsDieAfter {
     let mut die_after = ObjectsDieAfter::empty();
@@ -529,15 +563,13 @@ pub fn analyze_die_after(
                     .get_device_mut(device)
                     .insert(input_value.object_id(), vid);
 
-                if device == Device::Gpu {
-                    if let Some((sliced_obj, _)) = vertex_inputs
-                        .cloned_slices_reversed
-                        .get(&input_value.object_id())
-                    {
-                        die_after
-                            .get_device_mut(Device::Cpu)
-                            .insert(*sliced_obj, vid);
-                    }
+                if let Some((sliced_obj, _)) = vertex_inputs
+                    .cloned_slices_reversed
+                    .get(&input_value.object_id())
+                {
+                    die_after
+                        .get_device_mut(def_use.def_at_device(*sliced_obj))
+                        .insert(*sliced_obj, vid);
                 }
             });
     }
