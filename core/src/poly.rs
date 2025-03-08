@@ -168,7 +168,7 @@ pub struct ScalarPow<T: RuntimeType> {
             stream: cudaStream_t,
         ) -> cudaError_t,
     >,
-    exp: u64
+    exp: u64,
 }
 
 macro_rules! impl_poly_new {
@@ -203,7 +203,6 @@ impl_poly_new!(PolySub, "poly_sub");
 impl_poly_new!(PolyMul, "poly_mul");
 impl_poly_new!(ScalarInv, "inv_scalar");
 
-
 impl<T: RuntimeType> ScalarPow<T> {
     pub fn new(libs: &mut Libs, exp: u64) -> Self {
         if !libs.contains(LIB_NAME) {
@@ -216,7 +215,7 @@ impl<T: RuntimeType> ScalarPow<T> {
         Self {
             _marker: PhantomData,
             c_func,
-            exp
+            exp,
         }
     }
 }

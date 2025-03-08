@@ -45,8 +45,8 @@ pub enum KernelType {
     NewOneLagrange,
     NewOneCoef,
     NewZero,
-    ScalarInvert, // TODO: support both cpu and gpu
-    ScalarPow(u64),    // TODO: support both cpu and gpu
+    ScalarInvert,   // TODO: support both cpu and gpu
+    ScalarPow(u64), // TODO: support both cpu and gpu
     // there three kernels are mainly for input with different len
     // which auto generated kernels can't handle
     PolyAdd,

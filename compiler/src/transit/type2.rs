@@ -119,7 +119,10 @@ pub enum Device {
 }
 
 pub mod template {
-    use zkpoly_common::{arith::{ArithUnrOp, UnrOp}, msm_config::MsmConfig};
+    use zkpoly_common::{
+        arith::{ArithUnrOp, UnrOp},
+        msm_config::MsmConfig,
+    };
     use zkpoly_runtime::args::EntryId;
 
     use super::{arith, transit, Device, NttAlgorithm, PolyInit, PolyType};
@@ -137,7 +140,6 @@ pub mod template {
         /// .1 is size of each chunk, if chunking is enabled
         Arith {
             arith: A,
-            mut_polys: usize,
             chunking: Option<u64>,
         },
         Entry(EntryId),
@@ -435,8 +437,8 @@ where
                 }
             }
             Arith {
-                arith, mut_polys, ..
-            } => arith.outputs_inplace(*mut_polys),
+                arith, ..
+            } => arith.outputs_inplace(),
             Blind(poly, ..) => Box::new([Some(*poly)].into_iter()),
             BatchedInvert(poly) => Box::new([Some(*poly)].into_iter()),
             DistributePowers { poly, .. } => Box::new([Some(*poly)].into_iter()),
@@ -486,11 +488,9 @@ where
             Arith {
                 arith,
                 chunking,
-                mut_polys,
             } => Arith {
                 arith: arith.relabeled(mapping),
                 chunking: *chunking,
-                mut_polys: *mut_polys,
             },
             Entry(idx) => Entry(*idx),
             Return(x) => Return(mapping(*x)),

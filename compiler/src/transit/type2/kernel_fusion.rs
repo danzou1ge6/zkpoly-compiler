@@ -216,7 +216,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
                         if output_rank.is_none() {
                             output_rank = Some(output_v.len());
                             output_v.push(Vec::new());
-                            ag.outputs.push(my_arith);
+                            ag.outputs.push(my_arith); // will be converted to output nodes
                         };
                         output_v[output_rank.unwrap()].push((*node, vid));
                     }
@@ -224,39 +224,6 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
             }
             _ => panic!("can only fuse single arith"),
         }
-    }
-
-    fn check_mutability(
-        &self,
-        ag: &mut ArithGraph<VertexId, ExprId>,
-        succ: &Heap<VertexId, BTreeSet<VertexId>>,
-        mut_limit: Option<usize>,
-    ) -> usize {
-        // change mutability of poly, scalars must be immutable
-        let succ_arith = ag.g.successors();
-        let mut mut_polys = 0;
-        let poly_limit = mut_limit.unwrap_or_default();
-        for id in ag.inputs.iter() {
-            let v = ag.g.vertex_mut(*id);
-            if let Operation::Input {
-                outer_id,
-                typ,
-                mutability,
-            } = &mut v.op
-            {
-                if succ_arith[*id].len() == succ[*outer_id].len() {
-                    if *typ == FusedType::ScalarArray {
-                        mut_polys += 1;
-                        if mut_polys <= poly_limit {
-                            *mutability = Mutability::Mut;
-                        }
-                    }
-                }
-            } else {
-                panic!("arith vertex in the inputs table should be inputs")
-            }
-        }
-        mut_polys
     }
 }
 
@@ -290,26 +257,40 @@ pub fn fuse_arith<'s, Rt: RuntimeType>(mut cg: Cg<'s, Rt>) -> Cg<'s, Rt> {
                 fuse_id,
             );
 
-            let mut mut_polys = cg.check_mutability(&mut ag, &succ, None); // first call to get mutable input counts
-
-            // push the node
             let mut output_polys = 0;
-            let output_types = output_v
+            let (output_types, output_outer_info) = output_v
                 .iter()
                 .map(|output_i /*(targetid, old_src_id)*/| {
                     let old_src = output_i[0].1;
                     let old = cg.g.vertex(old_src);
-                    if cg.get_fuse_type(old_src) == FusedType::ScalarArray {
+                    let fused_type = cg.get_fuse_type(old_src);
+                    if fused_type == FusedType::ScalarArray {
                         output_polys += 1
                     }
-                    old.typ().clone()
+                    (old.typ().clone(), (fused_type, old_src))
                 })
-                .collect::<Vec<_>>();
+                .collect::<(Vec<_>, Vec<_>)>();
 
-            mut_polys = mut_polys.min(output_polys);
+            // change input mutability
+            let mut mut_inputs = ag.change_mutability(&succ, output_polys).into_iter();
 
-            // second call to actually update the inputs need to be mutable
-            cg.check_mutability(&mut ag, &succ, Some(mut_polys));
+            // add output nodes
+            for (out_arith, (fuse_type, outer_id)) in
+                ag.outputs.iter_mut().zip(output_outer_info)
+            {
+                let mut in_node = None;
+                if fuse_type == FusedType::ScalarArray {
+                    in_node = mut_inputs.next();
+                }
+                *out_arith = ag.g.add_vertex(ArithVertex {
+                    op: Operation::Output {
+                        outer_id: outer_id,
+                        typ: fuse_type,
+                        store_node: *out_arith,
+                        in_node: in_node,
+                    },
+                });
+            }
 
             assert_eq!(output_types.len(), ag.outputs.len());
             let typ = super::typ::template::Typ::Tuple(output_types.clone());
@@ -317,7 +298,6 @@ pub fn fuse_arith<'s, Rt: RuntimeType>(mut cg: Cg<'s, Rt>) -> Cg<'s, Rt> {
             let node_id = cg.g.add_vertex(Vertex::new(
                 VertexNode::Arith {
                     arith: ag,
-                    mut_polys,
                     chunking: None,
                 },
                 typ,
