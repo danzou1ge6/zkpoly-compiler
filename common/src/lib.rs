@@ -8,3 +8,4 @@ pub mod load_dynamic;
 pub mod mm_heap;
 pub mod msm_config;
 pub mod typ;
+pub mod injection;

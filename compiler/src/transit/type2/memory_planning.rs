@@ -9,6 +9,7 @@ use zkpoly_common::{
     define_usize_id,
     digraph::internal::{Predecessors, SubDigraph},
     heap::{Heap, IdAllocator, UsizeId},
+    injection::Injection,
     load_dynamic::Libs,
 };
 use zkpoly_runtime::args::RuntimeType;
@@ -59,7 +60,7 @@ fn normalize_size(size: Size) -> Size {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) struct Instant(pub(super) usize);
+pub struct Instant(pub(super) usize);
 
 mod integral_allocator;
 mod smithereens_allocator;
@@ -152,7 +153,7 @@ impl RegisterPlaces {
 
 #[derive(Debug)]
 struct Context {
-    gpu_reg2addr: Bijection<RegisterId, AddrId>,
+    gpu_reg2addr: Injection<RegisterId, AddrId>,
     gpu_addr_mapping: AddrMapping,
     object_residence: BTreeMap<ObjectId, RegisterPlaces>,
     /// Tuple registers will not be included
@@ -226,6 +227,12 @@ impl Context {
             .get(&obj_id)
             .is_some_and(|places| !places.get_device(device).is_empty())
     }
+
+    pub fn attempt_copy_gpu_addr_id_from(&mut self, from: RegisterId, to: RegisterId) {
+        if let Some(addr_id) = self.gpu_reg2addr.get_forward(&from) {
+            self.gpu_reg2addr.insert(to, *addr_id);
+        }
+    }
 }
 
 struct Code<'s>(Vec<Instruction<'s>>, Heap<RegisterId, Typ>);
@@ -255,19 +262,81 @@ struct GpuAllocator {
 
 fn move_victims(victims: &[AddrId], code: &mut Code, ctx: &mut Context, imctx: &ImmutableContext) {
     victims.iter().for_each(|&victim| {
-        let reg_id = ctx.gpu_reg2addr.get_backward(&victim).cloned().unwrap();
-        let obj_id = ctx.reg2obj[&reg_id];
+        let first_reg = *ctx
+            .gpu_reg2addr
+            .get_backward(&victim)
+            .unwrap()
+            .next()
+            .unwrap();
+        let obj_id = ctx.reg2obj[&first_reg];
 
-        if ctx.object_residence[&obj_id].cpu.is_empty() {
-            let new_reg = code.alloc_register_id(code.typ_of(reg_id).clone());
-            let size = imctx.obj_size(obj_id);
-            allocate_cpu(obj_id, new_reg, size, code, ctx);
-            code.emit(Instruction::new_no_src(InstructionNode::Transfer {
-                id: new_reg,
-                from: reg_id,
-            }));
+        // If obj_id is already on CPU, or if obj_id is sliced from some sliced_obj on GPU, we don't need to transfer anything.
+        // The latter case is because that sliced_obj dies after obj_id in object analysis.
+        if ctx.is_obj_alive_on(obj_id, DeterminedDevice::Cpu) {
+            return;
         }
+        if imctx
+            .vertex_inputs
+            .cloned_slice_from(obj_id)
+            .is_some_and(|(sliced_obj, _)| ctx.is_obj_alive_on(sliced_obj, DeterminedDevice::Cpu))
+        {
+            return;
+        }
+
+        let normalized_typ = code.typ_of(first_reg).normalized();
+        let src_reg = ensure_same_type(
+            DeterminedDevice::Gpu,
+            obj_id,
+            normalized_typ.clone(),
+            ctx.gpu_reg2addr
+                .get_backward(&victim)
+                .unwrap()
+                .cloned()
+                .collect::<Vec<_>>()
+                .into_iter(),
+            code,
+            ctx,
+        );
+
+        let new_reg = code.alloc_register_id(normalized_typ);
+        let size = imctx.obj_size(obj_id);
+        allocate_cpu(obj_id, new_reg, size, code, ctx);
+        code.emit(Instruction::new_no_src(InstructionNode::Transfer {
+            id: new_reg,
+            from: src_reg,
+        }));
     });
+}
+
+fn get_gpu_reg_of_normalized_typ(
+    addr_id: AddrId,
+    ctx: &mut Context,
+    code: &mut Code,
+) -> RegisterId {
+    let first_reg = *ctx
+        .gpu_reg2addr
+        .get_backward(&addr_id)
+        .unwrap()
+        .next()
+        .unwrap();
+    let obj_id = ctx.reg2obj[&first_reg];
+
+    let normalized_typ = code.typ_of(first_reg).normalized();
+    let reg = ensure_same_type(
+        DeterminedDevice::Gpu,
+        obj_id,
+        normalized_typ.clone(),
+        ctx.gpu_reg2addr
+            .get_backward(&addr_id)
+            .unwrap()
+            .cloned()
+            .collect::<Vec<_>>()
+            .into_iter(),
+        code,
+        ctx,
+    );
+
+    reg
 }
 
 fn allocate_gpu_integral(
@@ -287,8 +356,8 @@ fn allocate_gpu_integral(
 
     if let Some((transfers, addr)) = addr {
         for t in transfers {
-            let reg_from = ctx.gpu_reg2addr.get_backward(&t.from).copied().unwrap();
-            let reg_to = ctx.gpu_reg2addr.get_backward(&t.to).copied().unwrap();
+            let reg_from = get_gpu_reg_of_normalized_typ(t.from, ctx, code);
+            let reg_to = get_gpu_reg_of_normalized_typ(t.to, ctx, code);
 
             code.emit(Instruction::new_no_src(InstructionNode::Transfer {
                 id: reg_to,
@@ -529,6 +598,7 @@ fn ensure_same_type(
             offset: slice_offset,
             len: slice_len,
         }));
+        ctx.attempt_copy_gpu_addr_id_from(reg_id, new_reg);
         ctx.add_residence_for_object(obj_id, new_reg, device);
         new_reg
     }
@@ -719,6 +789,7 @@ fn ensure_copied(
         }));
         ctx.remove_residence_for_object(original_obj_id, device);
         ctx.add_residence_for_object(obj_id, moved_reg, device);
+        ctx.attempt_copy_gpu_addr_id_from(on_device_reg, moved_reg);
         moved_reg
     };
     Ok(input_reg)
@@ -782,7 +853,7 @@ pub fn plan<'s, Rt: RuntimeType>(
     };
 
     let mut ctx = Context {
-        gpu_reg2addr: Bijection::new(),
+        gpu_reg2addr: Injection::new(),
         gpu_addr_mapping: AddrMapping::new(),
         object_residence: BTreeMap::new(),
         reg_device: BTreeMap::new(),

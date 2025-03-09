@@ -127,7 +127,7 @@ pub fn gen_fused_kernels<'s, Rt: RuntimeType>(
                     .copied()
                     .zip(instruct.defs().map(|r| reg_id2var_id(r)))
                     .collect();
-                FusedOp::new(arith.clone(), name, outputs_i2o).gen(); // generate fused kernel
+                FusedOp::new(arith, name, outputs_i2o).gen(); // generate fused kernel
             }
         }
     }
