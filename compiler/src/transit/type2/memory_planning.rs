@@ -1111,12 +1111,6 @@ pub fn plan<'s, Rt: RuntimeType>(
                 continue;
             }
 
-            dbg!(
-                "Deallocating {:?} on {:?} after {:?}",
-                dead_obj,
-                &device_collection,
-                vid
-            );
             if device_collection.gpu() {
                 gpu_allocator.deallocate(dead_obj, &mut code, &mut ctx);
 

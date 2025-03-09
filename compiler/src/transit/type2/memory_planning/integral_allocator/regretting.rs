@@ -2,6 +2,8 @@ use super::{Addr, AddrId, AddrMappingHandler, Instant, IntegralSize, Size};
 use std::collections::{BTreeMap, BTreeSet};
 use zkpoly_common::mm_heap::MmHeap;
 
+static DEBUG: bool = false;
+
 pub struct Transfer {
     pub from: AddrId,
     pub to: AddrId,
@@ -75,7 +77,7 @@ impl BlockStatus {
     pub fn try_next_use(&self) -> Option<usize> {
         match self {
             BlockStatus::Free(..) => None,
-            BlockStatus::Splitted(_, children_next_use) => Some(children_next_use.max().unwrap().0),
+            BlockStatus::Splitted(_, children_next_use) => Some(children_next_use.min().unwrap().0),
             BlockStatus::Occupied(_, next_use) => Some(*next_use),
         }
     }
@@ -157,7 +159,9 @@ impl<'a> std::fmt::Debug for BlocksDebugger<'a> {
                         if let Some(next_use) =
                             a.blocks[&child_lbs][&child_addr].status.try_next_use()
                         {
-                            assert!(next_use == children_next_use[&addr])
+                            if next_use != children_next_use[&child_addr] {
+                                write!(f, "{} ERROR: child at {} next_use {} does not match that recorded in parent {}\n", " ".repeat(depth * 2), child_addr, next_use, children_next_use[&child_addr])?;
+                            }
                         }
                     }
                     fmt_children(f, lbs, addr, a, depth + 1, marker)?;
@@ -304,8 +308,16 @@ impl Allocator {
         let lbs: IntegralSize = bs.try_into().expect("block size should be power of 2");
         let lbs = lbs.0;
 
+        if DEBUG {
+            println!("Update next use of ({}, {}) to {}", lbs, addr, next_use.0);
+        }
+
         self.block_mut(addr, lbs).status.update_next_use(next_use.0);
         self.update_next_use_in_parent(addr, lbs, next_use.0);
+
+        if DEBUG {
+            println!("{:#?}", self);
+        }
     }
 
     fn remove_next_use_in_parent(&mut self, addr: u64, lbs: u32) {
@@ -315,11 +327,8 @@ impl Allocator {
 
             if let BlockStatus::Splitted(_, ref mut children_next_use) = parent_block.status {
                 children_next_use.remove(&addr);
-                self.update_next_use_in_parent(
-                    parent_addr,
-                    parent_lbs,
-                    self.blocks[&parent_lbs][&parent_addr].status.next_use(),
-                );
+                let updated_parent_next_use = children_next_use.min().map_or(usize::MAX, |x| x.0);
+                self.update_next_use_in_parent(parent_addr, parent_lbs, updated_parent_next_use);
             } else {
                 panic!("any block's parent should be splitted")
             }
@@ -615,8 +624,15 @@ impl Allocator {
         next_use: Instant,
         mapping: &mut impl AddrMappingHandler,
     ) -> Option<(Vec<Transfer>, AddrId)> {
+        if DEBUG {
+            println!("Allocate {:?}, next_use = {:?}", size, next_use);
+        }
+
         let r = self._allocate::<true>(size, next_use, mapping);
-        dbg!(self);
+
+        if DEBUG {
+            println!("{:#?}", self);
+        }
         r
     }
 
@@ -759,7 +775,15 @@ impl Allocator {
     pub fn deallocate(&mut self, addr_id: AddrId, mapping: &mut impl AddrMappingHandler) {
         let (Addr(addr), bs) = mapping.get(addr_id);
         let lbs: IntegralSize = bs.try_into().expect("should be power of 2");
+
+        if DEBUG {
+            println!("Deallocate ({}, {})", lbs.0, addr);
+        }
+
         self._deallocate::<true>(addr, lbs.0);
-        dbg!(self);
+
+        if DEBUG {
+            println!("{:#?}", self);
+        }
     }
 }
