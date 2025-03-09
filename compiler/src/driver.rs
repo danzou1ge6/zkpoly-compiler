@@ -31,6 +31,7 @@ pub struct DebugOptions {
     debug_graph_scheduling: bool,
     debug_obj_def_use: bool,
     debug_obj_liveness: bool,
+    debug_obj_gpu_next_use: bool,
     debug_fresh_type3: bool,
     debug_instructions: bool,
     log: bool,
@@ -49,6 +50,7 @@ impl DebugOptions {
             debug_graph_scheduling: true,
             debug_obj_def_use: true,
             debug_obj_liveness: true,
+            debug_obj_gpu_next_use: true,
             debug_fresh_type3: true,
             debug_instructions: true,
             log: false,
@@ -418,10 +420,10 @@ pub fn ast2inst<Rt: RuntimeType>(
     )?;
 
     // - Object Analysis
-    let (mut obj_def_use, mut obj_id_allocator) = options.log_suround(
-        "Analyzing object definitions and uses",
+    let (mut obj_def, mut obj_id_allocator) = options.log_suround(
+        "Analyzing object definitions",
         || {
-            Ok(type2::object_analysis::analyze_def_use(&g, &seq, |vid| {
+            Ok(type2::object_analysis::analyze_def(&g, &seq, |vid| {
                 devices[&vid]
             }))
         },
@@ -433,7 +435,7 @@ pub fn ast2inst<Rt: RuntimeType>(
         || {
             Ok(type2::object_analysis::plan_vertex_inputs(
                 &g,
-                &mut obj_def_use,
+                &mut obj_def,
                 |vid| devices[&vid],
                 &mut obj_id_allocator,
             ))
@@ -454,7 +456,7 @@ pub fn ast2inst<Rt: RuntimeType>(
                 type3::Device::Gpu => Some("#A5D6A7"),
                 type3::Device::Stack => Some("#90CAF9"),
             },
-            |vid, _| Some(format!("{:?}", &obj_def_use.values[&vid])),
+            |vid, _| Some(format!("{:?}", &obj_def.values[&vid])),
             |vid, v| {
                 Some(
                     v.uses()
@@ -467,16 +469,12 @@ pub fn ast2inst<Rt: RuntimeType>(
         ctx.add(compile_dot(fpath));
     }
 
-    let obj_def_use = obj_def_use;
+    let obj_def = obj_def;
     let (obj_dies_after, obj_dies_after_reversed) = options.log_suround(
         "Analyzing object lifetimes",
         || {
-            let d = type2::object_analysis::analyze_die_after(
-                &seq,
-                &devices,
-                &obj_def_use,
-                &vertex_inputs,
-            );
+            let d =
+                type2::object_analysis::analyze_die_after(&seq, &devices, &obj_def, &vertex_inputs);
             let r = d.reversed();
             Ok((d, r))
         },
@@ -487,6 +485,25 @@ pub fn ast2inst<Rt: RuntimeType>(
         let fpath = options.debug_dir.join("type2_object_liveness.txt");
         let mut f = std::fs::File::create(&fpath).unwrap();
         write!(f, "{:?}", &obj_dies_after).unwrap();
+    }
+
+    let (obj_used_by, obj_gpu_next_use) = options.log_suround(
+        "Analyzing next uses of objects on GPU",
+        || {
+            let obj_used_by = type2::object_analysis::analyze_used_by(&seq, &vertex_inputs);
+            let obj_gpu_next_use =
+                type2::object_analysis::analyze_gpu_next_use(&seq, &vertex_inputs, &obj_used_by);
+
+            Ok((obj_used_by, obj_gpu_next_use))
+        },
+        "Done",
+    )?;
+
+    if options.debug_obj_gpu_next_use {
+        let fpath = options.debug_dir.join("type2_object_gpu_next_use.txt");
+        let mut f = std::fs::File::create(&fpath).unwrap();
+        write!(f, "{:?}\n", &obj_used_by).unwrap();
+        write!(f, "{:?}\n", &obj_gpu_next_use).unwrap();
     }
 
     // To Type3 through Memory Planning
@@ -500,7 +517,8 @@ pub fn ast2inst<Rt: RuntimeType>(
                 &seq,
                 &obj_dies_after,
                 &obj_dies_after_reversed,
-                &obj_def_use,
+                &obj_def,
+                &obj_gpu_next_use,
                 &vertex_inputs,
                 &devices,
                 &t2uf_tab,

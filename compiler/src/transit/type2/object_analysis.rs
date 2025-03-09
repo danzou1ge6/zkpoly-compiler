@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use zkpoly_common::{
     define_usize_id, digraph::internal::SubDigraph, heap::IdAllocator, typ::PolyMeta,
@@ -29,6 +29,10 @@ pub struct Value {
 }
 
 impl Value {
+    pub fn device(&self) -> Device {
+        self.device
+    }
+
     pub fn object_id(&self) -> ObjectId {
         self.object_id
     }
@@ -230,21 +234,21 @@ impl ObjectsDieAfter {
 }
 
 #[derive(Debug, Clone)]
-pub struct ObjectsDefUse {
+pub struct ObjectsDef {
     pub values: BTreeMap<VertexId, VertexValue>,
     pub defs: BTreeMap<ObjectId, VertexId>,
     pub sizes: BTreeMap<ObjectId, Size>,
     pub cloned_slices: BTreeMap<(ObjectId, PolyMeta), ObjectId>,
 }
 
-impl ObjectsDefUse {
+impl ObjectsDef {
     pub fn def_at_device(&self, oid: ObjectId) -> Device {
         let vid = self.defs[&oid];
         self.values[&vid]
             .iter()
             .find(|v| v.object_id() == oid)
             .unwrap()
-            .device
+            .device()
     }
 }
 
@@ -252,11 +256,11 @@ fn rotated_offset(begin: u64, offset: i64, cycle: u64) -> u64 {
     (begin as i64 + offset) as u64 % cycle
 }
 
-pub fn analyze_def_use<'s, Rt: RuntimeType>(
+pub fn analyze_def<'s, Rt: RuntimeType>(
     g: &SubDigraph<'_, VertexId, type2::Vertex<'s, Rt>>,
     seq: &[VertexId],
     devices: impl Fn(VertexId) -> Device,
-) -> (ObjectsDefUse, IdAllocator<ObjectId>) {
+) -> (ObjectsDef, IdAllocator<ObjectId>) {
     let mut object_id_allocator = IdAllocator::new();
     let mut values: BTreeMap<VertexId, VertexValue> = BTreeMap::new();
     let mut defs = BTreeMap::new();
@@ -403,7 +407,7 @@ pub fn analyze_def_use<'s, Rt: RuntimeType>(
     }
 
     (
-        ObjectsDefUse {
+        ObjectsDef {
             values,
             defs,
             sizes: sizes
@@ -417,24 +421,32 @@ pub fn analyze_def_use<'s, Rt: RuntimeType>(
 }
 
 #[derive(Debug, Clone)]
-pub struct VertexInputs {
+pub struct ObjectUse {
     pub(super) inputs: BTreeMap<VertexId, Vec<VertexValue>>,
     /// a |-> b, s where a is cloned from s slicing into b
     pub(super) cloned_slices_reversed: BTreeMap<ObjectId, (ObjectId, PolyMeta)>,
 }
 
-impl VertexInputs {
+impl ObjectUse {
     pub fn input_of(&self, vid: VertexId) -> impl Iterator<Item = &VertexValue> {
         self.inputs.get(&vid).unwrap().iter()
+    }
+
+    pub fn input_values_of(&self, vid: VertexId) -> impl Iterator<Item = &Value> {
+        self.input_of(vid).flat_map(|vv| vv.iter())
+    }
+
+    pub fn cloned_slice_from(&self, oid: ObjectId) -> Option<(ObjectId, PolyMeta)> {
+        self.cloned_slices_reversed.get(&oid).cloned()
     }
 }
 
 pub fn plan_vertex_inputs<'s, Rt: RuntimeType>(
     g: &SubDigraph<'_, VertexId, type2::Vertex<'s, Rt>>,
-    def_use: &mut ObjectsDefUse,
+    def_use: &mut ObjectsDef,
     devices: impl Fn(VertexId) -> Device,
     obj_id_allocator: &mut IdAllocator<ObjectId>,
-) -> VertexInputs {
+) -> ObjectUse {
     let mut inputs: BTreeMap<VertexId, Vec<VertexValue>> = BTreeMap::new();
 
     for vid in g.vertices() {
@@ -539,7 +551,7 @@ pub fn plan_vertex_inputs<'s, Rt: RuntimeType>(
         .map(|((sliced_obj, slice), obj)| (*obj, (*sliced_obj, slice.clone())))
         .collect();
 
-    VertexInputs {
+    ObjectUse {
         inputs,
         cloned_slices_reversed,
     }
@@ -548,8 +560,8 @@ pub fn plan_vertex_inputs<'s, Rt: RuntimeType>(
 pub fn analyze_die_after(
     seq: &[VertexId],
     _devices: &BTreeMap<VertexId, Device>,
-    def_use: &ObjectsDefUse,
-    vertex_inputs: &VertexInputs,
+    def_use: &ObjectsDef,
+    vertex_inputs: &ObjectUse,
 ) -> ObjectsDieAfter {
     let mut die_after = ObjectsDieAfter::empty();
     for &vid in seq.iter() {
@@ -574,4 +586,165 @@ pub fn analyze_die_after(
             });
     }
     die_after
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UsedByEntry {
+    vid: VertexId,
+    dev: Device,
+}
+
+impl PartialOrd for UsedByEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        match self.vid.cmp(&other.vid) {
+            std::cmp::Ordering::Equal => {
+                if self.dev == other.dev {
+                    Some(std::cmp::Ordering::Equal)
+                } else {
+                    None
+                }
+            }
+            ord => Some(ord),
+        }
+    }
+}
+
+impl Ord for UsedByEntry {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        match self.vid.cmp(&other.vid) {
+            std::cmp::Ordering::Equal => {
+                if self.dev == other.dev {
+                    std::cmp::Ordering::Equal
+                } else {
+                    panic!("comparing two UsedByEntry at same vertex with different devices")
+                }
+            }
+            ord => ord,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct ObjectsUsedBy {
+    pub(super) used_by: BTreeMap<ObjectId, BTreeSet<UsedByEntry>>,
+}
+
+impl ObjectsUsedBy {
+    pub fn used_by<'a>(&'a self, oid: ObjectId) -> impl Iterator<Item = VertexId> + 'a {
+        self.used_by
+            .get(&oid)
+            .unwrap()
+            .iter()
+            .cloned()
+            .map(|UsedByEntry { vid, .. }| vid)
+    }
+}
+
+pub fn analyze_used_by(seq: &[VertexId], vertex_inputs: &ObjectUse) -> ObjectsUsedBy {
+    let mut used_by: BTreeMap<ObjectId, BTreeSet<UsedByEntry>> = BTreeMap::new();
+    for &vid in seq {
+        for v in vertex_inputs.input_values_of(vid) {
+            used_by
+                .entry(v.object_id())
+                .or_default()
+                .insert(UsedByEntry {
+                    dev: v.device(),
+                    vid,
+                });
+        }
+    }
+
+    ObjectsUsedBy { used_by }
+}
+
+#[derive(Debug)]
+pub struct ObjectsGpuNextUse {
+    pub(super) next_use: Vec<BTreeMap<ObjectId, usize>>,
+    pub(super) first_use_at: BTreeMap<ObjectId, usize>,
+}
+
+use super::memory_planning::Instant;
+impl ObjectsGpuNextUse {
+    pub fn iter_updates<'a>(
+        &'a self,
+    ) -> impl Iterator<Item = impl Iterator<Item = (ObjectId, Instant)> + 'a> + 'a {
+        self.next_use.iter().map(|next_use| {
+            next_use
+                .iter()
+                .map(|(oid, next_use)| (*oid, Instant(*next_use)))
+        })
+    }
+
+    pub fn first_use_of(&self, oid: ObjectId) -> Option<Instant> {
+        Some(Instant(self.first_use_at.get(&oid).cloned()?))
+    }
+}
+
+pub fn analyze_gpu_next_use(
+    seq: &[VertexId],
+    vertex_inputs: &ObjectUse,
+    used_by: &ObjectsUsedBy,
+) -> ObjectsGpuNextUse {
+    let seq_num = seq
+        .iter()
+        .cloned()
+        .enumerate()
+        .fold(BTreeMap::new(), |mut seq_num, (i, vid)| {
+            seq_num.insert(vid, i);
+            seq_num
+        });
+
+    // Collect instant of direct uses of each object
+    let mut chains: BTreeMap<ObjectId, BTreeSet<usize>> = used_by
+        .used_by
+        .iter()
+        .map(|(oid, vids)| {
+            let seq = vids
+                .iter()
+                .filter_map(|UsedByEntry { vid, dev }| {
+                    if *dev == Device::Gpu {
+                        Some(seq_num[vid])
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            (*oid, seq)
+        })
+        .collect();
+
+    // Add instant of slicing-uses of each object
+    let mut chains_updates: BTreeMap<ObjectId, Vec<usize>> = BTreeMap::new();
+    for (oid, (sliced_obj, _)) in vertex_inputs.cloned_slices_reversed.iter() {
+        if let Some(oid_first_use) = chains[oid].first().cloned() {
+            chains_updates
+                .entry(*sliced_obj)
+                .or_default()
+                .push(oid_first_use);
+        };
+    }
+
+    for (oid, updates) in chains_updates {
+        chains.entry(oid).or_default().extend(updates);
+    }
+
+    let first_use_at = chains
+        .iter()
+        .filter_map(|(oid, uses)| Some((*oid, *uses.first()?)))
+        .collect();
+
+    // Produce the next_use sequence for memory planning
+    let mut next_use = vec![BTreeMap::new(); seq.len()];
+    chains.into_iter().for_each(|(oid, uses)| {
+        uses.iter()
+            .zip(uses.iter().skip(1))
+            .for_each(|(isntant1, instant2)| {
+                next_use[*isntant1].insert(oid, *instant2);
+            });
+    });
+
+    ObjectsGpuNextUse {
+        next_use,
+        first_use_at,
+    }
 }

@@ -24,8 +24,8 @@ use super::{
 };
 
 use super::object_analysis::{
-    self, ObjectId, ObjectsDefUse, ObjectsDieAfter, ObjectsDieAfterReversed, Value, ValueNode,
-    VertexInputs,
+    self, ObjectId, ObjectUse, ObjectsDef, ObjectsDieAfter, ObjectsDieAfterReversed,
+    ObjectsGpuNextUse, ObjectsUsedBy, Value, ValueNode,
 };
 use super::{Cg, Device, VertexId};
 
@@ -59,7 +59,7 @@ fn normalize_size(size: Size) -> Size {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-struct Instant(usize);
+pub(super) struct Instant(pub(super) usize);
 
 mod integral_allocator;
 mod smithereens_allocator;
@@ -111,9 +111,6 @@ fn collect_integral_sizes<'s, Rt: RuntimeType>(
                 if let Size::Integral(is) =
                     normalize_size(Size::Smithereen(SmithereenSize(temp_size)))
                 {
-                    if is.0 == 29 {
-                        println!("29 at {:?}", vid);
-                    }
                     integral_sizes.insert(is);
                 }
             }
@@ -133,44 +130,6 @@ fn divide_integral_smithereens(total: u64, max_integral: IntegralSize) -> (u64, 
     }
 
     (integral_space, smithereen_space)
-}
-
-fn collect_next_uses<'s, Rt: RuntimeType>(
-    g: &SubDigraph<'_, VertexId, super::Vertex<'s, Rt>>,
-    seq: &[VertexId],
-) -> Vec<BTreeMap<VertexId, Instant>> {
-    let mut next_uses: BTreeMap<VertexId, Vec<(Instant, Instant)>> = BTreeMap::new();
-
-    let seq_num = seq
-        .iter()
-        .cloned()
-        .enumerate()
-        .fold(BTreeMap::new(), |mut seq_num, (i, vid)| {
-            seq_num.insert(vid, Instant(i));
-            seq_num
-        });
-
-    for &vid in seq.iter() {
-        let mut succ_seq: Vec<_> = g.successors_of(vid).map(|v| (v, seq_num[&v])).collect();
-        succ_seq.sort_by_key(|(_, seq)| *seq);
-        next_uses.insert(
-            vid,
-            succ_seq
-                .iter()
-                .zip(succ_seq.iter().skip(1))
-                .map(|((_, instant1), (_, instant2))| (*instant1, *instant2))
-                .collect(),
-        );
-    }
-
-    let mut r = vec![BTreeMap::new(); seq.len()];
-
-    next_uses.into_iter().for_each(|(vid, chain)| {
-        chain.into_iter().for_each(|(instant1, instant2)| {
-            r[instant1.0].insert(vid, instant2);
-        });
-    });
-    r
 }
 
 pub type RegisterPlaces = DeviceSpecific<BTreeSet<RegisterId>>;
@@ -204,15 +163,15 @@ struct Context {
 
 #[derive(Debug)]
 struct ImmutableContext<'a> {
-    obj_def_use: &'a ObjectsDefUse,
+    obj_def: &'a ObjectsDef,
     obj_dies_after: &'a ObjectsDieAfter,
     obj_dies_after_reversed: &'a ObjectsDieAfterReversed,
-    vertex_inputs: &'a VertexInputs,
+    vertex_inputs: &'a ObjectUse,
 }
 
 impl<'a> ImmutableContext<'a> {
     pub fn obj_size(&self, obj_id: ObjectId) -> Size {
-        self.obj_def_use.sizes[&obj_id]
+        self.obj_def.sizes[&obj_id]
     }
 }
 
@@ -250,6 +209,16 @@ impl Context {
             .unwrap()
             .get_device_mut(device)
             .pop_first()
+    }
+
+    pub fn get_residence_of_object(
+        &self,
+        obj_id: ObjectId,
+        device: DeterminedDevice,
+    ) -> Option<RegisterId> {
+        self.object_residence
+            .get(&obj_id)
+            .and_then(|places| places.get_device(device).first().copied())
     }
 
     pub fn is_obj_alive_on(&self, obj_id: ObjectId, device: DeterminedDevice) -> bool {
@@ -437,6 +406,33 @@ impl GpuAllocator {
     pub fn tick(&mut self, now: Instant) {
         self.ialloc.tick(now);
     }
+
+    pub fn update_next_use(
+        &mut self,
+        obj_id: ObjectId,
+        next_use: Instant,
+        ctx: &mut Context,
+    ) -> bool {
+        if let Some(reg_id) = ctx.get_residence_of_object(obj_id, DeterminedDevice::Gpu) {
+            let addr = ctx.gpu_reg2addr.get_forward(&reg_id).cloned().unwrap();
+
+            let (_, size) = ctx.gpu_addr_mapping[addr];
+            match size {
+                Size::Integral(..) => {
+                    self.ialloc.update_next_use(
+                        addr,
+                        next_use,
+                        &mut GpuAddrMappingHandler::new(&mut ctx.gpu_addr_mapping, self.ioffset()),
+                    );
+                    true
+                }
+                Size::Smithereen(..) => false,
+            }
+        } else {
+            // The object might has been ejected from GPU memory, so the update fails silently
+            false
+        }
+    }
 }
 
 fn allocate_cpu(obj_id: ObjectId, id: RegisterId, size: Size, code: &mut Code, ctx: &mut Context) {
@@ -566,7 +562,7 @@ fn attempt_on_device(
         if let Some((from_reg, _)) = ctx.object_residence[&obj_id].get_any() {
             ensure_same_type(device, obj_id, typ, std::iter::once(from_reg), code, ctx)
         } else {
-            let (sliced_obj, meta) = imctx.vertex_inputs.cloned_slices_reversed[&obj_id].clone();
+            let (sliced_obj, meta) = imctx.vertex_inputs.cloned_slice_from(obj_id).unwrap();
             let (len, _) = typ.unwrap_poly();
             let sliced_typ = Typ::ScalarArray { len, meta };
             attempt_on_device(device, sliced_obj, sliced_typ, code, ctx, imctx)
@@ -768,8 +764,9 @@ pub fn plan<'s, Rt: RuntimeType>(
     seq: &[VertexId],
     obj_dies_after: &ObjectsDieAfter,
     obj_dies_after_reversed: &ObjectsDieAfterReversed,
-    obj_def_use: &ObjectsDefUse,
-    vertex_inputs: &VertexInputs,
+    obj_def: &ObjectsDef,
+    obj_gpu_next_use: &ObjectsGpuNextUse,
+    vertex_inputs: &ObjectUse,
     devices: &BTreeMap<VertexId, DeterminedDevice>,
     uf_table: &user_function::Table<Rt>,
     obj_id_allocator: &mut IdAllocator<ObjectId>,
@@ -778,8 +775,6 @@ pub fn plan<'s, Rt: RuntimeType>(
     let integral_sizes = collect_integral_sizes(cg, &g, &mut libs);
     let (ispace, sspace) =
         divide_integral_smithereens(capacity, integral_sizes.last().unwrap().clone());
-
-    let next_ueses = collect_next_uses(&g, seq);
 
     let mut gpu_allocator = GpuAllocator {
         ialloc: integral_allocator::regretting::Allocator::new(ispace, integral_sizes),
@@ -796,7 +791,7 @@ pub fn plan<'s, Rt: RuntimeType>(
     };
     let mut register_types = BTreeMap::new();
     let imctx = ImmutableContext {
-        obj_def_use,
+        obj_def,
         obj_dies_after,
         obj_dies_after_reversed,
         vertex_inputs,
@@ -804,7 +799,9 @@ pub fn plan<'s, Rt: RuntimeType>(
 
     let mut code = Code::new();
 
-    for ((i, &vid), updated_next_uses) in seq.iter().enumerate().zip(next_ueses.into_iter()) {
+    for ((i, &vid), updated_next_uses) in
+        seq.iter().enumerate().zip(obj_gpu_next_use.iter_updates())
+    {
         if g.vertex(vid).is_virtual() {
             continue;
         }
@@ -831,7 +828,7 @@ pub fn plan<'s, Rt: RuntimeType>(
             .map(|(input_vid, input_vv)| {
                 if mutable_uses.contains(&input_vid) && outputs_inplace.contains(&Some(input_vid)) {
                     // This input's space is used inplace by an output
-                    let ouput_obj = imctx.obj_def_use.values[&vid]
+                    let ouput_obj = imctx.obj_def.values[&vid]
                         .object_ids()
                         .nth(
                             outputs_inplace
@@ -853,10 +850,7 @@ pub fn plan<'s, Rt: RuntimeType>(
                         lower_typ(g.vertex(input_vid).typ(), &input_value),
                         input_value.object_id(),
                         ouput_obj,
-                        updated_next_uses
-                            .get(&vid)
-                            .cloned()
-                            .unwrap_or(Instant(usize::MAX)),
+                        now,
                         &mut gpu_allocator,
                         &mut code,
                         &mut ctx,
@@ -891,7 +885,7 @@ pub fn plan<'s, Rt: RuntimeType>(
                         object_analysis::VertexValue::Single(input_value) => ensure_on_device(
                             device,
                             input_value.object_id(),
-                            lower_typ(g.vertex(input_vid).typ(), input_value),
+                            lower_typ(g.vertex(input_vid).typ(), &input_value),
                             now,
                             &mut gpu_allocator,
                             &mut code,
@@ -934,7 +928,7 @@ pub fn plan<'s, Rt: RuntimeType>(
         // - Use correspounding input registe if inplace.
         //   In this case, the object ID of the register is already the output object ID.
         let v = g.vertex(vid);
-        let output_registers: Vec<RegisterId> = imctx.obj_def_use.values[&vid]
+        let output_registers: Vec<RegisterId> = imctx.obj_def.values[&vid]
             .iter()
             .zip(v.outputs_inplace(uf_table, device))
             .zip(v.typ().iter())
@@ -950,9 +944,8 @@ pub fn plan<'s, Rt: RuntimeType>(
                         device,
                         output_reg,
                         output_obj,
-                        updated_next_uses
-                            .get(&vid)
-                            .cloned()
+                        obj_gpu_next_use
+                            .first_use_of(output_obj)
                             .unwrap_or(Instant(usize::MAX)),
                         size,
                         &mut gpu_allocator,
@@ -1071,6 +1064,11 @@ pub fn plan<'s, Rt: RuntimeType>(
             if device_collection.stack() && !gpu_alive {
                 deallocate_stack(dead_obj, &mut code, &mut ctx);
             }
+        }
+
+        // Update next_uses on GPU integral allocator
+        for (obj, next_use) in updated_next_uses {
+            let _updated = gpu_allocator.update_next_use(obj, next_use, &mut ctx);
         }
     }
 
