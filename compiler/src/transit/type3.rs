@@ -104,6 +104,12 @@ pub enum Device {
     Stack,
 }
 
+impl Device {
+    pub fn iter() -> impl Iterator<Item = Device> {
+        [Device::Gpu, Device::Cpu, Device::Stack].into_iter()
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct DeviceSpecific<T> {
     pub gpu: T,

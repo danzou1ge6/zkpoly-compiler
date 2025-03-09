@@ -4,8 +4,8 @@ use std::any;
 pub struct Slice(u64, u64);
 
 impl Slice {
-    pub fn new(start: u64, end: u64) -> Self {
-        Slice(start, end)
+    pub fn new(start: u64, len: u64) -> Self {
+        Slice(start, len)
     }
 
     pub fn len(&self) -> u64 {
@@ -44,6 +44,10 @@ impl PolyMeta {
             Sliced(Slice(start, len)) => (*start, *len),
             Rotated(rot) => ((deg as i64 + *rot as i64) as u64, deg),
         }
+    }
+
+    pub fn len(&self, deg: u64) -> u64 {
+        self.offset_and_len(deg).1
     }
 }
 

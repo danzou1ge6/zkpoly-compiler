@@ -16,6 +16,7 @@ define_usize_id!(ObjectId);
 
 #[derive(Debug, Clone)]
 pub enum ValueNode {
+    // deg here is degree of the object, not the slice
     SlicedPoly { slice: SliceRange, deg: u64 },
     Poly { rotation: i32, deg: u64 },
     Other,
@@ -316,6 +317,10 @@ pub fn analyze_def<'s, Rt: RuntimeType>(
                             (pred_value.object_id(), PolyMeta::Sliced(*slice)),
                             cloned_obj_id,
                         );
+                        sizes.insert(
+                            cloned_obj_id,
+                            Typ::<Rt>::lagrange(slice.len()).size().unwrap_single(),
+                        );
                         Value {
                             node: ValueNode::Poly {
                                 rotation: *delta,
@@ -350,7 +355,7 @@ pub fn analyze_def<'s, Rt: RuntimeType>(
                         node: ValueNode::SlicedPoly {
                             slice: SliceRange::new(
                                 rotated_offset(slice.begin(), *begin as i64, *deg),
-                                *end - slice.begin(),
+                                *end - *begin,
                             ),
                             deg: *deg,
                         },
@@ -443,11 +448,33 @@ impl ObjectUse {
 
 pub fn plan_vertex_inputs<'s, Rt: RuntimeType>(
     g: &SubDigraph<'_, VertexId, type2::Vertex<'s, Rt>>,
-    def_use: &mut ObjectsDef,
+    defs: &mut ObjectsDef,
     devices: impl Fn(VertexId) -> Device,
     obj_id_allocator: &mut IdAllocator<ObjectId>,
 ) -> ObjectUse {
     let mut inputs: BTreeMap<VertexId, Vec<VertexValue>> = BTreeMap::new();
+
+    let add_cloned_slice =
+        |def_use: &mut ObjectsDef,
+         obj_id,
+         pmeta: PolyMeta,
+         before_slice_deg,
+         obj_id_allocator: &mut IdAllocator<ObjectId>| {
+            let cloned_obj_id = *def_use
+                .cloned_slices
+                .entry((obj_id, pmeta.clone()))
+                .or_insert_with(|| obj_id_allocator.alloc());
+
+            def_use.sizes.insert(
+                cloned_obj_id,
+                Size::new(
+                    Typ::<Rt>::lagrange(pmeta.len(before_slice_deg))
+                        .size()
+                        .unwrap_single(),
+                ),
+            );
+            cloned_obj_id
+        };
 
     for vid in g.vertices() {
         let v = g.vertex(vid);
@@ -455,7 +482,7 @@ pub fn plan_vertex_inputs<'s, Rt: RuntimeType>(
         inputs.insert(
             vid,
             v.uses()
-                .map(|input_vid| def_use.values[&input_vid].with_device(devices(vid)))
+                .map(|input_vid| defs.values[&input_vid].with_device(devices(vid)))
                 .collect(),
         );
     }
@@ -471,11 +498,14 @@ pub fn plan_vertex_inputs<'s, Rt: RuntimeType>(
                 let obj_id = value.object_id();
 
                 let new_value = match value.node() {
-                    ValueNode::SlicedPoly { slice, .. } => {
-                        let cloned_obj_id = *def_use
-                            .cloned_slices
-                            .entry((obj_id, PolyMeta::Sliced(*slice)))
-                            .or_insert_with(|| obj_id_allocator.alloc());
+                    ValueNode::SlicedPoly { slice, deg } => {
+                        let cloned_obj_id = add_cloned_slice(
+                            defs,
+                            obj_id,
+                            PolyMeta::Sliced(*slice),
+                            *deg,
+                            obj_id_allocator,
+                        );
 
                         Some(Value {
                             node: ValueNode::Poly {
@@ -504,11 +534,14 @@ pub fn plan_vertex_inputs<'s, Rt: RuntimeType>(
                 let obj_id = value.object_id();
 
                 let new_value = match value.node() {
-                    ValueNode::SlicedPoly { slice, .. } => {
-                        let cloned_oj_id = *def_use
-                            .cloned_slices
-                            .entry((obj_id, PolyMeta::Sliced(*slice)))
-                            .or_insert_with(|| obj_id_allocator.alloc());
+                    ValueNode::SlicedPoly { slice, deg } => {
+                        let cloned_oj_id = add_cloned_slice(
+                            defs,
+                            obj_id,
+                            PolyMeta::Sliced(*slice),
+                            *deg,
+                            obj_id_allocator,
+                        );
 
                         Some(Value {
                             node: ValueNode::Poly {
@@ -520,10 +553,13 @@ pub fn plan_vertex_inputs<'s, Rt: RuntimeType>(
                         })
                     }
                     ValueNode::Poly { rotation, deg } if *rotation != 0 => {
-                        let cloned_oj_id = *def_use
-                            .cloned_slices
-                            .entry((obj_id, PolyMeta::Rotated(*rotation)))
-                            .or_insert_with(|| obj_id_allocator.alloc());
+                        let cloned_oj_id = add_cloned_slice(
+                            defs,
+                            obj_id,
+                            PolyMeta::Rotated(*rotation),
+                            *deg,
+                            obj_id_allocator,
+                        );
 
                         Some(Value {
                             node: ValueNode::Poly {
@@ -545,7 +581,7 @@ pub fn plan_vertex_inputs<'s, Rt: RuntimeType>(
         }
     }
 
-    let cloned_slices_reversed = def_use
+    let cloned_slices_reversed = defs
         .cloned_slices
         .iter()
         .map(|((sliced_obj, slice), obj)| (*obj, (*sliced_obj, slice.clone())))

@@ -142,12 +142,17 @@ impl RegisterPlaces {
 }
 
 impl RegisterPlaces {
-    pub fn get_any(&self) -> Option<(RegisterId, DeterminedDevice)> {
-        self.gpu
-            .first()
-            .map(|&r| (r, DeterminedDevice::Gpu))
-            .or_else(|| self.cpu.first().map(|&r| (r, DeterminedDevice::Cpu)))
-            .or_else(|| self.stack.first().map(|&r| (r, DeterminedDevice::Stack)))
+    pub fn get_any(&self) -> Option<(Vec<RegisterId>, DeterminedDevice)> {
+        DeterminedDevice::iter()
+            .filter_map(|d| {
+                if !self.get_device(d).is_empty() {
+                    Some((self.get_device(d).iter().copied(), d))
+                } else {
+                    None
+                }
+            })
+            .next()
+            .map(|(it, d)| (it.collect::<Vec<_>>(), d))
     }
 }
 
@@ -629,8 +634,15 @@ fn attempt_on_device(
             ctx,
         )
     } else {
-        if let Some((from_reg, _)) = ctx.object_residence[&obj_id].get_any() {
-            ensure_same_type(device, obj_id, typ, std::iter::once(from_reg), code, ctx)
+        if let Some((from_reg_candidates, _)) = ctx.object_residence[&obj_id].get_any() {
+            ensure_same_type(
+                device,
+                obj_id,
+                typ,
+                from_reg_candidates.iter().copied(),
+                code,
+                ctx,
+            )
         } else {
             let (sliced_obj, meta) = imctx.vertex_inputs.cloned_slice_from(obj_id).unwrap();
             let (len, _) = typ.unwrap_poly();
@@ -664,10 +676,9 @@ fn ensure_on_device(
     let candidate_registers = ctx
         .object_residence
         .get(&obj_id)
-        .unwrap_or_else(|| panic!("object {:?} is not allocated", obj_id))
-        .get_device(device)
-        .iter()
-        .cloned()
+        .map(|x| x.get_device(device).iter().cloned())
+        .into_iter()
+        .flatten()
         .collect::<Vec<_>>();
     if !candidate_registers.is_empty() {
         Ok(ensure_same_type(
@@ -692,12 +703,17 @@ fn ensure_on_device(
             ctx,
             imctx,
         )?;
-        if let Some((from_reg, from_device)) = ctx.object_residence[&obj_id].get_any() {
+        if let Some((from_reg_candidates, from_device)) = ctx
+            .object_residence
+            .get(&obj_id)
+            .map(|x| x.get_any())
+            .flatten()
+        {
             let from_reg = ensure_same_type(
                 from_device,
                 obj_id,
                 typ.normalized(),
-                std::iter::once(from_reg),
+                from_reg_candidates.iter().copied(),
                 code,
                 ctx,
             );

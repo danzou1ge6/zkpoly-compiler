@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use super::{Addr, AddrId, AddrMappingHandler, Size, SmithereenSize};
 
-static DEBUG: bool = true;
+static DEBUG: bool = false;
 
 #[derive(Debug, Clone)]
 struct Chunk {
