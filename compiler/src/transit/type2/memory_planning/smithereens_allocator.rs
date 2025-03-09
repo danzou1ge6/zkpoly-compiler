@@ -4,20 +4,77 @@ use std::collections::BTreeMap;
 
 use super::{Addr, AddrId, AddrMappingHandler, Size, SmithereenSize};
 
+static DEBUG: bool = true;
+
 #[derive(Debug, Clone)]
 struct Chunk {
     size: u64,
     occupied: bool,
+    // If Cursor API of BTreeMap is stable, we no longer need keep track of this
     pred_addr: Option<u64>,
     succ_addr: Option<u64>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Allocator {
     chunks: BTreeMap<u64, Chunk>,
     last_chunk_addr: u64,
     aligned_addr2chunk_addr: BTreeMap<u64, u64>,
     capacity: u64,
+}
+
+struct ChunksDebugger<'a>(&'a Allocator);
+
+impl<'a> std::fmt::Debug for ChunksDebugger<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut list = f.debug_list();
+
+        for (((addr, chunk), pred_addr), succ_addr) in self
+            .0
+            .chunks
+            .iter()
+            .zip(std::iter::once(None).chain(self.0.chunks.iter().map(|x| Some(*x.0))))
+            .zip(
+                self.0
+                    .chunks
+                    .iter()
+                    .skip(1)
+                    .map(|x| Some(*x.0))
+                    .chain(std::iter::once(None)),
+            )
+        {
+            if chunk.occupied {
+                list.entry(&format!("{}: Occupied({})\n", addr, chunk.size));
+            } else {
+                list.entry(&format!("{}: Free({})\n", addr, chunk.size));
+            }
+            if pred_addr != chunk.pred_addr {
+                list.entry(&format!(
+                    " ERROR: chunk recorded pred_addr {:?} wrong, expected {:?}\n",
+                    chunk.pred_addr, pred_addr
+                ));
+            }
+            if succ_addr != chunk.succ_addr {
+                list.entry(&format!(
+                    " ERROR: chunk recorded succ_addr {:?} wrong, expected {:?}\n",
+                    chunk.succ_addr, succ_addr
+                ));
+            }
+        }
+
+        list.finish()
+    }
+}
+
+impl std::fmt::Debug for Allocator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Allocator")
+            .field("last_chunk_addr", &self.last_chunk_addr)
+            .field("aligned_addr2chunk_addr", &self.aligned_addr2chunk_addr)
+            .field("capacity", &self.capacity)
+            .field("chunks", &ChunksDebugger(self))
+            .finish()
+    }
 }
 
 fn aligned_addr(addr: u64) -> u64 {
@@ -69,6 +126,10 @@ impl Allocator {
         payload_size: SmithereenSize,
         mapping: &mut impl AddrMappingHandler,
     ) -> Option<AddrId> {
+        if DEBUG {
+            println!("Allocate Smithereen {}", payload_size.0);
+        }
+
         let payload_size = payload_size.0;
         let addr = self.find_best_fit(payload_size)?;
         let aligned_addr = aligned_addr(addr);
@@ -101,11 +162,24 @@ impl Allocator {
             pred_addr: Some(addr_splitted1),
             succ_addr: chunk.succ_addr,
         };
+
+        if let Some(pred_addr) = chunk.pred_addr {
+            self.chunks.get_mut(&pred_addr).unwrap().succ_addr = Some(addr_splitted1);
+        }
+
+        if let Some(succ_addr) = chunk.succ_addr {
+            self.chunks.get_mut(&succ_addr).unwrap().pred_addr = Some(addr_splitted2);
+        }
+
         self.chunks.insert(addr_splitted1, chunk_splitted1);
         self.chunks.insert(addr_splitted2, chunk_splitted2);
 
         if self.last_chunk_addr == addr {
             self.last_chunk_addr = addr_splitted2;
+        }
+
+        if DEBUG {
+            println!("{:#?}", self);
         }
 
         return Some(mapping.add(
@@ -117,6 +191,13 @@ impl Allocator {
     pub fn deallocate(&mut self, addr: AddrId, mapping: &mut impl AddrMappingHandler) {
         let (Addr(aligned_addr), _) = mapping.get(addr);
         let addr = self.aligned_addr2chunk_addr.remove(&aligned_addr).unwrap();
+
+        if DEBUG {
+            println!(
+                "Deallocate Smithereen at {}, aligned from {}",
+                aligned_addr, addr
+            );
+        }
 
         let mut chunk = self.chunks.remove(&addr).expect("chunk does not exist");
         if !chunk.occupied {
@@ -170,6 +251,10 @@ impl Allocator {
                 };
                 let merged_addr = chunk.pred_addr.unwrap();
 
+                if addr == self.last_chunk_addr {
+                    self.last_chunk_addr = chunk.pred_addr.unwrap();
+                }
+
                 self.chunks.insert(merged_addr, merged_chunk);
 
                 if let Some(mut succ_chunk) = option_succ_chunk {
@@ -199,11 +284,27 @@ impl Allocator {
 
                 self.chunks.insert(addr, merged_chunk);
 
-                if let Some(pred_chunk) = option_pred_chunk {
+                if let Some(mut pred_chunk) = option_pred_chunk {
+                    pred_chunk.succ_addr = Some(addr);
                     self.chunks.insert(chunk.pred_addr.unwrap(), pred_chunk);
                 }
             }
-            _ => {}
+            (option_pred_chunk, option_succ_chunk) => {
+                if let Some(pred_chunk) = option_pred_chunk {
+                    self.chunks.insert(chunk.pred_addr.unwrap(), pred_chunk);
+                }
+
+                if let Some(succ_chunk) = option_succ_chunk {
+                    self.chunks.insert(chunk.succ_addr.unwrap(), succ_chunk);
+                }
+
+                chunk.occupied = false;
+                self.chunks.insert(addr, chunk);
+            }
+        }
+
+        if DEBUG {
+            println!("{:#?}", self);
         }
     }
 }
