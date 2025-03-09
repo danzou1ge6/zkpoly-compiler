@@ -348,7 +348,7 @@ where
         Box::new(results.into_iter())
     }
 
-    pub fn relabeled<I2>(
+    pub fn relabeled<I2: Default>(
         &self,
         mut mapping: impl FnMut(OuterId) -> I2,
     ) -> ArithGraph<I2, ArithIndex> {
@@ -365,12 +365,13 @@ where
                 },
                 Operation::Arith(arith) => Operation::Arith(arith.clone()),
                 Operation::Output {
-                    outer_id,
                     typ,
                     store_node,
                     in_node,
+                    ..
                 } => Operation::Output {
-                    outer_id: mapping(*outer_id),
+                    // This field is meaningless before kernel generation
+                    outer_id: I2::default(),
                     typ: typ.clone(),
                     store_node: *store_node,
                     in_node: in_node.clone(),

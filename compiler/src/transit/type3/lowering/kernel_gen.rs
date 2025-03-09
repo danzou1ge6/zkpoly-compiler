@@ -1,6 +1,7 @@
 use crate::ast;
 use crate::ast::lowering::UserFunctionId;
 use crate::transit::type2::{self, NttAlgorithm};
+use crate::transit::type3::RegisterId;
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 use zkpoly_common::arith::{BinOp, UnrOp};
@@ -18,7 +19,7 @@ use zkpoly_core::poly::{
     KateDivision, PolyAdd, PolyEval, PolyInvert, PolyOneCoef, PolyOneLagrange, PolyScan, PolySub,
     PolyZero, ScalarInv, ScalarPow,
 };
-use zkpoly_runtime::args::{RuntimeType, Variable};
+use zkpoly_runtime::args::{RuntimeType, Variable, VariableId};
 use zkpoly_runtime::error::RuntimeError;
 use zkpoly_runtime::functions::{FunctionId, FunctionTable, RegisteredFunction};
 
@@ -109,14 +110,24 @@ impl KernelType {
 
 const FUSED_PERFIX: &str = "fused_arith_";
 
-pub fn gen_fused_kernels<'s, Rt: RuntimeType>(program: &Chunk<'s, Rt>) {
+pub fn gen_fused_kernels<'s, Rt: RuntimeType>(
+    program: &Chunk<'s, Rt>,
+    reg_id2var_id: &impl Fn(RegisterId) -> VariableId,
+) {
     // first pass to generate fused arith kernels
     for (id, instruct) in program.iter_instructions() {
         if let InstructionNode::Type2 { vertex, .. } = &instruct.node {
             if let VertexNode::Arith { arith, .. } = vertex {
+                let arith = arith.relabeled(|r| reg_id2var_id(r));
                 let id: usize = id.into();
                 let name = format!("{FUSED_PERFIX}{id}");
-                FusedOp::new(arith.clone(), name).gen(); // generate fused kernel
+                let outputs_i2o = arith
+                    .outputs
+                    .iter()
+                    .copied()
+                    .zip(instruct.defs().map(|r| reg_id2var_id(r)))
+                    .collect();
+                FusedOp::new(arith.clone(), name, outputs_i2o).gen(); // generate fused kernel
             }
         }
     }
@@ -186,9 +197,10 @@ pub fn get_function_id<'s, Rt: RuntimeType>(
     f_table: &mut FunctionTable<Rt>,
     program: &Chunk<'s, Rt>,
     user_ftable: type2::user_function::Table<Rt>,
+    reg_id2var_id: &impl Fn(RegisterId) -> VariableId,
     libs: &mut Libs,
 ) -> GeneratedFunctions {
-    gen_fused_kernels(program);
+    gen_fused_kernels(program, reg_id2var_id);
 
     let mut uf_table: Heap<UserFunctionId, _> = user_ftable.map(&mut (|_, f| Some(f)));
 

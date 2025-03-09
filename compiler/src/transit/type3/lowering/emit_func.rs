@@ -21,7 +21,7 @@ pub fn emit_func<'s, Rt: RuntimeType>(
     let stream = Stream::of_track(track).map(|t| stream2variable_id.get(t).clone());
     match vertex {
         VertexNode::Arith { arith, .. } => {
-            let (var, var_mut) = gen_var_lists(arith);
+            let (var, var_mut) = gen_var_lists(outputs.iter().copied(), arith);
             let mut arg = vec![stream.unwrap()];
             for (_, id) in var.iter() {
                 arg.push(reg_id2var_id(*id));

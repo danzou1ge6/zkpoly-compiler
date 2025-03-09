@@ -1,6 +1,6 @@
 use std::{
     any::type_name,
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     fs,
     marker::PhantomData,
     os::raw::{c_uint, c_ulonglong},
@@ -48,7 +48,8 @@ pub struct FusedKernel<T: RuntimeType> {
     >,
 }
 
-pub fn gen_var_lists<OuterId: Ord + Clone, InnerId: UsizeId>(
+pub fn gen_var_lists<OuterId: Ord + Copy, InnerId: UsizeId>(
+    outputs: impl Iterator<Item = OuterId>,
     graph: &ArithGraph<OuterId, InnerId>,
 ) -> (Vec<(FusedType, OuterId)>, Vec<(FusedType, OuterId)>) {
     let mut vars = Vec::new();
@@ -61,8 +62,8 @@ pub fn gen_var_lists<OuterId: Ord + Clone, InnerId: UsizeId>(
             mutability,
         } = &graph.g.vertex(*inner_id).op
         {
-            if var_set.get(&outer_id).is_none() {
-                var_set.insert(outer_id);
+            if var_set.get(outer_id).is_none() {
+                var_set.insert(*outer_id);
                 let outer_id = (*outer_id).clone();
                 match (typ, mutability) {
                     (FusedType::Scalar, Mutability::Const) => {
@@ -83,11 +84,11 @@ pub fn gen_var_lists<OuterId: Ord + Clone, InnerId: UsizeId>(
             unreachable!("input should be an Operation::Input");
         }
     }
-    for inner_id in graph.outputs.iter() {
-        if let Operation::Output { outer_id, typ, .. } = &graph.g.vertex(*inner_id).op {
+    for (inner_id, outer_id) in graph.outputs.iter().zip(outputs) {
+        if let Operation::Output { typ, .. } = &graph.g.vertex(*inner_id).op {
             if var_set.get(&outer_id).is_none() {
                 var_set.insert(outer_id);
-                let outer_id = (*outer_id).clone();
+                let outer_id = (outer_id).clone();
                 match typ {
                     FusedType::Scalar => mut_vars.push((FusedType::Scalar, outer_id)),
                     FusedType::ScalarArray => mut_vars.push((FusedType::ScalarArray, outer_id)),
@@ -105,6 +106,7 @@ pub struct FusedOp<OuterId, InnerId> {
     name: String,
     vars: Vec<(FusedType, OuterId)>,
     mut_vars: Vec<(FusedType, OuterId)>,
+    outputs_i2o: BTreeMap<InnerId, OuterId>,
 }
 
 const TMP_PREFIX: &str = "tmp";
@@ -112,13 +114,21 @@ const SCALAR_PREFIX: &str = "var";
 const ITER_PREFIX: &str = "iter";
 
 impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
-    pub fn new(graph: ArithGraph<OuterId, InnerId>, name: String) -> Self {
-        let (vars, mut_vars) = gen_var_lists(&graph);
+    pub fn new(
+        graph: ArithGraph<OuterId, InnerId>,
+        name: String,
+        outputs_i2o: BTreeMap<InnerId, OuterId>,
+    ) -> Self {
+        let (vars, mut_vars) = gen_var_lists(
+            graph.outputs.iter().map(|i| outputs_i2o[i]),
+            &graph,
+        );
         Self {
             graph,
             name,
             vars,
             mut_vars,
+            outputs_i2o,
         }
     }
 
@@ -264,13 +274,10 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
         for (head, vertex) in self.graph.topology_sort() {
             match &vertex.op {
                 Operation::Output {
-                    outer_id,
-                    typ,
-                    store_node,
-                    ..
+                    typ, store_node, ..
                 } => {
                     let src: usize = store_node.clone().into();
-                    let id: usize = outer_id.clone().into();
+                    let id: usize = self.outputs_i2o[&head].clone().into();
                     match typ {
                         FusedType::Scalar => {
                             kernel += &format!("*{SCALAR_PREFIX}{id} = {TMP_PREFIX}{src};\n");

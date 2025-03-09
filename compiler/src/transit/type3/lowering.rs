@@ -528,7 +528,7 @@ fn emit_multithread_instructions<'s, Rt: RuntimeType>(
     let mut libs = t3chunk.take_libs();
 
     let generated_functions =
-        kernel_gen::get_function_id(&mut f_table, &t3chunk, t2uf_table, &mut libs);
+        kernel_gen::get_function_id(&mut f_table, &t3chunk, t2uf_table, &reg_id2var_id, &mut libs);
 
     let stream2variable_id = StreamSpecific::new(|| variable_id_allcoator.alloc());
 
