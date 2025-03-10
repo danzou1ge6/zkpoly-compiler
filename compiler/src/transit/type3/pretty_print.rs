@@ -95,17 +95,34 @@ fn prettify_inst<'s, Rt: RuntimeType>(
     inst: &Instruction<'s>,
     writer: &mut impl Write,
 ) -> std::io::Result<()> {
-    let def_rows: Vec<_> = inst
-        .defs()
-        .map(|def| {
-            let typ = &chunk.register_types[def];
-            let dev = chunk
-                .register_devices
-                .get(&def)
-                .map_or_else(|| "ERROR".to_string(), |dev| format!("{:?}", dev));
-            vec![reg_id2str_def(def), typ2str(typ), dev]
-        })
-        .collect();
+    let def_rows: Vec<_> = if let super::InstructionNode::Type2 { ids, .. } = &inst.node {
+        ids.iter()
+            .map(|(def, inplace)| {
+                let def = *def;
+                let typ = &chunk.register_types[def];
+                let dev = chunk
+                    .register_devices
+                    .get(&def)
+                    .map_or_else(|| "ERROR".to_string(), |dev| format!("{:?}", dev));
+                let def_str = inplace.map_or_else(
+                    || reg_id2str_def(def),
+                    |inplace| format!("{}<-{}", reg_id2str_def(def), reg_id2str_use(inplace)),
+                );
+                vec![def_str, typ2str(typ), dev]
+            })
+            .collect()
+    } else {
+        inst.defs()
+            .map(|def| {
+                let typ = &chunk.register_types[def];
+                let dev = chunk
+                    .register_devices
+                    .get(&def)
+                    .map_or_else(|| "ERROR".to_string(), |dev| format!("{:?}", dev));
+                vec![reg_id2str_def(def), typ2str(typ), dev]
+            })
+            .collect()
+    };
 
     let labeled_uses = format_labeled_uses(inst);
 
@@ -190,7 +207,6 @@ fn format_inst_label<'s, Rt: RuntimeType>(inst: &Instruction<'s>, chunk: &Chunk<
         StackFree { .. } => "StackFree".to_string(),
         Tuple { .. } => "Tuple".to_string(),
         Transfer { .. } => "Transfer".to_string(),
-        Move { .. } => "Move".to_string(),
         SetPolyMeta { offset, len, .. } => format!("SetPolyMeta({}, {})", offset, len),
     }
 }
@@ -217,7 +233,6 @@ fn format_labeled_uses<'s>(inst: &Instruction<'s>) -> Vec<(RegisterId, String)> 
             .map(|(i, id)| (*id, "".to_string()))
             .collect(),
         Transfer { from, .. } => vec![(*from, "".to_string())],
-        Move { from, .. } => vec![(*from, "".to_string())],
         SetPolyMeta { from, .. } => vec![(*from, "".to_string())],
     }
 }

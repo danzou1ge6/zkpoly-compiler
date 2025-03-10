@@ -156,7 +156,10 @@ pub mod template {
     #[derive(Debug, Clone)]
     pub enum InstructionNode<I, A, V> {
         Type2 {
-            ids: Vec<I>,
+            /// (a, Some(b)) says that a use b inplace, so we need move b to a when lowering this to
+            /// runtime instruction.
+            /// (a, None) syas that a needs to be newly allocated, and there needs no move.
+            ids: Vec<(I, Option<I>)>,
             temp: Vec<I>,
             vertex: V,
             vid: type2::VertexId,
@@ -186,12 +189,6 @@ pub mod template {
             id: I,
             from: I,
         },
-        /// This is for marking that the object that a register stores or points to has changed.
-        /// At runtime, this operation is equivalent to a `Clone` operation.
-        Move {
-            id: I,
-            from: I,
-        },
         SetPolyMeta {
             id: I,
             from: I,
@@ -207,7 +204,7 @@ pub mod template {
         pub fn ids<'s>(&'s self) -> Box<dyn Iterator<Item = I> + 's> {
             use InstructionNode::*;
             match self {
-                Type2 { ids, .. } => Box::new(ids.iter().copied()),
+                Type2 { ids, .. } => Box::new(ids.iter().map(|(x, _)| *x)),
                 GpuMalloc { id, .. } => Box::new(std::iter::once(*id)),
                 GpuFree { .. } => Box::new(std::iter::empty()),
                 CpuMalloc { id, .. } => Box::new(std::iter::once(*id)),
@@ -217,7 +214,6 @@ pub mod template {
                     Box::new(std::iter::once(*id).chain(oprands.iter().copied()))
                 }
                 Transfer { id, .. } => Box::new(std::iter::once(*id)),
-                Move { id, .. } => Box::new(std::iter::once(*id)),
                 SetPolyMeta { id, .. } => Box::new(std::iter::once(*id)),
             }
         }
@@ -340,12 +336,12 @@ impl<T> TrackSpecific<T> {
 }
 
 impl Track {
-    pub fn on_device(device: Device) -> Track {
-        use Device::*;
+    pub fn on_device(device: type2::Device) -> Track {
+        use type2::Device::*;
         match device {
             Gpu => Track::Gpu,
             Cpu => Track::Cpu,
-            Stack => Track::Cpu,
+            PreferGpu => panic!("PreferGpu should have been resolved"),
         }
     }
 }
@@ -371,7 +367,10 @@ impl<'s> Instruction<'s> {
         use Track::*;
 
         match &self.node {
-            Type2 { vertex, ids, .. } => vertex.track(devices(ids[0])),
+            Type2 { vertex, ids, .. } => vertex.track(match devices(ids[0].0) {
+                Device::Cpu | Device::Stack => type2::Device::Cpu,
+                Device::Gpu => type2::Device::Gpu,
+            }),
             GpuMalloc { .. } => MemoryManagement,
             GpuFree { .. } => MemoryManagement,
             CpuMalloc { .. } => MemoryManagement,
@@ -379,7 +378,6 @@ impl<'s> Instruction<'s> {
             StackFree { .. } => MemoryManagement,
             Tuple { .. } => Cpu,
             Transfer { from, id, .. } => determine_transfer_track(devices(*from), devices(*id)),
-            Move { .. } => Cpu,
             SetPolyMeta { .. } => Cpu,
         }
     }
@@ -392,13 +390,12 @@ impl<'s> Instruction<'s> {
         use template::InstructionNode::*;
 
         match &self.node {
-            Type2 { vertex, .. } => vertex.uses(),
+            Type2 { vertex, temp, .. } => Box::new(vertex.uses().chain(temp.iter().copied())),
             GpuFree { id } => Box::new(std::iter::once(*id)),
             CpuFree { id } => Box::new(std::iter::once(*id)),
             StackFree { id } => Box::new(std::iter::once(*id)),
             Tuple { oprands, .. } => Box::new(oprands.iter().copied()),
             Transfer { id, .. } => Box::new(std::iter::once(*id)),
-            Move { id, .. } => Box::new(std::iter::once(*id)),
             _ => Box::new(std::iter::empty()),
         }
     }

@@ -386,14 +386,15 @@ pub fn analyze_def<'s, Rt: RuntimeType>(
 
                 let value = match v.typ() {
                     Typ::Array(typ, len) => {
-                        let elements = vec![
-                            Value::new(
-                                &mut object_id_allocator,
-                                typ.as_ref(),
-                                decide_device(devices(vid), typ.as_ref())
-                            );
-                            *len
-                        ];
+                        let elements: Vec<_> = (0..*len)
+                            .map(|_| {
+                                Value::new(
+                                    &mut object_id_allocator,
+                                    typ.as_ref(),
+                                    decide_device(devices(vid), typ.as_ref()),
+                                )
+                            })
+                            .collect();
 
                         elements.iter().for_each(|elem| {
                             sizes.insert(elem.object_id(), typ.size().unwrap_single());

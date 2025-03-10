@@ -547,7 +547,7 @@ where
         }
     }
 
-    pub fn track(&self, device: super::type3::Device) -> super::type3::Track {
+    pub fn track(&self, device: Device) -> super::type3::Track {
         use super::type3::Track::*;
         use template::VertexNode::*;
 

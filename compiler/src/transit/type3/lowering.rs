@@ -3,10 +3,11 @@ use std::sync::Mutex;
 
 use crate::transit::type2;
 
-use super::track_splitting::split;
+use super::track_splitting::{split, TrackTasks};
 use super::{Track, VertexNode};
 // use kernel_gen::GeneratedFunctions;
 use zkpoly_common::define_usize_id;
+use zkpoly_common::digraph::internal::SubDigraph;
 use zkpoly_common::heap::{Heap, IdAllocator};
 use zkpoly_common::typ::{PolyMeta, Typ};
 use zkpoly_runtime::args::{Constant, ConstantTable, RuntimeType, VariableId};
@@ -315,46 +316,66 @@ fn lower_instruction<'s, Rt: RuntimeType>(
     match &inst.node {
         super::InstructionNode::Type2 {
             ids, temp, vertex, ..
-        } => match vertex {
-            VertexNode::Constant(constant_id) => {
-                assert!(ids.len() == 1);
-                emit(Instruction::LoadConstant {
-                    src: *constant_id,
-                    dst: reg_id2var_id(ids[0]),
-                })
-            }
-            VertexNode::Blind(id, start_pos, end_pos) => {
-                assert!(ids.len() == 1);
-                assert!(ids[0] == *id);
-                let dst = reg_id2var_id(*id);
-                emit(Instruction::Blind {
-                    dst,
-                    start: *start_pos as usize,
-                    end: *end_pos as usize,
+        } => {
+            ids.iter()
+                .filter_map(|(id, inplace)| Some((*id, inplace.as_ref()?)))
+                .for_each(|(id, &inplace)| {
+                    emit(Instruction::MoveRegister {
+                        src: reg_id2var_id(inplace),
+                        dst: reg_id2var_id(id),
+                    })
                 });
+            let mut vertex = vertex.clone();
+            vertex.uses_mut().for_each(|u| {
+                if let Some((id, inplace)) = ids
+                    .iter()
+                    .find(|(_, inplace)| inplace.is_some_and(|i| i == *u))
+                {
+                    *u = *id;
+                }
+            });
+            let ids: Vec<_> = ids.iter().map(|x| x.0).collect();
+            match &vertex {
+                VertexNode::Constant(constant_id) => {
+                    assert!(ids.len() == 1);
+                    emit(Instruction::LoadConstant {
+                        src: *constant_id,
+                        dst: reg_id2var_id(ids[0]),
+                    })
+                }
+                VertexNode::Blind(id, start_pos, end_pos) => {
+                    assert!(ids.len() == 1);
+                    assert!(ids[0] == *id);
+                    let dst = reg_id2var_id(*id);
+                    emit(Instruction::Blind {
+                        dst,
+                        start: *start_pos as usize,
+                        end: *end_pos as usize,
+                    });
+                }
+                VertexNode::Entry(idx) => {
+                    assert!(ids.len() == 1);
+                    emit(Instruction::LoadInput {
+                        src: *idx,
+                        dst: reg_id2var_id(ids[0]),
+                    })
+                }
+                VertexNode::Return(id) => emit(Instruction::Return(reg_id2var_id(*id))),
+                _ => {
+                    emit_func::emit_func(
+                        &ids,
+                        temp,
+                        track,
+                        &vertex,
+                        reg_id2var_id,
+                        stream2variable_id,
+                        generated_functions.at(t3idx),
+                        t3chunk,
+                        emit,
+                    );
+                }
             }
-            VertexNode::Entry(idx) => {
-                assert!(ids.len() == 1);
-                emit(Instruction::LoadInput {
-                    src: *idx,
-                    dst: reg_id2var_id(ids[0]),
-                })
-            }
-            VertexNode::Return(id) => emit(Instruction::Return(reg_id2var_id(*id))),
-            _ => {
-                emit_func::emit_func(
-                    ids,
-                    temp,
-                    track,
-                    vertex,
-                    reg_id2var_id,
-                    stream2variable_id,
-                    generated_functions.at(t3idx),
-                    t3chunk,
-                    emit,
-                );
-            }
-        },
+        }
         super::InstructionNode::GpuMalloc { id, addr } => {
             let var_id = reg_id2var_id(*id);
 
@@ -396,11 +417,6 @@ fn lower_instruction<'s, Rt: RuntimeType>(
             let vars = oprands.iter().map(|&id| reg_id2var_id(id)).collect();
             emit(Instruction::AssembleTuple { vars, dst });
         }
-        super::InstructionNode::Move { id, from } => emit(Instruction::MoveRegister {
-            src: reg_id2var_id(*from),
-            dst: reg_id2var_id(*id),
-        }),
-
         super::InstructionNode::SetPolyMeta {
             id,
             from,
@@ -541,6 +557,7 @@ pub struct Chunk<Rt: RuntimeType> {
 }
 
 fn emit_multithread_instructions<'s, Rt: RuntimeType>(
+    track_tasks: &TrackTasks,
     mut t3chunk: super::Chunk<'s, Rt>,
     t2uf_table: type2::user_function::Table<Rt>,
 ) -> (
@@ -549,7 +566,6 @@ fn emit_multithread_instructions<'s, Rt: RuntimeType>(
     EventTable,
     StreamSpecific<VariableId>,
 ) {
-    let track_tasks = split(&t3chunk);
     let mut event_table = EventTable::new();
     let mut f_table = FunctionTable::<Rt>::new();
     let (mut variable_id_allcoator, reg_id2var_id) = t3chunk.take_reg_id_allocator().decompose();
@@ -650,11 +666,12 @@ pub fn lower_constants<Rt: RuntimeType>(
 }
 
 pub fn lower<'s, Rt: RuntimeType>(
+    track_tasks: &TrackTasks,
     t3chunk: super::Chunk<'s, Rt>,
     t2uf_table: type2::user_function::Table<Rt>,
 ) -> Chunk<Rt> {
     let (mut mt_chunk, f_table, event_table, stream2variable_id) =
-        emit_multithread_instructions(t3chunk, t2uf_table);
+        emit_multithread_instructions(track_tasks, t3chunk, t2uf_table);
 
     let mut instructions = Vec::new();
 

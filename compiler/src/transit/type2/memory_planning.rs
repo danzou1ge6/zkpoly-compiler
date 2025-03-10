@@ -798,15 +798,7 @@ fn ensure_copied(
             ctx,
             imctx,
         )?;
-        let moved_reg = code.alloc_register_id(typ);
-        code.emit(Instruction::new_no_src(InstructionNode::Move {
-            id: moved_reg,
-            from: on_device_reg,
-        }));
-        ctx.remove_residence_for_object(original_obj_id, device);
-        ctx.add_residence_for_object(obj_id, moved_reg, device);
-        ctx.attempt_copy_gpu_addr_id_from(on_device_reg, moved_reg);
-        moved_reg
+        on_device_reg
     };
     Ok(input_reg)
 }
@@ -1015,20 +1007,27 @@ pub fn plan<'s, Rt: RuntimeType>(
             .collect::<Result<Vec<_>, _>>()?;
 
         // Allocate outputs
-        // - Use correspounding input registe if inplace.
-        //   In this case, the object ID of the register is already the output object ID.
+        // - If the output use some input's space, kills the input register in ctx and let the output register inherit its space
+        // - Otherwise, allocate new space for the output
         let v = g.vertex(vid);
-        let output_registers: Vec<RegisterId> = imctx.obj_def.values[&vid]
+        let output_registers: Vec<(RegisterId, Option<RegisterId>)> = imctx.obj_def.values[&vid]
             .iter()
             .zip(v.outputs_inplace(uf_table, exe_device))
             .zip(v.typ().iter())
             .map(|((output_value, inplace), output_typ)| {
                 let output_obj = output_value.object_id();
+                let output_reg = code.alloc_register_id(lower_typ(output_typ, output_value));
                 if let Some(input_vid) = inplace {
                     let index = v.uses().position(|x| x == input_vid).unwrap();
-                    Ok(input_registers[index])
+                    let inplace_reg = input_registers[index];
+                    ctx.add_residence_for_object(output_obj, output_reg, output_value.device());
+                    ctx.remove_residence_for_object(
+                        ctx.reg2obj[&inplace_reg],
+                        output_value.device(),
+                    );
+                    ctx.attempt_copy_gpu_addr_id_from(inplace_reg, output_reg);
+                    Ok((output_reg, Some(inplace_reg)))
                 } else {
-                    let output_reg = code.alloc_register_id(lower_typ(output_typ, output_value));
                     let size = imctx.obj_size(output_obj);
                     allocate(
                         output_value.device(),
@@ -1043,7 +1042,7 @@ pub fn plan<'s, Rt: RuntimeType>(
                         &mut ctx,
                         &imctx,
                     )?;
-                    Ok(output_reg)
+                    Ok((output_reg, None))
                 }
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -1089,8 +1088,8 @@ pub fn plan<'s, Rt: RuntimeType>(
         output_registers
             .iter()
             .zip(v.typ().iter())
-            .for_each(|(&output_reg, typ)| {
-                register_types.insert(output_reg, typ.clone());
+            .for_each(|((output_reg, _), typ)| {
+                register_types.insert(*output_reg, typ.clone());
             });
 
         code.emit(Instruction::new(

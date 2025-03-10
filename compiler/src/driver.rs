@@ -33,6 +33,7 @@ pub struct DebugOptions {
     debug_obj_liveness: bool,
     debug_obj_gpu_next_use: bool,
     debug_fresh_type3: bool,
+    debug_track_splitting: bool,
     debug_instructions: bool,
     log: bool,
 }
@@ -52,6 +53,7 @@ impl DebugOptions {
             debug_obj_liveness: true,
             debug_obj_gpu_next_use: true,
             debug_fresh_type3: true,
+            debug_track_splitting: true,
             debug_instructions: true,
             log: false,
         }
@@ -536,10 +538,23 @@ pub fn ast2inst<Rt: RuntimeType>(
         type3::pretty_print::prettify(&t3chunk, &mut f).unwrap();
     }
 
+    // - Track Splitting
+    let track_tasks = options.log_suround(
+        "Splitting tracks",
+        || Ok(type3::track_splitting::split(&t3chunk)),
+        "Done.",
+    )?;
+
+    if options.debug_track_splitting {
+        let mut f =
+            std::fs::File::create(options.debug_dir.join("type3_track_splitting.txt")).unwrap();
+        write!(f, "{:?}", &track_tasks).unwrap();
+    }
+
     // To Runtime Instructions
     let rt_chunk = options.log_suround(
         "Lowering Type3 to Runtime Instructions",
-        || Ok(type3::lowering::lower(t3chunk, t2uf_tab)),
+        || Ok(type3::lowering::lower(&track_tasks, t3chunk, t2uf_tab)),
         "Done.",
     )?;
     let rt_const_tab = type3::lowering::lower_constants(t2const_tab);
