@@ -159,7 +159,7 @@ pub mod template {
             ids: Vec<I>,
             temp: Vec<I>,
             vertex: V,
-            vid: type2::VertexId
+            vid: type2::VertexId,
         },
         GpuMalloc {
             id: I,
@@ -219,6 +219,15 @@ pub mod template {
                 Transfer { id, .. } => Box::new(std::iter::once(*id)),
                 Move { id, .. } => Box::new(std::iter::once(*id)),
                 SetPolyMeta { id, .. } => Box::new(std::iter::once(*id)),
+            }
+        }
+
+        pub fn is_allloc(&self) -> bool {
+            use InstructionNode::*;
+            match self {
+                GpuMalloc { .. } => true,
+                CpuMalloc { .. } => true,
+                _ => false,
             }
         }
     }
@@ -437,12 +446,11 @@ impl<'s, Rt: RuntimeType> Chunk<'s, Rt> {
     }
 
     pub fn assigned_at(&self) -> BTreeMap<RegisterId, InstructionIndex> {
-        self.instructions
-            .iter()
-            .enumerate()
+        self.iter_instructions()
+            .filter(|(_, inst)| !inst.node.is_allloc())
             .fold(BTreeMap::new(), |mut acc, (i, instr)| {
-                for id in instr.node.ids() {
-                    acc.insert(id, InstructionIndex(i));
+                for id in instr.defs() {
+                    acc.insert(id, i);
                 }
                 acc
             })
