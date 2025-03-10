@@ -67,7 +67,7 @@ pub fn write_graph_with_seq<'s, Ty: Debug>(
     write_graph_with_optional_seq(g, writer, seq, true, |_, _| None, |_, _| None, |_, _| None)
 }
 
-fn format_source_info<'s>(src: &SourceInfo<'s>) -> String {
+pub(crate) fn format_source_info<'s>(src: &SourceInfo<'s>) -> String {
     let loc = match &src.location {
         Locations::Multi(locs) => &locs[0],
         Locations::Single(loc) => loc,
@@ -219,7 +219,7 @@ pub fn write_graph_with_optional_seq<'s, Ty: Debug>(
     writeln!(writer, "}}")
 }
 
-pub fn format_node_label<'s, Vid: UsizeId + Debug>(
+pub(crate) fn format_node_label<'s, Vid: UsizeId + Debug>(
     vertex_node: &template::VertexNode<
         Vid,
         arith::ArithGraph<Vid, ExprId>,
@@ -270,7 +270,7 @@ pub fn format_node_label<'s, Vid: UsizeId + Debug>(
     }
 }
 
-fn format_labeled_uses<'s, Vid: UsizeId + Debug>(
+pub(crate) fn format_labeled_uses<'s, Vid: UsizeId + Debug>(
     vertex_node: &template::VertexNode<
         Vid,
         arith::ArithGraph<Vid, ExprId>,

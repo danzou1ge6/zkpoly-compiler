@@ -530,12 +530,12 @@ pub fn ast2inst<Rt: RuntimeType>(
         "Done.",
     )?;
 
-    panic!("Let's leave further passes for tomorrow");
-
     if options.debug_fresh_type3 {
-        let mut f = std::fs::File::create(options.debug_dir.join("type3_fresh.dot")).unwrap();
-        type3::pretty_print::write_graph(&t3chunk, &mut f).unwrap();
+        let mut f = std::fs::File::create(options.debug_dir.join("type3_fresh.html")).unwrap();
+        type3::pretty_print::prettify(&t3chunk, &mut f).unwrap();
     }
+
+    panic!("Let's leave further passes for tomorrow");
 
     // To Runtime Instructions
     let rt_chunk = options.log_suround(

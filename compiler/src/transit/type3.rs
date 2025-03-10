@@ -67,6 +67,15 @@ pub enum Size {
     Smithereen(SmithereenSize),
 }
 
+impl std::fmt::Display for Size {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Size::Integral(size) => write!(f, "2^{}", size.0),
+            Size::Smithereen(size) => write!(f, "{}", size.0),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Addr(pub(crate) u64);
 
@@ -197,10 +206,10 @@ pub mod template {
             match self {
                 Type2 { ids, .. } => Box::new(ids.iter().copied()),
                 GpuMalloc { id, .. } => Box::new(std::iter::once(*id)),
-                GpuFree { id, .. } => Box::new(std::iter::once(*id)),
+                GpuFree { .. } => Box::new(std::iter::empty()),
                 CpuMalloc { id, .. } => Box::new(std::iter::once(*id)),
-                CpuFree { id, .. } => Box::new(std::iter::once(*id)),
-                StackFree { id, .. } => Box::new(std::iter::once(*id)),
+                CpuFree { .. } => Box::new(std::iter::empty()),
+                StackFree { .. } => Box::new(std::iter::empty()),
                 Tuple { id, oprands, .. } => {
                     Box::new(std::iter::once(*id).chain(oprands.iter().copied()))
                 }

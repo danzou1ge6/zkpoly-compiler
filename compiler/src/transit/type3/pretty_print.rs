@@ -1,121 +1,216 @@
+use std::io::Write;
+
 use super::*;
 use crate::transit::type2;
-use std::io::Write;
 use zkpoly_runtime::args::RuntimeType;
 
-/// Write the instruction sequence in DOT format
-pub fn write_graph<'s, Rt: RuntimeType>(
+pub fn prettify<'s, Rt: RuntimeType>(
     chunk: &Chunk<'s, Rt>,
-    mut writer: impl Write,
+    writer: &mut impl Write,
 ) -> std::io::Result<()> {
-    // Write the DOT header
-    writeln!(writer, "digraph InstructionGraph {{")?;
-    writeln!(writer, "  // Graph settings")?;
-    writeln!(writer, "  graph [")?;
-    writeln!(writer, "    fontname = \"Helvetica\"")?;
-    writeln!(writer, "    fontsize = 11")?;
-    writeln!(writer, "  ]")?;
+    let head = r#"
+    <table>
+        <thead>
+            <tr>
+            <th>Number</th>
+            <th colspan=3>Definitions</th>
+            <th>Instruction</th>
+            <th>Uses</th>
+            <th>Source</th>
+            </tr>
+        </thead>
+        <tbody>
+    "#;
+    writeln!(writer, "{}", head)?;
 
-    // Node settings
-    writeln!(writer, "  // Node settings")?;
-    writeln!(writer, "  node [")?;
-    writeln!(writer, "    fontname = \"Helvetica\"")?;
-    writeln!(writer, "    fontsize = 11")?;
-    writeln!(writer, "    shape = \"box\"")?;
-    writeln!(writer, "    style = \"rounded\"")?;
-    writeln!(writer, "  ]")?;
+    chunk
+        .iter_instructions()
+        .map(|(idx, inst)| prettify_inst(chunk, idx, inst, writer))
+        .collect::<Result<Vec<_>, _>>()?;
 
-    // Edge settings
-    writeln!(writer, "  // Edge settings")?;
-    writeln!(writer, "  edge [")?;
-    writeln!(writer, "    fontname = \"Helvetica\"")?;
-    writeln!(writer, "    fontsize = 11")?;
-    writeln!(writer, "  ]")?;
+    let tail = r#"
+        </tbody>
+    </table>
+    <script>
+        function extractNumber(classNames) {
+            const regex = /^register-(use|def)-(\d+)$/;
+            for (const className of classNames) {
+                const match = className.match(regex);
+                if (match) {
+                    return parseInt(match[2], 10);
+                }
+            }
+            return null;
+        }
+        function setStyle(regNum) {
+            let all_regs = document.querySelectorAll('.register')
+            let all_rows = document.querySelectorAll('tr')
+            let uses = document.querySelectorAll('.register-use-' + regNum)
+            let defs = document.querySelectorAll('.register-def-' + regNum)
+            let use_rows = document.querySelectorAll('.row-use-' + regNum)
+            let def_rows = document.querySelectorAll('.row-def-' + regNum)
 
-    // Write nodes
-    for (idx, instruction) in chunk.iter_instructions() {
-        let label = format_node_label::<Rt>(instruction);
-        let track =
-            instruction.track(|id| *chunk.register_devices.get(&id).unwrap_or(&Device::Cpu));
-        let color = get_node_color(&instruction.node);
-        let style = get_track_style(track);
+            all_regs.forEach(r => r.style.background = 'white')
+            uses.forEach(use => use.style.background = "rgb(173, 216, 230)")
+            defs.forEach(def => def.style.background = "rgb(144, 238, 144)")
 
-        // Write node with attributes
-        writeln!(
-            writer,
-            "  {} [label=\"{}, instruction id: {}\", style=\"{}\", fillcolor=\"{}\"]",
-            idx.0, label, idx.0, style, color
-        )?;
-    }
+            all_rows.forEach(r => r.style.color = 'gray')
+            use_rows.forEach(r => r.style.color = 'black')
+            def_rows.forEach(r => r.style.color = 'black')
+        }
 
-    // Write edges for data dependencies
-    for (from_idx, instruction) in chunk.iter_instructions() {
-        for use_id in instruction.uses() {
-            writeln!(writer, "  {} -> {}", use_id.0, from_idx.0,)?;
+        document.querySelectorAll('.register').forEach(r => {
+            let n = extractNumber(r.classList)
+            r.addEventListener('click', ev => setStyle(n))
+        })
+    </script>
+    "#;
+    writeln!(writer, "{}", tail)?;
+
+    Ok(())
+}
+
+fn reg_id2str_def(r: RegisterId) -> String {
+    format!(
+        "<span class=\"register register-def-{}\">r{}</span>",
+        r.0, r.0
+    )
+}
+
+fn reg_id2str_use(r: RegisterId) -> String {
+    format!(
+        "<span class=\"register register-use-{}\">r{}</span>",
+        r.0, r.0
+    )
+}
+
+fn typ2str(t: &super::typ::Typ) -> String {
+    format!("{:?}", t)
+}
+
+fn prettify_inst<'s, Rt: RuntimeType>(
+    chunk: &Chunk<'s, Rt>,
+    idx: InstructionIndex,
+    inst: &Instruction<'s>,
+    writer: &mut impl Write,
+) -> std::io::Result<()> {
+    let def_rows: Vec<_> = inst
+        .defs()
+        .map(|def| {
+            let typ = &chunk.register_types[def];
+            let dev = chunk
+                .register_devices
+                .get(&def)
+                .map_or_else(|| "ERROR".to_string(), |dev| format!("{:?}", dev));
+            vec![reg_id2str_def(def), typ2str(typ), dev]
+        })
+        .collect();
+
+    let labeled_uses = format_labeled_uses(inst);
+
+    let classes: Vec<_> = inst
+        .defs()
+        .map(|def| format!("row-def-{}", def.0))
+        .chain(labeled_uses.iter().map(|(r, _)| format!("row-use-{}", r.0)))
+        .collect();
+    let classes_str = classes.join(" ");
+
+    writeln!(writer, "<tr class=\"{}\">", classes_str)?;
+    let index = format!("{}", idx.0);
+    writeln!(writer, "  <th rowspan={}>{}</th>", def_rows.len(), index)?;
+
+    if let Some(first_def_row) = def_rows.get(0) {
+        for def in first_def_row {
+            writeln!(writer, "  <td>{}</td>", def)?;
+        }
+    } else {
+        for _ in 0..3 {
+            writeln!(writer, "  <td></td>")?;
         }
     }
 
-    writeln!(writer, "}}")
+    let label = format_inst_label(inst, chunk);
+    let uses_str = labeled_uses
+        .into_iter()
+        .map(|(id, label)| {
+            if label.is_empty() {
+                reg_id2str_use(id)
+            } else {
+                format!("{}={}", label, reg_id2str_use(id))
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let src_info = format_src_info(inst);
+
+    writeln!(writer, "  <td>{}</td>", label)?;
+    writeln!(writer, "  <td>{}</td>", uses_str)?;
+    writeln!(writer, "  <td>{}</td>", src_info)?;
+    writeln!(writer, "</tr>")?;
+
+    for def in def_rows.iter().skip(1) {
+        writeln!(writer, "<tr class=\"{}\">", classes_str)?;
+
+        for def in def {
+            writeln!(writer, "  <td>{}</td>", def)?;
+        }
+
+        writeln!(writer, "</tr>")?;
+    }
+
+    Ok(())
 }
 
-fn format_node_label<'s, Rt: RuntimeType>(instruction: &Instruction<'s>) -> String {
+fn format_src_info(inst: &Instruction) -> String {
+    if let Some(src) = &inst.src {
+        type2::pretty_print::format_source_info(&src)
+    } else {
+        "".to_string()
+    }
+}
+
+fn format_inst_label<'s, Rt: RuntimeType>(inst: &Instruction<'s>, chunk: &Chunk<'s, Rt>) -> String {
     use template::InstructionNode::*;
-    match &instruction.node {
+    match &inst.node {
         Type2 { vertex, .. } => type2::pretty_print::format_node_label(vertex),
-
-        GpuMalloc { id, addr } => format!("GPU Malloc\nR{} @ A{}", id.0, addr.0),
-        GpuFree { id } => format!("GPU Free\nR{}", id.0),
-        CpuMalloc { id, size } => format!("CPU Malloc\nR{} ({:?})", id.0, size),
-        CpuFree { id } => format!("CPU Free\nR{}", id.0),
-        StackFree { id } => format!("Stack Free\nR{}", id.0),
-        Tuple { id, oprands } => {
-            let oprs = oprands
-                .iter()
-                .map(|x| format!("R{}", x.0))
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!("Tuple\nR{} = ({})", id.0, oprs)
+        GpuMalloc { addr: aid, .. } => {
+            let (addr, size) = chunk.gpu_addr_mapping[*aid];
+            format!("GpuMalloc({:?}={},{})", aid, addr.0, size)
         }
-        Transfer { id, from } => format!("Transfer\nR{} <- R{}", id.0, from.0),
-        Move { id, from } => format!("Move\nR{} <- R{}", id.0, from.0),
-        SetPolyMeta {
-            id,
-            from,
-            offset,
-            len,
-        } => {
-            format!(
-                "SetPolyMeta\nR{} <- R{}\noffset={},len={}",
-                id.0, from.0, offset, len
+        GpuFree { .. } => "GpuFree".to_string(),
+        CpuMalloc { .. } => "CpuMalloc".to_string(),
+        CpuFree { .. } => "CpuFree".to_string(),
+        StackFree { .. } => "StackFree".to_string(),
+        Tuple { .. } => "Tuple".to_string(),
+        Transfer { .. } => "Transfer".to_string(),
+        Move { .. } => "Move".to_string(),
+        SetPolyMeta { offset, len, .. } => format!("SetPolyMeta({}, {})", offset, len),
+    }
+}
+
+fn format_labeled_uses<'s>(inst: &Instruction<'s>) -> Vec<(RegisterId, String)> {
+    use template::InstructionNode::*;
+    match &inst.node {
+        Type2 { vertex, temp, .. } => type2::pretty_print::format_labeled_uses(vertex)
+            .into_iter()
+            .chain(
+                temp.iter()
+                    .enumerate()
+                    .map(|(i, t)| (*t, format!("temp{}", i))),
             )
-        }
-    }
-}
-
-fn get_node_color(node: &InstructionNode) -> &'static str {
-    match node {
-        // 对于Type2节点，直接调用type2的get_node_color
-        InstructionNode::Type2 { vertex, .. } => type2::pretty_print::get_node_color(vertex),
-        InstructionNode::GpuMalloc { .. } => "#FFF59D", // Light yellow
-        InstructionNode::GpuFree { .. } => "#FFF59D",   // Light yellow
-        InstructionNode::CpuMalloc { .. } => "#FFE0B2", // Light orange
-        InstructionNode::CpuFree { .. } => "#FFE0B2",   // Light orange
-        InstructionNode::StackFree { .. } => "#FFE0B2", // Light orange
-        InstructionNode::Tuple { .. } => "#A5D6A7",     // Light green
-        InstructionNode::Transfer { .. } => "#F48FB1",  // Light pink
-        InstructionNode::Move { .. } => "#90CAF9",      // Light blue
-        InstructionNode::SetPolyMeta { .. } => "#B39DDB", // Light purple
-    }
-}
-
-fn get_track_style(track: Track) -> &'static str {
-    match track {
-        Track::MemoryManagement => "filled",
-        Track::CoProcess => "filled",
-        Track::Gpu => "filled",
-        Track::Cpu => "filled",
-        Track::ToGpu => "filled,dashed",
-        Track::FromGpu => "filled,dashed",
-        Track::GpuMemory => "filled",
+            .collect(),
+        GpuMalloc { .. } => vec![],
+        GpuFree { id } => vec![(*id, "".to_string())],
+        CpuMalloc { .. } => vec![],
+        CpuFree { id } => vec![(*id, "".to_string())],
+        StackFree { id } => vec![(*id, "".to_string())],
+        Tuple { oprands, .. } => oprands
+            .iter()
+            .enumerate()
+            .map(|(i, id)| (*id, "".to_string()))
+            .collect(),
+        Transfer { from, .. } => vec![(*from, "".to_string())],
+        Move { from, .. } => vec![(*from, "".to_string())],
+        SetPolyMeta { from, .. } => vec![(*from, "".to_string())],
     }
 }
