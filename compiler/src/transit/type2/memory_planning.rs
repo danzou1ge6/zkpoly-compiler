@@ -854,7 +854,7 @@ pub fn plan<'s, Rt: RuntimeType>(
     obj_def: &ObjectsDef,
     obj_gpu_next_use: &ObjectsGpuNextUse,
     vertex_inputs: &ObjectUse,
-    devices: &BTreeMap<VertexId, DeterminedDevice>,
+    devices: &BTreeMap<VertexId, Device>,
     uf_table: &user_function::Table<Rt>,
     obj_id_allocator: &mut IdAllocator<ObjectId>,
     mut libs: Libs,
@@ -895,7 +895,7 @@ pub fn plan<'s, Rt: RuntimeType>(
 
         let now = Instant(i);
         gpu_allocator.tick(now);
-        let device = devices[&vid];
+        let exe_device = devices[&vid];
 
         // Prepare inputs
         // - Move input objects to desired device
@@ -904,8 +904,10 @@ pub fn plan<'s, Rt: RuntimeType>(
         //   - Otherwise, a new temporary object ID is allocated
         // - Build tuples, if needed
         let mutable_uses: Vec<VertexId> = g.vertex(vid).mutable_uses(uf_table).collect();
-        let outputs_inplace: Vec<Option<VertexId>> =
-            g.vertex(vid).outputs_inplace(uf_table, device).collect();
+        let outputs_inplace: Vec<Option<VertexId>> = g
+            .vertex(vid)
+            .outputs_inplace(uf_table, exe_device)
+            .collect();
         let mut tuple_registers = Vec::new();
         let input_registers: Vec<RegisterId> = cg
             .g
@@ -932,7 +934,7 @@ pub fn plan<'s, Rt: RuntimeType>(
                     };
                     ctx.inplace_obj.insert(input_value.object_id());
                     ensure_copied(
-                        device,
+                        input_value.device(),
                         vid,
                         lower_typ(g.vertex(input_vid).typ(), &input_value),
                         input_value.object_id(),
@@ -953,7 +955,7 @@ pub fn plan<'s, Rt: RuntimeType>(
                     // This input is mutated
                     let temp_obj = obj_id_allocator.alloc();
                     ensure_copied(
-                        device,
+                        input_value.device(),
                         vid,
                         lower_typ(g.vertex(input_vid).typ(), &input_value),
                         input_value.object_id(),
@@ -970,7 +972,7 @@ pub fn plan<'s, Rt: RuntimeType>(
                     // The input is not mutated
                     match input_vv {
                         object_analysis::VertexValue::Single(input_value) => ensure_on_device(
-                            device,
+                            input_value.device(),
                             input_value.object_id(),
                             lower_typ(g.vertex(input_vid).typ(), &input_value),
                             now,
@@ -985,7 +987,7 @@ pub fn plan<'s, Rt: RuntimeType>(
                                 .zip(g.vertex(input_vid).typ().iter())
                                 .map(|(input_value, input_typ)| {
                                     ensure_on_device(
-                                        device,
+                                        input_value.device(),
                                         input_value.object_id(),
                                         lower_typ(input_typ, input_value),
                                         now,
@@ -997,6 +999,7 @@ pub fn plan<'s, Rt: RuntimeType>(
                                 })
                                 .collect::<Result<Vec<_>, _>>()?;
                             let tuple_reg = code.alloc_register_id(Typ::Tuple);
+                            ctx.reg_device.insert(tuple_reg, DeterminedDevice::Stack);
                             code.emit(Instruction::new_no_src(InstructionNode::Tuple {
                                 id: tuple_reg,
                                 oprands: elements,
@@ -1017,7 +1020,7 @@ pub fn plan<'s, Rt: RuntimeType>(
         let v = g.vertex(vid);
         let output_registers: Vec<RegisterId> = imctx.obj_def.values[&vid]
             .iter()
-            .zip(v.outputs_inplace(uf_table, device))
+            .zip(v.outputs_inplace(uf_table, exe_device))
             .zip(v.typ().iter())
             .map(|((output_value, inplace), output_typ)| {
                 let output_obj = output_value.object_id();
@@ -1028,7 +1031,7 @@ pub fn plan<'s, Rt: RuntimeType>(
                     let output_reg = code.alloc_register_id(lower_typ(output_typ, output_value));
                     let size = imctx.obj_size(output_obj);
                     allocate(
-                        device,
+                        output_value.device(),
                         output_reg,
                         output_obj,
                         obj_gpu_next_use
@@ -1064,7 +1067,7 @@ pub fn plan<'s, Rt: RuntimeType>(
                         &mut ctx,
                         &imctx,
                     )?;
-                    Ok((temp_register, temp_obj))
+                    Ok((temp_register, temp_obj, temp_space_device))
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             Some(rs)
@@ -1095,15 +1098,22 @@ pub fn plan<'s, Rt: RuntimeType>(
                 ids: output_registers,
                 temp: temp_register_obj
                     .as_ref()
-                    .map_or_else(Vec::new, |ros| ros.iter().map(|(reg, _)| *reg).collect()),
+                    .map_or_else(Vec::new, |ros| ros.iter().map(|(reg, ..)| *reg).collect()),
                 vertex: v3,
+                vid,
             },
             v.src().clone(),
         ));
 
         // Deallocate temporary space
-        for (_, temp_obj) in temp_register_obj.unwrap_or_default().into_iter() {
-            deallocate(device, temp_obj, &mut gpu_allocator, &mut code, &mut ctx);
+        for (_, temp_obj, temp_device) in temp_register_obj.unwrap_or_default().into_iter() {
+            deallocate(
+                temp_device,
+                temp_obj,
+                &mut gpu_allocator,
+                &mut code,
+                &mut ctx,
+            );
         }
 
         // We can't deallocate those objects that dies exactly after return vertex, as they are returned.

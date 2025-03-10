@@ -195,15 +195,8 @@ where
     pub fn stack_allocable(&self) -> bool {
         use template::Typ::*;
         match self {
-            Poly { .. } => false,
-            PointBase { .. } => false,
-            Scalar => true,
-            Transcript => false,
-            Point => true,
             Tuple(..) => true,
-            Array(..) => true,
-            Any(..) => true,
-            _Phantom(_) => unreachable!(),
+            _ => false,
         }
     }
 }

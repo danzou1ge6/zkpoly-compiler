@@ -15,6 +15,7 @@ pub fn prettify<'s, Rt: RuntimeType>(
             <th>Number</th>
             <th colspan=3>Definitions</th>
             <th>Instruction</th>
+            <th>Track</th>
             <th>Uses</th>
             <th>Source</th>
             </tr>
@@ -142,8 +143,10 @@ fn prettify_inst<'s, Rt: RuntimeType>(
         .collect::<Vec<_>>()
         .join(", ");
     let src_info = format_src_info(inst);
+    let track = inst.track(|r| chunk.register_devices[&r]);
 
     writeln!(writer, "  <td>{}</td>", label)?;
+    writeln!(writer, "  <td>{:?}</td>", track)?;
     writeln!(writer, "  <td>{}</td>", uses_str)?;
     writeln!(writer, "  <td>{}</td>", src_info)?;
     writeln!(writer, "</tr>")?;
@@ -172,7 +175,11 @@ fn format_src_info(inst: &Instruction) -> String {
 fn format_inst_label<'s, Rt: RuntimeType>(inst: &Instruction<'s>, chunk: &Chunk<'s, Rt>) -> String {
     use template::InstructionNode::*;
     match &inst.node {
-        Type2 { vertex, .. } => type2::pretty_print::format_node_label(vertex),
+        Type2 { vertex, vid, .. } => format!(
+            "{}:{}",
+            usize::from(*vid),
+            type2::pretty_print::format_node_label(vertex)
+        ),
         GpuMalloc { addr: aid, .. } => {
             let (addr, size) = chunk.gpu_addr_mapping[*aid];
             format!("GpuMalloc({:?}={},{})", aid, addr.0, size)

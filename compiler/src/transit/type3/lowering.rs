@@ -305,7 +305,7 @@ fn lower_instruction<'s, Rt: RuntimeType>(
     emit: &mut impl FnMut(Instruction),
 ) {
     match &inst.node {
-        super::InstructionNode::Type2 { ids, temp, vertex } => match vertex {
+        super::InstructionNode::Type2 { ids, temp, vertex, .. } => match vertex {
             VertexNode::Constant(constant_id) => emit(Instruction::LoadConstant {
                 src: *constant_id,
                 dst: reg_id2var_id(ids[0]),

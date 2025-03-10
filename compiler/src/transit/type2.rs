@@ -422,23 +422,21 @@ where
     pub fn outputs_inplace<'a, 'b>(
         &'b self,
         uf_table: &'a user_function::Table<Rt>,
-        device: super::type3::Device,
+        device: Device,
     ) -> Box<dyn Iterator<Item = Option<I>> + 'b> {
         use template::VertexNode::*;
         match self.node() {
             ScalarInvert { val } => Box::new([Some(*val)].into_iter()),
             Ntt { s, .. } => Box::new([Some(*s)].into_iter()),
             RotateIdx(s, ..) => {
-                use super::type3::Device::*;
+                use Device::*;
                 match device {
                     Cpu => Box::new([Some(*s)].into_iter()),
                     Gpu => Box::new([None].into_iter()),
-                    Stack => panic!("RotateIdx output can't be on stack"),
+                    PreferGpu => panic!("device must be completely decided here"),
                 }
             }
-            Arith {
-                arith, ..
-            } => arith.outputs_inplace(),
+            Arith { arith, .. } => arith.outputs_inplace(),
             Blind(poly, ..) => Box::new([Some(*poly)].into_iter()),
             BatchedInvert(poly) => Box::new([Some(*poly)].into_iter()),
             DistributePowers { poly, .. } => Box::new([Some(*poly)].into_iter()),
@@ -485,10 +483,7 @@ where
             Constant(c) => Constant(c.clone()),
             Extend(s, deg) => Extend(mapping(*s), deg.clone()),
             SingleArith(expr) => SingleArith(expr.relabeled(&mut mapping)),
-            Arith {
-                arith,
-                chunking,
-            } => Arith {
+            Arith { arith, chunking } => Arith {
                 arith: arith.relabeled(mapping),
                 chunking: *chunking,
             },
@@ -567,7 +562,7 @@ where
             ScalarInvert { .. } => on_device(device),
             Constant(..) => Cpu,
             Extend(..) => on_device(device),
-            SingleArith(..) => unreachable!(),
+            SingleArith(..) => Gpu,
             Arith { chunking, .. } => {
                 if let Some(..) = chunking {
                     CoProcess
@@ -668,15 +663,15 @@ pub struct Program<'s, Rt: RuntimeType> {
     pub(crate) memory_pool: PinnedMemoryPool,
 }
 
+pub mod decide_device;
 pub mod graph_scheduling;
 pub mod intt_mending;
 pub mod kernel_fusion;
 pub mod manage_inverse;
 pub mod memory_planning;
+pub mod object_analysis;
 pub mod precompute;
 pub mod pretty_print;
 pub mod temporary_space;
 pub mod typ;
 pub mod user_function;
-pub mod decide_device;
-pub mod object_analysis;

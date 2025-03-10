@@ -149,6 +149,8 @@ define_usize_id!(RegisterId);
 pub mod template {
     use zkpoly_common::typ::PolyMeta;
 
+    use crate::transit::type2;
+
     use super::{typ, Size};
 
     #[derive(Debug, Clone)]
@@ -157,6 +159,7 @@ pub mod template {
             ids: Vec<I>,
             temp: Vec<I>,
             vertex: V,
+            vid: type2::VertexId
         },
         GpuMalloc {
             id: I,

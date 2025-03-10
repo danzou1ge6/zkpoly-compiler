@@ -257,10 +257,24 @@ fn rotated_offset(begin: u64, offset: i64, cycle: u64) -> u64 {
     (begin as i64 + offset) as u64 % cycle
 }
 
+fn decide_device<Rt: RuntimeType>(executed_on: type2::Device, typ: &Typ<Rt>) -> Device {
+    match executed_on {
+        type2::Device::PreferGpu => panic!("PreferGpu should have been resolved"),
+        type2::Device::Cpu => {
+            if typ.stack_allocable() {
+                Device::Stack
+            } else {
+                Device::Cpu
+            }
+        }
+        type2::Device::Gpu => Device::Gpu,
+    }
+}
+
 pub fn analyze_def<'s, Rt: RuntimeType>(
     g: &SubDigraph<'_, VertexId, type2::Vertex<'s, Rt>>,
     seq: &[VertexId],
-    devices: impl Fn(VertexId) -> Device,
+    devices: impl Fn(VertexId) -> type2::Device,
 ) -> (ObjectsDef, IdAllocator<ObjectId>) {
     let mut object_id_allocator = IdAllocator::new();
     let mut values: BTreeMap<VertexId, VertexValue> = BTreeMap::new();
@@ -372,11 +386,14 @@ pub fn analyze_def<'s, Rt: RuntimeType>(
 
                 let value = match v.typ() {
                     Typ::Array(typ, len) => {
-                        let elements =
-                            vec![
-                                Value::new(&mut object_id_allocator, typ.as_ref(), devices(vid));
-                                *len
-                            ];
+                        let elements = vec![
+                            Value::new(
+                                &mut object_id_allocator,
+                                typ.as_ref(),
+                                decide_device(devices(vid), typ.as_ref())
+                            );
+                            *len
+                        ];
 
                         elements.iter().for_each(|elem| {
                             sizes.insert(elem.object_id(), typ.size().unwrap_single());
@@ -388,7 +405,11 @@ pub fn analyze_def<'s, Rt: RuntimeType>(
                         elements
                             .iter()
                             .map(|e| {
-                                let value = Value::new(&mut object_id_allocator, e, devices(vid));
+                                let value = Value::new(
+                                    &mut object_id_allocator,
+                                    e,
+                                    decide_device(devices(vid), e),
+                                );
                                 sizes.insert(value.object_id(), e.size().unwrap_single());
 
                                 value
@@ -396,7 +417,11 @@ pub fn analyze_def<'s, Rt: RuntimeType>(
                             .collect(),
                     ),
                     otherwise => {
-                        let value = Value::new(&mut object_id_allocator, otherwise, devices(vid));
+                        let value = Value::new(
+                            &mut object_id_allocator,
+                            otherwise,
+                            decide_device(devices(vid), otherwise),
+                        );
                         sizes.insert(value.object_id(), otherwise.size().unwrap_single());
                         VertexValue::Single(value)
                     }
@@ -449,7 +474,7 @@ impl ObjectUse {
 pub fn plan_vertex_inputs<'s, Rt: RuntimeType>(
     g: &SubDigraph<'_, VertexId, type2::Vertex<'s, Rt>>,
     defs: &mut ObjectsDef,
-    devices: impl Fn(VertexId) -> Device,
+    devices: impl Fn(VertexId) -> type2::Device,
     obj_id_allocator: &mut IdAllocator<ObjectId>,
 ) -> ObjectUse {
     let mut inputs: BTreeMap<VertexId, Vec<VertexValue>> = BTreeMap::new();
@@ -482,14 +507,17 @@ pub fn plan_vertex_inputs<'s, Rt: RuntimeType>(
         inputs.insert(
             vid,
             v.uses()
-                .map(|input_vid| defs.values[&input_vid].with_device(devices(vid)))
+                .map(|input_vid| {
+                    defs.values[&input_vid]
+                        .with_device(decide_device(devices(vid), g.vertex(input_vid).typ()))
+                })
                 .collect(),
         );
     }
 
     // - SlicedPoly not allowed on GPU
     for vid in g.vertices() {
-        if devices(vid) != Device::Gpu {
+        if devices(vid) != type2::Device::Gpu {
             continue;
         }
 
@@ -595,7 +623,6 @@ pub fn plan_vertex_inputs<'s, Rt: RuntimeType>(
 
 pub fn analyze_die_after(
     seq: &[VertexId],
-    _devices: &BTreeMap<VertexId, Device>,
     def_use: &ObjectsDef,
     vertex_inputs: &ObjectUse,
 ) -> ObjectsDieAfter {

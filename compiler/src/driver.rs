@@ -452,9 +452,11 @@ pub fn ast2inst<Rt: RuntimeType>(
             seq.iter().copied(),
             true,
             |vid, _| match devices[&vid] {
-                type3::Device::Cpu => Some("#FFFFFF"),
-                type3::Device::Gpu => Some("#A5D6A7"),
-                type3::Device::Stack => Some("#90CAF9"),
+                type2::Device::Cpu => Some("#FFFFFF"),
+                type2::Device::Gpu => Some("#A5D6A7"),
+                type2::Device::PreferGpu => {
+                    panic!("PreferGpu should has been resolved during deciding device")
+                }
             },
             |vid, _| Some(format!("{:?}", &obj_def.values[&vid])),
             |vid, v| {
@@ -473,8 +475,7 @@ pub fn ast2inst<Rt: RuntimeType>(
     let (obj_dies_after, obj_dies_after_reversed) = options.log_suround(
         "Analyzing object lifetimes",
         || {
-            let d =
-                type2::object_analysis::analyze_die_after(&seq, &devices, &obj_def, &vertex_inputs);
+            let d = type2::object_analysis::analyze_die_after(&seq, &obj_def, &vertex_inputs);
             let r = d.reversed();
             Ok((d, r))
         },
@@ -534,8 +535,6 @@ pub fn ast2inst<Rt: RuntimeType>(
         let mut f = std::fs::File::create(options.debug_dir.join("type3_fresh.html")).unwrap();
         type3::pretty_print::prettify(&t3chunk, &mut f).unwrap();
     }
-
-    panic!("Let's leave further passes for tomorrow");
 
     // To Runtime Instructions
     let rt_chunk = options.log_suround(
