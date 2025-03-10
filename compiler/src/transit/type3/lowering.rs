@@ -5,17 +5,25 @@ use crate::transit::type2;
 
 use super::track_splitting::split;
 use super::{Track, VertexNode};
-use kernel_gen::GeneratedFunctions;
+// use kernel_gen::GeneratedFunctions;
 use zkpoly_common::define_usize_id;
 use zkpoly_common::heap::{Heap, IdAllocator};
 use zkpoly_common::typ::{PolyMeta, Typ};
 use zkpoly_runtime::args::{Constant, ConstantTable, RuntimeType, VariableId};
 use zkpoly_runtime::devices::{DeviceType, Event, EventTable, ThreadId};
-use zkpoly_runtime::functions::FunctionTable;
+use zkpoly_runtime::functions::{FunctionId, FunctionTable};
 use zkpoly_runtime::instructions::Instruction;
 
 mod emit_func;
 mod kernel_gen;
+
+struct GeneratedFunctions;
+
+impl GeneratedFunctions {
+    pub fn at(&self, _idx: super::InstructionIndex) -> FunctionId {
+        0.into()
+    }
+}
 
 #[derive(Debug, Clone)]
 struct Cell {
@@ -305,12 +313,19 @@ fn lower_instruction<'s, Rt: RuntimeType>(
     emit: &mut impl FnMut(Instruction),
 ) {
     match &inst.node {
-        super::InstructionNode::Type2 { ids, temp, vertex, .. } => match vertex {
-            VertexNode::Constant(constant_id) => emit(Instruction::LoadConstant {
-                src: *constant_id,
-                dst: reg_id2var_id(ids[0]),
-            }),
+        super::InstructionNode::Type2 {
+            ids, temp, vertex, ..
+        } => match vertex {
+            VertexNode::Constant(constant_id) => {
+                assert!(ids.len() == 1);
+                emit(Instruction::LoadConstant {
+                    src: *constant_id,
+                    dst: reg_id2var_id(ids[0]),
+                })
+            }
             VertexNode::Blind(id, start_pos, end_pos) => {
+                assert!(ids.len() == 1);
+                assert!(ids[0] == *id);
                 let dst = reg_id2var_id(*id);
                 emit(Instruction::Blind {
                     dst,
@@ -318,7 +333,13 @@ fn lower_instruction<'s, Rt: RuntimeType>(
                     end: *end_pos as usize,
                 });
             }
-            VertexNode::Entry(idx) => todo!(),
+            VertexNode::Entry(idx) => {
+                assert!(ids.len() == 1);
+                emit(Instruction::LoadInput {
+                    src: *idx,
+                    dst: reg_id2var_id(ids[0]),
+                })
+            }
             VertexNode::Return(id) => emit(Instruction::Return(reg_id2var_id(*id))),
             _ => {
                 emit_func::emit_func(
@@ -375,7 +396,11 @@ fn lower_instruction<'s, Rt: RuntimeType>(
             let vars = oprands.iter().map(|&id| reg_id2var_id(id)).collect();
             emit(Instruction::AssembleTuple { vars, dst });
         }
-        super::InstructionNode::Move { id, from } => todo!(),
+        super::InstructionNode::Move { id, from } => emit(Instruction::MoveRegister {
+            src: reg_id2var_id(*from),
+            dst: reg_id2var_id(*id),
+        }),
+
         super::InstructionNode::SetPolyMeta {
             id,
             from,
@@ -502,7 +527,10 @@ fn lower_dependency(
             event_table,
             chunk,
         ),
-        _ => unreachable!(),
+        (a, b) => panic!(
+            "cannot handle {:?}@{:?} waits {:?}@{:?} here",
+            track, a, depended_track, b
+        ),
     }
 }
 
@@ -527,8 +555,14 @@ fn emit_multithread_instructions<'s, Rt: RuntimeType>(
     let (mut variable_id_allcoator, reg_id2var_id) = t3chunk.take_reg_id_allocator().decompose();
     let mut libs = t3chunk.take_libs();
 
-    let generated_functions =
-        kernel_gen::get_function_id(&mut f_table, &t3chunk, t2uf_table, &reg_id2var_id, &mut libs);
+    // let generated_functions = kernel_gen::get_function_id(
+    //     &mut f_table,
+    //     &t3chunk,
+    //     t2uf_table,
+    //     &reg_id2var_id,
+    //     &mut libs,
+    // );
+    let generated_functions = GeneratedFunctions;
 
     let stream2variable_id = StreamSpecific::new(|| variable_id_allcoator.alloc());
 
@@ -538,7 +572,7 @@ fn emit_multithread_instructions<'s, Rt: RuntimeType>(
         let track = track_tasks.inst_track[&t3idx];
         let pthread = PrimaryThread::for_track(track);
 
-        if Stream::of_track(track).is_none()
+        if Stream::of_track(track).is_some()
             && track_tasks.inst_depend[&t3idx]
                 .iter()
                 .any(|&depended_t3idx| {

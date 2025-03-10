@@ -49,16 +49,14 @@ pub fn split<'s, Rt: RuntimeType>(chunk: &Chunk<'s, Rt>) -> TrackTasks {
         }
 
         // Insert synchronization points
+        track_tasks.inst_depend.insert(i, Vec::new());
+
         last_of_each_track
             .iter()
             .filter(|(t, _)| *t != track)
             .for_each(|(_, last)| {
                 if let Some(last) = *last {
-                    track_tasks
-                        .inst_depend
-                        .entry(i)
-                        .or_insert_with(|| Vec::new())
-                        .push(last);
+                    track_tasks.inst_depend.get_mut(&i).unwrap().push(last);
                 }
             });
 
