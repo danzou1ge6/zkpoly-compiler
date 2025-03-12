@@ -195,7 +195,9 @@ where
                 ..
             } => {
                 let mut src = Vec::new();
-                if in_node.is_some() {src.push(in_node.unwrap());}
+                if in_node.is_some() {
+                    src.push(in_node.unwrap());
+                }
                 src.push(*store_node);
                 Box::new(src.into_iter())
             }
@@ -217,9 +219,7 @@ where
                     result.push(in_id);
                 }
                 // SAFETY: store_node is a unique mutable reference
-                unsafe { 
-                    result.push(&mut *store)
-                };
+                unsafe { result.push(&mut *store) };
                 Box::new(result.into_iter())
             }
             _ => Box::new(std::iter::empty()),
@@ -321,19 +321,22 @@ where
         Box::new(results.into_iter())
     }
 
-    pub fn outputs_inplace<'a, 'b>(
-        &'b self,
-    ) -> Box<dyn Iterator<Item = Option<OuterId>> + 'b> {
-
-        let results = self.outputs.iter().map(|output_id| {
-            if let Operation::Output {in_node, .. }  = self.g.vertex(*output_id).op {
-                if let Some(in_id) = in_node {
-                    Some(*self.g.vertex(in_id).op.unwrap_input_outerid())
-                } else { None}
-            } else {
-                panic!("output nodes should have op Output")
-            }
-        }).collect::<Vec<_>>();
+    pub fn outputs_inplace<'a, 'b>(&'b self) -> Box<dyn Iterator<Item = Option<OuterId>> + 'b> {
+        let results = self
+            .outputs
+            .iter()
+            .map(|output_id| {
+                if let Operation::Output { in_node, .. } = self.g.vertex(*output_id).op {
+                    if let Some(in_id) = in_node {
+                        Some(*self.g.vertex(in_id).op.unwrap_input_outerid())
+                    } else {
+                        None
+                    }
+                } else {
+                    panic!("output nodes should have op Output")
+                }
+            })
+            .collect::<Vec<_>>();
 
         Box::new(results.into_iter())
     }

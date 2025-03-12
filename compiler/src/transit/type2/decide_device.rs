@@ -1,6 +1,6 @@
-use zkpoly_common::digraph::internal::{SubDigraph, Predecessors};
+use super::{Device, VertexId};
+use zkpoly_common::digraph::internal::{Predecessors, SubDigraph};
 use zkpoly_runtime::args::RuntimeType;
-use super::{VertexId, Device};
 
 use std::collections::BTreeMap;
 
@@ -33,4 +33,3 @@ pub fn decide<'s, Rt: RuntimeType>(
 
     devices
 }
-

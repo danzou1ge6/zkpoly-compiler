@@ -140,7 +140,10 @@ pub struct GeneratedFunctions {
 
 impl GeneratedFunctions {
     pub fn at(&self, idx: InstructionIndex) -> FunctionId {
-        self.inst2fid.get(&idx).unwrap().clone()
+        self.inst2fid
+            .get(&idx)
+            .unwrap_or_else(|| panic!("error at {:?}", idx))
+            .clone()
     }
 }
 

@@ -11,7 +11,10 @@ use zkpoly_common::{
     arith::{
         Arith, ArithBinOp, ArithGraph, ArithUnrOp, BinOp, FusedType, Mutability, Operation, SpOp,
         UnrOp,
-    }, get_project_root::get_project_root, heap::UsizeId, load_dynamic::Libs
+    },
+    get_project_root::get_project_root,
+    heap::UsizeId,
+    load_dynamic::Libs,
 };
 use zkpoly_cuda_api::{
     bindings::{
@@ -117,10 +120,7 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
         name: String,
         outputs_i2o: BTreeMap<InnerId, OuterId>,
     ) -> Self {
-        let (vars, mut_vars) = gen_var_lists(
-            graph.outputs.iter().map(|i| outputs_i2o[i]),
-            &graph,
-        );
+        let (vars, mut_vars) = gen_var_lists(graph.outputs.iter().map(|i| outputs_i2o[i]), &graph);
         Self {
             graph,
             name,
@@ -179,7 +179,9 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
             let id: usize = id.clone().into();
             match typ {
                 FusedType::ScalarArray => {
-                    let iter = format!("auto {ITER_PREFIX}{id} = make_slice_iter<FUSED_FIELD>(mut_vars[{i}]);\n");
+                    let iter = format!(
+                        "auto {ITER_PREFIX}{id} = make_slice_iter<FUSED_FIELD>(mut_vars[{i}]);\n"
+                    );
                     wrapper.push_str(&iter);
                 }
                 FusedType::Scalar => {
@@ -407,10 +409,14 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                         let head: usize = head.into();
                         match op {
                             UnrOp::P(ArithUnrOp::Neg) => {
-                                kernel +=
-                                    &format!("auto {TMP_PREFIX}{} = {TMP_PREFIX}{}.neg();\n", head, arg);
+                                kernel += &format!(
+                                    "auto {TMP_PREFIX}{} = {TMP_PREFIX}{}.neg();\n",
+                                    head, arg
+                                );
                             }
-                            UnrOp::P(ArithUnrOp::Inv) => unreachable!("invert poly should be handled in batche invert"),
+                            UnrOp::P(ArithUnrOp::Inv) => {
+                                unreachable!("invert poly should be handled in batche invert")
+                            }
                             UnrOp::P(ArithUnrOp::Pow(power)) => {
                                 kernel += &format!(
                                     "auto {TMP_PREFIX}{} = {TMP_PREFIX}{}.pow({});\n",
@@ -421,8 +427,12 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                                 kernel +=
                                     &format!("auto {TMP_PREFIX}{} = -{TMP_PREFIX}{};\n", head, arg);
                             }
-                            UnrOp::S(ArithUnrOp::Inv) => unreachable!("invert scalar should be handled in scalar invert"),
-                            UnrOp::S(ArithUnrOp::Pow(_)) => unreachable!("power scalar should be handled in scalar power"),
+                            UnrOp::S(ArithUnrOp::Inv) => {
+                                unreachable!("invert scalar should be handled in scalar invert")
+                            }
+                            UnrOp::S(ArithUnrOp::Pow(_)) => {
+                                unreachable!("power scalar should be handled in scalar power")
+                            }
                         }
                     }
                 },

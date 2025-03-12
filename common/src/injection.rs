@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 #[derive(Debug, Default, Clone)]
 pub struct Injection<T1, T2> {
     forward: BTreeMap<T1, T2>,
-    backward: BTreeMap<T2, BTreeSet<T1>>
+    backward: BTreeMap<T2, BTreeSet<T1>>,
 }
 
 impl<T1, T2> Injection<T1, T2>
@@ -14,7 +14,7 @@ where
     pub fn new() -> Self {
         Self {
             forward: BTreeMap::new(),
-            backward: BTreeMap::new()
+            backward: BTreeMap::new(),
         }
     }
 
