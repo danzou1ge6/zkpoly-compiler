@@ -292,7 +292,9 @@ pub mod template {
         pub fn device(&self) -> Device {
             use VertexNode::*;
             match self {
-                NewPoly(..) | Extend(..) | ScalarInvert { .. } => Device::PreferGpu,
+                NewPoly(..) | Extend(..) | ScalarInvert { .. } | IndexPoly { .. } => {
+                    Device::PreferGpu
+                }
                 Arith { chunking, .. } => {
                     if chunking.is_some() {
                         Device::Cpu

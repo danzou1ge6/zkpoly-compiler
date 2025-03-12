@@ -53,7 +53,14 @@ pub fn emit_func<'s, Rt: RuntimeType>(
                 }
                 crate::transit::type2::NttAlgorithm::Undecieded => {
                     // TODO Let's skip precompute for now
-                    generate_ntt_recompute(poly, VariableId::default(), VariableId::default(), stream.unwrap(), f_id, emit);
+                    generate_ntt_recompute(
+                        poly,
+                        VariableId::default(),
+                        VariableId::default(),
+                        stream.unwrap(),
+                        f_id,
+                        emit,
+                    );
                 }
             }
         }
@@ -247,6 +254,16 @@ pub fn emit_func<'s, Rt: RuntimeType>(
             }
             _ => unreachable!(),
         },
+        VertexNode::IndexPoly(operand, idx) => {
+            let operand = reg_id2var_id(*operand);
+            let target = reg_id2var_id(outputs[0]);
+            emit(Instruction::GetScalarFromArray {
+                src: operand,
+                dst: target,
+                idx: *idx as usize,
+                stream
+            })
+        }
         _ => panic!("Unsupported vertex node at {:?}", t3idx),
     }
 }

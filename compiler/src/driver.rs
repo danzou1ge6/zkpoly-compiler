@@ -325,35 +325,35 @@ pub fn ast2inst<Rt: RuntimeType>(
     }
 
     // - Precompute NTT and MSM constants
-    let t2cg = options.log_suround(
-        "Precomputing constants for NTT and MSM",
-        || {
-            Ok(type2::precompute::precompute(
-                t2cg,
-                hardware_info.gpu_memory_limit as usize,
-                &mut libs,
-                &mut allocator,
-                &mut t2const_tab,
-            ))
-        },
-        "Done.",
-    )?;
+    // let t2cg = options.log_suround(
+    //     "Precomputing constants for NTT and MSM",
+    //     || {
+    //         Ok(type2::precompute::precompute(
+    //             t2cg,
+    //             hardware_info.gpu_memory_limit as usize,
+    //             &mut libs,
+    //             &mut allocator,
+    //             &mut t2const_tab,
+    //         ))
+    //     },
+    //     "Done.",
+    // )?;
 
-    if !check_type2_dag(
-        options.debug_dir.join("type2_precompute.dot"),
-        &t2cg.g,
-        output_vid,
-    ) {
-        panic!("graph is not a DAG after Precomputing");
-    }
+    // if !check_type2_dag(
+    //     options.debug_dir.join("type2_precompute.dot"),
+    //     &t2cg.g,
+    //     output_vid,
+    // ) {
+    //     panic!("graph is not a DAG after Precomputing");
+    // }
 
-    if options.debug_precompute {
-        ctx.add(debug_type2(
-            options.debug_dir.join("type2_precompute.dot"),
-            &t2cg.g,
-            output_vid,
-        ));
-    }
+    // if options.debug_precompute {
+    //     ctx.add(debug_type2(
+    //         options.debug_dir.join("type2_precompute.dot"),
+    //         &t2cg.g,
+    //         output_vid,
+    //     ));
+    // }
 
     // - Manage Inversions: Rewrite inversions of scalars and polynomials to dedicated operators
     let t2cg = options.log_suround(
