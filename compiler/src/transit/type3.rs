@@ -147,9 +147,9 @@ impl<T> DeviceSpecific<T> {
 define_usize_id!(RegisterId);
 
 pub mod template {
-    use zkpoly_common::typ::PolyMeta;
+    use zkpoly_common::typ::{PolyMeta, PolyType};
 
-    use crate::transit::type2;
+    use crate::{ast::PolyInit, transit::type2};
 
     use super::{typ, Size};
 
@@ -189,11 +189,25 @@ pub mod template {
             id: I,
             from: I,
         },
+        /// Transfer `from` to `to`, but `to` is already defined.
+        /// Then `to` is copied to `id`, to indicate that the transfer has completed.
+        TransferToDefed {
+            id: I,
+            to: I,
+            from: I,
+        },
         SetPolyMeta {
             id: I,
             from: I,
-            offset: u64,
-            len: u64,
+            offset: usize,
+            len: usize,
+        },
+        FillPoly {
+            id: I,
+            operand: I,
+            deg: usize,
+            init: PolyInit,
+            pty: PolyType,
         },
     }
 
@@ -210,11 +224,47 @@ pub mod template {
                 CpuMalloc { id, .. } => Box::new(std::iter::once(*id)),
                 CpuFree { .. } => Box::new(std::iter::empty()),
                 StackFree { .. } => Box::new(std::iter::empty()),
-                Tuple { id, oprands, .. } => {
-                    Box::new(std::iter::once(*id).chain(oprands.iter().copied()))
-                }
+                Tuple { id, .. } => Box::new(std::iter::once(*id)),
                 Transfer { id, .. } => Box::new(std::iter::once(*id)),
+                TransferToDefed { id, .. } => Box::new(std::iter::once(*id)),
                 SetPolyMeta { id, .. } => Box::new(std::iter::once(*id)),
+                FillPoly { id, .. } => Box::new(std::iter::once(*id)),
+            }
+        }
+
+        pub fn ids_mut<'s>(&'s mut self) -> Box<dyn Iterator<Item = &'s mut I> + 's> {
+            use InstructionNode::*;
+            match self {
+                Type2 { ids, .. } => Box::new(ids.iter_mut().map(|(x, _)| x)),
+                GpuMalloc { id, .. } => Box::new(std::iter::once(id)),
+                GpuFree { .. } => Box::new(std::iter::empty()),
+                CpuMalloc { id, .. } => Box::new(std::iter::once(id)),
+                CpuFree { .. } => Box::new(std::iter::empty()),
+                StackFree { .. } => Box::new(std::iter::empty()),
+                Tuple { id, .. } => Box::new(std::iter::once(id)),
+                TransferToDefed { id, .. } => Box::new(std::iter::once(id)),
+                Transfer { id, .. } => Box::new(std::iter::once(id)),
+                SetPolyMeta { id, .. } => Box::new(std::iter::once(id)),
+                FillPoly { id, .. } => Box::new(std::iter::once(id)),
+            }
+        }
+
+        /// For each pair (a, b), after the instruction is executed, b's space is used in a for another purpose,
+        /// and b can no longer be used syntactically correctly.
+        pub fn ids_inplace<'s>(&'s self) -> Box<dyn Iterator<Item = (I, Option<I>)> + 's> {
+            use InstructionNode::*;
+            match self {
+                Type2 { ids, .. } => Box::new(ids.iter().cloned()),
+                GpuMalloc { id, .. } => Box::new(std::iter::once((*id, None))),
+                GpuFree { .. } => Box::new(std::iter::empty()),
+                CpuMalloc { id, .. } => Box::new(std::iter::once((*id, None))),
+                CpuFree { .. } => Box::new(std::iter::empty()),
+                StackFree { .. } => Box::new(std::iter::empty()),
+                Tuple { id, .. } => Box::new(std::iter::once((*id, None))),
+                Transfer { id, .. } => Box::new(std::iter::once((*id, None))),
+                TransferToDefed { id, to, .. } => Box::new(std::iter::once((*id, Some(*to)))),
+                SetPolyMeta { id, .. } => Box::new(std::iter::once((*id, None))),
+                FillPoly { id, operand, .. } => Box::new(std::iter::once((*id, Some(*operand)))),
             }
         }
 
@@ -366,19 +416,24 @@ impl<'s> Instruction<'s> {
         use template::InstructionNode::*;
         use Track::*;
 
+        let executor_of = |md| match md {
+            Device::Cpu | Device::Stack => type2::Device::Cpu,
+            Device::Gpu => type2::Device::Gpu,
+        };
+
         match &self.node {
-            Type2 { vertex, ids, .. } => vertex.track(match devices(ids[0].0) {
-                Device::Cpu | Device::Stack => type2::Device::Cpu,
-                Device::Gpu => type2::Device::Gpu,
-            }),
+            Type2 { vertex, ids, .. } => vertex.track(executor_of(devices(ids[0].0))),
             GpuMalloc { .. } => MemoryManagement,
             GpuFree { .. } => MemoryManagement,
             CpuMalloc { .. } => MemoryManagement,
             CpuFree { .. } => MemoryManagement,
             StackFree { .. } => MemoryManagement,
             Tuple { .. } => Cpu,
-            Transfer { from, id, .. } => determine_transfer_track(devices(*from), devices(*id)),
+            Transfer { from, id: to, .. } | TransferToDefed { to, from, .. } => {
+                determine_transfer_track(devices(*from), devices(*to))
+            }
             SetPolyMeta { .. } => Cpu,
+            FillPoly { id, .. } => Track::on_device(executor_of(devices(*id))),
         }
     }
 
@@ -395,12 +450,44 @@ impl<'s> Instruction<'s> {
             CpuFree { id } => Box::new(std::iter::once(*id)),
             StackFree { id } => Box::new(std::iter::once(*id)),
             Tuple { oprands, .. } => Box::new(oprands.iter().copied()),
-            Transfer { id, .. } => Box::new(std::iter::once(*id)),
+            Transfer { from, .. } => Box::new(std::iter::once(*from)),
+            TransferToDefed { from, to, .. } => {
+                Box::new(std::iter::once(*from).chain(std::iter::once(*to)))
+            }
+            SetPolyMeta { from, .. } => Box::new(std::iter::once(*from)),
+            FillPoly { operand, .. } => Box::new(std::iter::once(*operand)),
             _ => Box::new(std::iter::empty()),
         }
     }
 }
 define_usize_id!(InstructionIndex);
+
+pub struct RegisterAllocator {
+    register_types: Heap<RegisterId, typ::Typ>,
+    register_devices: BTreeMap<RegisterId, Device>,
+}
+
+impl RegisterAllocator {
+    pub fn alloc(&mut self, typ: typ::Typ, device: Device) -> RegisterId {
+        let id = self.register_types.push(typ);
+        self.register_devices.insert(id, device);
+        id
+    }
+
+    pub fn device_of(&self, id: RegisterId) -> Device {
+        self.register_devices[&id]
+    }
+
+    pub fn typ_of(&self, id: RegisterId) -> &typ::Typ {
+        &self.register_types[id]
+    }
+
+    pub fn inherit(&mut self, r: RegisterId) -> RegisterId {
+        let device = self.device_of(r);
+        let typ = self.typ_of(r);
+        self.alloc(typ.clone(), device)
+    }
+}
 
 #[derive(Debug)]
 pub struct Chunk<'s, Rt: RuntimeType> {
@@ -442,6 +529,23 @@ impl<'s, Rt: RuntimeType> Chunk<'s, Rt> {
             .map(|(i, instr)| (InstructionIndex(i), instr))
     }
 
+    pub fn rewrite_instructions<'a, I2>(
+        &'a mut self,
+        f: impl FnOnce(Box<dyn Iterator<Item = (InstructionIndex, Instruction<'s>)> + 's>) -> I2,
+    ) where
+        I2: Iterator<Item = Instruction<'s>>,
+    {
+        let insts = std::mem::take(&mut self.instructions);
+        let insts = f(Box::new(
+            insts
+                .into_iter()
+                .enumerate()
+                .map(|(i, inst)| (InstructionIndex(i), inst)),
+        ));
+        let insts = insts.collect();
+        self.instructions = insts;
+    }
+
     pub fn assigned_at(&self) -> BTreeMap<RegisterId, InstructionIndex> {
         self.iter_instructions()
             .filter(|(_, inst)| !inst.node.is_allloc())
@@ -478,6 +582,26 @@ impl<'s, Rt: RuntimeType> Chunk<'s, Rt> {
         x
     }
 
+    pub fn with_reg_id_allocator_taken(
+        mut self,
+        f: impl FnOnce(Self, RegisterAllocator) -> (Self, RegisterAllocator),
+    ) -> Self {
+        let reg_id_allocator = self.take_reg_id_allocator();
+        let regster_types = std::mem::take(&mut self.register_types);
+        let ra = RegisterAllocator {
+            register_devices: std::mem::take(&mut self.register_devices),
+            register_types: regster_types.to_mutable(reg_id_allocator),
+        };
+
+        let (mut self2, ra) = f(self, ra);
+        let (register_types, reg_id_allocator) = ra.register_types.freeze();
+
+        self2.reg_id_allocator = reg_id_allocator;
+        self2.register_types = register_types;
+        self2.register_devices = ra.register_devices;
+        self2
+    }
+
     pub fn take_libs(&mut self) -> Libs {
         let mut x = Libs::new();
         std::mem::swap(&mut self.libs, &mut x);
@@ -487,5 +611,6 @@ impl<'s, Rt: RuntimeType> Chunk<'s, Rt> {
 
 pub mod lowering;
 pub mod pretty_print;
+pub mod rewrite_extend;
 pub mod track_splitting;
 pub mod typ;

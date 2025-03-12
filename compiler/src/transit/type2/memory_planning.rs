@@ -600,8 +600,8 @@ fn ensure_same_type(
         code.emit(Instruction::new_no_src(InstructionNode::SetPolyMeta {
             id: new_reg,
             from: reg_id,
-            offset: slice_offset,
-            len: slice_len,
+            offset: slice_offset as usize,
+            len: slice_len as usize,
         }));
         ctx.attempt_copy_gpu_addr_id_from(reg_id, new_reg);
         ctx.add_residence_for_object(obj_id, new_reg, device);

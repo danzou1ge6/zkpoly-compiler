@@ -1,7 +1,7 @@
-use crate::ast;
 use crate::ast::lowering::UserFunctionId;
+use crate::ast::{self, PolyInit};
 use crate::transit::type2::{self, NttAlgorithm};
-use crate::transit::type3::RegisterId;
+use crate::transit::type3::{self, RegisterId};
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 use zkpoly_common::arith::{BinOp, UnrOp};
@@ -56,7 +56,7 @@ pub enum KernelType {
 
 impl KernelType {
     pub fn from_vertex(vertex: &VertexNode) -> Option<Self> {
-        assert!(!vertex.unexpcted_during_lowering());
+        assert!(!vertex.unexpcted_during_kernel_gen());
         match vertex {
             VertexNode::Arith { .. } => Some(Self::FusedArith),
             VertexNode::Ntt { alg, .. } => match alg {
@@ -78,16 +78,6 @@ impl KernelType {
             VertexNode::SqueezeScalar(_) => Some(Self::SqueezeScalar),
             VertexNode::UserFunction(id, _) => Some(Self::UserFunction(*id)),
             VertexNode::DistributePowers { .. } => Some(Self::DistributePowers),
-            VertexNode::NewPoly(_, init_num, typ) => {
-                let typ = typ.clone();
-                match init_num {
-                    crate::ast::PolyInit::Zeros => Some(Self::NewZero),
-                    crate::ast::PolyInit::Ones => match typ {
-                        PolyType::Lagrange => Some(Self::NewOneLagrange),
-                        PolyType::Coef => Some(Self::NewOneCoef),
-                    },
-                }
-            }
             VertexNode::ScalarInvert { .. } => Some(Self::ScalarInvert),
             VertexNode::SingleArith(arith) => match arith {
                 zkpoly_common::arith::Arith::Bin(BinOp::Pp(op), _, _) => match op {
@@ -103,6 +93,17 @@ impl KernelType {
                 },
                 _ => unreachable!("most arith should be handled by fused kernels"),
             },
+            _ => None,
+        }
+    }
+    pub fn from_inst(inst: &type3::Instruction) -> Option<Self> {
+        match &inst.node {
+            type3::InstructionNode::FillPoly { init, pty, .. } => match (init, pty) {
+                (PolyInit::Zeros, _) => Some(Self::NewZero),
+                (PolyInit::Ones, PolyType::Lagrange) => Some(Self::NewOneLagrange),
+                (PolyInit::Ones, PolyType::Coef) => Some(Self::NewOneCoef),
+            },
+            type3::InstructionNode::Type2 { vertex, .. } => Self::from_vertex(vertex),
             _ => None,
         }
     }
@@ -207,150 +208,148 @@ pub fn get_function_id<'s, Rt: RuntimeType>(
     let mut inst2func = BTreeMap::new();
     let mut kernel2func: BTreeMap<KernelType, FunctionId> = BTreeMap::new();
     for (id, instruct) in program.iter_instructions() {
-        if let InstructionNode::Type2 { vertex, .. } = &instruct.node {
-            let kernel_type = KernelType::from_vertex(vertex);
-            if kernel_type.is_none() {
-                continue;
+        let kernel_type = KernelType::from_inst(instruct);
+        if kernel_type.is_none() {
+            continue;
+        }
+        let kernel_type = kernel_type.unwrap();
+        if kernel_type != KernelType::FusedArith && kernel2func.contains_key(&kernel_type) {
+            inst2func.insert(id, kernel2func[&kernel_type]);
+            continue;
+        }
+        match &kernel_type {
+            KernelType::NttPrcompute => {
+                let precompute_ntt = SsipNtt::new(libs);
+                let func_id = f_table.push(precompute_ntt.get_fn());
+                kernel2func.insert(kernel_type, func_id);
+                inst2func.insert(id, func_id);
             }
-            let kernel_type = kernel_type.unwrap();
-            if kernel_type != KernelType::FusedArith && kernel2func.contains_key(&kernel_type) {
-                inst2func.insert(id, kernel2func[&kernel_type]);
-                continue;
+            KernelType::NttRecompute => {
+                let recompute_ntt = RecomputeNtt::new(libs);
+                let func_id = f_table.push(recompute_ntt.get_fn());
+                kernel2func.insert(kernel_type, func_id);
+                inst2func.insert(id, func_id);
             }
-            match &kernel_type {
-                KernelType::NttPrcompute => {
-                    let precompute_ntt = SsipNtt::new(libs);
-                    let func_id = f_table.push(precompute_ntt.get_fn());
-                    kernel2func.insert(kernel_type, func_id);
-                    inst2func.insert(id, func_id);
-                }
-                KernelType::NttRecompute => {
-                    let recompute_ntt = RecomputeNtt::new(libs);
-                    let func_id = f_table.push(recompute_ntt.get_fn());
-                    kernel2func.insert(kernel_type, func_id);
-                    inst2func.insert(id, func_id);
-                }
-                KernelType::Msm(config) => {
-                    let msm = MSM::new(libs, (*config).clone());
-                    let func_id = f_table.push(msm.get_fn());
-                    kernel2func.insert(kernel_type, func_id);
-                    inst2func.insert(id, func_id);
-                }
-                KernelType::BatchedInvert => {
-                    let batched_invert = PolyInvert::new(libs);
-                    let func_id = f_table.push(batched_invert.get_fn());
-                    kernel2func.insert(kernel_type, func_id);
-                    inst2func.insert(id, func_id);
-                }
-                KernelType::KateDivision => {
-                    let kate_division = KateDivision::new(libs);
-                    let func_id = f_table.push(kate_division.get_fn());
-                    kernel2func.insert(kernel_type, func_id);
-                    inst2func.insert(id, func_id);
-                }
-                KernelType::EvaluatePoly => {
-                    let eval_poly = PolyEval::new(libs);
-                    let func_id = f_table.push(eval_poly.get_fn());
-                    kernel2func.insert(kernel_type, func_id);
-                    inst2func.insert(id, func_id);
-                }
-                KernelType::ScanMul => {
-                    let scan_mul = PolyScan::new(libs);
-                    let func_id = f_table.push(scan_mul.get_fn());
-                    kernel2func.insert(kernel_type, func_id);
-                    inst2func.insert(id, func_id);
-                }
-                KernelType::FusedArith => {
-                    let id_usize: usize = id.into();
-                    let name = format!("{FUSED_PERFIX}{id_usize}");
-                    let fuse_kernel = FusedKernel::new(libs, name);
-                    let func_id = f_table.push(fuse_kernel.get_fn());
-                    inst2func.insert(id, func_id);
-                }
-                KernelType::Interpolate => {
-                    let interpolate = InterpolateKernel::new();
-                    let func_id = f_table.push(interpolate.get_fn());
-                    kernel2func.insert(kernel_type, func_id);
-                    inst2func.insert(id, func_id);
-                }
-                KernelType::AssmblePoly => {
-                    let assemble_poly = AssmblePoly::new();
-                    let func_id = f_table.push(assemble_poly.get_fn());
-                    kernel2func.insert(kernel_type, func_id);
-                    inst2func.insert(id, func_id);
-                }
-                KernelType::HashTranscript => {
-                    let hash_transcript = HashTranscript::new();
-                    let func_id = f_table.push(hash_transcript.get_fn());
-                    kernel2func.insert(kernel_type, func_id);
-                    inst2func.insert(id, func_id);
-                }
-                KernelType::SqueezeScalar => {
-                    let squeeze = SqueezeScalar::new();
-                    let func_id = f_table.push(squeeze.get_fn());
-                    kernel2func.insert(kernel_type, func_id);
-                    inst2func.insert(id, func_id);
-                }
-                KernelType::UserFunction(uf_id) => {
-                    let func = uf_table[*uf_id].take().unwrap();
-                    let func_id = f_table.push(convert_to_runtime_func(func.f));
-                    kernel2func.insert(kernel_type, func_id);
-                    inst2func.insert(id, func_id);
-                }
-                KernelType::DistributePowers => {
-                    let distribute_powers = DistributePowers::new(libs);
-                    let func_id = f_table.push(distribute_powers.get_fn());
-                    kernel2func.insert(kernel_type, func_id);
-                    inst2func.insert(id, func_id);
-                }
-                KernelType::NewOneLagrange => {
-                    let new_one = PolyOneLagrange::new(libs);
-                    let func_id = f_table.push(new_one.get_fn());
-                    kernel2func.insert(kernel_type, func_id);
-                    inst2func.insert(id, func_id);
-                }
-                KernelType::NewOneCoef => {
-                    let new_one = PolyOneCoef::new(libs);
-                    let func_id = f_table.push(new_one.get_fn());
-                    kernel2func.insert(kernel_type, func_id);
-                    inst2func.insert(id, func_id);
-                }
-                KernelType::NewZero => {
-                    let new_zero = PolyZero::new(libs);
-                    let func_id = f_table.push(new_zero.get_fn());
-                    kernel2func.insert(kernel_type, func_id);
-                    inst2func.insert(id, func_id);
-                }
-                KernelType::HashTranscriptWrite => {
-                    let hash_transcript_write = HashTranscriptWrite::new();
-                    let func_id = f_table.push(hash_transcript_write.get_fn());
-                    kernel2func.insert(kernel_type, func_id);
-                    inst2func.insert(id, func_id);
-                }
-                KernelType::ScalarInvert => {
-                    let scalar_inv = ScalarInv::new(libs);
-                    let func_id = f_table.push(scalar_inv.get_fn());
-                    kernel2func.insert(kernel_type, func_id);
-                    inst2func.insert(id, func_id);
-                }
-                KernelType::ScalarPow(exp) => {
-                    let scalar_pow = ScalarPow::new(libs, *exp);
-                    let func_id = f_table.push(scalar_pow.get_fn());
-                    kernel2func.insert(kernel_type, func_id);
-                    inst2func.insert(id, func_id);
-                }
-                KernelType::PolyAdd => {
-                    let poly_add = PolyAdd::new(libs);
-                    let func_id = f_table.push(poly_add.get_fn());
-                    kernel2func.insert(kernel_type, func_id);
-                    inst2func.insert(id, func_id);
-                }
-                KernelType::PolySub => {
-                    let poly_sub = PolySub::new(libs);
-                    let func_id = f_table.push(poly_sub.get_fn());
-                    kernel2func.insert(kernel_type, func_id);
-                    inst2func.insert(id, func_id);
-                }
+            KernelType::Msm(config) => {
+                let msm = MSM::new(libs, (*config).clone());
+                let func_id = f_table.push(msm.get_fn());
+                kernel2func.insert(kernel_type, func_id);
+                inst2func.insert(id, func_id);
+            }
+            KernelType::BatchedInvert => {
+                let batched_invert = PolyInvert::new(libs);
+                let func_id = f_table.push(batched_invert.get_fn());
+                kernel2func.insert(kernel_type, func_id);
+                inst2func.insert(id, func_id);
+            }
+            KernelType::KateDivision => {
+                let kate_division = KateDivision::new(libs);
+                let func_id = f_table.push(kate_division.get_fn());
+                kernel2func.insert(kernel_type, func_id);
+                inst2func.insert(id, func_id);
+            }
+            KernelType::EvaluatePoly => {
+                let eval_poly = PolyEval::new(libs);
+                let func_id = f_table.push(eval_poly.get_fn());
+                kernel2func.insert(kernel_type, func_id);
+                inst2func.insert(id, func_id);
+            }
+            KernelType::ScanMul => {
+                let scan_mul = PolyScan::new(libs);
+                let func_id = f_table.push(scan_mul.get_fn());
+                kernel2func.insert(kernel_type, func_id);
+                inst2func.insert(id, func_id);
+            }
+            KernelType::FusedArith => {
+                let id_usize: usize = id.into();
+                let name = format!("{FUSED_PERFIX}{id_usize}");
+                let fuse_kernel = FusedKernel::new(libs, name);
+                let func_id = f_table.push(fuse_kernel.get_fn());
+                inst2func.insert(id, func_id);
+            }
+            KernelType::Interpolate => {
+                let interpolate = InterpolateKernel::new();
+                let func_id = f_table.push(interpolate.get_fn());
+                kernel2func.insert(kernel_type, func_id);
+                inst2func.insert(id, func_id);
+            }
+            KernelType::AssmblePoly => {
+                let assemble_poly = AssmblePoly::new();
+                let func_id = f_table.push(assemble_poly.get_fn());
+                kernel2func.insert(kernel_type, func_id);
+                inst2func.insert(id, func_id);
+            }
+            KernelType::HashTranscript => {
+                let hash_transcript = HashTranscript::new();
+                let func_id = f_table.push(hash_transcript.get_fn());
+                kernel2func.insert(kernel_type, func_id);
+                inst2func.insert(id, func_id);
+            }
+            KernelType::SqueezeScalar => {
+                let squeeze = SqueezeScalar::new();
+                let func_id = f_table.push(squeeze.get_fn());
+                kernel2func.insert(kernel_type, func_id);
+                inst2func.insert(id, func_id);
+            }
+            KernelType::UserFunction(uf_id) => {
+                let func = uf_table[*uf_id].take().unwrap();
+                let func_id = f_table.push(convert_to_runtime_func(func.f));
+                kernel2func.insert(kernel_type, func_id);
+                inst2func.insert(id, func_id);
+            }
+            KernelType::DistributePowers => {
+                let distribute_powers = DistributePowers::new(libs);
+                let func_id = f_table.push(distribute_powers.get_fn());
+                kernel2func.insert(kernel_type, func_id);
+                inst2func.insert(id, func_id);
+            }
+            KernelType::NewOneLagrange => {
+                let new_one = PolyOneLagrange::new(libs);
+                let func_id = f_table.push(new_one.get_fn());
+                kernel2func.insert(kernel_type, func_id);
+                inst2func.insert(id, func_id);
+            }
+            KernelType::NewOneCoef => {
+                let new_one = PolyOneCoef::new(libs);
+                let func_id = f_table.push(new_one.get_fn());
+                kernel2func.insert(kernel_type, func_id);
+                inst2func.insert(id, func_id);
+            }
+            KernelType::NewZero => {
+                let new_zero = PolyZero::new(libs);
+                let func_id = f_table.push(new_zero.get_fn());
+                kernel2func.insert(kernel_type, func_id);
+                inst2func.insert(id, func_id);
+            }
+            KernelType::HashTranscriptWrite => {
+                let hash_transcript_write = HashTranscriptWrite::new();
+                let func_id = f_table.push(hash_transcript_write.get_fn());
+                kernel2func.insert(kernel_type, func_id);
+                inst2func.insert(id, func_id);
+            }
+            KernelType::ScalarInvert => {
+                let scalar_inv = ScalarInv::new(libs);
+                let func_id = f_table.push(scalar_inv.get_fn());
+                kernel2func.insert(kernel_type, func_id);
+                inst2func.insert(id, func_id);
+            }
+            KernelType::ScalarPow(exp) => {
+                let scalar_pow = ScalarPow::new(libs, *exp);
+                let func_id = f_table.push(scalar_pow.get_fn());
+                kernel2func.insert(kernel_type, func_id);
+                inst2func.insert(id, func_id);
+            }
+            KernelType::PolyAdd => {
+                let poly_add = PolyAdd::new(libs);
+                let func_id = f_table.push(poly_add.get_fn());
+                kernel2func.insert(kernel_type, func_id);
+                inst2func.insert(id, func_id);
+            }
+            KernelType::PolySub => {
+                let poly_sub = PolySub::new(libs);
+                let func_id = f_table.push(poly_sub.get_fn());
+                kernel2func.insert(kernel_type, func_id);
+                inst2func.insert(id, func_id);
             }
         }
     }

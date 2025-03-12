@@ -363,6 +363,7 @@ fn lower_instruction<'s, Rt: RuntimeType>(
                 VertexNode::Return(id) => emit(Instruction::Return(reg_id2var_id(*id))),
                 _ => {
                     emit_func::emit_func(
+                        t3idx,
                         &ids,
                         temp,
                         track,
@@ -409,6 +410,19 @@ fn lower_instruction<'s, Rt: RuntimeType>(
             src_id: reg_id2var_id(*from),
             dst_id: reg_id2var_id(*id),
         }),
+        super::InstructionNode::TransferToDefed { id, to, from } => {
+            emit(Instruction::Transfer {
+                src_device: DeviceType::from(t3chunk.register_devices[from]),
+                dst_device: DeviceType::from(t3chunk.register_devices[id]),
+                stream: Stream::of_track(track).map(|s| *stream2variable_id.get(s)),
+                src_id: reg_id2var_id(*from),
+                dst_id: reg_id2var_id(*id),
+            });
+            emit(Instruction::MoveRegister {
+                src: reg_id2var_id(*to),
+                dst: reg_id2var_id(*id),
+            })
+        }
         super::InstructionNode::StackFree { id } => emit(Instruction::RemoveRegister {
             id: reg_id2var_id(*id),
         }),
@@ -428,6 +442,18 @@ fn lower_instruction<'s, Rt: RuntimeType>(
             offset: *offset as usize,
             len: *len as usize,
         }),
+        super::InstructionNode::FillPoly { id, operand, .. } => {
+            let arg_mut = vec![reg_id2var_id(*operand)];
+            emit(Instruction::FuncCall {
+                func_id: generated_functions.at(t3idx),
+                arg_mut,
+                arg: vec![],
+            });
+            emit(Instruction::MoveRegister {
+                src: reg_id2var_id(*operand),
+                dst: reg_id2var_id(*id),
+            })
+        }
     };
 }
 

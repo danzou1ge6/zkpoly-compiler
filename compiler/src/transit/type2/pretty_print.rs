@@ -229,9 +229,9 @@ pub(crate) fn format_node_label<'s, Vid: UsizeId + Debug>(
 ) -> String {
     use template::VertexNode::*;
     match vertex_node {
-        NewPoly(deg, ..) => format!("NewPoly\\n(deg={})", deg),
+        NewPoly(deg, ..) => format!("NewPoly(deg={})", deg),
         Constant(_) => String::from("Constant"),
-        Extend(_, deg) => format!("Extend\\n(deg={})", deg),
+        Extend(_, deg) => format!("Extend(deg={})", deg),
         SingleArith(arith::Arith::Bin(op, ..)) => {
             format!("SingleArith({:?})", op)
         }

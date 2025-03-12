@@ -1,4 +1,4 @@
-use crate::transit::type3::Device;
+use crate::transit::type3::{Device, InstructionIndex};
 
 use super::super::{RegisterId, VertexNode};
 use super::{Stream, StreamSpecific, Track};
@@ -8,6 +8,7 @@ use zkpoly_runtime::args::RuntimeType;
 use zkpoly_runtime::{args::VariableId, functions::FunctionId, instructions::Instruction};
 
 pub fn emit_func<'s, Rt: RuntimeType>(
+    t3idx: InstructionIndex,
     outputs: &[RegisterId], // output registers
     temp: &[RegisterId],    // temporary register to store intermediate results
     track: Track,
@@ -51,7 +52,8 @@ pub fn emit_func<'s, Rt: RuntimeType>(
                     generate_ntt_recompute(poly, pq, omega, stream.unwrap(), f_id, emit);
                 }
                 crate::transit::type2::NttAlgorithm::Undecieded => {
-                    panic!("NttAlgorithm should be decided at this points")
+                    // TODO Let's skip precompute for now
+                    generate_ntt_recompute(poly, VariableId::default(), VariableId::default(), stream.unwrap(), f_id, emit);
                 }
             }
         }
@@ -245,7 +247,7 @@ pub fn emit_func<'s, Rt: RuntimeType>(
             }
             _ => unreachable!(),
         },
-        _ => unimplemented!(),
+        _ => panic!("Unsupported vertex node at {:?}", t3idx),
     }
 }
 

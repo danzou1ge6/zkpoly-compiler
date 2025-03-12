@@ -145,9 +145,24 @@ impl<I, T> Default for Heap<I, T> {
 #[derive(Debug, Clone)]
 pub struct RoHeap<I, T>(Vec<T>, PhantomData<I>);
 
+impl<I, T> Default for RoHeap<I, T> {
+    fn default() -> Self {
+        Self(vec![], PhantomData)
+    }
+}
+
 impl<I: UsizeId, T> std::ops::Index<I> for RoHeap<I, T> {
     type Output = T;
     fn index(&self, index: I) -> &Self::Output {
         self.0.get(index.into()).expect(PANIC_MSG)
+    }
+}
+
+impl<I, T> RoHeap<I, T> {
+    pub fn to_mutable(self, a: IdAllocator<I>) -> Heap<I, T> {
+        if self.0.len()!= a.0 {
+            panic!("invalid id allocator");
+        }
+        Heap(self.0, PhantomData)
     }
 }

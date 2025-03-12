@@ -324,8 +324,12 @@ pub mod template {
             }
         }
 
-        pub fn unexpcted_during_lowering(&self) -> bool {
-            self.is_virtual()
+        pub fn unexpcted_during_kernel_gen(&self) -> bool {
+            use VertexNode::*;
+            match self {
+                Extend(..) | NewPoly(..) => true,
+                _ => self.is_virtual(),
+            }
         }
 
         pub fn is_return(&self) -> bool {
@@ -553,10 +557,6 @@ where
 
         let on_device = super::type3::Track::on_device;
 
-        if self.unexpcted_during_lowering() {
-            panic!("vertex is unexpected during lowering, it shouldn't be on any track")
-        }
-
         match self {
             NewPoly(..) => on_device(device),
             ScalarInvert { .. } => on_device(device),
@@ -572,7 +572,7 @@ where
             }
             Entry(..) => Cpu,
             Return(..) => MemoryManagement,
-            Ntt { .. } => CoProcess,
+            Ntt { .. } => Gpu,
             RotateIdx(..) => unreachable!(),
             Slice(..) => unreachable!(),
             Interpolate { .. } => Cpu,

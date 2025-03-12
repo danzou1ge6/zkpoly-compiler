@@ -33,6 +33,7 @@ pub struct DebugOptions {
     debug_obj_liveness: bool,
     debug_obj_gpu_next_use: bool,
     debug_fresh_type3: bool,
+    debug_extend_rewriting: bool,
     debug_track_splitting: bool,
     debug_instructions: bool,
     log: bool,
@@ -53,6 +54,7 @@ impl DebugOptions {
             debug_obj_liveness: true,
             debug_obj_gpu_next_use: true,
             debug_fresh_type3: true,
+            debug_extend_rewriting: true,
             debug_track_splitting: true,
             debug_instructions: true,
             log: false,
@@ -535,6 +537,18 @@ pub fn ast2inst<Rt: RuntimeType>(
 
     if options.debug_fresh_type3 {
         let mut f = std::fs::File::create(options.debug_dir.join("type3_fresh.html")).unwrap();
+        type3::pretty_print::prettify(&t3chunk, &mut f).unwrap();
+    }
+
+    // - Extend Rewritting
+    let t3chunk = options.log_suround(
+        "Rewritting Extend and NewPoly",
+        || Ok(type3::rewrite_extend::rewrite(t3chunk)),
+        "Done.",
+    )?;
+
+    if options.debug_extend_rewriting {
+        let mut f = std::fs::File::create(options.debug_dir.join("type3_extend_rewriting.html")).unwrap();
         type3::pretty_print::prettify(&t3chunk, &mut f).unwrap();
     }
 
