@@ -20,9 +20,8 @@ pub fn xmake_run(target: &str) {
     if !Command::new("xmake")
         .arg("build")
         .arg(target)
-        .output()
+        .status()
         .expect("could not spawn `xmake`")
-        .status
         .success()
     {
         // Panic if the command was not successful.
@@ -33,9 +32,8 @@ pub fn xmake_run(target: &str) {
         .current_dir(get_project_root())
         .arg("build")
         .arg(target)
-        .output()
+        .status()
         .expect("could not spawn `xmake`")
-        .status
         .success()
     {
         // Panic if the command was not successful.
@@ -48,9 +46,8 @@ pub fn xmake_config(name: &str, value: &str) {
         .current_dir(get_project_root())
         .arg("f")
         .arg(format!("--{}={}", name, value))
-        .output()
+        .status()
         .expect("could not spawn `xmake`")
-        .status
         .success()
     {
         // Panic if the command was not successful.
