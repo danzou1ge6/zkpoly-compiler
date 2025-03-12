@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use group::prime::PrimeCurveAffine;
 use zkpoly_common::typ::Typ;
 use zkpoly_cuda_api::{mem::CudaAllocator, stream::CudaStream};
@@ -71,7 +73,10 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                 Variable::Point(crate::point::Point::new(T::PointAffine::identity()))
             }
             Typ::Tuple => unreachable!("Tuple can only be assembled"),
-            Typ::Any(_, _) => unimplemented!(),
+            Typ::Any(_, _) => {
+                assert!(device.is_cpu());
+                Variable::Any(Arc::new(0)) // placeholder
+            }
             Typ::Stream => {
                 let device = device.unwrap_gpu();
                 Variable::Stream(CudaStream::new(device))
