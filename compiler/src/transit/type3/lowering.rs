@@ -354,6 +354,17 @@ fn lower_instruction<'s, Rt: RuntimeType>(
                     })
                 }
                 VertexNode::Return(id) => emit(Instruction::Return(reg_id2var_id(*id))),
+                VertexNode::IndexPoly(operand, idx) => {
+                    let operand = reg_id2var_id(*operand);
+                    let target = reg_id2var_id(ids[0]);
+                    let stream = Stream::of_track(track).map(|t| stream2variable_id.get(t).clone());
+                    emit(Instruction::GetScalarFromArray {
+                        src: operand,
+                        dst: target,
+                        idx: *idx as usize,
+                        stream,
+                    })
+                }
                 _ => {
                     emit_func::emit_func(
                         t3idx,

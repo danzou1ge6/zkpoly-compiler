@@ -275,9 +275,7 @@ pub fn fuse_arith<'s, Rt: RuntimeType>(mut cg: Cg<'s, Rt>) -> Cg<'s, Rt> {
             let mut mut_inputs = ag.change_mutability(&succ, output_polys).into_iter();
 
             // add output nodes
-            for (out_arith, (fuse_type, outer_id)) in
-                ag.outputs.iter_mut().zip(output_outer_info)
-            {
+            for (out_arith, (fuse_type, outer_id)) in ag.outputs.iter_mut().zip(output_outer_info) {
                 let mut in_node = None;
                 if fuse_type == FusedType::ScalarArray {
                     in_node = mut_inputs.next();
