@@ -180,7 +180,7 @@ fn test_add() {
         AsyncRng::new(10),
         libs,
     );
-    let info = runtime.run();
+    let (_, info) = runtime.run();
     let variable = info.variable;
 
     let binding_c = variable[idc].read().unwrap();

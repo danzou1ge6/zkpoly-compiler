@@ -52,15 +52,7 @@ pub fn emit_func<'s, Rt: RuntimeType>(
                     generate_ntt_recompute(poly, pq, omega, stream.unwrap(), f_id, emit);
                 }
                 crate::transit::type2::NttAlgorithm::Undecieded => {
-                    // TODO Let's skip precompute for now
-                    generate_ntt_recompute(
-                        poly,
-                        VariableId::default(),
-                        VariableId::default(),
-                        stream.unwrap(),
-                        f_id,
-                        emit,
-                    );
+                    panic!("NttAlgorithm must have been decided during precomputation");
                 }
             }
         }
@@ -261,7 +253,7 @@ pub fn emit_func<'s, Rt: RuntimeType>(
                 src: operand,
                 dst: target,
                 idx: *idx as usize,
-                stream
+                stream,
             })
         }
         _ => panic!("Unsupported vertex node at {:?}", t3idx),
