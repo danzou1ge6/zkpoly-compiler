@@ -35,6 +35,7 @@ pub struct DebugOptions {
     debug_fresh_type3: bool,
     debug_extend_rewriting: bool,
     debug_track_splitting: bool,
+    debug_multithread_instructions: bool,
     debug_instructions: bool,
     log: bool,
 }
@@ -56,6 +57,7 @@ impl DebugOptions {
             debug_fresh_type3: true,
             debug_extend_rewriting: true,
             debug_track_splitting: true,
+            debug_multithread_instructions: true,
             debug_instructions: true,
             log: false,
         }
@@ -577,9 +579,42 @@ pub fn ast2inst<Rt: RuntimeType>(
     }
 
     // To Runtime Instructions
+
+    // - Emitting Multithread Chunk
+    let (mt_chunk, f_table, event_table, stream2variable_id, variable_id_allocator, libs) = options
+        .log_suround(
+            "Emitting Multithread Chunk",
+            || {
+                Ok(type3::lowering::emit_multithread_instructions(
+                    &track_tasks,
+                    t3chunk,
+                    t2uf_tab,
+                ))
+            },
+            "Done.",
+        )?;
+
+    if options.debug_multithread_instructions {
+        let path = options.debug_dir.join("multithread_instructions.dot");
+        let mut f = std::fs::File::create(&path).unwrap();
+        type3::lowering::pretty_print::print_graph(&mt_chunk, &f_table, &event_table, &mut f)
+            .unwrap();
+        ctx.add(compile_dot(path));
+    }
+
+    // - Serialize Multithread Chunk
     let rt_chunk = options.log_suround(
         "Lowering Type3 to Runtime Instructions",
-        || Ok(type3::lowering::lower(&track_tasks, t3chunk, t2uf_tab)),
+        || {
+            Ok(type3::lowering::lower(
+                mt_chunk,
+                f_table,
+                event_table,
+                stream2variable_id,
+                variable_id_allocator,
+                libs,
+            ))
+        },
         "Done.",
     )?;
     let rt_const_tab = type3::lowering::lower_constants(t2const_tab);

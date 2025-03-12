@@ -34,12 +34,12 @@ impl Cell {
 define_usize_id!(InstructionId);
 
 #[derive(Debug, Clone)]
-struct MultithreadChunk {
+pub struct MultithreadChunk {
     instructions: Heap<InstructionId, Cell>,
     threads: Heap<ThreadId, Vec<InstructionId>>,
     primary_thread_id: ThreadSpecific<ThreadId>,
     t3idx2id: BTreeMap<super::InstructionIndex, InstructionId>,
-    forks: BTreeMap<ThreadId, InstructionId>,
+    forks: BTreeMap<ThreadId, (ThreadId, InstructionId)>,
 }
 
 impl MultithreadChunk {
@@ -105,7 +105,7 @@ impl MultithreadChunk {
                 instructions: Vec::new(),
             },
         );
-        self.forks.insert(fork_to, fork_inst_id);
+        self.forks.insert(fork_to, (*self.primary_thread_id.get(pthread), fork_inst_id));
     }
 
     pub fn thread_instructions(&self, thread_id: ThreadId) -> impl Iterator<Item = &Instruction> {
@@ -124,7 +124,7 @@ impl MultithreadChunk {
     }
 
     pub fn fillback_auxiliary_instructions(&mut self) {
-        for (&fork_to, &fork_inst_id) in self.forks.iter() {
+        for (&fork_to, &(_, fork_inst_id)) in self.forks.iter() {
             let aux_inst = self.thread_instructions(fork_to).cloned().collect();
 
             let fork_inst = &mut self.instructions[fork_inst_id];
@@ -148,7 +148,7 @@ impl From<super::Device> for DeviceType {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum PrimaryThread {
+pub enum PrimaryThread {
     MemoryManagement,
     Gpu,
     Cpu,
@@ -161,7 +161,7 @@ impl PrimaryThread {
 }
 
 #[derive(Debug, Clone)]
-struct ThreadSpecific<T> {
+pub struct ThreadSpecific<T> {
     memory_management: T,
     gpu: T,
     cpu: T,
@@ -203,7 +203,7 @@ impl<T> ThreadSpecific<T> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum Stream {
+pub enum Stream {
     ToGpu,
     FromGpu,
     Gpu,
@@ -211,7 +211,7 @@ enum Stream {
 }
 
 #[derive(Debug, Clone)]
-struct StreamSpecific<T> {
+pub struct StreamSpecific<T> {
     to_gpu: T,
     from_gpu: T,
     gpu: T,
@@ -283,15 +283,6 @@ impl Stream {
             Track::GpuMemory => Some(Stream::GpuMemory),
             _ => None,
         }
-    }
-}
-
-fn allocate_stream(variable_id_allocator: &mut IdAllocator<VariableId>) -> Instruction {
-    Instruction::Allocate {
-        device: DeviceType::CPU,
-        typ: Typ::Stream,
-        id: variable_id_allocator.alloc(),
-        offset: None,
     }
 }
 
@@ -589,7 +580,7 @@ pub struct Chunk<Rt: RuntimeType> {
     pub(crate) libs: Libs,
 }
 
-fn emit_multithread_instructions<'s, Rt: RuntimeType>(
+pub fn emit_multithread_instructions<'s, Rt: RuntimeType>(
     track_tasks: &TrackTasks,
     mut t3chunk: super::Chunk<'s, Rt>,
     t2uf_table: type2::user_function::Table<Rt>,
@@ -707,12 +698,13 @@ pub fn lower_constants<Rt: RuntimeType>(
 }
 
 pub fn lower<'s, Rt: RuntimeType>(
-    track_tasks: &TrackTasks,
-    t3chunk: super::Chunk<'s, Rt>,
-    t2uf_table: type2::user_function::Table<Rt>,
+    mut mt_chunk: MultithreadChunk,
+    f_table: FunctionTable<Rt>,
+    event_table: EventTable,
+    stream2variable_id: StreamSpecific<VariableId>,
+    variable_id_allocator: IdAllocator<VariableId>,
+    libs: Libs
 ) -> Chunk<Rt> {
-    let (mut mt_chunk, f_table, event_table, stream2variable_id, variable_id_allocator, libs) =
-        emit_multithread_instructions(track_tasks, t3chunk, t2uf_table);
 
     let mut instructions = Vec::new();
 
@@ -757,3 +749,5 @@ pub fn lower<'s, Rt: RuntimeType>(
         libs,
     }
 }
+
+pub mod pretty_print;
