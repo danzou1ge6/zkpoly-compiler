@@ -711,7 +711,7 @@ pub fn lower<'s, Rt: RuntimeType>(
     // Create streams
     stream2variable_id.iter().for_each(|(_stream, &var_id)| {
         instructions.push(Instruction::Allocate {
-            device: DeviceType::CPU,
+            device: DeviceType::GPU { device_id: 0 },
             typ: Typ::Stream,
             id: var_id,
             offset: None,
