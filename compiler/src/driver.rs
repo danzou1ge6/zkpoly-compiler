@@ -252,6 +252,8 @@ pub fn ast2inst<Rt: RuntimeType>(
 > {
     let ctx = Ctx::new();
 
+    std::fs::create_dir_all(&options.debug_dir).unwrap();
+
     // First from AST to Type2
     let (ast_cg, output_vid) = options.log_suround(
         "Lowering AST to Type2...",
