@@ -11,9 +11,7 @@ use zkpoly_common::{
     arith::{
         Arith, ArithBinOp, ArithGraph, ArithUnrOp, BinOp, FusedType, Mutability, Operation, SpOp,
         UnrOp,
-    },
-    heap::UsizeId,
-    load_dynamic::Libs,
+    }, get_project_root::get_project_root, heap::UsizeId, load_dynamic::Libs
 };
 use zkpoly_cuda_api::{
     bindings::{
@@ -136,7 +134,9 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
         let header = self.gen_header();
         let kernel = self.gen_kernel();
         let wrapper = self.gen_wrapper();
-        fs::write("src/fused_kernels/src", header + &kernel + &wrapper).unwrap();
+        let project_root = get_project_root();
+        let path = project_root + "/core/src/fused_kernels/src/" + self.name.as_str() + ".cu";
+        fs::write(path, header + &kernel + &wrapper).unwrap();
     }
 
     fn gen_header(&self) -> String {
@@ -146,7 +146,7 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
         header.push_str("#include <cuda_runtime.h>\n");
         header.push_str("using iter::SliceIterator;\n");
         header.push_str("using mont::u32;\n");
-        header.push_str("using iter::make_slice_iter\n");
+        header.push_str("using iter::make_slice_iter;\n");
         header
     }
 
@@ -165,12 +165,12 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
             match typ {
                 FusedType::ScalarArray => {
                     let iter = format!(
-                        "auto {ITER_PREFIX}{id} = mont::make_slice_iter<FUSED_FIELD>(vars[{i}]);"
+                        "auto {ITER_PREFIX}{id} = make_slice_iter<FUSED_FIELD>(vars[{i}]);\n"
                     );
                     wrapper.push_str(&iter);
                 }
                 FusedType::Scalar => {
-                    let scalar = format!("auto {SCALAR_PREFIX}{id} = reinterpret_cast<const FUSED_FIELD*>(vars[{i}].ptr);");
+                    let scalar = format!("auto {SCALAR_PREFIX}{id} = reinterpret_cast<const FUSED_FIELD*>(vars[{i}].ptr);\n");
                     wrapper.push_str(&scalar);
                 }
             }
@@ -179,12 +179,12 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
             let id: usize = id.clone().into();
             match typ {
                 FusedType::ScalarArray => {
-                    let iter = format!("auto {ITER_PREFIX}{id} = mont::make_slice_iter<FUSED_FIELD>(mut_vars[{i}]);");
+                    let iter = format!("auto {ITER_PREFIX}{id} = make_slice_iter<FUSED_FIELD>(mut_vars[{i}]);\n");
                     wrapper.push_str(&iter);
                 }
                 FusedType::Scalar => {
                     let scalar = format!(
-                        "auto {SCALAR_PREFIX}{id} = reinterpret_cast<FUSED_FIELD*>(mut_vars[{i}].ptr);"
+                        "auto {SCALAR_PREFIX}{id} = reinterpret_cast<FUSED_FIELD*>(mut_vars[{i}].ptr);\n"
                     );
                     wrapper.push_str(&scalar);
                 }
@@ -211,7 +211,7 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                 }
             }
         }
-        wrapper.push_str("len)\n");
+        wrapper.push_str("len);\n");
         wrapper.push_str("return cudaGetLastError();\n");
         wrapper.push_str("}\n");
         wrapper
@@ -408,15 +408,9 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                         match op {
                             UnrOp::P(ArithUnrOp::Neg) => {
                                 kernel +=
-                                    &format!("auto {TMP_PREFIX}{} = -{TMP_PREFIX}{};\n", head, arg);
+                                    &format!("auto {TMP_PREFIX}{} = {TMP_PREFIX}{}.neg();\n", head, arg);
                             }
-                            UnrOp::P(ArithUnrOp::Inv) => {
-                                eprintln!("Warning: inversion is very expensive, consider using batched inv first");
-                                kernel += &format!(
-                                    "auto {TMP_PREFIX}{} = {TMP_PREFIX}{}.invert();\n",
-                                    head, arg
-                                );
-                            }
+                            UnrOp::P(ArithUnrOp::Inv) => unreachable!("invert poly should be handled in batche invert"),
                             UnrOp::P(ArithUnrOp::Pow(power)) => {
                                 kernel += &format!(
                                     "auto {TMP_PREFIX}{} = {TMP_PREFIX}{}.pow({});\n",
@@ -427,19 +421,8 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                                 kernel +=
                                     &format!("auto {TMP_PREFIX}{} = -{TMP_PREFIX}{};\n", head, arg);
                             }
-                            UnrOp::S(ArithUnrOp::Inv) => {
-                                eprintln!("Warning: inversion is very expensive, consider inverse the scalar first");
-                                kernel += &format!(
-                                    "auto {TMP_PREFIX}{} = {TMP_PREFIX}{}.invert();\n",
-                                    head, arg
-                                );
-                            }
-                            UnrOp::S(ArithUnrOp::Pow(power)) => {
-                                kernel += &format!(
-                                    "auto {TMP_PREFIX}{} = {TMP_PREFIX}{}.pow({});\n",
-                                    head, arg, power
-                                );
-                            }
+                            UnrOp::S(ArithUnrOp::Inv) => unreachable!("invert scalar should be handled in scalar invert"),
+                            UnrOp::S(ArithUnrOp::Pow(_)) => unreachable!("power scalar should be handled in scalar power"),
                         }
                     }
                 },
