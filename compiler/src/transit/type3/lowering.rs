@@ -9,6 +9,7 @@ use super::{Track, VertexNode};
 use zkpoly_common::define_usize_id;
 use zkpoly_common::digraph::internal::SubDigraph;
 use zkpoly_common::heap::{Heap, IdAllocator};
+use zkpoly_common::load_dynamic::Libs;
 use zkpoly_common::typ::{PolyMeta, Typ};
 use zkpoly_runtime::args::{Constant, ConstantTable, RuntimeType, VariableId};
 use zkpoly_runtime::devices::{DeviceType, Event, EventTable, ThreadId};
@@ -580,6 +581,9 @@ pub struct Chunk<Rt: RuntimeType> {
     pub(crate) instructions: Vec<Instruction>,
     pub(crate) f_table: FunctionTable<Rt>,
     pub(crate) event_table: EventTable,
+    pub(crate) n_variables: usize,
+    pub(crate) n_threads: usize,
+    pub(crate) libs: Libs,
 }
 
 fn emit_multithread_instructions<'s, Rt: RuntimeType>(
@@ -591,6 +595,8 @@ fn emit_multithread_instructions<'s, Rt: RuntimeType>(
     FunctionTable<Rt>,
     EventTable,
     StreamSpecific<VariableId>,
+    IdAllocator<VariableId>,
+    Libs,
 ) {
     let mut event_table = EventTable::new();
     let mut f_table = FunctionTable::<Rt>::new();
@@ -677,7 +683,14 @@ fn emit_multithread_instructions<'s, Rt: RuntimeType>(
         }
     }
 
-    (chunk, f_table, event_table, stream2variable_id)
+    (
+        chunk,
+        f_table,
+        event_table,
+        stream2variable_id,
+        variable_id_allcoator,
+        libs,
+    )
 }
 
 pub fn lower_constants<Rt: RuntimeType>(
@@ -696,7 +709,7 @@ pub fn lower<'s, Rt: RuntimeType>(
     t3chunk: super::Chunk<'s, Rt>,
     t2uf_table: type2::user_function::Table<Rt>,
 ) -> Chunk<Rt> {
-    let (mut mt_chunk, f_table, event_table, stream2variable_id) =
+    let (mut mt_chunk, f_table, event_table, stream2variable_id, variable_id_allocator, libs) =
         emit_multithread_instructions(track_tasks, t3chunk, t2uf_table);
 
     let mut instructions = Vec::new();
@@ -737,5 +750,8 @@ pub fn lower<'s, Rt: RuntimeType>(
         instructions,
         f_table,
         event_table,
+        n_threads: mt_chunk.threads.len(),
+        n_variables: variable_id_allocator.n_allocated(),
+        libs,
     }
 }

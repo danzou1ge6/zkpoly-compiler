@@ -1,13 +1,13 @@
 use std::sync::{mpsc::Sender, Arc};
 
-use threadpool::ThreadPool;
+pub use threadpool::ThreadPool;
 
 use zkpoly_common::load_dynamic::Libs;
 
 use crate::{
-    args::{ConstantTable, EntryTable, RuntimeType, Variable, VariableTable},
+    args::{new_variable_table, ConstantTable, EntryTable, RuntimeType, Variable, VariableTable},
     async_rng::AsyncRng,
-    devices::{DeviceType, Event, EventTable, ThreadTable},
+    devices::{new_thread_table, DeviceType, Event, EventTable, ThreadTable},
     functions::{
         FunctionTable,
         FunctionValue::{Fn, FnMut, FnOnce},
@@ -40,13 +40,13 @@ pub struct Runtime<T: RuntimeType> {
 impl<T: RuntimeType> Runtime<T> {
     pub fn new(
         instructions: Vec<Instruction>,
-        variable: VariableTable<T>,
+        n_variables: usize,
         constant: ConstantTable<T>,
         inputs: EntryTable<T>,
-        pool: ThreadPool,
         funcs: FunctionTable<T>,
+        pool: ThreadPool,
         events: EventTable,
-        threads: ThreadTable,
+        n_threads: usize,
         mem_allocator: PinnedMemoryPool,
         gpu_allocator: Vec<CudaAllocator>,
         rng: AsyncRng,
@@ -54,20 +54,20 @@ impl<T: RuntimeType> Runtime<T> {
     ) -> Self {
         Self {
             instructions,
-            variable,
+            variable: new_variable_table(n_variables),
             constant,
             inputs,
             pool,
             funcs,
             events,
-            threads,
+            threads: new_thread_table(n_threads),
             mem_allocator,
             gpu_allocator,
             rng,
             _libs: libs,
         }
     }
-    pub fn run(self) -> RuntimeInfo<T> {
+    pub fn run(self) -> (Option<Variable<T>>, RuntimeInfo<T>) {
         let info = RuntimeInfo {
             variable: Arc::new(self.variable),
             constant: Arc::new(self.constant),
@@ -79,13 +79,13 @@ impl<T: RuntimeType> Runtime<T> {
             rng: self.rng,
             main_thread: true,
         };
-        info.run(
+        let r = info.run(
             self.instructions,
             Some(self.mem_allocator),
             Some(self.gpu_allocator),
             None,
         );
-        info
+        (r, info)
     }
 }
 

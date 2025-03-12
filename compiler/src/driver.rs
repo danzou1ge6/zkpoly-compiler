@@ -242,7 +242,14 @@ pub fn ast2inst<Rt: RuntimeType>(
     allocator: PinnedMemoryPool,
     options: &DebugOptions,
     hardware_info: &HardwareInfo,
-) -> Result<(type3::lowering::Chunk<Rt>, args::ConstantTable<Rt>), Error<'static, Rt>> {
+) -> Result<
+    (
+        type3::lowering::Chunk<Rt>,
+        args::ConstantTable<Rt>,
+        PinnedMemoryPool,
+    ),
+    Error<'static, Rt>,
+> {
     let ctx = Ctx::new();
 
     // First from AST to Type2
@@ -549,7 +556,8 @@ pub fn ast2inst<Rt: RuntimeType>(
     )?;
 
     if options.debug_extend_rewriting {
-        let mut f = std::fs::File::create(options.debug_dir.join("type3_extend_rewriting.html")).unwrap();
+        let mut f =
+            std::fs::File::create(options.debug_dir.join("type3_extend_rewriting.html")).unwrap();
         type3::pretty_print::prettify(&t3chunk, &mut f).unwrap();
     }
 
@@ -579,5 +587,30 @@ pub fn ast2inst<Rt: RuntimeType>(
         zkpoly_runtime::instructions::print_instructions(&rt_chunk.instructions, &mut f).unwrap();
     }
 
-    Ok((rt_chunk, rt_const_tab))
+    Ok((rt_chunk, rt_const_tab, allocator))
+}
+
+pub fn prepare_vm<Rt: RuntimeType>(
+    rt_chunk: type3::lowering::Chunk<Rt>,
+    rt_const_tab: args::ConstantTable<Rt>,
+    mem_allocator: PinnedMemoryPool,
+    inputs: args::EntryTable<Rt>,
+    pool: zkpoly_runtime::runtime::ThreadPool,
+    gpu_allocator: Vec<zkpoly_cuda_api::mem::CudaAllocator>,
+    rng: zkpoly_runtime::async_rng::AsyncRng,
+) -> zkpoly_runtime::runtime::Runtime<Rt> {
+    zkpoly_runtime::runtime::Runtime::new(
+        rt_chunk.instructions,
+        rt_chunk.n_variables,
+        rt_const_tab,
+        inputs,
+        rt_chunk.f_table,
+        pool,
+        rt_chunk.event_table,
+        rt_chunk.n_threads,
+        mem_allocator,
+        gpu_allocator,
+        rng,
+        rt_chunk.libs,
+    )
 }

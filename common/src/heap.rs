@@ -46,6 +46,10 @@ impl<I: UsizeId> IdAllocator<I> {
             i.into()
         })
     }
+
+    pub fn n_allocated(&self) -> usize {
+        self.0
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -127,6 +131,11 @@ impl<I, T> Heap<I, T> {
     {
         Self(vec![t; n], PhantomData)
     }
+
+    pub fn repeat_with(f: impl Fn() -> T, n: usize) -> Self {
+        Self((0..n).map(|_| f()).collect(), PhantomData)
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = &T> {
         self.0.iter()
     }
@@ -160,7 +169,7 @@ impl<I: UsizeId, T> std::ops::Index<I> for RoHeap<I, T> {
 
 impl<I, T> RoHeap<I, T> {
     pub fn to_mutable(self, a: IdAllocator<I>) -> Heap<I, T> {
-        if self.0.len()!= a.0 {
+        if self.0.len() != a.0 {
             panic!("invalid id allocator");
         }
         Heap(self.0, PhantomData)

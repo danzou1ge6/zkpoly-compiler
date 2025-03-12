@@ -18,6 +18,14 @@ pub type VariableTable<T> = heap::Heap<VariableId, RwLock<Option<Variable<T>>>>;
 pub type ConstantTable<T> = heap::Heap<ConstantId, Mutex<Option<Constant<T>>>>;
 pub type EntryTable<T> = heap::Heap<EntryId, Mutex<Option<Variable<T>>>>;
 
+pub fn new_variable_table<T: RuntimeType>(len: usize) -> VariableTable<T> {
+    heap::Heap::repeat_with(|| RwLock::new(None), len)
+}
+
+pub fn add_entry<T: RuntimeType>(t: &mut EntryTable<T>, var: Variable<T>) {
+    t.push(Mutex::new(Some(var)));
+}
+
 pub trait RuntimeType: 'static + Clone + Send + Sync + Debug {
     type PointAffine: CurveAffine<ScalarExt = Self::Field>;
     type Field: PrimeField

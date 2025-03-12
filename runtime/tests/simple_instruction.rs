@@ -168,13 +168,13 @@ fn test_add() {
 
     let runtime = Runtime::new(
         instructions,
-        variable,
+        variable.len(),
         ConstantTable::new(),
         EntryTable::new(),
-        ThreadPool::new(1),
         funcs,
+        ThreadPool::new(1),
         events,
-        ThreadTable::new(),
+        0,
         cpu_alloc,
         vec![gpu_alloc],
         AsyncRng::new(10),

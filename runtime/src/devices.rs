@@ -8,6 +8,10 @@ zkpoly_common::define_usize_id!(ThreadId);
 pub type EventTable = heap::Heap<EventId, Event>;
 pub type ThreadTable = heap::Heap<ThreadId, Mutex<Option<Receiver<i32>>>>;
 
+pub fn new_thread_table(len: usize) -> ThreadTable {
+    heap::Heap::repeat_with(|| Mutex::new(None), len)
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum DeviceType {
     CPU,
