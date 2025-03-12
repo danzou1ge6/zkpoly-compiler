@@ -162,6 +162,9 @@ fn prettify_inst<'s, Rt: RuntimeType>(
         for def in def {
             writeln!(writer, "  <td>{}</td>", def)?;
         }
+        for _ in 0..4 {
+            writeln!(writer, "  <td></td>")?;
+        }
 
         writeln!(writer, "</tr>")?;
     }
