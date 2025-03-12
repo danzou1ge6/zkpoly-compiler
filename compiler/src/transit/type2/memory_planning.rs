@@ -1007,45 +1007,69 @@ pub fn plan<'s, Rt: RuntimeType>(
             .collect::<Result<Vec<_>, _>>()?;
 
         // Allocate outputs
-        // - If the output use some input's space, kills the input register in ctx and let the output register inherit its space
-        // - Otherwise, allocate new space for the output
+        // - If the vertex is Entry, only new register is needed
+        // - Otherwise
+        //   - If the output use some input's space, kills the input register in ctx and let the output register inherit its space
+        //   - Otherwise, allocate new space for the output
         let v = g.vertex(vid);
-        let output_registers: Vec<(RegisterId, Option<RegisterId>)> = imctx.obj_def.values[&vid]
-            .iter()
-            .zip(v.outputs_inplace(uf_table, exe_device))
-            .zip(v.typ().iter())
-            .map(|((output_value, inplace), output_typ)| {
-                let output_obj = output_value.object_id();
-                let output_reg = code.alloc_register_id(lower_typ(output_typ, output_value));
-                if let Some(input_vid) = inplace {
-                    let index = v.uses().position(|x| x == input_vid).unwrap();
-                    let inplace_reg = input_registers[index];
-                    ctx.add_residence_for_object(output_obj, output_reg, output_value.device());
-                    ctx.remove_residence_for_object(
-                        ctx.reg2obj[&inplace_reg],
-                        output_value.device(),
-                    );
-                    ctx.attempt_copy_gpu_addr_id_from(inplace_reg, output_reg);
-                    Ok((output_reg, Some(inplace_reg)))
-                } else {
-                    let size = imctx.obj_size(output_obj);
-                    allocate(
-                        output_value.device(),
-                        output_reg,
-                        output_obj,
-                        obj_gpu_next_use
-                            .first_use_of(output_obj)
-                            .unwrap_or(Instant(usize::MAX)),
-                        size,
-                        &mut gpu_allocator,
-                        &mut code,
-                        &mut ctx,
-                        &imctx,
-                    )?;
-                    Ok((output_reg, None))
-                }
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let output_registers: Vec<(RegisterId, Option<RegisterId>)> =
+            if v.node().no_allocate_output() {
+                imctx.obj_def.values[&vid]
+                    .iter()
+                    .zip(v.outputs_inplace(uf_table, exe_device))
+                    .zip(v.typ().iter())
+                    .map(|((output_value, _), output_typ)| {
+                        let output_obj = output_value.object_id();
+                        let output_reg =
+                            code.alloc_register_id(lower_typ(output_typ, output_value));
+                        ctx.add_residence_for_object(output_obj, output_reg, output_value.device());
+                        Ok((output_reg, None))
+                    })
+                    .collect::<Result<Vec<_>, _>>()?
+            } else {
+                imctx.obj_def.values[&vid]
+                    .iter()
+                    .zip(v.outputs_inplace(uf_table, exe_device))
+                    .zip(v.typ().iter())
+                    .map(|((output_value, inplace), output_typ)| {
+                        let output_obj = output_value.object_id();
+                        let output_reg =
+                            code.alloc_register_id(lower_typ(output_typ, output_value));
+                        if let Some(input_vid) = inplace {
+                            let index = v.uses().position(|x| x == input_vid).unwrap();
+                            let inplace_reg = input_registers[index];
+                            ctx.add_residence_for_object(
+                                output_obj,
+                                output_reg,
+                                output_value.device(),
+                            );
+                            ctx.remove_residence_for_object(
+                                ctx.reg2obj[&inplace_reg],
+                                output_value.device(),
+                            );
+                            ctx.attempt_copy_gpu_addr_id_from(inplace_reg, output_reg);
+                            Ok((output_reg, Some(inplace_reg)))
+                        } else {
+                            let size = imctx.obj_size(output_obj);
+                            allocate(
+                                output_value.device(),
+                                output_reg,
+                                output_obj,
+                                obj_gpu_next_use
+                                    .first_use_of(output_obj)
+                                    .unwrap_or(Instant(usize::MAX)),
+                                size,
+                                &mut gpu_allocator,
+                                &mut code,
+                                &mut ctx,
+                                &imctx,
+                            )?;
+                            Ok((output_reg, None))
+                        }
+                    })
+                    .collect::<Result<Vec<_>, _>>()?
+            };
+
         let temp_register_obj = if let Some((temp_space_sizes, temp_space_device)) =
             cg.temporary_space_needed(vid, &mut libs)
         {

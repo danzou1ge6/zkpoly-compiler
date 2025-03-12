@@ -341,6 +341,14 @@ pub mod template {
                 _ => false,
             }
         }
+
+        pub fn no_allocate_output(&self) -> bool {
+            use VertexNode::*;
+            match self {
+                Entry(..) | Constant(..) => true,
+                _ => false,
+            }
+        }
     }
 }
 
