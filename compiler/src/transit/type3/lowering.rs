@@ -5,7 +5,7 @@ use crate::transit::type2;
 
 use super::track_splitting::{split, TrackTasks};
 use super::{Track, VertexNode};
-// use kernel_gen::GeneratedFunctions;
+use kernel_gen::GeneratedFunctions;
 use zkpoly_common::define_usize_id;
 use zkpoly_common::digraph::internal::SubDigraph;
 use zkpoly_common::heap::{Heap, IdAllocator};
@@ -18,13 +18,13 @@ use zkpoly_runtime::instructions::Instruction;
 mod emit_func;
 mod kernel_gen;
 
-struct GeneratedFunctions;
+// struct GeneratedFunctions;
 
-impl GeneratedFunctions {
-    pub fn at(&self, _idx: super::InstructionIndex) -> FunctionId {
-        0.into()
-    }
-}
+// impl GeneratedFunctions {
+//     pub fn at(&self, _idx: super::InstructionIndex) -> FunctionId {
+//         0.into()
+//     }
+// }
 
 #[derive(Debug, Clone)]
 struct Cell {
@@ -597,14 +597,13 @@ fn emit_multithread_instructions<'s, Rt: RuntimeType>(
     let (mut variable_id_allcoator, reg_id2var_id) = t3chunk.take_reg_id_allocator().decompose();
     let mut libs = t3chunk.take_libs();
 
-    // let generated_functions = kernel_gen::get_function_id(
-    //     &mut f_table,
-    //     &t3chunk,
-    //     t2uf_table,
-    //     &reg_id2var_id,
-    //     &mut libs,
-    // );
-    let generated_functions = GeneratedFunctions;
+    let generated_functions = kernel_gen::get_function_id(
+        &mut f_table,
+        &t3chunk,
+        t2uf_table,
+        &reg_id2var_id,
+        &mut libs,
+    );
 
     let stream2variable_id = StreamSpecific::new(|| variable_id_allcoator.alloc());
 
