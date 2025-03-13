@@ -276,6 +276,16 @@ pub mod template {
                 _ => false,
             }
         }
+
+        pub fn is_dealloc(&self) -> bool {
+            use InstructionNode::*;
+            match self {
+                GpuFree {.. } => true,
+                CpuFree {.. } => true,
+                StackFree {.. } => true,
+                _ => false,
+            }
+        }
     }
 }
 
@@ -572,6 +582,16 @@ impl<'s, Rt: RuntimeType> Chunk<'s, Rt> {
                     }
                     _ => {}
                 };
+                acc
+            })
+    }
+
+    pub fn use_not_deallocate_at(&self) -> BTreeMap<RegisterId, Vec<InstructionIndex>> {
+        self.iter_instructions()
+            .fold(BTreeMap::new(), |mut acc, (i, instr)| {
+                for id in instr.uses() {
+                    acc.entry(id).or_default().push(i);
+                }
                 acc
             })
     }

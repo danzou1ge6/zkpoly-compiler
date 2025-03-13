@@ -22,6 +22,7 @@ impl TrackTasks {
 pub fn split<'s, Rt: RuntimeType>(chunk: &Chunk<'s, Rt>) -> TrackTasks {
     let assigned_at = chunk.assigned_at();
     let malloc_at = chunk.malloc_at();
+    let uses_at = chunk.use_not_deallocate_at();
 
     let mut track_tasks = TrackTasks::new();
 
@@ -30,15 +31,29 @@ pub fn split<'s, Rt: RuntimeType>(chunk: &Chunk<'s, Rt>) -> TrackTasks {
 
         // An instruction depends not only on its uses, but also on memory allocations of its defs
         let depended_instructions = inst
+            // - For each use
             .uses()
             .map(|reg_id| {
+                // - The use's def
                 assigned_at
                     .get(&reg_id)
                     .copied()
                     .into_iter()
+                    // - The use's malloc
                     .chain(malloc_at.get(&reg_id).copied().into_iter())
+                    // - The use's uses, if this instruction is a dealloc
+                    .chain({
+                        if inst.node.is_dealloc() {
+                            Some(uses_at[&reg_id].iter().copied())
+                        } else {
+                            None
+                        }
+                        .into_iter()
+                        .flatten()
+                    })
             })
             .flatten()
+            // - Depdends on malloc of defs
             .chain(
                 inst.defs()
                     .filter_map(|reg_id| malloc_at.get(&reg_id).copied()),
@@ -63,9 +78,9 @@ pub fn split<'s, Rt: RuntimeType>(chunk: &Chunk<'s, Rt>) -> TrackTasks {
 
         last_of_each_track
             .iter()
-            .filter(|(t, _)| *t != track)
-            .for_each(|(_, last)| {
-                if let Some(last) = *last {
+            .filter_map(|(track, last)| Some((track, last.as_ref()?)))
+            .for_each(|(_, &last)| {
+                if last != i {
                     track_tasks.inst_depend.get_mut(&i).unwrap().push(last);
                 }
             });
