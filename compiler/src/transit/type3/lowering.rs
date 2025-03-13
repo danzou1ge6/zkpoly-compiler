@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Mutex;
 
 use crate::transit::type2;
@@ -21,13 +21,18 @@ mod kernel_gen;
 
 #[derive(Debug, Clone)]
 struct Cell {
+    thread: ThreadId,
     inst: Instruction,
     tail: Vec<Instruction>,
 }
 
 impl Cell {
-    pub fn new(inst: Instruction) -> Self {
-        Cell { inst, tail: vec![] }
+    pub fn new(inst: Instruction, tid: ThreadId) -> Self {
+        Cell {
+            inst,
+            tail: vec![],
+            thread: tid,
+        }
     }
 }
 
@@ -56,7 +61,7 @@ impl MultithreadChunk {
     }
 
     pub fn emit(&mut self, thread_id: ThreadId, instruction: Instruction) -> InstructionId {
-        let inst_id = self.instructions.push(Cell::new(instruction));
+        let inst_id = self.instructions.push(Cell::new(instruction, thread_id));
         self.threads[thread_id].push(inst_id);
         inst_id
     }
@@ -75,7 +80,7 @@ impl MultithreadChunk {
         thread_id: ThreadId,
         instruction: Instruction,
     ) {
-        let inst_id: InstructionId = self.instructions.push(Cell::new(instruction));
+        let inst_id: InstructionId = self.instructions.push(Cell::new(instruction, thread_id));
         self.t3idx2id.insert(t3idx, inst_id);
         self.threads[thread_id].push(inst_id);
     }
@@ -105,7 +110,10 @@ impl MultithreadChunk {
                 instructions: Vec::new(),
             },
         );
-        self.forks.insert(fork_to, (*self.primary_thread_id.get(pthread), fork_inst_id));
+        self.forks.insert(
+            fork_to,
+            (*self.primary_thread_id.get(pthread), fork_inst_id),
+        );
     }
 
     pub fn thread_instructions(&self, thread_id: ThreadId) -> impl Iterator<Item = &Instruction> {
@@ -134,6 +142,11 @@ impl MultithreadChunk {
                 panic!("expect to fillback to a fork instruction")
             }
         }
+    }
+
+    pub fn thread_of(&self, t3idx: super::InstructionIndex) -> ThreadId {
+        let inst_id = self.t3idx2id[&t3idx];
+        self.instructions[inst_id].thread
     }
 }
 
@@ -516,6 +529,10 @@ fn lower_gpu_waits_gpu(
     event_table: &mut EventTable,
     chunk: &mut MultithreadChunk,
 ) {
+    if Stream::of_track(depended_track).unwrap() == stream {
+        return;
+    }
+
     let event_id = event_table.push(Event::new_gpu());
 
     chunk.append_at(
@@ -620,35 +637,79 @@ pub fn emit_multithread_instructions<'s, Rt: RuntimeType>(
                     Stream::of_track(track_tasks.inst_track[&depended_t3idx]).is_none()
                 })
         {
-            // A CPU track must wait for another CPU track
-            let aux_thread = chunk.new_auxilary_thread();
+            // GPU waits for some CPU tasks
+            let depended_threads: BTreeSet<_> = track_tasks.inst_depend[&t3idx]
+                .iter()
+                .map(|&depended_t3idx| chunk.thread_of(depended_t3idx))
+                .collect();
 
-            for &depended_t3idx in track_tasks.inst_depend[&t3idx].iter() {
-                let depended_track = track_tasks.inst_track[&depended_t3idx];
-                lower_cpu_waits_any(
-                    depended_t3idx,
+            if depended_threads.len() > 1 {
+                // A GPU task waits for CPU tasks on multiple threads.
+                // In this case, we need a new CPU thread that first waits for those CPU tasks,
+                // then the CPU thread launches the GPU task.
+                let aux_thread = chunk.new_auxilary_thread();
+
+                for &depended_t3idx in track_tasks.inst_depend[&t3idx].iter() {
+                    let depended_track = track_tasks.inst_track[&depended_t3idx];
+                    lower_cpu_waits_any(
+                        depended_t3idx,
+                        aux_thread,
+                        depended_track,
+                        &stream2variable_id,
+                        &mut event_table,
+                        &mut chunk,
+                    );
+                }
+
+                lower_instruction(
+                    t3idx,
+                    t3inst,
                     aux_thread,
-                    depended_track,
+                    track,
+                    &reg_id2var_id,
                     &stream2variable_id,
-                    &mut event_table,
-                    &mut chunk,
+                    &t3chunk,
+                    &generated_functions,
+                    &mut |inst| chunk.emit_with_idx(t3idx, aux_thread, inst),
+                );
+
+                chunk.emit_fork(pthread, aux_thread);
+            } else {
+                // A GPU task waits for CPU tasks on a single thread.
+                // In this case, we can just launch the GPU task on the same thread.
+                let thread = depended_threads.first().copied().unwrap();
+                let stream = Stream::of_track(track).unwrap();
+
+                // First waits for GPU tasks
+                for &depended_t3idx in track_tasks.inst_depend[&t3idx].iter() {
+                    let depended_track = track_tasks.inst_track[&depended_t3idx];
+                    if  Stream::of_track(depended_track).is_some() {
+                        lower_gpu_waits_gpu(
+                            depended_t3idx,
+                            thread,
+                            stream,
+                            depended_track,
+                            &stream2variable_id,
+                            &mut event_table,
+                            &mut chunk,
+                        );
+                    }
+                }
+
+                lower_instruction(
+                    t3idx,
+                    t3inst,
+                    thread,
+                    track,
+                    &reg_id2var_id,
+                    &stream2variable_id,
+                    &t3chunk,
+                    &generated_functions,
+                    &mut |inst| chunk.emit_with_idx(t3idx, thread, inst),
                 );
             }
-
-            lower_instruction(
-                t3idx,
-                t3inst,
-                aux_thread,
-                track,
-                &reg_id2var_id,
-                &stream2variable_id,
-                &t3chunk,
-                &generated_functions,
-                &mut |inst| chunk.emit_with_idx(t3idx, aux_thread, inst),
-            );
-
-            chunk.emit_fork(pthread, aux_thread);
         } else {
+            // GPU waits for only GPU tasks, or CPU waits.
             for &depended_t3idx in track_tasks.inst_depend[&t3idx].iter() {
                 let depended_track = track_tasks.inst_track[&depended_t3idx];
                 lower_dependency(
@@ -703,9 +764,8 @@ pub fn lower<'s, Rt: RuntimeType>(
     event_table: EventTable,
     stream2variable_id: StreamSpecific<VariableId>,
     variable_id_allocator: IdAllocator<VariableId>,
-    libs: Libs
+    libs: Libs,
 ) -> Chunk<Rt> {
-
     let mut instructions = Vec::new();
 
     // Create streams
