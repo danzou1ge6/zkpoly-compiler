@@ -40,6 +40,7 @@ pub fn print_graph<Rt: RuntimeType>(
         );
 
     writeln!(writer, "digraph multithread_chunk {{")?;
+    writeln!(writer, "  node [shape = rect]")?;
 
     // One node for each thread
     for (name, tid) in threads {
@@ -59,7 +60,7 @@ pub fn print_graph<Rt: RuntimeType>(
     for (fork_to, &(fork_from, _)) in mt_chunk.forks.iter() {
         writeln!(
             writer,
-            "  t{}:fork-{} -> t{}",
+            "  t{}:fork_{} -> t{}",
             usize::from(fork_from),
             usize::from(*fork_to),
             usize::from(*fork_to)
@@ -87,7 +88,7 @@ pub fn print_graph<Rt: RuntimeType>(
     for (evid, _) in evtab.iter_with_id() {
         writeln!(
             writer,
-            "  t{}:record-{} -> t{}:wait-{} [style=dashed]",
+            "  t{}:record_{} -> t{}:wait_{} [style=dashed]",
             usize::from(*record_at_thread.get(&evid).unwrap()),
             usize::from(evid),
             usize::from(*wait_at_thread.get(&evid).unwrap()),
@@ -112,8 +113,7 @@ impl std::fmt::Display for RMut {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "<span class=\"r-mut-{}\">R{}</span>",
-            usize::from(self.0),
+            "R{}",
             usize::from(self.0)
         )
     }
@@ -131,9 +131,8 @@ impl std::fmt::Display for R {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "<span class=\"r-{}\">R{}</span>",
+            "R{}",
             usize::from(self.0),
-            usize::from(self.0)
         )
     }
 }
@@ -174,21 +173,17 @@ fn print_inst<Rt: RuntimeType>(
     ftab: &FunctionTable<Rt>,
     t3idx: Option<type3::InstructionIndex>,
     writer: &mut impl Write,
-    indent: bool,
 ) -> std::io::Result<()> {
     let port = match inst {
-        Instruction::Fork { new_thread, .. } => Some(format!("fork-{}", usize::from(*new_thread))),
-        Instruction::Join { thread, .. } => Some(format!("join-{}", usize::from(*thread))),
-        Instruction::Record { event, .. } => Some(format!("record-{}", usize::from(*event))),
-        Instruction::Wait { event, .. } => Some(format!("wait-{}", usize::from(*event))),
+        Instruction::Fork { new_thread, .. } => Some(format!("fork_{}", usize::from(*new_thread))),
+        Instruction::Join { thread, .. } => Some(format!("join_{}", usize::from(*thread))),
+        Instruction::Record { event, .. } => Some(format!("record_{}", usize::from(*event))),
+        Instruction::Wait { event, .. } => Some(format!("wait_{}", usize::from(*event))),
         _ => None,
     };
     let port_str = port.map_or_else(|| "".to_string(), |s| format!("port=\"{}\"", s));
 
     writeln!(writer, "  <tr>")?;
-    if indent {
-        writeln!(writer, "    <td></td>")?;
-    }
 
     writeln!(
         writer,
@@ -211,12 +206,9 @@ fn print_inst<Rt: RuntimeType>(
     writeln!(
         writer,
         "    <td>{}</td>",
-        LabeledVars::<R>::new(labeled_mutable_uses(inst))
+        LabeledVars::<R>::new(labeled_uses(inst))
     )?;
 
-    if !indent {
-        writeln!(writer, "    <td></td>")?;
-    }
     writeln!(writer, "    <td {}></td>", port_str)?;
     writeln!(writer, "  </tr>")?;
     Ok(())
@@ -232,14 +224,14 @@ fn print_thread<Rt: RuntimeType>(
 ) -> std::io::Result<()> {
     writeln!(writer, "<table border=\"0\">")?;
 
-    writeln!(writer, "  <tr><td colspan=\"6\">{}</td></tr>", name)?;
+    writeln!(writer, "  <tr><td colspan=\"5\">{}</td></tr>", name)?;
 
     for iid in insts {
         let cell = &mt_chunk.instructions[iid];
-        print_inst(&cell.inst, ftab, id2t3idx.get(&iid).cloned(), writer, false)?;
+        print_inst(&cell.inst, ftab, id2t3idx.get(&iid).cloned(), writer)?;
 
         for tail in cell.tail.iter() {
-            print_inst(tail, ftab, id2t3idx.get(&iid).cloned(), writer, true)?;
+            print_inst(tail, ftab, id2t3idx.get(&iid).cloned(), writer)?;
         }
     }
 

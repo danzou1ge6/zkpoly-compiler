@@ -123,7 +123,7 @@ fn prettify_inst<'s, Rt: RuntimeType>(
 
     writeln!(writer, "<tr class=\"{}\">", classes_str)?;
     let index = format!("{}", idx.0);
-    writeln!(writer, "  <th rowspan={}>{}</th>", def_rows.len().min(1), index)?;
+    writeln!(writer, "  <th rowspan={}>{}</th>", def_rows.len().max(1), index)?;
 
     if let Some(first_def_row) = def_rows.get(0) {
         for def in first_def_row {

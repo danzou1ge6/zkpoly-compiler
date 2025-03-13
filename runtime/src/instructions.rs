@@ -137,8 +137,8 @@ pub fn instruction_label<Rt: RuntimeType>(
             stream,
             ..
         } => stream.map_or_else(
-            || format!("Transfer({:?}->{:?})", src_device, dst_device),
-            |_| format!("TransferPcie({:?}->{:?})", src_device, dst_device),
+            || format!("Transfer({:?} to {:?})", src_device, dst_device),
+            |_| format!("TransferPcie({:?} to {:?})", src_device, dst_device),
         ),
         FuncCall { func_id, .. } => {
             format!("Call({}: {})", usize::from(*func_id), &ftab[*func_id].name)
