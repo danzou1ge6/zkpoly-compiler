@@ -133,14 +133,20 @@ impl<Rt: RuntimeType> RuntimeCorrespondance<Rt> for PolyCoef<Rt> {
     fn try_borrow_variable(var: &Variable<Rt>) -> Option<Self::RtcBorrowed<'_>> {
         match var {
             Variable::ScalarArray(arr) => Some(arr),
-            _ => None,
+            _ => {
+                eprintln!("expected ScalarArray, got {:?}", var);
+                None
+            }
         }
     }
 
     fn try_borrow_variable_mut(var: &mut Variable<Rt>) -> Option<Self::RtcBorrowedMut<'_>> {
         match var {
             Variable::ScalarArray(arr) => Some(arr),
-            _ => None,
+            _ => {
+                eprintln!("expected ScalarArray, got {:?}", var);
+                None
+            }
         }
     }
 }

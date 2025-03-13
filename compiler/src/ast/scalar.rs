@@ -72,13 +72,19 @@ impl<Rt: RuntimeType> RuntimeCorrespondance<Rt> for Scalar<Rt> {
     fn try_borrow_variable(var: &Variable<Rt>) -> Option<Self::RtcBorrowed<'_>> {
         match var {
             Variable::Scalar(x) => Some(x),
-            _ => None,
+            _ => {
+                eprintln!("expected scalar, got {:?}", var);
+                None
+            }
         }
     }
     fn try_borrow_variable_mut(var: &mut Variable<Rt>) -> Option<Self::RtcBorrowedMut<'_>> {
         match var {
             Variable::Scalar(x) => Some(x),
-            _ => None,
+            _ => {
+                eprintln!("expected scalar, got {:?}", var);
+                None
+            }
         }
     }
 }

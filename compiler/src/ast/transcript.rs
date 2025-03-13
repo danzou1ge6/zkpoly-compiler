@@ -38,7 +38,7 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for Transcript<Rt> {
                     Some(Typ::Transcript),
                     src,
                 )
-            };
+            }
 
             use TranscriptNode::*;
             match &self.inner.t {
@@ -69,13 +69,19 @@ impl<Rt: RuntimeType> RuntimeCorrespondance<Rt> for Transcript<Rt> {
     fn try_borrow_variable(var: &Variable<Rt>) -> Option<Self::RtcBorrowed<'_>> {
         match var {
             Variable::Transcript(x) => Some(x),
-            _ => None,
+            _ => {
+                eprintln!("expected transcript, got {:?}", var);
+                None
+            }
         }
     }
     fn try_borrow_variable_mut(var: &mut Variable<Rt>) -> Option<Self::RtcBorrowedMut<'_>> {
         match var {
             Variable::Transcript(x) => Some(x),
-            _ => None,
+            _ => {
+                eprintln!("expected transcript, got {:?}", var);
+                None
+            }
         }
     }
 }

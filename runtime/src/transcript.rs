@@ -6,6 +6,7 @@ use blake2b_simd::{Params as Blake2bParams, State as Blake2bState};
 use group::ff::{FromUniformBytes, PrimeField};
 use sha3::{Digest, Keccak256};
 use std::convert::TryInto;
+use std::fmt::Debug;
 
 use halo2curves::{Coordinates, CurveAffine};
 
@@ -71,7 +72,7 @@ pub trait TranscriptRead<C: CurveAffine, E: EncodedChallenge<C>>: Transcript<C, 
 
 /// Transcript view from the perspective of a prover that has access to an
 /// output stream of messages from the prover to the verifier.
-pub trait TranscriptWrite<C: CurveAffine, E: EncodedChallenge<C>>: Transcript<C, E> {
+pub trait TranscriptWrite<C: CurveAffine, E: EncodedChallenge<C>>: Transcript<C, E> + Debug {
     /// Write a curve point to the proof and the transcript.
     fn write_point(&mut self, point: C) -> io::Result<()>;
 
@@ -305,7 +306,7 @@ pub struct Keccak256Write<W: Write, C: CurveAffine, E: EncodedChallenge<C>> {
     _marker: PhantomData<(C, E)>,
 }
 
-impl<W: Write + Sync + Send + Clone, C: CurveAffine> TranscriptWriterBuffer<W, C, Challenge255<C>>
+impl<W: Write + Sync + Send + Clone + Debug, C: CurveAffine> TranscriptWriterBuffer<W, C, Challenge255<C>>
     for Blake2bWrite<W, C, Challenge255<C>>
 where
     C::Scalar: FromUniformBytes<64>,
@@ -328,7 +329,7 @@ where
     }
 }
 
-impl<W: Write + Sync + Send + Clone, C: CurveAffine> TranscriptWriterBuffer<W, C, Challenge255<C>>
+impl<W: Write + Sync + Send + Clone + Debug, C: CurveAffine> TranscriptWriterBuffer<W, C, Challenge255<C>>
     for Keccak256Write<W, C, Challenge255<C>>
 where
     C::Scalar: FromUniformBytes<64>,
@@ -351,7 +352,7 @@ where
     }
 }
 
-impl<W: Write + Sync + Send + Clone, C: CurveAffine> TranscriptWrite<C, Challenge255<C>>
+impl<W: Write + Sync + Send + Clone + Debug, C: CurveAffine> TranscriptWrite<C, Challenge255<C>>
     for Blake2bWrite<W, C, Challenge255<C>>
 where
     C::Scalar: FromUniformBytes<64>,
@@ -368,7 +369,7 @@ where
     }
 }
 
-impl<W: Write + Sync + Send + Clone, C: CurveAffine> TranscriptWrite<C, Challenge255<C>>
+impl<W: Write + Sync + Send + Clone + Debug, C: CurveAffine> TranscriptWrite<C, Challenge255<C>>
     for Keccak256Write<W, C, Challenge255<C>>
 where
     C::Scalar: FromUniformBytes<64>,

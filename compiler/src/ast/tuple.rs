@@ -47,7 +47,10 @@ macro_rules! define_tuples {
                 fn try_borrow_variable(var: &Variable<Rt>) -> Option<Self::RtcBorrowed<'_>> {
                     match var {
                         Variable::Tuple(t) => Some(($($T::try_borrow_variable(&t[$i])?),+,)),
-                        _ => None
+                        _ => {
+                            eprintln!("expected Tuple, got {:?}", var);
+                            None
+                        }
                     }
                 }
 
@@ -60,7 +63,10 @@ macro_rules! define_tuples {
                                 Some(($($T::try_borrow_variable_mut(&mut *ptr.add($i))?),+,))
                             }
                         }
-                        _ => None
+                        _ => {
+                            eprintln!("expected Tuple, got {:?}", var);
+                            None
+                        }
                     }
                 }
             }
