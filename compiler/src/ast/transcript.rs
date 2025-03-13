@@ -38,7 +38,7 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for Transcript<Rt> {
                     Some(Typ::Transcript),
                     src,
                 )
-            };
+            }
 
             use TranscriptNode::*;
             match &self.inner.t {

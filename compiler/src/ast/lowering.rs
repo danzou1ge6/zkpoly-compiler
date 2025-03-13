@@ -109,6 +109,7 @@ impl<'s, Rt: RuntimeType> Vertex<'s, Rt> {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct Constant<Rt: RuntimeType> {
     pub(crate) name: Option<String>,
     pub(crate) value: Variable<Rt>,
