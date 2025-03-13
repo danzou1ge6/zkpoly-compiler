@@ -240,16 +240,19 @@ pub struct ObjectsDef {
     pub defs: BTreeMap<ObjectId, VertexId>,
     pub sizes: BTreeMap<ObjectId, Size>,
     pub cloned_slices: BTreeMap<(ObjectId, PolyMeta), ObjectId>,
+    pub immortal_on_cpu: BTreeSet<ObjectId>,
 }
 
-impl ObjectsDef {
-    pub fn def_at_device(&self, oid: ObjectId) -> Device {
-        let vid = self.defs[&oid];
-        self.values[&vid]
+pub fn def_at_device(def: &ObjectsDef, uses: &ObjectUse, oid: ObjectId) -> Device {
+    if let Some(vid) = def.defs.get(&oid) {
+        def.values[&vid]
             .iter()
             .find(|v| v.object_id() == oid)
             .unwrap()
             .device()
+    } else {
+        let (cloned_obj, _) = uses.cloned_slice_from(oid).unwrap();
+        def_at_device(def, uses, cloned_obj)
     }
 }
 
@@ -281,6 +284,7 @@ pub fn analyze_def<'s, Rt: RuntimeType>(
     let mut defs = BTreeMap::new();
     let mut sizes = BTreeMap::new();
     let mut cloned_slices = BTreeMap::new();
+    let mut immortal_on_cpu = BTreeSet::new();
 
     for &vid in seq.iter() {
         let v = g.vertex(vid);
@@ -430,6 +434,9 @@ pub fn analyze_def<'s, Rt: RuntimeType>(
 
                 for oid in value.object_ids() {
                     defs.insert(oid, vid);
+                    if otherwise.no_allocate_output() {
+                        immortal_on_cpu.insert(oid);
+                    }
                 }
 
                 values.insert(vid, value);
@@ -446,6 +453,7 @@ pub fn analyze_def<'s, Rt: RuntimeType>(
                 .map(|(id, s)| (id, Size::Smithereen(SmithereenSize(s))))
                 .collect(),
             cloned_slices,
+            immortal_on_cpu,
         },
         object_id_allocator,
     )
@@ -624,10 +632,26 @@ pub fn plan_vertex_inputs<'s, Rt: RuntimeType>(
 
 pub fn analyze_die_after(
     seq: &[VertexId],
-    def_use: &ObjectsDef,
+    def: &ObjectsDef,
+    uses: &ObjectUse,
     vertex_inputs: &ObjectUse,
 ) -> ObjectsDieAfter {
     let mut die_after = ObjectsDieAfter::empty();
+    let mut use_at = |obj_id: ObjectId, vid: VertexId, dev: Device| {
+        let def_at_device = def_at_device(def, uses, obj_id);
+
+        use Device::*;
+        let devices = match (dev, def_at_device) {
+            (Gpu, Gpu) => vec![Gpu],
+            (Gpu, other) => vec![Gpu, other],
+            (other, _) => vec![other],
+        };
+
+        for dev in devices {
+            die_after.get_device_mut(dev).insert(obj_id, vid);
+        }
+    };
+
     for &vid in seq.iter() {
         vertex_inputs.inputs[&vid]
             .iter()
@@ -635,20 +659,21 @@ pub fn analyze_die_after(
             .flatten()
             .for_each(|input_value| {
                 let device = input_value.device;
-                die_after
-                    .get_device_mut(device)
-                    .insert(input_value.object_id(), vid);
+                use_at(input_value.object_id(), vid, device);
 
                 if let Some((sliced_obj, _)) = vertex_inputs
                     .cloned_slices_reversed
                     .get(&input_value.object_id())
                 {
-                    die_after
-                        .get_device_mut(def_use.def_at_device(*sliced_obj))
-                        .insert(*sliced_obj, vid);
+                    use_at(*sliced_obj, vid, def_at_device(def, uses, *sliced_obj));
                 }
             });
     }
+
+    for obj_id in def.immortal_on_cpu.iter().cloned() {
+        let _ = die_after.get_device_mut(Device::Cpu).remove(&obj_id);
+    }
+
     die_after
 }
 
