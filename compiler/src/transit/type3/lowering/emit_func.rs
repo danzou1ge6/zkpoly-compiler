@@ -158,23 +158,7 @@ pub fn emit_func<'s, Rt: RuntimeType>(
                 arg: vec![transcript],
             })
         }
-        VertexNode::NewPoly(..) => {
-            let device = t3chunk.register_devices[&outputs[0]];
-            let dst = reg_id2var_id(outputs[0]);
-            if device == Device::Cpu {
-                emit(Instruction::FuncCall {
-                    func_id: f_id,
-                    arg_mut: vec![dst],
-                    arg: vec![],
-                });
-            } else {
-                emit(Instruction::FuncCall {
-                    func_id: f_id,
-                    arg_mut: vec![dst],
-                    arg: vec![stream.unwrap()],
-                });
-            }
-        }
+        VertexNode::NewPoly(..) => unreachable!("new poly should be turned into fill poly"),
         VertexNode::ScalarInvert { val } => {
             let device = t3chunk.register_devices[&outputs[0]];
             let target = reg_id2var_id(*val);

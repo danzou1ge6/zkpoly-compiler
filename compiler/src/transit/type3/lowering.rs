@@ -451,12 +451,24 @@ fn lower_instruction<'s, Rt: RuntimeType>(
             len: *len as usize,
         }),
         super::InstructionNode::FillPoly { id, operand, .. } => {
-            let arg_mut = vec![reg_id2var_id(*operand)];
-            emit(Instruction::FuncCall {
-                func_id: generated_functions.at(t3idx),
-                arg_mut,
-                arg: vec![],
-            });
+            let f_id = generated_functions.at(t3idx);
+            let device = t3chunk.register_devices[operand];
+            let dst = reg_id2var_id(*operand);
+            if device == super::Device::Cpu {
+                emit(Instruction::FuncCall {
+                    func_id: f_id,
+                    arg_mut: vec![dst],
+                    arg: vec![],
+                });
+            } else {
+                let stream = Stream::of_track(track).map(|t| stream2variable_id.get(t).clone());
+                emit(Instruction::FuncCall {
+                    func_id: f_id,
+                    arg_mut: vec![dst],
+                    arg: vec![stream.unwrap()],
+                });
+            }
+            
             emit(Instruction::MoveRegister {
                 src: reg_id2var_id(*operand),
                 dst: reg_id2var_id(*id),
