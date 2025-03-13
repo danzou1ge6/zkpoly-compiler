@@ -194,8 +194,11 @@ pub fn emit_func<'s, Rt: RuntimeType>(
         }
         VertexNode::UserFunction(_, args) => {
             let args = args.iter().map(|id| reg_id2var_id(*id)).collect::<Vec<_>>();
-            let targets = outputs.iter().map(|id| reg_id2var_id(*id)).collect::<Vec<_>>();
-            
+            let targets = outputs
+                .iter()
+                .map(|id| reg_id2var_id(*id))
+                .collect::<Vec<_>>();
+
             emit(Instruction::FuncCall {
                 func_id: f_id,
                 arg_mut: targets,

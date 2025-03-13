@@ -1,6 +1,9 @@
 use crate::{devices::DeviceType, runtime::transfer::Transfer};
 use pasta_curves::arithmetic::CurveAffine;
-use zkpoly_cuda_api::{mem::alloc_pinned, stream::CudaStream};
+use zkpoly_cuda_api::{
+    mem::{alloc_pinned, free_pinned},
+    stream::CudaStream,
+};
 use zkpoly_memory_pool::PinnedMemoryPool;
 
 #[derive(Debug, Clone)]
@@ -26,6 +29,10 @@ impl<P: CurveAffine> Point<P> {
 
     pub fn as_mut(&mut self) -> &mut P {
         unsafe { &mut *self.value }
+    }
+
+    pub fn deallocate(&mut self) {
+        free_pinned(self.value);
     }
 }
 

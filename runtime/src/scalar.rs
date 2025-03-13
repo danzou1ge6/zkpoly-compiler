@@ -30,6 +30,14 @@ impl<F: Field> Scalar<F> {
         }
     }
 
+    pub fn deallocate(&mut self) {
+        if self.device == DeviceType::CPU {
+            free_pinned(self.value);
+        } else {
+            panic!("deallocate is only supported for CPU");
+        }
+    }
+
     pub fn new_gpu(value: *mut F, device_id: i32) -> Self {
         Self {
             value,

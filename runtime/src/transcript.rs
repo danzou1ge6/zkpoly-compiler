@@ -8,6 +8,7 @@
 use blake2b_simd::{Params as Blake2bParams, State as Blake2bState};
 use group::ff::{FromUniformBytes, PrimeField};
 use sha3::{Digest, Keccak256};
+use std::alloc::{self, Layout};
 use std::convert::TryInto;
 use std::fmt::Debug;
 
@@ -17,6 +18,7 @@ use std::io::{self, Read, Write};
 use std::marker::PhantomData;
 
 use crate::args::RuntimeType;
+use crate::runtime::transfer::Transfer;
 
 /// Prefix to a prover's message soliciting a challenge
 const BLAKE2B_PREFIX_CHALLENGE: u8 = 0;
@@ -51,8 +53,24 @@ pub struct TranscriptObject<Rt: RuntimeType> {
 
 impl<Rt: RuntimeType> TranscriptObject<Rt> {
     pub fn new(val: Rt::Trans) -> Self {
-        let ptr = Box::into_raw(Box::new(val));
-        Self { ptr }
+        unsafe {
+            let ptr = alloc::alloc(Layout::new::<Rt::Trans>()) as *mut Rt::Trans;
+            ptr.write(val);
+            Self { ptr }
+        }
+    }
+
+    pub fn new_raw() -> Self {
+        unsafe {
+            let ptr = alloc::alloc(Layout::new::<Rt::Trans>()) as *mut Rt::Trans;
+            Self { ptr }
+        }
+    }
+
+    pub fn deallocate(&mut self) {
+        unsafe {
+            alloc::dealloc(self.ptr as *mut u8, Layout::new::<Rt::Trans>());
+        }
     }
 
     pub fn as_ref(&self) -> &Rt::Trans {
@@ -61,6 +79,14 @@ impl<Rt: RuntimeType> TranscriptObject<Rt> {
 
     pub fn as_mut(&mut self) -> &mut Rt::Trans {
         unsafe { &mut *self.ptr }
+    }
+}
+
+impl<Rt: RuntimeType> Transfer for TranscriptObject<Rt> {
+    fn cpu2cpu(&self, other: &mut Self) {
+        unsafe {
+            std::ptr::copy_nonoverlapping(self.ptr, other.ptr, 1);
+        }
     }
 }
 
