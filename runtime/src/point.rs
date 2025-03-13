@@ -1,24 +1,38 @@
 use crate::{devices::DeviceType, runtime::transfer::Transfer};
 use pasta_curves::arithmetic::CurveAffine;
-use zkpoly_cuda_api::stream::CudaStream;
+use zkpoly_cuda_api::{
+    mem::{alloc_pinned, free_pinned},
+    stream::CudaStream,
+};
 use zkpoly_memory_pool::PinnedMemoryPool;
 
 #[derive(Debug, Clone)]
 pub struct Point<P: CurveAffine> {
-    pub value: P,
+    pub value: *mut P,
 }
+
+unsafe impl<P: CurveAffine> Send for Point<P> {}
+unsafe impl<P: CurveAffine> Sync for Point<P> {}
 
 impl<P: CurveAffine> Point<P> {
     pub fn new(value: P) -> Self {
-        Self { value }
+        let ptr: *mut P = alloc_pinned(1);
+        unsafe {
+            ptr.write(value);
+        }
+        Self { value: ptr }
     }
 
     pub fn as_ref(&self) -> &P {
-        &self.value
+        unsafe { &*self.value }
     }
 
     pub fn as_mut(&mut self) -> &mut P {
-        &mut self.value
+        unsafe { &mut *self.value }
+    }
+
+    pub fn deallocate(&mut self) {
+        free_pinned(self.value);
     }
 }
 

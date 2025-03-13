@@ -11,8 +11,8 @@ use crate::{
     gpu_buffer::GpuBuffer,
     point::PointArray,
     runtime::RuntimeInfo,
-    scalar::Scalar,
-    scalar::ScalarArray,
+    scalar::{Scalar, ScalarArray},
+    transcript::TranscriptObject,
 };
 
 impl<T: RuntimeType> RuntimeInfo<T> {
@@ -67,7 +67,10 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                 )),
                 DeviceType::Disk => unreachable!(),
             },
-            Typ::Transcript => unreachable!(),
+            Typ::Transcript => {
+                assert!(device.is_cpu());
+                Variable::Transcript(TranscriptObject::new_raw())
+            }
             Typ::Point => {
                 assert!(device.is_cpu());
                 Variable::Point(crate::point::Point::new(T::PointAffine::identity()))
@@ -120,6 +123,18 @@ impl<T: RuntimeType> RuntimeInfo<T> {
             Variable::Stream(stream) => {
                 stream.destroy();
             }
+            Variable::Point(point) => {
+                point.deallocate();
+            }
+            Variable::Transcript(transcript) => {
+                transcript.deallocate();
+            }
+            Variable::Scalar(scalar) => match scalar.device {
+                DeviceType::CPU => {
+                    scalar.deallocate();
+                }
+                _ => {}
+            },
             _ => {}
         }
     }

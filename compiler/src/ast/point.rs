@@ -100,7 +100,7 @@ impl<Rt: RuntimeType> RuntimeCorrespondance<Rt> for Point<Rt> {
     }
     fn try_borrow_variable(var: &Variable<Rt>) -> Option<Self::RtcBorrowed<'_>> {
         match var {
-            Variable::Point(x) => Some(&x.value),
+            Variable::Point(x) => Some(x.as_ref()),
             _ => {
                 eprintln!("expected Point, got {:?}", var);
                 None
@@ -110,7 +110,7 @@ impl<Rt: RuntimeType> RuntimeCorrespondance<Rt> for Point<Rt> {
 
     fn try_borrow_variable_mut(var: &mut Variable<Rt>) -> Option<Self::RtcBorrowedMut<'_>> {
         match var {
-            Variable::Point(x) => Some(&mut x.value),
+            Variable::Point(x) => Some(x.as_mut()),
             _ => {
                 eprintln!("expected Point, got {:?}", var);
                 None

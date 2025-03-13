@@ -73,7 +73,8 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                         ScalarArray => unwrap_scalar_array_mut,
                         PointArray => unwrap_point_array_mut,
                         Scalar => unwrap_scalar_mut,
-                        Point => unwrap_point_mut
+                        Point => unwrap_point_mut,
+                        Transcript => unwrap_transcript_mut
                     );
                 }
                 DeviceType::GPU { .. } => {

@@ -1,10 +1,14 @@
 // This file is copied from halo2
+// changes:
+// - additional trait bounds
+// - add wrapper for trait object
 //! This module contains utilities and traits for dealing with Fiat-Shamir
 //! transcripts.
 
 use blake2b_simd::{Params as Blake2bParams, State as Blake2bState};
 use group::ff::{FromUniformBytes, PrimeField};
 use sha3::{Digest, Keccak256};
+use std::alloc::{self, Layout};
 use std::convert::TryInto;
 use std::fmt::Debug;
 
@@ -12,6 +16,9 @@ use halo2curves::{Coordinates, CurveAffine};
 
 use std::io::{self, Read, Write};
 use std::marker::PhantomData;
+
+use crate::args::RuntimeType;
+use crate::runtime::transfer::Transfer;
 
 /// Prefix to a prover's message soliciting a challenge
 const BLAKE2B_PREFIX_CHALLENGE: u8 = 0;
@@ -39,6 +46,52 @@ const KECCAK256_PREFIX_POINT: u8 = 1;
 /// Prefix to a prover's message containing a scalar
 const KECCAK256_PREFIX_SCALAR: u8 = 2;
 
+#[derive(Debug, Clone)]
+pub struct TranscriptObject<Rt: RuntimeType> {
+    pub ptr: *mut Rt::Trans,
+}
+
+impl<Rt: RuntimeType> TranscriptObject<Rt> {
+    pub fn new(val: Rt::Trans) -> Self {
+        unsafe {
+            let ptr = alloc::alloc(Layout::new::<Rt::Trans>()) as *mut Rt::Trans;
+            ptr.write(val);
+            Self { ptr }
+        }
+    }
+
+    pub fn new_raw() -> Self {
+        unsafe {
+            let ptr = alloc::alloc(Layout::new::<Rt::Trans>()) as *mut Rt::Trans;
+            Self { ptr }
+        }
+    }
+
+    pub fn deallocate(&mut self) {
+        unsafe {
+            alloc::dealloc(self.ptr as *mut u8, Layout::new::<Rt::Trans>());
+        }
+    }
+
+    pub fn as_ref(&self) -> &Rt::Trans {
+        unsafe { &*self.ptr }
+    }
+
+    pub fn as_mut(&mut self) -> &mut Rt::Trans {
+        unsafe { &mut *self.ptr }
+    }
+}
+
+impl<Rt: RuntimeType> Transfer for TranscriptObject<Rt> {
+    fn cpu2cpu(&self, other: &mut Self) {
+        unsafe {
+            std::ptr::copy_nonoverlapping(self.ptr, other.ptr, 1);
+        }
+    }
+}
+
+unsafe impl<Rt: RuntimeType> Send for TranscriptObject<Rt> {}
+unsafe impl<Rt: RuntimeType> Sync for TranscriptObject<Rt> {}
 /// Generic transcript view (from either the prover or verifier's perspective)
 pub trait Transcript<C: CurveAffine, E: EncodedChallenge<C>>: Send + Sync + Clone {
     /// Squeeze an encoded verifier challenge from the transcript.
@@ -72,7 +125,9 @@ pub trait TranscriptRead<C: CurveAffine, E: EncodedChallenge<C>>: Transcript<C, 
 
 /// Transcript view from the perspective of a prover that has access to an
 /// output stream of messages from the prover to the verifier.
-pub trait TranscriptWrite<C: CurveAffine, E: EncodedChallenge<C>>: Transcript<C, E> + Debug {
+pub trait TranscriptWrite<C: CurveAffine, E: EncodedChallenge<C>>:
+    Transcript<C, E> + Debug
+{
     /// Write a curve point to the proof and the transcript.
     fn write_point(&mut self, point: C) -> io::Result<()>;
 
@@ -306,8 +361,8 @@ pub struct Keccak256Write<W: Write, C: CurveAffine, E: EncodedChallenge<C>> {
     _marker: PhantomData<(C, E)>,
 }
 
-impl<W: Write + Sync + Send + Clone + Debug, C: CurveAffine> TranscriptWriterBuffer<W, C, Challenge255<C>>
-    for Blake2bWrite<W, C, Challenge255<C>>
+impl<W: Write + Sync + Send + Clone + Debug, C: CurveAffine>
+    TranscriptWriterBuffer<W, C, Challenge255<C>> for Blake2bWrite<W, C, Challenge255<C>>
 where
     C::Scalar: FromUniformBytes<64>,
 {
@@ -329,8 +384,8 @@ where
     }
 }
 
-impl<W: Write + Sync + Send + Clone + Debug, C: CurveAffine> TranscriptWriterBuffer<W, C, Challenge255<C>>
-    for Keccak256Write<W, C, Challenge255<C>>
+impl<W: Write + Sync + Send + Clone + Debug, C: CurveAffine>
+    TranscriptWriterBuffer<W, C, Challenge255<C>> for Keccak256Write<W, C, Challenge255<C>>
 where
     C::Scalar: FromUniformBytes<64>,
 {

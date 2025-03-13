@@ -683,7 +683,7 @@ pub fn emit_multithread_instructions<'s, Rt: RuntimeType>(
                 // First waits for GPU tasks
                 for &depended_t3idx in track_tasks.inst_depend[&t3idx].iter() {
                     let depended_track = track_tasks.inst_track[&depended_t3idx];
-                    if  Stream::of_track(depended_track).is_some() {
+                    if Stream::of_track(depended_track).is_some() {
                         lower_gpu_waits_gpu(
                             depended_t3idx,
                             thread,
