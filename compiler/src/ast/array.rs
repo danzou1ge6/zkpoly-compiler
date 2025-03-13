@@ -140,7 +140,10 @@ where
                 .iter()
                 .map(|v| T::try_borrow_variable(v))
                 .collect::<Option<_>>(),
-            _ => None,
+            _ => {
+                eprintln!("expected tuple, got {:?}", var);
+                None
+            }
         }
     }
 
@@ -150,7 +153,10 @@ where
                 .iter_mut()
                 .map(|v| T::try_borrow_variable_mut(v))
                 .collect::<Option<_>>(),
-            _ => None,
+            _ => {
+                eprintln!("expected tuple, got {:?}", var);
+                None
+            }
         }
     }
 }

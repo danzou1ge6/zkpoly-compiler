@@ -83,7 +83,10 @@ where
     fn try_borrow_variable_mut(var: &mut Variable<Rt>) -> Option<Self::RtcBorrowedMut<'_>> {
         match var {
             Variable::Any(x) => Some(Box::new(|t| *x = Arc::new(t))),
-            _ => None,
+            _ => {
+                eprintln!("expected Any, got {:?}", var);
+                None
+            }
         }
     }
 }
