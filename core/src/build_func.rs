@@ -18,6 +18,7 @@ pub fn resolve_curve(name: &str) -> (&str, u32) {
 
 pub fn xmake_run(target: &str) {
     if !Command::new("xmake")
+        .current_dir(get_project_root())
         .arg("build")
         .arg(target)
         .status()
