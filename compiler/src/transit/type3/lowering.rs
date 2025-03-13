@@ -718,6 +718,9 @@ pub fn lower<'s, Rt: RuntimeType>(
         })
     });
 
+    // Fillback auxiliary threads
+    mt_chunk.fillback_auxiliary_instructions();
+
     // Fork primary threads
     mt_chunk
         .primary_thread_id
@@ -729,9 +732,6 @@ pub fn lower<'s, Rt: RuntimeType>(
                 instructions: mt_chunk.thread_instructions(thread).cloned().collect(),
             })
         });
-
-    // Fillback auxiliary threads
-    mt_chunk.fillback_auxiliary_instructions();
 
     // Emit main thread instructions
     instructions.extend(
