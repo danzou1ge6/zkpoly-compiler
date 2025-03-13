@@ -11,6 +11,7 @@ pub struct FunctionType {
     pub(crate) ret_inplace: Vec<Option<usize>>,
 }
 
+#[derive(Debug)]
 pub struct Function<Rt: RuntimeType> {
     pub f: ast::user_function::Function<Rt>,
     pub typ: FunctionType,
@@ -22,19 +23,19 @@ pub enum Mutability {
     Immutable,
 }
 
-impl<Rt: RuntimeType + std::fmt::Debug> std::fmt::Debug for Function<Rt> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut st = f.debug_struct("Function");
-        st.field("name", &self.f.name).field("typ", &self.typ);
+// impl<Rt: RuntimeType + std::fmt::Debug> std::fmt::Debug for Function<Rt> {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         let mut st = f.debug_struct("Function");
+//         st.field("name", &self.f.name).field("typ", &self.typ);
 
-        match &self.f.value {
-            Value::Fn(..) => st.field("value", &"Fn"),
-            Value::Mut(..) => st.field("value", &"Mut"),
-            Value::Once(..) => st.field("value", &"Once"),
-        };
-        st.finish()
-    }
-}
+//         match &self.f.value {
+//             Value::Fn(..) => st.field("value", &"Fn"),
+//             Value::Mut(..) => st.field("value", &"Mut"),
+//             Value::Once(..) => st.field("value", &"Once"),
+//         };
+//         st.finish()
+//     }
+// }
 
 pub type Id = UserFunctionId;
 pub type Table<Rt> = Heap<Id, Function<Rt>>;

@@ -147,19 +147,40 @@ impl GeneratedFunctions {
     }
 }
 
+fn assemble_tuple<Rt: RuntimeType>(mut_var: Vec<&mut Variable<Rt>>) -> Variable<Rt> {
+    let mut var = Vec::new();
+    for v in mut_var {
+        var.push((*v).clone());
+    }
+    Variable::Tuple(var)
+}
+
 fn convert_to_runtime_func<Rt: RuntimeType>(
     func: ast::user_function::Function<Rt>,
 ) -> zkpoly_runtime::functions::Function<Rt> {
     let name = func.name.clone();
     let n_args = func.n_args;
+    let need_assemble = match &func.ret_typ {
+        type2::typ::template::Typ::Tuple(..) => true,
+        type2::typ::template::Typ::Array(..) => true,
+        _ => false,
+    };
+    let ret_type = func.ret_typ.clone();
     match func.value {
         ast::user_function::Value::Mut(mut fn_mut) => {
             let rust_func = move |mut mut_var: Vec<&mut Variable<Rt>>,
                                   var: Vec<&Variable<Rt>>|
                   -> Result<(), RuntimeError> {
-                assert_eq!(mut_var.len(), 1);
                 assert_eq!(var.len(), n_args);
-                fn_mut(mut_var[0], var)
+                if need_assemble {
+                    let mut ret = assemble_tuple(mut_var);
+                    ret_type.match_arg(&ret);
+                    fn_mut(&mut ret, var)
+                } else {
+                    assert_eq!(mut_var.len(), 1);
+                    ret_type.match_arg(&mut_var[0]);
+                    fn_mut(mut_var[0], var)
+                }
             };
             zkpoly_runtime::functions::Function {
                 name,
@@ -170,9 +191,16 @@ fn convert_to_runtime_func<Rt: RuntimeType>(
             let rust_func = move |mut mut_var: Vec<&mut Variable<Rt>>,
                                   var: Vec<&Variable<Rt>>|
                   -> Result<(), RuntimeError> {
-                assert_eq!(mut_var.len(), 1);
                 assert_eq!(var.len(), n_args);
-                fn_once(mut_var[0], var)
+                if need_assemble {
+                    let mut ret = assemble_tuple(mut_var);
+                    ret_type.match_arg(&ret);
+                    fn_once(&mut ret, var)
+                } else {
+                    assert_eq!(mut_var.len(), 1);
+                    ret_type.match_arg(&mut_var[0]);
+                    fn_once(mut_var[0], var)
+                }
             };
             zkpoly_runtime::functions::Function {
                 name,
@@ -185,9 +213,16 @@ fn convert_to_runtime_func<Rt: RuntimeType>(
             let rust_func = move |mut mut_var: Vec<&mut Variable<Rt>>,
                                   var: Vec<&Variable<Rt>>|
                   -> Result<(), RuntimeError> {
-                assert_eq!(mut_var.len(), 1);
                 assert_eq!(var.len(), n_args);
-                f(mut_var[0], var)
+                if need_assemble {
+                    let mut ret = assemble_tuple(mut_var);
+                    ret_type.match_arg(&ret);
+                    f(&mut ret, var)
+                } else {
+                    assert_eq!(mut_var.len(), 1);
+                    ret_type.match_arg(&mut_var[0]);
+                    f(mut_var[0], var)
+                }
             };
             zkpoly_runtime::functions::Function {
                 name,

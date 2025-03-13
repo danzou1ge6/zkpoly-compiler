@@ -19,6 +19,16 @@ pub enum Value<Rt: RuntimeType> {
     Fn(ValueFn<Rt>),
 }
 
+impl<Rt: RuntimeType> std::fmt::Debug for Value<Rt> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Value::Mut(_) => write!(f, "Mut"),
+            Value::Once(_) => write!(f, "Once"),
+            Value::Fn(_) => write!(f, "Fn"),
+        }
+    }
+}
+
 pub struct FunctionInCell<Rt: RuntimeType> {
     n_args: usize,
     value: Cell<Option<Value<Rt>>>,
@@ -44,6 +54,7 @@ impl<Rt: RuntimeType> std::fmt::Debug for FunctionInCell<Rt> {
     }
 }
 
+#[derive(Debug)]
 pub struct Function<Rt: RuntimeType> {
     pub(crate) n_args: usize,
     pub(crate) value: Value<Rt>,

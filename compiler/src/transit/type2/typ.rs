@@ -3,8 +3,10 @@ use zkpoly_common::typ::PolyType;
 use zkpoly_runtime::args::RuntimeType;
 
 pub mod template {
+    use zkpoly_runtime::args::Variable;
+
     use super::RuntimeType;
-    use std::{any, marker::PhantomData};
+    use std::{any, fmt::Debug, marker::PhantomData};
 
     #[derive(Debug, Clone)]
     pub enum Typ<Rt: RuntimeType, P> {
@@ -40,6 +42,37 @@ pub mod template {
     }
 
     impl<Rt: RuntimeType, P> Eq for Typ<Rt, P> where P: Eq {}
+
+    impl<Rt: RuntimeType, P: Debug> Typ<Rt, P> {
+        pub fn match_arg(&self, other: &Variable<Rt>) {
+            use Variable::*;
+            match (self, other) {
+                (Typ::Scalar, Scalar(..)) => {}
+                (Typ::Poly(..), ScalarArray(..)) => {}
+                (Typ::PointBase { .. }, PointArray(..)) => {}
+                (Typ::Transcript, Transcript(..)) => {}
+                (Typ::Point, Point(..)) => {}
+                (Typ::Any(..), Any(..)) => {}
+                (Typ::Tuple(ts), Tuple(vs)) => {
+                    if ts.len() != vs.len() {
+                        panic!("tuple length mismatch");
+                    }
+                    for (t, v) in ts.iter().zip(vs.iter()) {
+                        t.match_arg(v);
+                    }
+                }
+                (Typ::Array(t, len), Tuple(vs)) => {
+                    if *len != vs.len() {
+                        panic!("array length mismatch");
+                    }
+                    for v in vs.iter() {
+                        t.match_arg(v);
+                    }
+                }
+                _ => panic!("expected {:?}, got {:?}", self, other),
+            }
+        }
+    }
 
     impl<Rt: RuntimeType, P> Typ<Rt, P> {
         pub fn unwrap_poly(&self) -> &P {

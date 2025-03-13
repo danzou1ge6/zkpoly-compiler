@@ -228,7 +228,7 @@ fn test_msm() {
         for i in 0..BATCHES {
             let gpu_result = mut_var[msm_config.cards.len() + i as usize]
                 .unwrap_point()
-                .value;
+                .as_ref();
             let x1 = cpu_result.x;
             let y1 = cpu_result.y;
             let x2 = gpu_result.x * cpu_result.z;

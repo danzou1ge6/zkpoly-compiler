@@ -111,11 +111,7 @@ impl From<VariableId> for RMut {
 
 impl std::fmt::Display for RMut {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "R{}",
-            usize::from(self.0)
-        )
+        write!(f, "R{}", usize::from(self.0))
     }
 }
 
@@ -129,11 +125,7 @@ impl From<VariableId> for R {
 
 impl std::fmt::Display for R {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "R{}",
-            usize::from(self.0),
-        )
+        write!(f, "R{}", usize::from(self.0),)
     }
 }
 

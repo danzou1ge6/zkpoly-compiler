@@ -182,7 +182,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for MSM<T> {
                 .collect::<Vec<*mut c_void>>();
             let h_result = answers
                 .iter_mut()
-                .map(|v| &mut v.unwrap_point_mut().value as *mut T::PointAffine as *mut c_uint)
+                .map(|v| v.unwrap_point_mut().as_mut() as *mut T::PointAffine as *mut c_uint)
                 .collect::<Vec<*mut c_uint>>();
 
             unsafe {

@@ -148,7 +148,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for HashTranscript<T> {
          -> Result<(), RuntimeError> {
             assert_eq!(mut_var.len(), 1);
             assert_eq!(var.len(), 1);
-            let res = mut_var[0].unwrap_transcript_mut();
+            let res = mut_var[0].unwrap_transcript_mut().as_mut();
             match var[0] {
                 Variable::ScalarArray(scalar_array) => {
                     for scalar in scalar_array.iter() {
@@ -179,7 +179,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for HashTranscriptWrite<T> {
          -> Result<(), RuntimeError> {
             assert_eq!(mut_var.len(), 1);
             assert_eq!(var.len(), 1);
-            let res = mut_var[0].unwrap_transcript_mut();
+            let res = mut_var[0].unwrap_transcript_mut().as_mut();
             match var[0] {
                 Variable::ScalarArray(scalar_array) => {
                     for scalar in scalar_array.iter() {
@@ -211,7 +211,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for SqueezeScalar<T> {
             assert_eq!(mut_var.len(), 2);
             assert_eq!(var.len(), 0);
             let (trans_buf, scalar_buf) = mut_var.split_at_mut(1);
-            let transcript = trans_buf[0].unwrap_transcript_mut();
+            let transcript = trans_buf[0].unwrap_transcript_mut().as_mut();
             let scalar = scalar_buf[0].unwrap_scalar_mut();
             let c_scalar = transcript.squeeze_challenge_scalar();
             *scalar.as_mut() = T::Field::from(*c_scalar);

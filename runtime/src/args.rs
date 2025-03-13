@@ -1,7 +1,7 @@
 use crate::gpu_buffer::GpuBuffer;
 use crate::point::{Point, PointArray};
 use crate::scalar::{Scalar, ScalarArray};
-use crate::transcript::{EncodedChallenge, TranscriptWrite};
+use crate::transcript::{EncodedChallenge, TranscriptObject, TranscriptWrite};
 use group::ff::PrimeField;
 use pasta_curves::arithmetic::CurveAffine;
 use std::fmt::Debug;
@@ -40,7 +40,7 @@ pub enum Variable<T: RuntimeType> {
     ScalarArray(ScalarArray<T::Field>),
     PointArray(PointArray<T::PointAffine>),
     Scalar(Scalar<T::Field>),
-    Transcript(T::Trans),            // cpu only
+    Transcript(TranscriptObject<T>), // cpu only
     Point(Point<T::PointAffine>),    // cpu only
     Tuple(Vec<Variable<T>>),         // cpu only
     Stream(CudaStream),              // cpu only
@@ -91,14 +91,14 @@ impl<T: RuntimeType> Variable<T> {
         }
     }
 
-    pub fn unwrap_transcript(&self) -> &T::Trans {
+    pub fn unwrap_transcript(&self) -> &TranscriptObject<T> {
         match self {
             Variable::Transcript(transcript) => transcript,
             _ => panic!("unwrap_transcript: not a transcript"),
         }
     }
 
-    pub fn unwrap_transcript_mut(&mut self) -> &mut T::Trans {
+    pub fn unwrap_transcript_mut(&mut self) -> &mut TranscriptObject<T> {
         match self {
             Variable::Transcript(transcript) => transcript,
             _ => panic!("unwrap_transcript_mut: not a transcript"),

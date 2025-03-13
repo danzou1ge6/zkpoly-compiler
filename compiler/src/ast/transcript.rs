@@ -64,11 +64,11 @@ impl<Rt: RuntimeType> RuntimeCorrespondance<Rt> for Transcript<Rt> {
     type RtcBorrowedMut<'a> = &'a mut Self::Rtc;
 
     fn to_variable(x: Self::Rtc) -> Variable<Rt> {
-        Variable::Transcript(x)
+        Variable::Transcript(zkpoly_runtime::transcript::TranscriptObject::new(x))
     }
     fn try_borrow_variable(var: &Variable<Rt>) -> Option<Self::RtcBorrowed<'_>> {
         match var {
-            Variable::Transcript(x) => Some(x),
+            Variable::Transcript(x) => Some(x.as_ref()),
             _ => {
                 eprintln!("expected transcript, got {:?}", var);
                 None
@@ -77,7 +77,7 @@ impl<Rt: RuntimeType> RuntimeCorrespondance<Rt> for Transcript<Rt> {
     }
     fn try_borrow_variable_mut(var: &mut Variable<Rt>) -> Option<Self::RtcBorrowedMut<'_>> {
         match var {
-            Variable::Transcript(x) => Some(x),
+            Variable::Transcript(x) => Some(x.as_mut()),
             _ => {
                 eprintln!("expected transcript, got {:?}", var);
                 None

@@ -1,4 +1,8 @@
-use std::{any::{self, type_name}, cell::Cell, sync::Arc};
+use std::{
+    any::{self, type_name},
+    cell::Cell,
+    sync::Arc,
+};
 
 use super::*;
 
@@ -28,8 +32,7 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for WhateverUntyped<Rt> {
                 Constant(x) => {
                     let val = x.replace(Arc::new(0));
                     let var = Variable::Any(val);
-                    let constant =
-                        cg.add_constant(var, None);
+                    let constant = cg.add_constant(var, None);
                     new_vertex(VertexNode::Constant(constant), Some(Typ::Scalar))
                 }
                 Common(cn) => cn.vertex(cg, self.src_lowered()),
@@ -74,7 +77,12 @@ where
                 if down_cast.is_some() {
                     Some(down_cast.unwrap())
                 } else {
-                    panic!("expected {:?} with type_id {:?}, got type with type_id {:?}", type_name::<T>(), any::TypeId::of::<T>(), x.type_id())
+                    panic!(
+                        "expected {:?} with type_id {:?}, got type with type_id {:?}",
+                        type_name::<T>(),
+                        any::TypeId::of::<T>(),
+                        x.type_id()
+                    )
                 }
             }
             _ => None,
