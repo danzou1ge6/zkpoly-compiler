@@ -437,7 +437,6 @@ fn test_invert() {
     let cpu_pool = PinnedMemoryPool::new(K, size_of::<MyField>());
     let stream = Variable::Stream(CudaStream::new(0));
     let mut poly = ScalarArray::new(len, cpu_pool.allocate(len), DeviceType::CPU);
-    let mut inv = Scalar::<MyField>::new_cpu();
     let mut res = ScalarArray::new(len, cpu_pool.allocate(len), DeviceType::CPU);
     let mut rng = XorShiftRng::from_seed([0; 16]);
     for i in 0..len {
@@ -452,7 +451,6 @@ fn test_invert() {
         stream.unwrap_stream().allocate(len),
         DeviceType::GPU { device_id: 0 },
     ));
-    let mut inv_d = Variable::Scalar(Scalar::new_gpu(stream.unwrap_stream().allocate(1), 0));
 
     let buf_size = invert.get_buffer_size(len.try_into().unwrap());
     let mut temp_buf = Variable::GpuBuffer(GpuBuffer::new(
@@ -461,24 +459,19 @@ fn test_invert() {
     ));
 
     poly.cpu2gpu(poly_d.unwrap_scalar_array_mut(), stream.unwrap_stream());
-    func(vec![&mut temp_buf, &mut poly_d, &mut inv_d], vec![&stream]).unwrap();
+    func(vec![&mut temp_buf, &mut poly_d], vec![&stream]).unwrap();
     poly_d
         .unwrap_scalar_array()
         .gpu2cpu(&mut res, stream.unwrap_stream());
-    inv_d
-        .unwrap_scalar()
-        .gpu2cpu(&mut inv, stream.unwrap_stream());
     stream
         .unwrap_stream()
         .free(poly_d.unwrap_scalar_array().values);
     stream
         .unwrap_stream()
         .free(temp_buf.unwrap_gpu_buffer().ptr);
-    stream.unwrap_stream().free(inv_d.unwrap_scalar().value);
     stream.unwrap_stream().sync();
 
-    let truth = poly.as_mut().batch_invert();
-    assert_eq!(*inv.as_ref(), truth);
+    let _ = poly.as_mut().batch_invert();
 
     for i in 0..len - 1 {
         assert_eq!(res[i], poly[i]);

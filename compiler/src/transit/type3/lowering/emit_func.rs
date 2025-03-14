@@ -101,8 +101,7 @@ pub fn emit_func<'s, Rt: RuntimeType>(
         VertexNode::BatchedInvert(poly) => {
             let poly = reg_id2var_id(*poly);
             let temp = reg_id2var_id(temp[0]);
-            let inv = reg_id2var_id(outputs[0]);
-            generate_batched_invert(poly, temp, inv, stream.unwrap(), f_id, emit);
+            generate_batched_invert(poly, temp, stream.unwrap(), f_id, emit);
         }
         VertexNode::ScanMul { poly, x0 } => {
             let x0 = reg_id2var_id(*x0);
@@ -299,14 +298,13 @@ fn generate_msm(
 fn generate_batched_invert(
     poly: VariableId,
     temp: VariableId,
-    inv: VariableId, // the inverse of the mul of all elements in the poly
     stream: VariableId,
     func_id: FunctionId,
     emit: &mut impl FnMut(Instruction), // function to emit instruction
 ) {
     emit(Instruction::FuncCall {
         func_id,
-        arg_mut: vec![temp, poly, inv],
+        arg_mut: vec![temp, poly],
         arg: vec![stream],
     })
 }

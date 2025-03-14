@@ -19,7 +19,7 @@ extern "C" cudaError_t kate_division(void* temp_buf, unsigned long *temp_buf_siz
 
 extern "C" cudaError_t scan_mul(void * temp_buffer, unsigned long *buffer_size, PolyPtr target, cudaStream_t stream);
 
-extern "C" cudaError_t batched_invert(void *temp_buffer, unsigned long *buffer_size, PolyPtr poly, unsigned int *inv, cudaStream_t stream);
+extern "C" cudaError_t batched_invert(void *temp_buffer, unsigned long *buffer_size, PolyPtr poly, cudaStream_t stream);
 
 extern "C" cudaError_t inv_scalar(unsigned int* target, cudaStream_t stream);
 

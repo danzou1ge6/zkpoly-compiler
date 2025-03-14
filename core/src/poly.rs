@@ -144,7 +144,6 @@ pub struct PolyInvert<T: RuntimeType> {
             temp_buffer: *mut c_void,
             buffer_size: *mut c_ulong,
             poly: PolyPtr,
-            inv: *mut c_uint,
             stream: cudaStream_t,
         ) -> cudaError_t,
     >,
@@ -291,7 +290,6 @@ impl<T: RuntimeType> PolyInvert<T> {
                 &mut buf_size as *mut usize as *mut c_ulong,
                 PolyPtr::null(len),
                 null_mut(),
-                null_mut(),
             ));
         }
         buf_size
@@ -304,14 +302,13 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyInvert<T> {
         let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
                               var: Vec<&Variable<T>>|
               -> Result<(), RuntimeError> {
-            assert_eq!(mut_var.len(), 3);
+            assert_eq!(mut_var.len(), 2);
             assert_eq!(var.len(), 1);
-            let [temp_buf_var, target, inv] = &mut mut_var[..] else {
+            let [temp_buf_var, target] = &mut mut_var[..] else {
                 panic!("Expected 3 elements in mut_var");
             };
             let temp_buf = temp_buf_var.unwrap_gpu_buffer_mut();
             let target = target.unwrap_scalar_array_mut();
-            let inv = inv.unwrap_scalar_mut();
             let stream = var[0].unwrap_stream();
 
             unsafe {
@@ -320,7 +317,6 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyInvert<T> {
                     temp_buf.ptr as *mut c_void,
                     null_mut(),
                     PolyPtr::from(target),
-                    inv.value as *mut c_uint,
                     stream.raw(),
                 ));
             }

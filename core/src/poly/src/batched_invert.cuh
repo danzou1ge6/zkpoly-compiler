@@ -53,23 +53,24 @@ __global__ void invert(SliceIterator<Field> p, const Field *copy, const Field *i
 }
 
 template <typename Field>
-cudaError_t batched_invert(void* temp_buffer, usize *buffer_size, PolyPtr target, u32 *mul_inv, cudaStream_t stream) {
+cudaError_t batched_invert(void* temp_buffer, usize *buffer_size, PolyPtr target, cudaStream_t stream) {
     u64 len = target.len;
     auto target_iter = make_slice_iter<Field>(target);
     usize mask_sz = (len + 31) / 32 * sizeof(u32);
     usize copy_sz = len * sizeof(Field);
+    usize inv_sz = sizeof(Field);
     auto mul_op = [] __device__ __host__(const Field &a, const Field &b) { return a * b; };
+    usize temp_scan_size = 0;
+    CUDA_CHECK(cub::DeviceScan::ExclusiveScan(nullptr, temp_scan_size, target_iter, mul_op, Field::one(), len));
     if (temp_buffer == nullptr) {
-        usize temp_scan_size = 0;
-        CUDA_CHECK(cub::DeviceScan::ExclusiveScan(nullptr, temp_scan_size, target_iter, mul_op, Field::one(), len));
-        *buffer_size = temp_scan_size + mask_sz + copy_sz;
+        *buffer_size = temp_scan_size + mask_sz + copy_sz + inv_sz;
         return cudaSuccess;
     }
 
-    Field *inv = reinterpret_cast<Field*>(mul_inv);
     Field *copy = reinterpret_cast<Field*>(temp_buffer);
     u32 *bitmask = reinterpret_cast<u32*>(reinterpret_cast<char*>(temp_buffer) + copy_sz);
-    void *d_temp_scan = reinterpret_cast<char*>(temp_buffer) + mask_sz + copy_sz;
+    Field *inv = reinterpret_cast<Field*>(reinterpret_cast<char*>(temp_buffer) + mask_sz + copy_sz);
+    void *d_temp_scan = reinterpret_cast<char*>(temp_buffer) + mask_sz + copy_sz + inv_sz;
 
     u32 block = 256;
     u32 grid = div_ceil(len, block * 32);
@@ -77,12 +78,10 @@ cudaError_t batched_invert(void* temp_buffer, usize *buffer_size, PolyPtr target
     copy_and_check_zero<Field><<< grid, block, 0, stream>>>(target_iter, copy, bitmask, len);
     CUDA_CHECK(cudaGetLastError());
 
-    usize sz;
-    CUDA_CHECK(cub::DeviceScan::ExclusiveScan(nullptr, sz, target_iter, mul_op, Field::one(), len, stream));
-    CUDA_CHECK(cub::DeviceScan::ExclusiveScan(d_temp_scan, sz, target_iter, mul_op, Field::one(), len, stream));
+    CUDA_CHECK(cub::DeviceScan::ExclusiveScan(d_temp_scan, temp_scan_size, target_iter, mul_op, Field::one(), len, stream));
     
     invert_one<Field><<<1, 1, 0, stream>>>(target_iter, copy, len, inv);
-    CUDA_CHECK(cub::DeviceScan::ExclusiveScan(d_temp_scan, sz, copy, mul_op, Field::one(), len, stream));
+    CUDA_CHECK(cub::DeviceScan::ExclusiveScan(d_temp_scan, temp_scan_size, copy, mul_op, Field::one(), len, stream));
     invert<Field><<<div_ceil(len, block), block, 0, stream>>>(target_iter, copy, inv, len);
     CUDA_CHECK(cudaGetLastError());
 

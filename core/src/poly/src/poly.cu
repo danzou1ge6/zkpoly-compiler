@@ -65,8 +65,8 @@ cudaError_t scan_mul(void * temp_buffer, unsigned long *buffer_size, PolyPtr tar
     return detail::scan_mul<POLY_FIELD>(temp_buffer, buffer_size, target, stream);
 }
 
-cudaError_t batched_invert(void *temp_buffer, unsigned long *buffer_size, PolyPtr poly, unsigned int *inv, cudaStream_t stream) {
-    return detail::batched_invert<POLY_FIELD>(temp_buffer, buffer_size, poly, inv, stream);
+cudaError_t batched_invert(void *temp_buffer, unsigned long *buffer_size, PolyPtr poly, cudaStream_t stream) {
+    return detail::batched_invert<POLY_FIELD>(temp_buffer, buffer_size, poly, stream);
 }
 
 cudaError_t inv_scalar(unsigned int* target, cudaStream_t stream) {
