@@ -5,7 +5,7 @@ use std::{
 
 pub use threadpool::ThreadPool;
 
-use zkpoly_common::{cpu_event::CpuEvent, load_dynamic::Libs};
+use zkpoly_common::load_dynamic::Libs;
 
 use crate::{
     args::{new_variable_table, ConstantTable, EntryTable, RuntimeType, Variable, VariableTable},
@@ -114,10 +114,10 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         mem_allocator: Option<PinnedMemoryPool>,
         gpu_allocator: Option<Vec<CudaAllocator>>,
         epilogue: Option<Sender<i32>>,
-        thread_id: usize,
+        _thread_id: usize,
         global_mutex: Arc<std::sync::Mutex<()>>,
     ) -> Option<Variable<T>> {
-        for (id, instruction) in instructions.into_iter().enumerate() {
+        for instruction in instructions.into_iter() {
             // if thread_id == 3 {
             //     println!("variable13: {:?}", self.variable[13.into()].read().unwrap());
             // }
@@ -351,7 +351,11 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     len,
                 } => {
                     let src_guard = self.variable[src].read().unwrap();
-                    let poly = src_guard.as_ref().unwrap().unwrap_scalar_array().set_slice_raw(offset, len);
+                    let poly = src_guard
+                        .as_ref()
+                        .unwrap()
+                        .unwrap_scalar_array()
+                        .set_slice_raw(offset, len);
                     drop(src_guard);
                     // println!("set dst {:?} meta to {:?}", dst.clone(), poly.clone());
                     let mut dst_guard = self.variable[dst].write().unwrap();

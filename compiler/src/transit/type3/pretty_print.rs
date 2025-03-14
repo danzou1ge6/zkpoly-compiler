@@ -228,7 +228,7 @@ fn format_labeled_uses<'s>(inst: &Instruction<'s>) -> Vec<(RegisterId, String)> 
         Tuple { oprands, .. } => oprands
             .iter()
             .enumerate()
-            .map(|(i, id)| (*id, "".to_string()))
+            .map(|(_, id)| (*id, "".to_string()))
             .collect(),
         Transfer { from, .. } => vec![(*from, "".to_string())],
         TransferToDefed { to, from, .. } => vec![(*to, "".to_string()), (*from, "".to_string())],

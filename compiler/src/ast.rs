@@ -349,7 +349,7 @@ impl<S> ScalarArith<S> {
     where
         S: TypeEraseable<Rt>,
     {
-        use arith::{Arith, BinOp, SpOp, UnrOp};
+        use arith::{Arith, BinOp, UnrOp};
         use ScalarArith::*;
         match self {
             Bin(op, lhs, rhs) => {
@@ -378,7 +378,6 @@ pub mod whatever;
 use array::ArrayUntyped;
 use tuple::TupleUntyped;
 use user_function::FunctionUntyped;
-use whatever::WhateverUntyped;
 
 pub use array::{Array, ArrayNode};
 pub use point::{Point, PointNode, PrecomputedPoints, PrecomputedPointsData};

@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use halo2curves::ff::{Field, PrimeField};
+use halo2curves::ff::PrimeField;
 
 /// Computes smallest k such that
 ///   2^k >= [`x`]

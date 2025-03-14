@@ -1,20 +1,17 @@
 use std::{
-    any::Any,
     collections::{BTreeMap, BTreeSet},
     marker::PhantomData,
 };
 
 use zkpoly_common::{
-    bijection::Bijection,
-    define_usize_id,
-    digraph::internal::{Predecessors, SubDigraph},
-    heap::{Heap, IdAllocator, UsizeId},
+    digraph::internal::SubDigraph,
+    heap::{Heap, IdAllocator},
     injection::Injection,
     load_dynamic::Libs,
 };
 use zkpoly_runtime::args::RuntimeType;
 
-use crate::transit::type3::{self, typ::PolyMeta, Chunk, DeviceSpecific};
+use crate::transit::type3::{typ::PolyMeta, Chunk, DeviceSpecific};
 
 use super::{
     super::type3::{
@@ -26,7 +23,7 @@ use super::{
 
 use super::object_analysis::{
     self, ObjectId, ObjectUse, ObjectsDef, ObjectsDieAfter, ObjectsDieAfterReversed,
-    ObjectsGpuNextUse, ObjectsUsedBy, Value, ValueNode,
+    ObjectsGpuNextUse, Value, ValueNode,
 };
 use super::{Cg, Device, VertexId};
 
@@ -943,7 +940,7 @@ pub fn plan<'s, Rt: RuntimeType>(
         //   - If the input's space is used inplace by an output, the copy's object ID is that of the output
         //   - Otherwise, a new temporary object ID is allocated
         // - Build tuples, if needed
-        let mutable_uses: Vec<VertexId> = g.vertex(vid).mutable_uses(uf_table).collect();
+        let mutable_uses: Vec<VertexId> = g.vertex(vid).mutable_uses().collect();
         let outputs_inplace: Vec<Option<VertexId>> = g
             .vertex(vid)
             .outputs_inplace(uf_table, exe_device)

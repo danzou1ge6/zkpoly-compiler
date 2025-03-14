@@ -16,7 +16,7 @@ pub fn rewrite<'s, Rt: RuntimeType>(chunk: Chunk<'s, Rt>) -> Chunk<'s, Rt> {
             match &inst.node {
                 InstructionNode::Type2 {
                     ids,
-                    vertex: VertexNode::NewPoly(deg, _, pty),
+                    vertex: VertexNode::NewPoly(..),
                     ..
                 } => {
                     assert!(ids.len() == 1);

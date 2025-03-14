@@ -1,19 +1,17 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Mutex;
 
 use crate::transit::type2;
 
-use super::track_splitting::{split, TrackTasks};
+use super::track_splitting::TrackTasks;
 use super::{Track, VertexNode};
 use kernel_gen::GeneratedFunctions;
 use zkpoly_common::define_usize_id;
-use zkpoly_common::digraph::internal::SubDigraph;
 use zkpoly_common::heap::{Heap, IdAllocator};
 use zkpoly_common::load_dynamic::Libs;
-use zkpoly_common::typ::{PolyMeta, Typ};
+use zkpoly_common::typ::Typ;
 use zkpoly_runtime::args::{Constant, ConstantTable, RuntimeType, VariableId};
 use zkpoly_runtime::devices::{DeviceType, Event, EventTable, ThreadId};
-use zkpoly_runtime::functions::{FunctionId, FunctionTable};
+use zkpoly_runtime::functions::FunctionTable;
 use zkpoly_runtime::instructions::Instruction;
 
 mod emit_func;
@@ -324,7 +322,7 @@ fn lower_instruction<'s, Rt: RuntimeType>(
                 });
             let mut vertex = vertex.clone();
             vertex.uses_mut().for_each(|u| {
-                if let Some((id, inplace)) = ids
+                if let Some((id, _)) = ids
                     .iter()
                     .find(|(_, inplace)| inplace.is_some_and(|i| i == *u))
                 {
@@ -397,8 +395,8 @@ fn lower_instruction<'s, Rt: RuntimeType>(
                 offset: Some(physical_addr as usize),
             });
         }
-        super::InstructionNode::GpuFree { id } => {}
-        super::InstructionNode::CpuMalloc { id, size } => {
+        super::InstructionNode::GpuFree { .. } => {}
+        super::InstructionNode::CpuMalloc { id, .. } => {
             let var_id = reg_id2var_id(*id);
 
             emit(Instruction::Allocate {

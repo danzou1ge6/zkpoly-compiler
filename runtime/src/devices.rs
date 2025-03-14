@@ -1,4 +1,4 @@
-use std::sync::{mpsc::Receiver, Condvar, Mutex};
+use std::sync::{mpsc::Receiver, Mutex};
 use zkpoly_common::{cpu_event::CpuEvent, heap};
 use zkpoly_cuda_api::stream::CudaEvent;
 

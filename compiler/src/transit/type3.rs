@@ -147,11 +147,11 @@ impl<T> DeviceSpecific<T> {
 define_usize_id!(RegisterId);
 
 pub mod template {
-    use zkpoly_common::typ::{PolyMeta, PolyType};
+    use zkpoly_common::typ::PolyType;
 
     use crate::{ast::PolyInit, transit::type2};
 
-    use super::{typ, Size};
+    use super::Size;
 
     #[derive(Debug, Clone)]
     pub enum InstructionNode<I, A, V> {
