@@ -124,7 +124,7 @@ pub fn emit_func<'s, Rt: RuntimeType>(
             emit(Instruction::FuncCall {
                 func_id: f_id,
                 arg_mut: vec![poly],
-                arg: vec![powers],
+                arg: vec![powers, stream.unwrap()],
             });
         }
         VertexNode::HashTranscript {
@@ -149,12 +149,14 @@ pub fn emit_func<'s, Rt: RuntimeType>(
             });
         }
         VertexNode::SqueezeScalar(transcript) => {
+            assert_eq!(outputs.len(), 2);
+            assert_eq!(outputs[0], *transcript);
             let transcript = reg_id2var_id(*transcript);
-            let out_scalar = reg_id2var_id(outputs[0]);
+            let out_scalar = reg_id2var_id(outputs[1]); // outputs[0] is the transcript
             emit(Instruction::FuncCall {
                 func_id: f_id,
-                arg_mut: vec![out_scalar],
-                arg: vec![transcript],
+                arg_mut: vec![transcript, out_scalar],
+                arg: vec![],
             })
         }
         VertexNode::NewPoly(..) => unreachable!("new poly should be turned into fill poly"),
