@@ -143,9 +143,15 @@ impl VertexValue {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AtModifier {
+    Before,
+    After,
+}
+
 /// After which type2 vertex executes the object dies.
 /// If an object is not used by any vertex on that device, the correspounding map will not contain the object.
-pub type ObjectsDieAfter = DeviceSpecific<BTreeMap<ObjectId, VertexId>>;
+pub type ObjectsDieAfter = DeviceSpecific<BTreeMap<ObjectId, (VertexId, AtModifier)>>;
 
 pub type DeviceCollection = DeviceSpecific<bool>;
 
@@ -182,6 +188,7 @@ impl DeviceCollection {
 #[derive(Debug, Clone)]
 pub struct ObjectsDieAfterReversed {
     after: BTreeMap<VertexId, BTreeMap<ObjectId, DeviceCollection>>,
+    before: BTreeMap<VertexId, BTreeMap<ObjectId, DeviceCollection>>,
 }
 
 impl ObjectsDieAfterReversed {
@@ -194,10 +201,22 @@ impl ObjectsDieAfterReversed {
             |x| Box::new(x.iter().map(|(vid, ds)| (*vid, ds))),
         )
     }
+
+    pub fn before<'a>(
+        &'a self,
+        vid: VertexId,
+    ) -> Box<dyn Iterator<Item = (ObjectId, &'a DeviceCollection)> + 'a> {
+        self.before.get(&vid).map_or_else(
+            || Box::new(std::iter::empty()) as Box<dyn Iterator<Item = _>>,
+            |x| Box::new(x.iter().map(|(vid, ds)| (*vid, ds))),
+        )
+    }
 }
 
 impl ObjectsDieAfter {
-    pub fn iter(&self) -> impl Iterator<Item = (Device, &BTreeMap<ObjectId, VertexId>)> {
+    pub fn iter(
+        &self,
+    ) -> impl Iterator<Item = (Device, &BTreeMap<ObjectId, (VertexId, AtModifier)>)> {
         [
             (Device::Gpu, &self.gpu),
             (Device::Cpu, &self.cpu),
@@ -208,11 +227,15 @@ impl ObjectsDieAfter {
 
     pub fn reversed(&self) -> ObjectsDieAfterReversed {
         let mut after = BTreeMap::new();
+        let mut before = BTreeMap::new();
 
         self.iter().for_each(|(device, mapping)| {
-            mapping.iter().for_each(|(oid, vid)| {
-                after
-                    .entry(*vid)
+            mapping.iter().for_each(|(oid, (vid, modifier))| {
+                let map = match modifier {
+                    AtModifier::Before => &mut before,
+                    AtModifier::After => &mut after,
+                };
+                map.entry(*vid)
                     .or_insert_with(BTreeMap::new)
                     .entry(*oid)
                     .or_insert_with(DeviceCollection::empty)
@@ -220,7 +243,7 @@ impl ObjectsDieAfter {
             });
         });
 
-        ObjectsDieAfterReversed { after }
+        ObjectsDieAfterReversed { after, before }
     }
 }
 
@@ -641,14 +664,35 @@ pub fn analyze_die_after(
         let def_at_device = def_at_device(def, uses, obj_id);
 
         use Device::*;
-        let devices = match (dev, def_at_device) {
-            (Gpu, Gpu) => vec![Gpu],
-            (Gpu, other) => vec![Gpu, other],
-            (other, _) => vec![other],
+        let devices = match (def_at_device, dev) {
+            // The object is defined on GPU, and it's used by some GPU task now.
+            // We force that the object lives after current task.
+            (Gpu, Gpu) => vec![(Gpu, AtModifier::After)],
+            // The object is defined on CPU, and it's used by some CPU task now.
+            // - If the object has been used on CPU, it should has already been on CPU,
+            //   so we only enforce liveness on CPU,
+            //   allowing the object die earliear on GPU.
+            // - Otherwise, the object needs to be transferred to CPU now,
+            //   so we force that the object lives before current task,
+            //   that is, after its transfer to CPU.
+            (Gpu, other) => {
+                if die_after.get_device(other).contains_key(&obj_id) {
+                    vec![(other, AtModifier::After)]
+                } else {
+                    vec![(other, AtModifier::After), (Gpu, AtModifier::Before)]
+                }
+            }
+            // The object is defined on CPU, and it's used by some GPU task now.
+            // The object must live as long as it's needed.
+            (other, Gpu) => {
+                vec![(Gpu, AtModifier::After), (other, AtModifier::Before)]
+            }
+            // The object is defined on CPU, and it's used by some CPU task now.
+            (_, other) => vec![(other, AtModifier::After)],
         };
 
-        for dev in devices {
-            die_after.get_device_mut(dev).insert(obj_id, vid);
+        for (dev, am) in devices {
+            die_after.get_device_mut(dev).insert(obj_id, (vid, am));
         }
     };
 

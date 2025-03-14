@@ -21,6 +21,7 @@ use super::{
         typ::Typ, Addr, AddrId, AddrMapping, Device as DeterminedDevice, Instruction,
         InstructionNode, IntegralSize, RegisterId, Size, SmithereenSize,
     },
+    object_analysis::AtModifier,
     user_function,
 };
 
@@ -795,14 +796,15 @@ fn ensure_copied(
     imctx: &ImmutableContext,
 ) -> Result<RegisterId, InsufficientSmithereenSpace> {
     let no_need_copy = if device == DeterminedDevice::Gpu {
-        imctx.obj_dies_after.get_device(DeterminedDevice::Gpu)[&original_obj_id] == vid
+        let (v, modifier) =
+            &imctx.obj_dies_after.get_device(DeterminedDevice::Gpu)[&original_obj_id];
+        *v == vid && *modifier == AtModifier::After
     } else {
         imctx
             .obj_dies_after
             .get_device(device)
             .get(&original_obj_id)
-            .is_some_and(|v| *v == vid)
-            && !ctx.is_obj_alive_on(original_obj_id, DeterminedDevice::Gpu)
+            .is_some_and(|(v, modifier)| *v == vid && *modifier == AtModifier::After)
     };
 
     let input_reg = if !no_need_copy {
@@ -881,6 +883,30 @@ fn lower_typ<Rt: RuntimeType>(t2typ: &super::Typ<Rt>, value: &Value) -> Typ {
         Array(..) => panic!("array unexpected"),
         Any(id, size) => Typ::Any(*id, *size as usize),
         _Phantom(_) => unreachable!(),
+    }
+}
+
+fn deallocate_dead_objects<'a>(
+    dead_objects: impl Iterator<Item = (ObjectId, &'a object_analysis::DeviceCollection)>,
+    gpu_allocator: &mut GpuAllocator,
+    code: &mut Code,
+    ctx: &mut Context,
+) {
+    for (dead_obj, device_collection) in dead_objects {
+        if ctx.inplace_obj.contains(&dead_obj) {
+            continue;
+        }
+
+        if device_collection.gpu() {
+            gpu_allocator.deallocate(dead_obj, code, ctx);
+        }
+
+        if device_collection.cpu() {
+            deallocate_cpu(dead_obj, code, ctx);
+        }
+        if device_collection.stack() {
+            deallocate_stack(dead_obj, code, ctx);
+        }
     }
 }
 
@@ -1042,6 +1068,14 @@ pub fn plan<'s, Rt: RuntimeType>(
             })
             .collect::<Result<Vec<_>, _>>()?;
 
+        // Some objects die before the vertex is executed
+        deallocate_dead_objects(
+            obj_dies_after_reversed.before(vid),
+            &mut gpu_allocator,
+            &mut code,
+            &mut ctx,
+        );
+
         // Allocate outputs
         // - If the vertex is Entry, only new register is needed
         // - Otherwise
@@ -1186,22 +1220,12 @@ pub fn plan<'s, Rt: RuntimeType>(
         }
 
         // Deallocate dead register
-        for (dead_obj, device_collection) in imctx.obj_dies_after_reversed.after(vid) {
-            if ctx.inplace_obj.contains(&dead_obj) {
-                continue;
-            }
-
-            if device_collection.gpu() {
-                gpu_allocator.deallocate(dead_obj, &mut code, &mut ctx);
-            }
-
-            if device_collection.cpu() {
-                deallocate_cpu(dead_obj, &mut code, &mut ctx);
-            }
-            if device_collection.stack() {
-                deallocate_stack(dead_obj, &mut code, &mut ctx);
-            }
-        }
+        deallocate_dead_objects(
+            obj_dies_after_reversed.after(vid),
+            &mut gpu_allocator,
+            &mut code,
+            &mut ctx,
+        );
 
         // Update next_uses on GPU integral allocator
         for (obj, next_use) in updated_next_uses {

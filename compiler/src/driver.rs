@@ -506,7 +506,9 @@ pub fn ast2inst<Rt: RuntimeType>(
     if options.debug_obj_liveness {
         let fpath = options.debug_dir.join("type2_object_liveness.txt");
         let mut f = std::fs::File::create(&fpath).unwrap();
-        write!(f, "{:?}", &obj_dies_after).unwrap();
+        obj_dies_after.iter().for_each(|(d, m)| {
+            write!(f, "{:?}\n{:?}\n", d, m).unwrap();
+        });
     }
 
     let (obj_used_by, obj_gpu_next_use) = options.log_suround(
