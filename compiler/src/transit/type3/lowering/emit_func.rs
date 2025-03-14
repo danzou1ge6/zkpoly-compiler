@@ -124,7 +124,7 @@ pub fn emit_func<'s, Rt: RuntimeType>(
             emit(Instruction::FuncCall {
                 func_id: f_id,
                 arg_mut: vec![poly],
-                arg: vec![powers],
+                arg: vec![powers, stream.unwrap()],
             });
         }
         VertexNode::HashTranscript {
