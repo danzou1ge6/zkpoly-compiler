@@ -468,7 +468,7 @@ fn lower_instruction<'s, Rt: RuntimeType>(
                     arg: vec![stream.unwrap()],
                 });
             }
-            
+
             emit(Instruction::MoveRegister {
                 src: reg_id2var_id(*operand),
                 dst: reg_id2var_id(*id),

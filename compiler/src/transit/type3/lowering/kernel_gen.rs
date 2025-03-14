@@ -117,7 +117,7 @@ pub fn gen_fused_kernels<'s, Rt: RuntimeType>(
 ) {
     // first pass to generate fused arith kernels
     for (id, instruct) in program.iter_instructions() {
-        if let InstructionNode::Type2 { vertex, .. } = &instruct.node {
+        if let InstructionNode::Type2 { ids, vertex, .. } = &instruct.node {
             if let VertexNode::Arith { arith, .. } = vertex {
                 let arith = arith.relabeled(|r| reg_id2var_id(r));
                 let id: usize = id.into();
@@ -126,7 +126,14 @@ pub fn gen_fused_kernels<'s, Rt: RuntimeType>(
                     .outputs
                     .iter()
                     .copied()
-                    .zip(instruct.defs().map(|r| reg_id2var_id(r)))
+                    .zip((*ids).clone().into_iter().map(|(ra, rb)| {
+                        // see def in InstructionNode::Type2
+                        if rb.is_some() {
+                            reg_id2var_id(rb.unwrap()) // in-place should reuse the input variable
+                        } else {
+                            reg_id2var_id(ra) // otherwise, create a new variable
+                        }
+                    }))
                     .collect();
                 FusedOp::new(arith, name, outputs_i2o).gen(); // generate fused kernel
             }

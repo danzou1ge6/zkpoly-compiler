@@ -280,9 +280,9 @@ pub mod template {
         pub fn is_dealloc(&self) -> bool {
             use InstructionNode::*;
             match self {
-                GpuFree {.. } => true,
-                CpuFree {.. } => true,
-                StackFree {.. } => true,
+                GpuFree { .. } => true,
+                CpuFree { .. } => true,
+                StackFree { .. } => true,
                 _ => false,
             }
         }
