@@ -285,6 +285,12 @@ impl<F: Field> ScalarArray<F> {
     // helper function for transfer check
     pub fn check_target_len(&self, target: &Self) {
         if self.len != target.len {
+            if self.len >= target.len {
+                panic!(
+                    "source array length {} is larger than target array length {}",
+                    self.len, target.len
+                );
+            }
             assert!(self.len < target.len);
             assert!(target.rotate == 0);
             assert!(target.slice_info.is_none());
