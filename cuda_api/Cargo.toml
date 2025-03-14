@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+zkpoly_common = { path = "../common" }
 
 [build-dependencies]
 bindgen = "0.70"

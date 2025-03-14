@@ -1,27 +1,45 @@
+use std::sync::Condvar;
+use std::sync::Mutex;
+
+use zkpoly_common::cpu_event::CpuEvent;
+
 use crate::bindings::*;
 use crate::cuda_check;
 
-#[derive(Clone)]
+// the sematic of CudaEvent is slightly different from cudaEvent_t
+// to enforce the recording of the event before using it
+// we will use a cond var with a mutex to enforce the order
+// note that this event can only be used once
 pub struct CudaEvent {
     event: cudaEvent_t,
+    event_ready: CpuEvent,
 }
 
 impl CudaEvent {
     pub fn new() -> Self {
         let mut event: cudaEvent_t = std::ptr::null_mut();
         unsafe {
-            cuda_check!(cudaEventCreate(&mut event));
+            cuda_check!(cudaEventCreateWithFlags(&mut event, cudaEventBlockingSync));
         }
-        Self { event }
+        Self {
+            event,
+            event_ready: CpuEvent::new(),
+        }
+    }
+
+    pub fn wait_ready(&self) {
+        self.event_ready.wait();
     }
 
     pub fn record(&self, stream: &CudaStream) {
         unsafe {
             cuda_check!(cudaEventRecord(self.event, stream.raw()));
         }
+        self.event_ready.notify();
     }
 
     pub fn sync(&self) {
+        self.wait_ready();
         unsafe {
             cuda_check!(cudaEventSynchronize(self.event));
         }
@@ -93,12 +111,11 @@ impl CudaStream {
     }
 
     pub fn record(&self, event: &CudaEvent) {
-        unsafe {
-            cuda_check!(cudaEventRecord(event.as_ptr(), self.stream));
-        }
+        event.record(self);
     }
 
     pub fn wait(&self, event: &CudaEvent) {
+        event.wait_ready();
         unsafe {
             cuda_check!(cudaStreamWaitEvent(
                 self.stream,

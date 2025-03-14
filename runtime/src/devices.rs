@@ -1,5 +1,5 @@
 use std::sync::{mpsc::Receiver, Condvar, Mutex};
-use zkpoly_common::heap;
+use zkpoly_common::{cpu_event::CpuEvent, heap};
 use zkpoly_cuda_api::stream::CudaEvent;
 
 zkpoly_common::define_usize_id!(EventId);
@@ -56,7 +56,7 @@ pub enum EventType {
 
 pub enum Event {
     GpuEvent(CudaEvent),
-    ThreadEvent { cond: Condvar, lock: Mutex<bool> },
+    ThreadEvent(CpuEvent),
 }
 
 impl Event {
@@ -65,10 +65,7 @@ impl Event {
     }
 
     pub fn new_thread() -> Self {
-        Self::ThreadEvent {
-            cond: Condvar::new(),
-            lock: Mutex::new(false),
-        }
+        Self::ThreadEvent(CpuEvent::new())
     }
 }
 

@@ -1,8 +1,11 @@
-use std::sync::{mpsc::Sender, Arc};
+use std::{
+    sync::{mpsc::Sender, Arc},
+    thread,
+};
 
 pub use threadpool::ThreadPool;
 
-use zkpoly_common::load_dynamic::Libs;
+use zkpoly_common::{cpu_event::CpuEvent, load_dynamic::Libs};
 
 use crate::{
     args::{new_variable_table, ConstantTable, EntryTable, RuntimeType, Variable, VariableTable},
@@ -84,6 +87,8 @@ impl<T: RuntimeType> Runtime<T> {
             Some(self.mem_allocator),
             Some(self.gpu_allocator),
             None,
+            0,
+            Arc::new(std::sync::Mutex::new(())),
         );
         (r, info)
     }
@@ -109,8 +114,16 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         mem_allocator: Option<PinnedMemoryPool>,
         gpu_allocator: Option<Vec<CudaAllocator>>,
         epilogue: Option<Sender<i32>>,
+        thread_id: usize,
+        global_mutex: Arc<std::sync::Mutex<()>>,
     ) -> Option<Variable<T>> {
-        for instruction in instructions {
+        for (id, instruction) in instructions.into_iter().enumerate() {
+            if thread_id == 3 {
+                println!("variable13: {:?}", self.variable[13.into()].read().unwrap());
+            }
+            let _guard = global_mutex.lock().unwrap();
+            println!("instruction: {:?}, thread_id {:?}", instruction, thread_id);
+
             match instruction {
                 Instruction::Allocate {
                     device,
@@ -152,13 +165,20 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     arg_mut,
                     arg,
                 } => {
+                    dbg!("FuncCall", id, func_id, arg_mut.clone(), arg.clone());
                     let mut arg_mut_guards: Vec<_> = arg_mut
                         .iter()
-                        .map(|id| self.variable[*id].write().unwrap())
+                        .map(|id| {
+                            println!("waiting for {:?}, write", id);
+                            self.variable[*id].write().unwrap()
+                        })
                         .collect();
                     let arg_guards: Vec<_> = arg
                         .iter()
-                        .map(|id| self.variable[*id].read().unwrap())
+                        .map(|id| {
+                            println!("waiting for {:?}, read", id);
+                            self.variable[*id].read().unwrap()
+                        })
                         .collect();
 
                     let args_mut: Vec<_> = arg_mut_guards
@@ -189,9 +209,11 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                 Instruction::Wait {
                     slave,
                     stream,
-                    event,
+                    event: event_id,
                 } => {
-                    let ref event = self.events[event];
+                    println!("waiting for event{:?}", event_id);
+                    drop(_guard);
+                    let ref event = self.events[event_id];
                     match event {
                         Event::GpuEvent(cuda_event) => match slave {
                             DeviceType::CPU => {
@@ -207,13 +229,11 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                             }
                             DeviceType::Disk => unreachable!(),
                         },
-                        Event::ThreadEvent { cond, lock } => {
-                            let mut started = lock.lock().unwrap();
-                            while !*started {
-                                started = cond.wait(started).unwrap();
-                            }
+                        Event::ThreadEvent(cpu_event) => {
+                            cpu_event.wait();
                         }
                     }
+                    println!("event{:?} done", event_id);
                 }
                 Instruction::Record { stream, event } => {
                     let ref event = self.events[event];
@@ -226,10 +246,8 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                                 .unwrap_stream()
                                 .record(cuda_event);
                         }
-                        Event::ThreadEvent { cond, lock } => {
-                            let mut started = lock.lock().unwrap();
-                            *started = true;
-                            cond.notify_all();
+                        Event::ThreadEvent(cpu_event) => {
+                            cpu_event.notify();
                         }
                     }
                 }
@@ -241,9 +259,27 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     self.threads[new_thread].lock().unwrap().replace(rx);
                     let mut sub_info = self.clone();
                     sub_info.main_thread = false;
-                    self.pool.execute(move || {
-                        sub_info.run(instructions, None, None, Some(tx));
+                    let global_mutex = global_mutex.clone();
+                    thread::spawn(move || {
+                        sub_info.run(
+                            instructions,
+                            None,
+                            None,
+                            Some(tx),
+                            new_thread.into(),
+                            global_mutex,
+                        );
                     });
+                    // self.pool.execute(move || {
+                    //     sub_info.run(
+                    //         instructions,
+                    //         None,
+                    //         None,
+                    //         Some(tx),
+                    //         new_thread.into(),
+                    //         global_mutex,
+                    //     );
+                    // });
                 }
                 Instruction::Join { thread } => {
                     let rx = self.threads[thread].lock().unwrap().take().unwrap();
@@ -276,9 +312,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     *dst_guard = Some(Variable::ScalarArray(slice));
                 }
                 Instruction::LoadConstant { src, dst } => {
-                    let mut constant_guard = self.constant[src].lock().unwrap();
-                    let constant = constant_guard.take().unwrap();
-                    drop(constant_guard);
+                    let constant = self.constant[src].clone();
                     let mut guard = self.variable[dst].write().unwrap();
                     assert!(guard.is_none());
                     *guard = Some(constant.value);

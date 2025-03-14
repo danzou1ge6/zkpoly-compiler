@@ -1,5 +1,6 @@
 pub mod arith;
 pub mod bijection;
+pub mod cpu_event;
 pub mod digraph;
 pub mod get_project_root;
 pub mod heap;

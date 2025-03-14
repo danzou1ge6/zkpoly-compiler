@@ -15,7 +15,7 @@ zkpoly_common::define_usize_id!(ConstantId);
 zkpoly_common::define_usize_id!(EntryId);
 
 pub type VariableTable<T> = heap::Heap<VariableId, RwLock<Option<Variable<T>>>>;
-pub type ConstantTable<T> = heap::Heap<ConstantId, Mutex<Option<Constant<T>>>>;
+pub type ConstantTable<T> = heap::Heap<ConstantId, Constant<T>>;
 pub type EntryTable<T> = heap::Heap<EntryId, Mutex<Option<Variable<T>>>>;
 
 pub fn new_variable_table<T: RuntimeType>(len: usize) -> VariableTable<T> {
@@ -162,6 +162,7 @@ impl<T: RuntimeType> Variable<T> {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct Constant<T: RuntimeType> {
     pub name: String,
     pub value: Variable<T>,

@@ -762,11 +762,9 @@ pub fn emit_multithread_instructions<'s, Rt: RuntimeType>(
 pub fn lower_constants<Rt: RuntimeType>(
     const_table: type2::ConstantTable<Rt>,
 ) -> ConstantTable<Rt> {
-    const_table.map(&mut |_, c| {
-        Mutex::new(Some(Constant {
-            name: c.name.unwrap_or_else(String::new),
-            value: c.value,
-        }))
+    const_table.map(&mut |_, c| Constant {
+        name: c.name.unwrap_or_else(String::new),
+        value: c.value,
     })
 }
 
