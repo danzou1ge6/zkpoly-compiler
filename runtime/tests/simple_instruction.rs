@@ -10,7 +10,7 @@ use zkpoly_cuda_api::stream::CudaEvent;
 use zkpoly_memory_pool::PinnedMemoryPool;
 use zkpoly_runtime::args::{ConstantTable, EntryTable, RuntimeType, Variable, VariableTable};
 use zkpoly_runtime::async_rng::AsyncRng;
-use zkpoly_runtime::devices::{DeviceType, Event, EventTable, ThreadTable};
+use zkpoly_runtime::devices::{DeviceType, Event, EventTable};
 use zkpoly_runtime::functions::*;
 use zkpoly_runtime::instructions::Instruction;
 use zkpoly_runtime::runtime::Runtime;

@@ -16,7 +16,7 @@ pub fn rewrite<'s, Rt: RuntimeType>(chunk: Chunk<'s, Rt>) -> Chunk<'s, Rt> {
             match &inst.node {
                 InstructionNode::Type2 {
                     ids,
-                    vertex: VertexNode::NewPoly(deg, _, pty),
+                    vertex: VertexNode::NewPoly(..),
                     ..
                 } => {
                     assert!(ids.len() == 1);
@@ -143,7 +143,7 @@ pub fn rewrite<'s, Rt: RuntimeType>(chunk: Chunk<'s, Rt>) -> Chunk<'s, Rt> {
                     ]
                     .into_iter()
                     .chain(
-                        [t0, t1, t3]
+                        [t1, t3]
                             .into_iter()
                             .map(|t| inst(InstructionNode::StackFree { id: t })),
                     )

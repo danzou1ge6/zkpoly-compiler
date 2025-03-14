@@ -5,7 +5,7 @@ use std::{
 
 pub use threadpool::ThreadPool;
 
-use zkpoly_common::{cpu_event::CpuEvent, load_dynamic::Libs};
+use zkpoly_common::load_dynamic::Libs;
 
 use crate::{
     args::{new_variable_table, ConstantTable, EntryTable, RuntimeType, Variable, VariableTable},
@@ -114,15 +114,15 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         mem_allocator: Option<PinnedMemoryPool>,
         gpu_allocator: Option<Vec<CudaAllocator>>,
         epilogue: Option<Sender<i32>>,
-        thread_id: usize,
+        _thread_id: usize,
         global_mutex: Arc<std::sync::Mutex<()>>,
     ) -> Option<Variable<T>> {
-        for (id, instruction) in instructions.into_iter().enumerate() {
-            if thread_id == 3 {
-                println!("variable13: {:?}", self.variable[13.into()].read().unwrap());
-            }
-            let _guard = global_mutex.lock().unwrap();
-            println!("instruction: {:?}, thread_id {:?}", instruction, thread_id);
+        for instruction in instructions.into_iter() {
+            // if thread_id == 3 {
+            //     println!("variable13: {:?}", self.variable[13.into()].read().unwrap());
+            // }
+            // let _guard = global_mutex.lock().unwrap();
+            // println!("instruction: {:?}, thread_id {:?}", instruction, thread_id);
 
             match instruction {
                 Instruction::Allocate {
@@ -165,18 +165,18 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     arg_mut,
                     arg,
                 } => {
-                    dbg!("FuncCall", id, func_id, arg_mut.clone(), arg.clone());
+                    // dbg!("FuncCall", id, func_id, arg_mut.clone(), arg.clone());
                     let mut arg_mut_guards: Vec<_> = arg_mut
                         .iter()
                         .map(|id| {
-                            println!("waiting for {:?}, write", id);
+                            // println!("waiting for {:?}, write", id);
                             self.variable[*id].write().unwrap()
                         })
                         .collect();
                     let arg_guards: Vec<_> = arg
                         .iter()
                         .map(|id| {
-                            println!("waiting for {:?}, read", id);
+                            // println!("waiting for {:?}, read", id);
                             self.variable[*id].read().unwrap()
                         })
                         .collect();
@@ -211,8 +211,8 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     stream,
                     event: event_id,
                 } => {
-                    println!("waiting for event{:?}", event_id);
-                    drop(_guard);
+                    // println!("waiting for event{:?}", event_id);
+                    // drop(_guard);
                     let ref event = self.events[event_id];
                     match event {
                         Event::GpuEvent(cuda_event) => match slave {
@@ -233,7 +233,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                             cpu_event.wait();
                         }
                     }
-                    println!("event{:?} done", event_id);
+                    // println!("event{:?} done", event_id);
                 }
                 Instruction::Record { stream, event } => {
                     let ref event = self.events[event];
@@ -351,9 +351,13 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     len,
                 } => {
                     let src_guard = self.variable[src].read().unwrap();
-                    let poly = src_guard.as_ref().unwrap().unwrap_scalar_array().clone();
+                    let poly = src_guard
+                        .as_ref()
+                        .unwrap()
+                        .unwrap_scalar_array()
+                        .set_slice_raw(offset, len);
                     drop(src_guard);
-                    poly.set_slice_raw(offset, len);
+                    // println!("set dst {:?} meta to {:?}", dst.clone(), poly.clone());
                     let mut dst_guard = self.variable[dst].write().unwrap();
                     assert!(dst_guard.is_none());
                     *dst_guard = Some(Variable::ScalarArray(poly));

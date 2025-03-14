@@ -10,7 +10,7 @@ use crate::transit::{
     type3::{typ::Slice as SliceRange, Device, DeviceSpecific, Size, SmithereenSize},
 };
 
-use super::{Cg, Typ, VertexId};
+use super::{Typ, VertexId};
 
 define_usize_id!(ObjectId);
 
@@ -351,7 +351,7 @@ pub fn analyze_def<'s, Rt: RuntimeType>(
                         device: pred_value.device,
                         object_id: pred_value.object_id,
                     },
-                    ValueNode::SlicedPoly { slice, deg } => {
+                    ValueNode::SlicedPoly { slice, .. } => {
                         // Rotation after slice is not implemented, so we clone the slice to a new polynomial
                         let cloned_obj_id = object_id_allocator.alloc();
                         cloned_slices.insert(

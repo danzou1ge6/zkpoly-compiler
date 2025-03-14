@@ -1,6 +1,3 @@
-use std::sync::Condvar;
-use std::sync::Mutex;
-
 use zkpoly_common::cpu_event::CpuEvent;
 
 use crate::bindings::*;

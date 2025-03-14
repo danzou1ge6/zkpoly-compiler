@@ -9,12 +9,11 @@
 //! - Memory Planning
 //! > Type3
 
-use crate::ast::{self, scalar};
+use crate::ast;
 use crate::transit::{self, PolyInit, SourceInfo};
 pub use ast::lowering::{Constant, ConstantId, ConstantTable};
 pub use typ::Typ;
 use zkpoly_common::arith::{self, ArithUnrOp, UnrOp};
-use zkpoly_common::define_usize_id;
 use zkpoly_common::digraph;
 use zkpoly_common::heap::UsizeId;
 use zkpoly_common::load_dynamic::Libs;
@@ -22,7 +21,6 @@ pub use zkpoly_common::typ::PolyType;
 use zkpoly_memory_pool::PinnedMemoryPool;
 pub use zkpoly_runtime::args::{RuntimeType, Variable};
 pub use zkpoly_runtime::error::RuntimeError;
-use zkpoly_runtime::scalar::Scalar;
 
 zkpoly_common::define_usize_id!(VertexId);
 
@@ -119,10 +117,7 @@ pub enum Device {
 }
 
 pub mod template {
-    use zkpoly_common::{
-        arith::{ArithUnrOp, UnrOp},
-        msm_config::MsmConfig,
-    };
+    use zkpoly_common::msm_config::MsmConfig;
     use zkpoly_runtime::args::EntryId;
 
     use super::{arith, transit, Device, NttAlgorithm, PolyInit, PolyType};
@@ -391,10 +386,7 @@ where
     pub fn device(&self) -> Device {
         self.node().device()
     }
-    pub fn mutable_uses<'a>(
-        &'a self,
-        uf_table: &'a user_function::Table<Rt>,
-    ) -> Box<dyn Iterator<Item = I> + 'a> {
+    pub fn mutable_uses<'a>(&'a self) -> Box<dyn Iterator<Item = I> + 'a> {
         use template::VertexNode::*;
         match self.node() {
             ScalarInvert { val } => Box::new([*val].into_iter()),
@@ -412,10 +404,7 @@ where
             _ => Box::new([].into_iter()),
         }
     }
-    pub fn mutable_uses_mut<'a>(
-        &'a mut self,
-        uf_table: &'a user_function::Table<Rt>,
-    ) -> Box<dyn Iterator<Item = &'a mut I> + 'a> {
+    pub fn mutable_uses_mut<'a>(&'a mut self) -> Box<dyn Iterator<Item = &'a mut I> + 'a> {
         use template::VertexNode::*;
         match self.node_mut() {
             ScalarInvert { val } => Box::new([val].into_iter()),

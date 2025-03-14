@@ -1,9 +1,6 @@
-use super::typ::Typ;
-use crate::ast::{self, lowering::UserFunctionId, user_function::Value};
-use zkpoly_common::define_usize_id;
+use crate::ast::{self, lowering::UserFunctionId};
 use zkpoly_common::heap::Heap;
-use zkpoly_runtime::args::{RuntimeType, Variable};
-use zkpoly_runtime::error::RuntimeError;
+use zkpoly_runtime::args::RuntimeType;
 
 #[derive(Debug, Clone)]
 pub struct FunctionType {
