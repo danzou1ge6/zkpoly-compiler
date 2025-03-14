@@ -541,10 +541,6 @@ fn lower_gpu_waits_gpu(
     event_table: &mut EventTable,
     chunk: &mut MultithreadChunk,
 ) {
-    if Stream::of_track(depended_track).unwrap() == stream {
-        return;
-    }
-
     let event_id = event_table.push(Event::new_gpu());
 
     chunk.append_at(
@@ -642,17 +638,17 @@ pub fn emit_multithread_instructions<'s, Rt: RuntimeType>(
         let track = track_tasks.inst_track[&t3idx];
         let pthread = PrimaryThread::for_track(track);
 
-        if Stream::of_track(track).is_some()
+        if track.is_gpu()
             && track_tasks.inst_depend[&t3idx]
                 .iter()
-                .any(|&depended_t3idx| {
-                    Stream::of_track(track_tasks.inst_track[&depended_t3idx]).is_none()
-                })
+                .any(|&depended_t3idx| track_tasks.inst_track[&depended_t3idx].is_cpu())
         {
             // GPU waits for some CPU tasks
             let depended_threads: BTreeSet<_> = track_tasks.inst_depend[&t3idx]
                 .iter()
-                .map(|&depended_t3idx| chunk.thread_of(depended_t3idx))
+                .copied()
+                .filter(|&t3idx| track_tasks.inst_track[&t3idx].is_cpu())
+                .map(|depended_t3idx| chunk.thread_of(depended_t3idx))
                 .collect();
 
             if depended_threads.len() > 1 {

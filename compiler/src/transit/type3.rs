@@ -327,6 +327,16 @@ pub enum Track {
     GpuMemory,
 }
 
+impl Track {
+    pub fn is_gpu(&self) -> bool {
+        lowering::Stream::of_track(*self).is_some()
+    }
+
+    pub fn is_cpu(&self) -> bool {
+        lowering::Stream::of_track(*self).is_none()
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct TrackSpecific<T> {
     pub(crate) memory_management: T,

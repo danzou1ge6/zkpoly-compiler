@@ -60,30 +60,37 @@ pub fn split<'s, Rt: RuntimeType>(chunk: &Chunk<'s, Rt>) -> TrackTasks {
             );
 
         // Collect last dependency of each track
-        let mut last_of_each_track = TrackSpecific::<Option<InstructionIndex>>::default();
+        let mut depended_of_each_track = TrackSpecific::<Vec<InstructionIndex>>::default();
 
         for depended_inst in depended_instructions {
             let depended_track =
                 chunk[depended_inst].track(|reg_id| chunk.register_devices[&reg_id]);
-            let last = last_of_each_track
-                .get_track(depended_track)
-                .unwrap_or_else(|| depended_inst);
-            last_of_each_track
-                .get_track_mut(depended_track)
-                .replace(std::cmp::max(last, depended_inst));
+
+            if depended_track.is_cpu() {
+                let last = depended_of_each_track
+                    .get_track(depended_track)
+                    .get(0)
+                    .cloned()
+                    .unwrap_or_else(|| depended_inst);
+                *depended_of_each_track.get_track_mut(depended_track) =
+                    vec![std::cmp::max(last, depended_inst)];
+            } else {
+                depended_of_each_track
+                    .get_track_mut(depended_track)
+                    .push(depended_inst);
+            }
         }
 
         // Insert synchronization points
         track_tasks.inst_depend.insert(i, Vec::new());
 
-        last_of_each_track
-            .iter()
-            .filter_map(|(track, last)| Some((track, last.as_ref()?)))
-            .for_each(|(_, &last)| {
-                if last != i {
-                    track_tasks.inst_depend.get_mut(&i).unwrap().push(last);
+        depended_of_each_track.iter().for_each(|(_, depended)| {
+            depended.iter().for_each(|&depended| {
+                if depended != i {
+                    track_tasks.inst_depend.get_mut(&i).unwrap().push(depended);
                 }
             });
+        });
 
         track_tasks.inst_track.insert(i, track);
     }
