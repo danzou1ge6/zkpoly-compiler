@@ -91,6 +91,13 @@ impl<T: RuntimeType> Variable<T> {
         }
     }
 
+    pub fn unwrap_transcript_move(self) -> TranscriptObject<T> {
+        match self {
+            Variable::Transcript(transcript) => transcript,
+            _ => panic!("unwrap_transcript: not a transcript"),
+        }
+    }
+
     pub fn unwrap_transcript(&self) -> &TranscriptObject<T> {
         match self {
             Variable::Transcript(transcript) => transcript,

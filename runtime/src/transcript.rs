@@ -80,6 +80,14 @@ impl<Rt: RuntimeType> TranscriptObject<Rt> {
     pub fn as_mut(&mut self) -> &mut Rt::Trans {
         unsafe { &mut *self.ptr }
     }
+
+    pub fn take(self) -> Rt::Trans {
+        unsafe {
+            let r = std::ptr::read(self.ptr);
+            alloc::dealloc(self.ptr as *mut u8, Layout::new::<Rt::Trans>());
+            r
+        }
+    }
 }
 
 impl<Rt: RuntimeType> Transfer for TranscriptObject<Rt> {
