@@ -421,10 +421,10 @@ fn lower_instruction<'s, Rt: RuntimeType>(
         super::InstructionNode::TransferToDefed { id, to, from } => {
             emit(Instruction::Transfer {
                 src_device: DeviceType::from(t3chunk.register_devices[from]),
-                dst_device: DeviceType::from(t3chunk.register_devices[id]),
+                dst_device: DeviceType::from(t3chunk.register_devices[to]),
                 stream: Stream::of_track(track).map(|s| *stream2variable_id.get(s)),
                 src_id: reg_id2var_id(*from),
-                dst_id: reg_id2var_id(*id),
+                dst_id: reg_id2var_id(*to),
             });
             emit(Instruction::MoveRegister {
                 src: reg_id2var_id(*to),

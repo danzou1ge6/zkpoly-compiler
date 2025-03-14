@@ -68,14 +68,6 @@ impl<F: Field> Scalar<F> {
     }
 }
 
-impl<F: Field> Drop for Scalar<F> {
-    fn drop(&mut self) {
-        if self.device == DeviceType::CPU {
-            free_pinned(self.value);
-        }
-    }
-}
-
 impl<F: Field> Transfer for Scalar<F> {
     fn cpu2cpu(&self, target: &mut Self) {
         assert!(self.device == DeviceType::CPU);
