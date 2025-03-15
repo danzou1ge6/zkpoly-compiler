@@ -453,6 +453,7 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
 
                 type2::Typ::Scalar
             }
+            AssertEq(..) => todo!("support no return value"),
         };
         if let Some(annotated_typ) = v.typ() {
             if !annotated_typ.compatible_with_type2(&typ) {

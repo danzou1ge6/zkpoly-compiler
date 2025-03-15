@@ -147,6 +147,20 @@ pub struct ScalarSlice {
 unsafe impl<F: Field> Send for ScalarArray<F> {}
 unsafe impl<F: Field> Sync for ScalarArray<F> {}
 
+impl<F: Field> PartialEq for ScalarArray<F> {
+    fn eq(&self, other: &Self) -> bool {
+        if self.len != other.len {
+            return false;
+        }
+        for i in 0..self.len {
+            if self[i] != other[i] {
+                return false;
+            }
+        }
+        true
+    }
+}
+
 impl<F: Field> ScalarArray<F> {
     pub fn new(len: usize, ptr: *mut F, device: DeviceType) -> Self {
         Self {

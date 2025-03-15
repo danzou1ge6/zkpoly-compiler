@@ -1,3 +1,5 @@
+use std::ops::Index;
+
 use crate::{devices::DeviceType, runtime::transfer::Transfer};
 use pasta_curves::arithmetic::CurveAffine;
 use zkpoly_cuda_api::{
@@ -52,6 +54,23 @@ pub struct PointArray<P: CurveAffine> {
 unsafe impl<P: CurveAffine> Send for PointArray<P> {}
 unsafe impl<P: CurveAffine> Sync for PointArray<P> {}
 
+impl<P: CurveAffine> PartialEq for PointArray<P> {
+    fn eq(&self, other: &Self) -> bool {
+        if self.len != other.len {
+            return false;
+        }
+        if self.device != other.device {
+            return false;
+        }
+        for i in 0..self.len {
+            if self[i] != other[i] {
+                return false;
+            }
+        }
+        true
+    }
+}
+
 impl<P: CurveAffine> PointArray<P> {
     pub fn new(len: usize, ptr: *mut P, device: DeviceType) -> Self {
         Self {
@@ -76,6 +95,15 @@ impl<P: CurveAffine> PointArray<P> {
             std::ptr::copy_nonoverlapping(vec.as_ptr(), r.values, vec.len());
         }
         r
+    }
+}
+
+impl<P: CurveAffine> Index<usize> for PointArray<P> {
+    type Output = P;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        assert!(index < self.len);
+        unsafe { &*self.values.add(index) }
     }
 }
 
@@ -133,4 +161,15 @@ impl<P: CurveAffine> Transfer for PointArray<P> {
         );
         stream.memcpy_d2d(target.values, self.values, self.len);
     }
+}
+
+#[test]
+fn test_compare_point_array() {
+    use halo2curves::bn256::G1Affine as G1;
+    use zkpoly_memory_pool::PinnedMemoryPool;
+
+    let mut pool = PinnedMemoryPool::new(10, size_of::<G1>());
+    let a = PointArray::from_vec(&[G1::generator(), G1::generator()], &mut pool);
+    let b = PointArray::from_vec(&[G1::generator(), G1::generator()], &mut pool);
+    assert_eq!(a, b);
 }

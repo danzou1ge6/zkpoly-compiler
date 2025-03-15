@@ -23,6 +23,7 @@ use zkpoly_cuda_api::mem::CudaAllocator;
 use zkpoly_memory_pool::PinnedMemoryPool;
 
 pub mod alloc;
+pub mod assert_eq;
 pub mod transfer;
 
 pub struct Runtime<T: RuntimeType> {
@@ -145,6 +146,8 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     if let Some(var) = guard.as_mut() {
                         self.deallocate(var, &mem_allocator);
                         *guard = None;
+                    } else {
+                        panic!("deallocate a non-existing variable");
                     }
                 }
                 Instruction::Transfer {
@@ -404,6 +407,15 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     drop(src_guard);
                     let mut dst_guard = self.variable[dst].write().unwrap();
                     *dst_guard = Some(var);
+                }
+                Instruction::AssertEq { value, expected } => {
+                    let value_guard = self.variable[value].read().unwrap();
+                    let expected_guard = self.variable[expected].read().unwrap();
+                    let value = value_guard.as_ref().unwrap();
+                    let expected = expected_guard.as_ref().unwrap();
+                    if !assert_eq::assert_eq(value, expected) {
+                        panic!("assertion eq failed at thread {:?}", _thread_id);
+                    }
                 }
             }
         }

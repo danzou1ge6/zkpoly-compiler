@@ -112,6 +112,11 @@ pub enum Instruction {
         src: EntryId,
         dst: VariableId,
     },
+
+    AssertEq {
+        value: VariableId,
+        expected: VariableId,
+    },
 }
 
 pub fn instruction_label<Rt: RuntimeType>(
@@ -170,6 +175,7 @@ pub fn instruction_label<Rt: RuntimeType>(
         ),
         MoveRegister { .. } => "Move".to_string(),
         LoadInput { src, .. } => format!("LoadInput({:?})", src),
+        AssertEq { value, expected } => format!("AssertEq({:?}, {:?})", value, expected),
     }
 }
 
@@ -195,6 +201,7 @@ pub fn labeled_mutable_uses(inst: &Instruction) -> Vec<(VariableId, String)> {
         GetScalarFromArray { dst, .. } => vec![(*dst, "".to_string())],
         MoveRegister { dst, .. } => vec![(*dst, "".to_string())],
         LoadInput { dst, .. } => vec![(*dst, "".to_string())],
+        AssertEq { .. } => vec![],
     }
 }
 
@@ -215,6 +222,10 @@ pub fn labeled_uses(inst: &Instruction) -> Vec<(VariableId, String)> {
         GetScalarFromArray { src, .. } => vec![(*src, "".to_string())],
         MoveRegister { src, .. } => vec![(*src, "".to_string())],
         LoadInput { .. } => vec![],
+        AssertEq { value, expected } => vec![
+            (*value, "value".to_string()),
+            (*expected, "expected".to_string()),
+        ],
     }
 }
 
