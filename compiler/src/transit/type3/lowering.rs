@@ -367,6 +367,11 @@ fn lower_instruction<'s, Rt: RuntimeType>(
                         stream,
                     })
                 }
+                VertexNode::AssertEq(src, truth) => {
+                    let src = reg_id2var_id(*src);
+                    let truth = reg_id2var_id(*truth);
+                    emit(Instruction::AssertEq { value: src, expected: truth })
+                }
                 _ => {
                     emit_func::emit_func(
                         t3idx,
