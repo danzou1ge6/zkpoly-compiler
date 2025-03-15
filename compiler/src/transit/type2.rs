@@ -459,6 +459,7 @@ where
             SingleArith(arith::Arith::Unr(UnrOp::S(ArithUnrOp::Pow(_)), scalar)) => {
                 Box::new([Some(*scalar)].into_iter())
             }
+            AssertEq(src, _) => Box::new([Some(*src)].into_iter()),
             _ => {
                 let len = self.typ().size().len();
                 Box::new(std::iter::repeat(None).take(len))

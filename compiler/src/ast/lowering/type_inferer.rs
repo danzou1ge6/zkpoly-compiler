@@ -43,6 +43,7 @@ pub enum ErrorNode<Rt: RuntimeType> {
         index: u64,
         len: u64,
     },
+    AssertDifferentTypes(type2::Typ<Rt>, type2::Typ<Rt>),
 }
 
 #[derive(Debug, Clone)]
@@ -453,7 +454,14 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
 
                 type2::Typ::Scalar
             }
-            AssertEq(..) => todo!("support no return value"),
+            AssertEq(src, expected) => {
+                let src_typ = self.infer(cg, *src)?;
+                let expected_typ = self.infer(cg, *expected)?;
+                if src_typ != expected_typ {
+                    return Err(err(ErrorNode::AssertDifferentTypes(src_typ, expected_typ)));
+                }
+                src_typ
+            }
         };
         if let Some(annotated_typ) = v.typ() {
             if !annotated_typ.compatible_with_type2(&typ) {
