@@ -103,6 +103,25 @@ pub fn print<Rt: RuntimeType>(
             all_rows.forEach(r => r.style.color = 'rgb(125, 125, 125)')
             use_rows.forEach(r => r.style.color = 'black')
         }
+        function isElementVisible(el) {
+            const rect = el.getBoundingClientRect();
+            const windowHeight = window.innerHeight || document.documentElement.clientHeight;
+            const windowWidth = window.innerWidth || document.documentElement.clientWidth;
+            
+            const visibilityThreshold = rect.height * 0.3;
+            
+            const verticalVisible = (
+                rect.top <= windowHeight - visibilityThreshold &&
+                rect.bottom >= visibilityThreshold
+            );
+
+            const horizontalVisible = (
+                rect.left <= windowWidth &&
+                rect.right >= 0
+            );
+
+            return verticalVisible && horizontalVisible;
+        }
 
         document.querySelectorAll('.register').forEach(r => {
             let n = extractNumber(r.classList)
@@ -129,8 +148,9 @@ pub fn print<Rt: RuntimeType>(
                 target.style.background = 'rgb(251, 255, 0)'
                 setTimeout(() => {
                     target.style.background = 'white'
-                }, 3000)
-                target.scrollIntoView({ behavior: 'smooth' })
+                }, 2000)
+                if (!isElementVisible(target))
+                    target.scrollIntoView({ behavior: 'smooth' })
             });
         });
     </script>
