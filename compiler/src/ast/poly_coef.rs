@@ -23,6 +23,7 @@ pub enum PolyCoefNode<Rt: RuntimeType> {
     DistributePowers(PolyCoef<Rt>, PolyLagrange<Rt>),
     Blind(PolyCoef<Rt>, u64, u64),
     KateDivision(PolyCoef<Rt>, Scalar<Rt>),
+    AssertEq(PolyCoef<Rt>, PolyCoef<Rt>),
     Common(CommonNode<Rt>),
 }
 
@@ -116,6 +117,11 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for PolyCoef<Rt> {
                 let lhs = lhs.erase(cg);
                 let b = b.erase(cg);
                 new_vertex(VertexNode::KateDivision(lhs, b), Some(Typ::coef()))
+            }
+            AssertEq(a, b) => {
+                let a = a.erase(cg);
+                let b = b.erase(cg);
+                new_vertex(VertexNode::AssertEq(a, b), Some(Typ::coef()))
             }
             Common(cn) => cn.vertex(cg, self.src_lowered()),
         })
@@ -287,6 +293,12 @@ impl<Rt: RuntimeType> PolyCoef<Rt> {
     pub fn kate_div(&self, b: &Scalar<Rt>) -> Self {
         let src = SourceInfo::new(Location::caller().clone(), None);
         PolyCoef::new(PolyCoefNode::KateDivision(self.clone(), b.clone()), src)
+    }
+
+    #[track_caller]
+    pub fn assert_eq(&self, b: &PolyCoef<Rt>) -> Self {
+        let src = SourceInfo::new(Location::caller().clone(), None);
+        PolyCoef::new(PolyCoefNode::AssertEq(self.clone(), b.clone()), src)
     }
 }
 

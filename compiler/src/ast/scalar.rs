@@ -13,6 +13,7 @@ pub enum ScalarNode<Rt: RuntimeType> {
     EvaluatePoly(PolyCoef<Rt>, Scalar<Rt>),
     IndexLagrange(PolyLagrange<Rt>, u64),
     IndexCoef(PolyCoef<Rt>, u64),
+    AssertEq(Scalar<Rt>, Scalar<Rt>),
     Common(CommonNode<Rt>),
 }
 
@@ -54,6 +55,11 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for Scalar<Rt> {
                 IndexLagrange(poly, idx) => {
                     let poly = poly.erase(cg);
                     new_vertex(VertexNode::IndexPoly(poly, *idx), Some(Typ::Scalar))
+                }
+                AssertEq(a, b) => {
+                    let a = a.erase(cg);
+                    let b = b.erase(cg);
+                    new_vertex(VertexNode::AssertEq(a, b), Some(Typ::Scalar))
                 }
                 Common(cn) => cn.vertex(cg, self.src_lowered()),
             }
@@ -142,6 +148,12 @@ impl<Rt: RuntimeType> Scalar<Rt> {
     pub fn pow(&self, power: u64) -> Self {
         let src = SourceInfo::new(Location::caller().clone(), None);
         self.clone().unr_op(ArithUnrOp::Pow(power), src)
+    }
+
+    #[track_caller]
+    pub fn assert_eq(&self, rhs: &Scalar<Rt>) -> Self {
+        let src = SourceInfo::new(Location::caller().clone(), None);
+        Scalar::new(ScalarNode::AssertEq(self.clone(), rhs.clone()), src)
     }
 }
 

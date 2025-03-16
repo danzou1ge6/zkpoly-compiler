@@ -19,6 +19,7 @@ pub enum PolyLagrangeNode<Rt: RuntimeType> {
     DistributePowers(PolyLagrange<Rt>, PolyLagrange<Rt>),
     ScanMul(PolyLagrange<Rt>, Scalar<Rt>),
     Extend(PolyLagrange<Rt>, u64),
+    AssertEq(PolyLagrange<Rt>, PolyLagrange<Rt>),
     Common(CommonNode<Rt>),
 }
 
@@ -119,6 +120,15 @@ impl<'c, Rt: RuntimeType> TypeEraseable<Rt> for PolyLagrange<Rt> {
                     Vertex::new(
                         VertexNode::Extend(poly, *deg),
                         Some(Typ::lagrange_with_deg(*deg)),
+                        self.src_lowered(),
+                    )
+                }
+                AssertEq(a, b) => {
+                    let a = a.erase(cg);
+                    let b = b.erase(cg);
+                    Vertex::new(
+                        VertexNode::AssertEq(a, b),
+                        Some(Typ::lagrange()),
                         self.src_lowered(),
                     )
                 }
@@ -278,6 +288,12 @@ impl<'c, Rt: RuntimeType> PolyLagrange<Rt> {
     pub fn extend(&self, deg: u64) -> Self {
         let src = SourceInfo::new(Location::caller().clone(), None);
         PolyLagrange::new(PolyLagrangeNode::Extend(self.clone(), deg), src.clone())
+    }
+
+    #[track_caller]
+    pub fn assert_eq(&self, rhs: &PolyLagrange<Rt>) -> Self {
+        let src = SourceInfo::new(Location::caller().clone(), None);
+        PolyLagrange::new(PolyLagrangeNode::AssertEq(self.clone(), rhs.clone()), src)
     }
 }
 

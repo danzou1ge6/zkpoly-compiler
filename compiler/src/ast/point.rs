@@ -71,6 +71,7 @@ impl<Rt: RuntimeType> RuntimeCorrespondance<Rt> for PrecomputedPoints<Rt> {
 
 #[derive(Debug)]
 pub enum PointNode<Rt: RuntimeType> {
+    AssertEq(Point<Rt>, Point<Rt>),
     Common(CommonNode<Rt>),
 }
 
@@ -84,9 +85,27 @@ impl<Rt: RuntimeType> From<(CommonNode<Rt>, SourceInfo)> for Point<Rt> {
 
 impl<Rt: RuntimeType> TypeEraseable<Rt> for Point<Rt> {
     fn erase<'s>(&self, cg: &mut Cg<'s, Rt>) -> VertexId {
+        use PointNode::*;
         cg.lookup_or_insert_with(self.as_ptr(), |cg| match &self.inner.t {
-            PointNode::Common(node) => node.vertex(cg, self.src_lowered()),
+            AssertEq(a, b) => {
+                let a = a.erase(cg);
+                let b = b.erase(cg);
+                Vertex::new(
+                    VertexNode::AssertEq(a, b),
+                    Some(Typ::Point),
+                    self.src_lowered(),
+                )
+            }
+            Common(node) => node.vertex(cg, self.src_lowered()),
         })
+    }
+}
+
+impl<Rt: RuntimeType> Point<Rt> {
+    #[track_caller]
+    pub fn assert_eq(&self, b: &Point<Rt>) -> Self {
+        let src = SourceInfo::new(Location::caller().clone(), None);
+        Self::new(PointNode::AssertEq(self.clone(), b.clone()), src)
     }
 }
 
