@@ -457,7 +457,7 @@ pub fn analyze_def<'s, Rt: RuntimeType>(
 
                 for oid in value.object_ids() {
                     defs.insert(oid, vid);
-                    if otherwise.no_allocate_output() {
+                    if otherwise.immortal_on_cpu() {
                         immortal_on_cpu.insert(oid);
                     }
                 }
