@@ -55,7 +55,7 @@ pub fn prettify<'s, Rt: RuntimeType>(
             uses.forEach(use => use.style.background = "rgb(173, 216, 230)")
             defs.forEach(def => def.style.background = "rgb(144, 238, 144)")
 
-            all_rows.forEach(r => r.style.color = 'gray')
+            all_rows.forEach(r => r.style.color = 'rgb(125, 125, 125)')
             use_rows.forEach(r => r.style.color = 'black')
             def_rows.forEach(r => r.style.color = 'black')
         }

@@ -125,46 +125,29 @@ pub fn instruction_label<Rt: RuntimeType>(
 ) -> String {
     use Instruction::*;
     match inst {
-        Allocate {
-            device,
-            typ,
-            offset,
-            ..
-        } => offset.map_or_else(
-            || format!("Allocate({:?}, {:?})", device, typ),
-            |offset| format!("AllocateGpu({:?}, {:?}, {})", device, typ, offset),
+        Allocate { device, offset, .. } => offset.map_or_else(
+            || format!("Allocate({:?})", device),
+            |_| format!("AllocateGpu"),
         ),
         Deallocate { .. } => "Deallocate".to_string(),
         RemoveRegister { .. } => "RemoveRegister".to_string(),
-        Transfer {
-            src_device,
-            dst_device,
-            stream,
-            ..
-        } => stream.map_or_else(
-            || format!("Transfer({:?} to {:?})", src_device, dst_device),
-            |_| format!("TransferPcie({:?} to {:?})", src_device, dst_device),
-        ),
+        Transfer { stream, .. } => {
+            stream.map_or_else(|| format!("Transfer"), |_| format!("TransferPcie"))
+        }
         FuncCall { func_id, .. } => {
             format!("Call({}: {})", usize::from(*func_id), &ftab[*func_id].name)
         }
-        Wait {
-            slave,
-            stream,
-            event,
-        } => stream.map_or_else(
-            || format!("WaitThread({:?}, {:?})", slave, event),
-            |_| format!("WaitStream({:?}, {:?})", slave, event),
-        ),
-        Record { stream, event } => stream.map_or_else(
-            || format!("Record({:?})", event),
-            |_| format!("RecordStream({:?})", event),
-        ),
-        Fork { new_thread, .. } => format!("Fork({:?})", new_thread),
-        Join { thread } => format!("Join({:?})", thread),
+        Wait { stream, .. } => {
+            stream.map_or_else(|| format!("WaitThread"), |_| format!("WaitStream"))
+        }
+        Record { stream, .. } => {
+            stream.map_or_else(|| format!("Record"), |_| format!("RecordStream"))
+        }
+        Fork { .. } => "Fork".to_string(),
+        Join { .. } => "Join".to_string(),
         Rotation { shift, .. } => format!("Rotation({})", shift),
         Slice { start, end, .. } => format!("Slice({},{})", start, end),
-        LoadConstant { src, .. } => format!("LoadConstant({:?})", src),
+        LoadConstant { .. } => "LoadConstant".to_string(),
         AssembleTuple { .. } => "AssembleTuple".to_string(),
         Blind { start, end, .. } => format!("Blind({}, {})", start, end),
         Return(..) => "Return".to_string(),
@@ -174,8 +157,30 @@ pub fn instruction_label<Rt: RuntimeType>(
             |_| format!("IndexPolyGpu({})", idx),
         ),
         MoveRegister { .. } => "Move".to_string(),
-        LoadInput { src, .. } => format!("LoadInput({:?})", src),
-        AssertEq { value, expected } => format!("AssertEq({:?}, {:?})", value, expected),
+        LoadInput { .. } => "LoadInput".to_string(),
+        AssertEq { .. } => "AssertEq".to_string(),
+    }
+}
+
+pub fn static_args(inst: &Instruction) -> Option<String> {
+    use Instruction::*;
+    match inst {
+        Allocate { typ, offset, .. } => Some(offset.map_or_else(
+            || format!("{:?}", typ),
+            |offset| format!("{:?}, {}", typ, offset),
+        )),
+        Transfer {
+            src_device,
+            dst_device,
+            ..
+        } => Some(format!("{:?} to {:?}", src_device, dst_device)),
+        Wait { event, slave, .. } => Some(format!("{:?}, {:?}", event, slave)),
+        Record { event, .. } => Some(format!("{:?}", event)),
+        Fork { new_thread, .. } => Some(format!("{:?}", new_thread)),
+        Join { thread } => Some(format!("{:?}", thread)),
+        LoadConstant { src, .. } => Some(format!("{:?}", src)),
+        LoadInput { src, .. } => Some(format!("{:?}", src)),
+        _ => None,
     }
 }
 

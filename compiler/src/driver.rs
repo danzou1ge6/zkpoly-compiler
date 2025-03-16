@@ -602,11 +602,10 @@ pub fn ast2inst<Rt: RuntimeType>(
         )?;
 
     if options.debug_multithread_instructions {
-        let path = options.debug_dir.join("multithread_instructions.dot");
+        let path = options.debug_dir.join("multithread_instructions.html");
         let mut f = std::fs::File::create(&path).unwrap();
-        type3::lowering::pretty_print::print_graph(&mt_chunk, &f_table, &event_table, &mut f)
+        type3::lowering::pretty_print::print(&mt_chunk, &stream2variable_id, &f_table, &mut f)
             .unwrap();
-        ctx.add(compile_dot(path));
     }
 
     // - Serialize Multithread Chunk
