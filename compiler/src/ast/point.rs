@@ -72,6 +72,7 @@ impl<Rt: RuntimeType> RuntimeCorrespondance<Rt> for PrecomputedPoints<Rt> {
 #[derive(Debug)]
 pub enum PointNode<Rt: RuntimeType> {
     AssertEq(Point<Rt>, Point<Rt>),
+    Constant(Rt::PointAffine),
     Common(CommonNode<Rt>),
 }
 
@@ -96,6 +97,14 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for Point<Rt> {
                     self.src_lowered(),
                 )
             }
+            Constant(c) => {
+                let constant = cg.add_constant(Point::to_variable(c.clone()), None);
+                Vertex::new(
+                    VertexNode::Constant(constant),
+                    Some(Typ::Point),
+                    self.src_lowered(),
+                )
+            }
             Common(node) => node.vertex(cg, self.src_lowered()),
         })
     }
@@ -106,6 +115,12 @@ impl<Rt: RuntimeType> Point<Rt> {
     pub fn assert_eq(&self, b: &Point<Rt>) -> Self {
         let src = SourceInfo::new(Location::caller().clone(), None);
         Self::new(PointNode::AssertEq(self.clone(), b.clone()), src)
+    }
+
+    #[track_caller]
+    pub fn constant(data: Rt::PointAffine) -> Self {
+        let src = SourceInfo::new(Location::caller().clone(), None);
+        Self::new(PointNode::Constant(data), src)
     }
 }
 
