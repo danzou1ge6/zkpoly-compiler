@@ -244,6 +244,7 @@ pub mod template {
                 DistributePowers { powers, poly } => Box::new([poly, powers].into_iter()),
                 Return(x) => Box::new([x].into_iter()),
                 IndexPoly(x, _) => Box::new([x].into_iter()),
+                AssertEq(x, y) => Box::new([x, y].into_iter()),
                 _ => Box::new(std::iter::empty()),
             }
         }
@@ -411,6 +412,7 @@ where
             SingleArith(arith::Arith::Unr(UnrOp::S(ArithUnrOp::Pow(_)), scalar)) => {
                 Box::new([*scalar].into_iter())
             }
+            AssertEq(a, _) => Box::new([*a].into_iter()),
             _ => Box::new([].into_iter()),
         }
     }
@@ -429,6 +431,7 @@ where
             SingleArith(arith::Arith::Unr(UnrOp::S(ArithUnrOp::Pow(_)), scalar)) => {
                 Box::new([scalar].into_iter())
             }
+            AssertEq(a, _) => Box::new([a].into_iter()),
             _ => Box::new([].into_iter()),
         }
     }

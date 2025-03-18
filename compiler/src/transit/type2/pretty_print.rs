@@ -267,7 +267,7 @@ pub(crate) fn format_node_label<'s, Vid: UsizeId + Debug>(
         DistributePowers { .. } => String::from("DistPowers"),
         ScalarInvert { .. } => String::from("ScalarInvert"),
         IndexPoly(_, idx) => format!("IndexPoly({})", idx),
-        AssertEq(src, truth) => format!("AssertEq({:?}, {:?})", src, truth),
+        AssertEq(..) => "AssertEq".to_string()
     }
 }
 
@@ -323,6 +323,9 @@ pub(crate) fn format_labeled_uses<'s, Vid: UsizeId + Debug>(
         ScanMul { x0, poly } => vec![(*x0, "x0".to_string()), (*poly, "poly".to_string())],
         DistributePowers { poly, powers } => {
             vec![(*poly, "poly".to_string()), (*powers, "powers".to_string())]
+        }
+        AssertEq(a, b) => {
+            vec![(*a, "a".to_string()), (*b, "".to_string())]
         }
         _ => vertex_node.uses().map(|u| (u, String::new())).collect(),
     }
