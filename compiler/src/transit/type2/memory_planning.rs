@@ -862,7 +862,7 @@ fn lower_typ<Rt: RuntimeType>(t2typ: &super::Typ<Rt>, value: &Value) -> Typ {
                 }
             }
             ValueNode::SlicedPoly { slice, deg } => {
-                assert!(deg0 == deg);
+                // deg0 == deg should not be enforced, as deg is degree of the sliced polynomial, not the slice
                 Typ::ScalarArray {
                     len: *deg as usize,
                     meta: PolyMeta::Sliced(slice.clone()),
