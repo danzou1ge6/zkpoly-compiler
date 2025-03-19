@@ -288,9 +288,10 @@ fn test_distribute_zeta() {
         // compute on cpu
         let poly_rust = domain.coeff_to_extended(poly_rust);
 
-        let mut zeta_cpu = ScalarArray::<MyField>::new(2, cpu_alloc.allocate(2), DeviceType::CPU);
-        zeta_cpu[0] = g_coset;
-        zeta_cpu[1] = g_coset_inv;
+        let mut zeta_cpu = ScalarArray::<MyField>::new(3, cpu_alloc.allocate(3), DeviceType::CPU);
+        zeta_cpu[0] = Field::ONE;
+        zeta_cpu[1] = g_coset;
+        zeta_cpu[2] = g_coset_inv;
 
         let mut pq = ScalarArray::<MyField>::new(
             precompute.get_pq_len(extended_k),
@@ -307,7 +308,7 @@ fn test_distribute_zeta() {
             .unwrap_stream()
             .allocate(precompute.get_pq_len(extended_k));
         let ptr_omegas: *mut MyField = stream.unwrap_stream().allocate(32);
-        let ptr_zeta: *mut MyField = stream.unwrap_stream().allocate(2);
+        let ptr_zeta: *mut MyField = stream.unwrap_stream().allocate(3);
 
         let mut poly_gpu = Variable::ScalarArray(ScalarArray::<MyField>::new(
             1 << extended_k,
@@ -327,7 +328,7 @@ fn test_distribute_zeta() {
             DeviceType::GPU { device_id: 0 },
         ));
         let mut zeta_gpu = Variable::ScalarArray(ScalarArray::<MyField>::new(
-            2,
+            3,
             ptr_zeta,
             DeviceType::GPU { device_id: 0 },
         ));

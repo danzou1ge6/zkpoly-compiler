@@ -4,8 +4,8 @@ namespace detail {
     template<typename Field>
     __global__ void distribute_powers_kernel(SliceIterator<Field> target, const Field *powers, u64 power_num, unsigned long long len) {
         unsigned long long idx = blockIdx.x * blockDim.x + threadIdx.x;
-        if (idx < len && idx % (power_num + 1) != 0) {
-            target[idx] = target[idx] * powers[(idx % (power_num + 1)) - 1];
+        if (idx < len) {
+            target[idx] = target[idx] * powers[idx % power_num];
         }
     }
 
