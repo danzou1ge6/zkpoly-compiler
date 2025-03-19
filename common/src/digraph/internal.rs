@@ -188,6 +188,12 @@ where
         let deg: Heap<I, usize> = self.0.map_by_ref(&mut |_, v| v.predecessors().count());
         deg
     }
+    pub fn degrees_in_no_multiedge(&self) -> Heap<I, usize> {
+        let deg: Heap<I, usize> = self
+            .0
+            .map_by_ref(&mut |_, v| v.predecessors().collect::<BTreeSet<_>>().len());
+        deg
+    }
     pub fn degrees_out(&self) -> Heap<I, usize> {
         let mut deg = Heap::repeat(0, self.order());
         for v in self.0.iter() {
@@ -216,7 +222,7 @@ where
 {
     pub fn topology_sort<'g>(&'g self) -> impl Iterator<Item = (I, &'g V)> + 'g {
         let successors = self.successors();
-        let deg = self.degrees_in();
+        let deg = self.degrees_in_no_multiedge();
         let queue: VecDeque<I> = deg
             .iter_with_id()
             .filter_map(|(id, d)| if *d == 0 { Some(id) } else { None })
@@ -233,7 +239,7 @@ where
         &'g self,
         successors: &'s Heap<I, BTreeSet<I>>,
     ) -> TopologyIterator<'g, 's, I, V> {
-        let deg = self.degrees_in();
+        let deg = self.degrees_in_no_multiedge();
         let queue: VecDeque<I> = deg
             .iter_with_id()
             .filter_map(|(id, d)| if *d == 0 { Some(id) } else { None })
@@ -312,7 +318,7 @@ where
             selector,
             order,
             successors: succ,
-            degrees_in: g.degrees_in(),
+            degrees_in: g.degrees_in_no_multiedge(),
         }
     }
 
