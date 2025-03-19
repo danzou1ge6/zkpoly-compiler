@@ -8,9 +8,15 @@ use zkpoly_cuda_api::{
 };
 use zkpoly_memory_pool::PinnedMemoryPool;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Point<P: CurveAffine> {
     pub value: *mut P,
+}
+
+impl<P: CurveAffine> std::fmt::Debug for Point<P> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({:?}){:?}", self.value, unsafe { self.value.as_ref() })
+    }
 }
 
 unsafe impl<P: CurveAffine> Send for Point<P> {}

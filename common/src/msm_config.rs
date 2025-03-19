@@ -49,6 +49,6 @@ impl MsmConfig {
 
 impl Default for MsmConfig {
     fn default() -> Self {
-        MsmConfig::new(16, 4, vec![0], false, 8, 2, 2, 2, 254)
+        MsmConfig::new(16, 16, vec![0], false, 1, 1, 1, 1, 254)
     }
 }
