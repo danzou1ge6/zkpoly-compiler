@@ -408,6 +408,10 @@ pub fn analyze_def<'s, Rt: RuntimeType>(
 
                 values.insert(vid, VertexValue::Single(value));
             }
+            AssertEq(a, _) => {
+                let pred_value = values[a].clone();
+                values.insert(vid, pred_value);
+            }
             otherwise => {
                 assert!(!otherwise.is_virtual());
 

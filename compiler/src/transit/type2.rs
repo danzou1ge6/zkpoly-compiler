@@ -412,7 +412,6 @@ where
             SingleArith(arith::Arith::Unr(UnrOp::S(ArithUnrOp::Pow(_)), scalar)) => {
                 Box::new([*scalar].into_iter())
             }
-            AssertEq(a, _) => Box::new([*a].into_iter()),
             _ => Box::new([].into_iter()),
         }
     }
@@ -431,7 +430,6 @@ where
             SingleArith(arith::Arith::Unr(UnrOp::S(ArithUnrOp::Pow(_)), scalar)) => {
                 Box::new([scalar].into_iter())
             }
-            AssertEq(a, _) => Box::new([a].into_iter()),
             _ => Box::new([].into_iter()),
         }
     }
@@ -470,7 +468,6 @@ where
             SingleArith(arith::Arith::Unr(UnrOp::S(ArithUnrOp::Pow(_)), scalar)) => {
                 Box::new([Some(*scalar)].into_iter())
             }
-            AssertEq(src, _) => Box::new([Some(*src)].into_iter()),
             _ => {
                 let len = self.typ().size().len();
                 Box::new(std::iter::repeat(None).take(len))

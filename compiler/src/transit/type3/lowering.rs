@@ -371,12 +371,10 @@ fn lower_instruction<'s, Rt: RuntimeType>(
                     assert!(ids.len() == 1);
                     let src = reg_id2var_id(*src);
                     let truth = reg_id2var_id(*truth);
-                    let out = reg_id2var_id(ids[0]);
                     emit(Instruction::AssertEq {
                         value: src,
                         expected: truth,
                     });
-                    emit(Instruction::MoveRegister { src, dst: out })
                 }
                 _ => {
                     emit_func::emit_func(

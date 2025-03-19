@@ -151,7 +151,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     assert!(self.main_thread);
                     let mut guard = self.variable[id].write().unwrap();
                     if let Some(var) = guard.as_mut() {
-                        self.deallocate(var, &mem_allocator);
+                        self.deallocate(var, id, &mem_allocator);
                         *guard = None;
                     } else {
                         panic!("deallocate a non-existing variable");

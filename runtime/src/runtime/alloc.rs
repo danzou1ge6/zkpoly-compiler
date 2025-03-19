@@ -6,7 +6,7 @@ use zkpoly_cuda_api::{mem::CudaAllocator, stream::CudaStream};
 use zkpoly_memory_pool::PinnedMemoryPool;
 
 use crate::{
-    args::{RuntimeType, Variable},
+    args::{RuntimeType, Variable, VariableId},
     devices::DeviceType,
     gpu_buffer::GpuBuffer,
     point::PointArray,
@@ -97,11 +97,14 @@ impl<T: RuntimeType> RuntimeInfo<T> {
     pub(super) fn deallocate(
         &self,
         var: &mut Variable<T>,
+        var_id: VariableId,
         mem_allocator: &Option<PinnedMemoryPool>,
     ) {
         match var {
             Variable::ScalarArray(poly) => {
-                assert!(poly.slice_info.is_none(), "slice can't be deallocated");
+                if poly.slice_info.is_some() {
+                    panic!("slice at {:?} can't be deallocated", var_id)
+                }
                 match poly.device {
                     DeviceType::CPU => {
                         mem_allocator.as_ref().unwrap().free(poly.values);
@@ -117,7 +120,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
             },
             Variable::Tuple(vec) => {
                 for var in vec {
-                    self.deallocate(var, mem_allocator);
+                    self.deallocate(var, var_id, mem_allocator);
                 }
             }
             Variable::Stream(stream) => {

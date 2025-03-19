@@ -861,10 +861,10 @@ fn lower_typ<Rt: RuntimeType>(t2typ: &super::Typ<Rt>, value: &Value) -> Typ {
                     meta: PolyMeta::Rotated(*rotation),
                 }
             }
-            ValueNode::SlicedPoly { slice, deg } => {
+            ValueNode::SlicedPoly { slice, .. } => {
                 // deg0 == deg should not be enforced, as deg is degree of the sliced polynomial, not the slice
                 Typ::ScalarArray {
-                    len: *deg as usize,
+                    len: *deg0 as usize,
                     meta: PolyMeta::Sliced(slice.clone()),
                 }
             }
