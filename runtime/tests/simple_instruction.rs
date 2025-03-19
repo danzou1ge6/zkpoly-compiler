@@ -4,18 +4,18 @@ use halo2curves::bn256;
 use threadpool::ThreadPool;
 use zkpoly_common::load_dynamic::Libs;
 use zkpoly_common::typ::Typ;
-use zkpoly_core::poly::PolyAdd;
+use zkpoly_core::poly::{PolyAdd, PolyZero};
 use zkpoly_cuda_api::mem::CudaAllocator;
 use zkpoly_cuda_api::stream::CudaEvent;
 use zkpoly_memory_pool::PinnedMemoryPool;
 use zkpoly_runtime::args::{ConstantTable, EntryTable, RuntimeType, Variable, VariableTable};
 use zkpoly_runtime::async_rng::AsyncRng;
 use zkpoly_runtime::devices::{DeviceType, Event, EventTable};
-use zkpoly_runtime::functions::*;
 use zkpoly_runtime::instructions::Instruction;
 use zkpoly_runtime::runtime::Runtime;
 use zkpoly_runtime::scalar::ScalarArray;
 use zkpoly_runtime::transcript::{Blake2bWrite, Challenge255};
+use zkpoly_runtime::{functions::*, instructions};
 
 #[derive(Debug, Clone)]
 pub struct MyRuntimeType;
@@ -168,7 +168,7 @@ fn test_add() {
 
     let runtime = Runtime::new(
         instructions,
-        variable.len(),
+        0,
         ConstantTable::new(),
         EntryTable::new(),
         funcs,
@@ -179,7 +179,8 @@ fn test_add() {
         vec![gpu_alloc],
         AsyncRng::new(10),
         libs,
-    );
+    )
+    .with_variables(variable);
     let (_, info) = runtime.run();
     let variable = info.variable;
 
@@ -209,4 +210,144 @@ fn test_add() {
             .unwrap_scalar_array_mut()
             .values,
     );
+}
+
+#[test]
+fn test_extend() {
+    let k = 3;
+    let len = 1 << k;
+    let half_len = len / 2;
+
+    let compiler_alloc = PinnedMemoryPool::new(k, size_of::<MyField>());
+    let cpu_alloc = PinnedMemoryPool::new(k, size_of::<MyField>());
+    let gpu_alloc = CudaAllocator::new(0, 2usize.pow(20));
+
+    let mut a_in = Variable::ScalarArray(ScalarArray::new(
+        half_len,
+        compiler_alloc.allocate(half_len),
+        DeviceType::CPU,
+    ));
+    for iter in a_in.unwrap_scalar_array_mut().iter_mut() {
+        *iter = MyField::one();
+    }
+
+    let c_out = Variable::ScalarArray(ScalarArray::new(
+        len,
+        compiler_alloc.allocate(len),
+        DeviceType::CPU,
+    ));
+
+    let mut variable = VariableTable::<MyRuntimeType>::new();
+    let ids = variable.push(RwLock::new(None));
+    let ida = variable.push(RwLock::new(Some(a_in)));
+    let idc = variable.push(RwLock::new(Some(c_out)));
+    let id0 = variable.push(RwLock::new(None));
+    let id1 = variable.push(RwLock::new(None));
+    let id2 = variable.push(RwLock::new(None));
+    let id3 = variable.push(RwLock::new(None));
+    let id4 = variable.push(RwLock::new(None));
+    let id5 = variable.push(RwLock::new(None));
+
+    let mut libs = Libs::new();
+    let mut funcs = FunctionTable::<MyRuntimeType>::new();
+    let f_poly_zero = funcs.push(PolyZero::new(&mut libs).get_fn());
+
+    let events = EventTable::new();
+
+    let instructions = vec![
+        Instruction::Allocate {
+            device: DeviceType::GPU { device_id: 0 },
+            typ: Typ::Stream,
+            id: ids,
+            offset: None,
+        },
+        Instruction::Allocate {
+            device: DeviceType::GPU { device_id: 0 },
+            typ: Typ::scalar_array(half_len),
+            id: id0,
+            offset: Some(1024),
+        },
+        Instruction::Transfer {
+            src_device: DeviceType::CPU,
+            dst_device: DeviceType::GPU { device_id: 0 },
+            stream: Some(ids),
+            src_id: ida,
+            dst_id: id0,
+        },
+        Instruction::Allocate {
+            device: DeviceType::GPU { device_id: 0 },
+            typ: Typ::scalar_array(len),
+            id: id1,
+            offset: Some(0),
+        },
+        Instruction::FuncCall {
+            func_id: f_poly_zero,
+            arg_mut: vec![id1],
+            arg: vec![ids],
+        },
+        Instruction::MoveRegister { src: id1, dst: id2 },
+        Instruction::SetSliceMeta {
+            src: id2,
+            dst: id3,
+            offset: 0,
+            len: half_len,
+        },
+        Instruction::Transfer {
+            src_device: DeviceType::GPU { device_id: 0 },
+            dst_device: DeviceType::GPU { device_id: 0 },
+            stream: Some(ids),
+            src_id: id0,
+            dst_id: id3,
+        },
+        Instruction::MoveRegister { src: id3, dst: id4 },
+        Instruction::SetSliceMeta {
+            src: id4,
+            dst: id5,
+            offset: 0,
+            len: len,
+        },
+        Instruction::Transfer {
+            src_device: DeviceType::GPU { device_id: 0 },
+            dst_device: DeviceType::CPU,
+            stream: Some(ids),
+            src_id: id5,
+            dst_id: idc,
+        },
+    ];
+
+    let runtime = Runtime::new(
+        instructions,
+        0,
+        ConstantTable::new(),
+        EntryTable::new(),
+        funcs,
+        ThreadPool::new(1),
+        events,
+        0,
+        cpu_alloc,
+        vec![gpu_alloc],
+        AsyncRng::new(10),
+        libs,
+    )
+    .with_variables(variable);
+    let (_, info) = runtime.run();
+    let variable = info.variable;
+
+    let binding_c = variable[idc].read().unwrap();
+
+    for (i, ci) in binding_c
+        .as_ref()
+        .unwrap()
+        .unwrap_scalar_array()
+        .iter()
+        .enumerate()
+    {
+        if i < half_len {
+            assert_eq!(*ci, MyField::one());
+        } else {
+            assert_eq!(*ci, MyField::zero());
+        }
+    }
+
+    drop(binding_c);
 }

@@ -42,6 +42,13 @@ pub struct Runtime<T: RuntimeType> {
 }
 
 impl<T: RuntimeType> Runtime<T> {
+    pub fn with_variables(
+        mut self,
+        variable: VariableTable<T>
+    ) -> Self {
+        self.variable = variable;
+        self
+    }
     pub fn new(
         instructions: Vec<Instruction>,
         n_variables: usize,
@@ -118,7 +125,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         _thread_id: usize,
         global_mutex: Arc<std::sync::Mutex<()>>,
     ) -> Option<Variable<T>> {
-        for instruction in instructions.into_iter() {
+        for (i, instruction) in instructions.into_iter().enumerate() {
             // if thread_id == 3 {
             //     println!("variable13: {:?}", self.variable[13.into()].read().unwrap());
             // }
@@ -408,13 +415,13 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     let mut dst_guard = self.variable[dst].write().unwrap();
                     *dst_guard = Some(var);
                 }
-                Instruction::AssertEq { value, expected } => {
-                    let value_guard = self.variable[value].read().unwrap();
-                    let expected_guard = self.variable[expected].read().unwrap();
+                Instruction::AssertEq { value: value_id, expected: expected_id } => {
+                    let value_guard = self.variable[value_id].read().unwrap();
+                    let expected_guard = self.variable[expected_id].read().unwrap();
                     let value = value_guard.as_ref().unwrap();
                     let expected = expected_guard.as_ref().unwrap();
                     if !assert_eq::assert_eq(value, expected) {
-                        panic!("assertion eq failed at thread {:?}", _thread_id);
+                        panic!("assertion eq failed at thread {:?}: {:?} != {:?}", _thread_id, value_id, expected_id);
                     }
                 }
             }

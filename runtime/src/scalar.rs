@@ -227,7 +227,11 @@ impl<F: Field> ScalarArray<F> {
             device: self.device.clone(),
             slice_info: Some(ScalarSlice {
                 offset,
-                whole_len: self.len.clone(),
+                whole_len: if self.slice_info.is_none() {
+                    self.len
+                } else {
+                    self.slice_info.as_ref().unwrap().whole_len
+                }
             }),
         }
     }

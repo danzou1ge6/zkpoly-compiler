@@ -131,8 +131,12 @@ pub fn instruction_label<Rt: RuntimeType>(
         ),
         Deallocate { .. } => "Deallocate".to_string(),
         RemoveRegister { .. } => "RemoveRegister".to_string(),
-        Transfer { stream, .. } => {
-            stream.map_or_else(|| format!("Transfer"), |_| format!("TransferPcie"))
+        Transfer {
+            src_device,
+            dst_device,
+            ..
+        } => {
+            format!("Transfer({:?}->{:?})", src_device, dst_device)
         }
         FuncCall { func_id, .. } => {
             format!("Call({}: {})", usize::from(*func_id), &ftab[*func_id].name)
@@ -169,11 +173,6 @@ pub fn static_args(inst: &Instruction) -> Option<String> {
             || format!("{:?}", typ),
             |offset| format!("{:?}, {}", typ, offset),
         )),
-        Transfer {
-            src_device,
-            dst_device,
-            ..
-        } => Some(format!("{:?} to {:?}", src_device, dst_device)),
         Wait { event, slave, .. } => Some(format!("{:?}, {:?}", event, slave)),
         Record { event, .. } => Some(format!("{:?}", event)),
         Fork { new_thread, .. } => Some(format!("{:?}", new_thread)),
