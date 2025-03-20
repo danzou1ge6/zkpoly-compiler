@@ -781,6 +781,20 @@ fn ensure_on_device(
     }
 }
 
+fn typ_for_copied(typ: &Typ, original_size: Size) -> (Typ, Size) {
+    match typ {
+        Typ::ScalarArray { len, meta } => {
+            let t = Typ::ScalarArray {
+                len: meta.len(*len as u64) as usize,
+                meta: PolyMeta::plain(),
+            };
+            let size = original_size * meta.len(*len as u64) / (*len as u64);
+            (t, size)
+        }
+        _ => (typ.clone(), original_size),
+    }
+}
+
 fn ensure_copied(
     device: DeterminedDevice,
     vid: VertexId,
@@ -816,14 +830,15 @@ fn ensure_copied(
             ctx,
             imctx,
         )?;
-        let copied_reg = code.alloc_register_id(typ);
         let size = imctx.obj_size(original_obj_id);
+        let (copied_typ, copied_size) = typ_for_copied(&typ, size);
+        let copied_reg = code.alloc_register_id(copied_typ);
         allocate(
             device,
             copied_reg,
-            original_obj_id,
+            original_obj_id, // this will be corrected later when assigning register for output
             now,
-            size,
+            copied_size,
             gpu_allocator,
             code,
             ctx,
@@ -1006,7 +1021,7 @@ pub fn plan<'s, Rt: RuntimeType>(
                         }
                     };
                     // This input is mutated
-                    ensure_copied(
+                    let copied_reg = ensure_copied(
                         input_value.device(),
                         vid,
                         lower_typ(g.vertex(input_vid).typ(), &input_value),
@@ -1016,7 +1031,18 @@ pub fn plan<'s, Rt: RuntimeType>(
                         &mut code,
                         &mut ctx,
                         &imctx,
-                    )
+                    )?;
+                    ctx.remove_residence_in_reg_for_object(
+                        input_value.object_id(),
+                        input_value.device(),
+                        copied_reg,
+                    );
+                    ctx.add_residence_for_object(
+                        obj_id_allocator.alloc(),
+                        copied_reg,
+                        input_value.device(),
+                    );
+                    Ok(copied_reg)
                 } else if !mutable_uses.contains(&input_vid)
                     && !outputs_inplace.contains(&Some(input_vid))
                 {

@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, marker::PhantomData};
 
 use crate::transit::{self, type2};
-use crate::utils::log2_ceil;
+use crate::utils::{log2, log2_ceil};
 use zkpoly_common::{
     arith, define_usize_id,
     heap::{Heap, IdAllocator, RoHeap},
@@ -103,6 +103,38 @@ impl Size {
 impl From<u64> for Size {
     fn from(size: u64) -> Self {
         Self::new(size)
+    }
+}
+
+impl std::ops::Div<u64> for Size {
+    type Output = Size;
+    fn div(self, rhs: u64) -> Self::Output {
+        match self {
+            Size::Integral(IntegralSize(is)) => {
+                if let Some(log) = log2(rhs) {
+                    Self::Integral(IntegralSize(is - log))
+                } else {
+                    panic!("can only divide by power of 2")
+                }
+            }
+            Size::Smithereen(SmithereenSize(ss)) => Self::Smithereen(SmithereenSize(ss / rhs)),
+        }
+    }
+}
+
+impl std::ops::Mul<u64> for Size {
+    type Output = Size;
+    fn mul(self, rhs: u64) -> Self::Output {
+        match self {
+            Size::Integral(IntegralSize(is)) => {
+                if let Some(log) = log2(rhs) {
+                    Self::Integral(IntegralSize(is + log))
+                } else {
+                    panic!("can only multiply by power of 2")
+                }
+            }
+            Size::Smithereen(SmithereenSize(ss)) => Self::Smithereen(SmithereenSize(ss * rhs)),
+        }
     }
 }
 
