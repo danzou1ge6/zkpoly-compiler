@@ -10,6 +10,7 @@ pub enum ErrorNode<Rt: RuntimeType> {
     ExpectPolynomialType(PolyType),
     ArithOnDifferentPolynomialTypes,
     ArithOnDifferentDegreeLagrangePolynomials(u64, u64),
+    ArithCoefLhsDegreeLessThanRhs(u64, u64),
     BadSlice {
         begin: u64,
         end: u64,
@@ -172,6 +173,9 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
                         return Err(err(ErrorNode::ArithOnDifferentDegreeLagrangePolynomials(
                             deg1, deg2,
                         )));
+                    }
+                    if deg1 < deg2 {
+                        return Err(err(ErrorNode::ArithCoefLhsDegreeLessThanRhs(deg1, deg2)));
                     }
 
                     Ok(type2::Typ::Poly((pty1, deg1)))
@@ -462,6 +466,7 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
                 }
                 src_typ
             }
+            Print(x, _) => self.infer(cg, *x)?,
         };
         if let Some(annotated_typ) = v.typ() {
             if !annotated_typ.compatible_with_type2(&typ) {

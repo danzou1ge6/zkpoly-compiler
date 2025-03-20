@@ -375,7 +375,18 @@ fn lower_instruction<'s, Rt: RuntimeType>(
                         value: src,
                         expected: truth,
                     });
-                    emit(Instruction::CopyRegister { src, dst: reg_id2var_id(ids[0]) })
+                    emit(Instruction::CopyRegister {
+                        src,
+                        dst: reg_id2var_id(ids[0]),
+                    })
+                }
+                VertexNode::Print(id, s) => {
+                    assert!(ids.len() == 1);
+                    emit(Instruction::Print(reg_id2var_id(*id), s.clone()));
+                    emit(Instruction::CopyRegister {
+                        src: reg_id2var_id(*id),
+                        dst: reg_id2var_id(ids[0]),
+                    })
                 }
                 _ => {
                     emit_func::emit_func(

@@ -267,7 +267,8 @@ pub(crate) fn format_node_label<'s, Vid: UsizeId + Debug>(
         DistributePowers { .. } => String::from("DistPowers"),
         ScalarInvert { .. } => String::from("ScalarInvert"),
         IndexPoly(_, idx) => format!("IndexPoly({})", idx),
-        AssertEq(..) => "AssertEq".to_string()
+        AssertEq(..) => "AssertEq".to_string(),
+        Print(_, label) => format!("Print({})", label),
     }
 }
 

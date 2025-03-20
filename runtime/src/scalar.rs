@@ -127,7 +127,7 @@ impl<F: Field> Transfer for Scalar<F> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ScalarArray<F: Field> {
     // when this is a slice, the pointer is pointed to the base array's start,
     // you have to visit the slice with slice_offset or by index
@@ -136,6 +136,28 @@ pub struct ScalarArray<F: Field> {
     rotate: i64, // the i64 is just to support neg during add, when getting rotate, we can safely assume it is positive
     pub device: DeviceType,
     pub slice_info: Option<ScalarSlice>,
+}
+
+impl<F: Field> std::fmt::Debug for ScalarArray<F> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        struct Array<F: Field>(*mut F, usize);
+        impl<F: Field> std::fmt::Debug for Array<F> {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                for i in 0..self.1 {
+                    write!(f, "{:?},", unsafe { self.0.add(i).as_ref().unwrap() })?;
+                }
+                Ok(())
+            }
+        }
+        f.debug_struct("ScalarArray")
+            .field("values_ptr", &self.values)
+            .field("len", &self.len)
+            .field("rotate", &self.rotate)
+            .field("device", &self.device)
+            .field("slice_info", &self.slice_info)
+            .field("values", &Array(self.values, self.len))
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -231,7 +253,7 @@ impl<F: Field> ScalarArray<F> {
                     self.len
                 } else {
                     self.slice_info.as_ref().unwrap().whole_len
-                }
+                },
             }),
         }
     }

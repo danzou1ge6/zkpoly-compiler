@@ -4,28 +4,37 @@ namespace detail {
     template <typename Field>
     __global__ void poly_add(SliceIterator<const Field> ita, SliceIterator<const Field> itb, SliceIterator<Field> dst, usize len) {
         usize index = blockIdx.x * blockDim.x + threadIdx.x;
-        if (index >= len) return;
-        auto a = ita[index];
-        auto b = itb[index];
-        dst[index] = a + b;
+        if (index >= len) {
+            dst[index] = ita[index];
+        } else {
+            auto a = ita[index];
+            auto b = itb[index];
+            dst[index] = a + b;
+        }
     }
 
     template <typename Field>
     __global__ void poly_mul(SliceIterator<const Field> ita, SliceIterator<const Field> itb, SliceIterator<Field> dst, usize len) {
         usize index = blockIdx.x * blockDim.x + threadIdx.x;
-        if (index >= len) return;
-        auto a = ita[index];
-        auto b = itb[index];
-        dst[index] = a * b;
+        if (index >= len) {
+            dst[index] = ita[index];
+        } else {
+            auto a = ita[index];
+            auto b = itb[index];
+            dst[index] = a * b;
+        }
     }
 
     template <typename Field>
     __global__ void poly_sub(SliceIterator<const Field> ita, SliceIterator<const Field> itb, SliceIterator<Field> dst, usize len) {
         usize index = blockIdx.x * blockDim.x + threadIdx.x;
-        if (index >= len) return;
-        auto a = ita[index];
-        auto b = itb[index];
-        dst[index] = a - b;
+        if (index >= len) {
+            dst[index] = ita[index];
+        } else {
+            auto a = ita[index];
+            auto b = itb[index];
+            dst[index] = a - b;
+        }
     }
 
     template <typename Field>

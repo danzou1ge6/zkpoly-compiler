@@ -34,6 +34,7 @@ pub enum CommonNode<Rt: RuntimeType> {
     ArrayGet(ArrayUntyped<Rt>, usize),
     FunctionCall(FunctionUntyped<Rt>, Vec<AstVertex<Rt>>),
     Entry(EntryId, type2::Typ<Rt>),
+    Print(AstVertex<Rt>, String),
 }
 
 impl<Rt: RuntimeType> CommonNode<Rt> {
@@ -97,7 +98,29 @@ impl<Rt: RuntimeType> CommonNode<Rt> {
                 Some(Typ::from_type2(typ.clone())),
                 src,
             ),
+            CommonNode::Print(v, s) => {
+                let v = v.erase(cg);
+                Vertex::new(VertexNode::Print(v, s.clone()), None, src)
+            }
         }
+    }
+}
+
+pub trait Printable<Rt: RuntimeType> {
+    fn print(self, s: String) -> Self;
+}
+
+impl<T, Rt: RuntimeType> Printable<Rt> for T
+where
+    T: From<(CommonNode<Rt>, SourceInfo)> + TypeEraseable<Rt>,
+{
+    #[track_caller]
+    fn print(self, s: String) -> Self {
+        let caller = Location::caller();
+        T::from((
+            CommonNode::Print(AstVertex::new(self), s),
+            SourceInfo::new(*caller, None),
+        ))
     }
 }
 

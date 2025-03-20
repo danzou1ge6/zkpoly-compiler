@@ -186,6 +186,7 @@ pub mod template {
         },
         IndexPoly(I, u64),
         AssertEq(I, I),
+        Print(I, String)
     }
 
     impl<I, C, E> VertexNode<I, arith::ArithGraph<I, arith::ExprId>, C, E>
@@ -245,6 +246,7 @@ pub mod template {
                 Return(x) => Box::new([x].into_iter()),
                 IndexPoly(x, _) => Box::new([x].into_iter()),
                 AssertEq(x, y) => Box::new([x, y].into_iter()),
+                Print(x, _) => Box::new([x].into_iter()),
                 _ => Box::new(std::iter::empty()),
             }
         }
@@ -283,6 +285,7 @@ pub mod template {
                 Return(x) => Box::new([*x].into_iter()),
                 IndexPoly(x, _) => Box::new([*x].into_iter()),
                 AssertEq(x, y) => Box::new([*x, *y].into_iter()),
+                Print(x, _) => Box::new([*x].into_iter()),
                 _ => Box::new(std::iter::empty()),
             }
         }
@@ -559,6 +562,7 @@ where
             ScalarInvert { val } => ScalarInvert { val: mapping(*val) },
             IndexPoly(x, idx) => IndexPoly(mapping(*x), *idx),
             AssertEq(x, y) => AssertEq(mapping(*x), mapping(*y)),
+            Print(x, s) => Print(mapping(*x), s.clone()),
         }
     }
 
@@ -603,6 +607,7 @@ where
             DistributePowers { .. } => Gpu,
             IndexPoly(..) => on_device(device),
             AssertEq(..) => Cpu,
+            Print(..) => Cpu,
         }
     }
 }
@@ -665,6 +670,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
             DistributePowers { .. } => None,
             IndexPoly(..) => None,
             AssertEq(..) => None,
+            Print(..) => None,
         }
     }
 }

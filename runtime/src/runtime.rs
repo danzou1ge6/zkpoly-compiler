@@ -422,15 +422,22 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     let expected = expected_guard.as_ref().unwrap();
                     if !assert_eq::assert_eq(value, expected) {
                         println!(
-                            "assertion eq failed at thread {:?}: {:?} != {:?}",
-                            _thread_id, value_id, expected_id
+                            "assertion eq failed at thread {:?}: {:?} != {:?}\nlhs = {:?}\nrhs = {:?}",
+                            _thread_id, value_id, expected_id,
+                            value, expected
                         );
+                        panic!("abort");
                     } else {
                         println!(
                             "assertion eq passed at thread {:?}: {:?} == {:?}",
                             _thread_id, value_id, expected_id
                         );
                     }
+                }
+                Instruction::Print(value_id, label) => {
+                    let value_guard = self.variable[value_id].read().unwrap();
+                    let value = value_guard.as_ref().unwrap();
+                    println!("{}({:?}) = {:?}", label, value_id, value)
                 }
                 Instruction::CopyRegister { src, dst } => {
                     let src_guard = self.variable[src].read().unwrap();
