@@ -117,6 +117,11 @@ pub enum Instruction {
         value: VariableId,
         expected: VariableId,
     },
+
+    CopyRegister {
+        src: VariableId,
+        dst: VariableId,
+    }
 }
 
 pub fn instruction_label<Rt: RuntimeType>(
@@ -163,6 +168,7 @@ pub fn instruction_label<Rt: RuntimeType>(
         MoveRegister { .. } => "Move".to_string(),
         LoadInput { .. } => "LoadInput".to_string(),
         AssertEq { .. } => "AssertEq".to_string(),
+        CopyRegister {..} => "CopyRegister".to_string(),
     }
 }
 
@@ -206,6 +212,7 @@ pub fn labeled_mutable_uses(inst: &Instruction) -> Vec<(VariableId, String)> {
         MoveRegister { dst, .. } => vec![(*dst, "".to_string())],
         LoadInput { dst, .. } => vec![(*dst, "".to_string())],
         AssertEq { .. } => vec![],
+        CopyRegister { dst, .. } => vec![(*dst, "".to_string())],
     }
 }
 
@@ -230,6 +237,7 @@ pub fn labeled_uses(inst: &Instruction) -> Vec<(VariableId, String)> {
             (*value, "value".to_string()),
             (*expected, "expected".to_string()),
         ],
+        CopyRegister { dst, .. } => vec![(*dst, "".to_string())],
     }
 }
 

@@ -42,10 +42,7 @@ pub struct Runtime<T: RuntimeType> {
 }
 
 impl<T: RuntimeType> Runtime<T> {
-    pub fn with_variables(
-        mut self,
-        variable: VariableTable<T>
-    ) -> Self {
+    pub fn with_variables(mut self, variable: VariableTable<T>) -> Self {
         self.variable = variable;
         self
     }
@@ -415,16 +412,31 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     let mut dst_guard = self.variable[dst].write().unwrap();
                     *dst_guard = Some(var);
                 }
-                Instruction::AssertEq { value: value_id, expected: expected_id } => {
+                Instruction::AssertEq {
+                    value: value_id,
+                    expected: expected_id,
+                } => {
                     let value_guard = self.variable[value_id].read().unwrap();
                     let expected_guard = self.variable[expected_id].read().unwrap();
                     let value = value_guard.as_ref().unwrap();
                     let expected = expected_guard.as_ref().unwrap();
                     if !assert_eq::assert_eq(value, expected) {
-                        println!("assertion eq failed at thread {:?}: {:?} != {:?}", _thread_id, value_id, expected_id);
+                        println!(
+                            "assertion eq failed at thread {:?}: {:?} != {:?}",
+                            _thread_id, value_id, expected_id
+                        );
                     } else {
-                        println!("assertion eq passed at thread {:?}: {:?} == {:?}", _thread_id, value_id, expected_id);
+                        println!(
+                            "assertion eq passed at thread {:?}: {:?} == {:?}",
+                            _thread_id, value_id, expected_id
+                        );
                     }
+                }
+                Instruction::CopyRegister { src, dst } => {
+                    let src_guard = self.variable[src].read().unwrap();
+                    let var = src_guard.as_ref().unwrap().clone();
+                    let mut dst_guard = self.variable[dst].write().unwrap();
+                    *dst_guard = Some(var);
                 }
             }
         }

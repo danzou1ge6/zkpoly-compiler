@@ -410,7 +410,7 @@ pub fn analyze_def<'s, Rt: RuntimeType>(
             }
             AssertEq(a, _) => {
                 let pred_value = values[a].clone();
-                values.insert(vid, pred_value);
+                values.insert(vid, pred_value.with_device(Device::Cpu));
             }
             otherwise => {
                 assert!(!otherwise.is_virtual());
