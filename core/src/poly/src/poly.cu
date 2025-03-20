@@ -7,36 +7,50 @@
 
 cudaError_t poly_add(PolyPtr r, ConstPolyPtr a, ConstPolyPtr b, cudaStream_t stream) {
     auto len = std::min(a.len, b.len);
+    auto upper_len = std::max(a.len, b.len);
+    if (a.len < b.len) {
+        std::swap(a, b);
+    }
     unsigned int block = 256;
-    unsigned int grid = (len - 1) / block + 1;
+    unsigned int grid = (upper_len - 1) / block + 1;
     auto a_iter = iter::make_slice_iter<POLY_FIELD>(a);
     auto b_iter = iter::make_slice_iter<POLY_FIELD>(b);
     auto r_iter = iter::make_slice_iter<POLY_FIELD>(r);
-    detail::poly_add<POLY_FIELD><<<grid, block, 0, stream>>>(a_iter, b_iter, r_iter, len);
+    detail::poly_add<POLY_FIELD><<<grid, block, 0, stream>>>(a_iter, b_iter, r_iter, len, upper_len);
     CUDA_CHECK(cudaGetLastError());
     return cudaSuccess;
 }
 
 cudaError_t poly_sub(PolyPtr r, ConstPolyPtr a, ConstPolyPtr b, cudaStream_t stream) {
     auto len = std::min(a.len, b.len);
+    auto upper_len = std::max(a.len, b.len);
+    auto neg = false;
+    if (a.len < b.len) {
+        std::swap(a, b);
+        neg = true;
+    }
     unsigned int block = 256;
-    unsigned int grid = (len - 1) / block + 1;
+    unsigned int grid = (upper_len - 1) / block + 1;
     auto a_iter = iter::make_slice_iter<POLY_FIELD>(a);
     auto b_iter = iter::make_slice_iter<POLY_FIELD>(b);
     auto r_iter = iter::make_slice_iter<POLY_FIELD>(r);
-    detail::poly_sub<POLY_FIELD><<<grid, block, 0, stream>>>(a_iter, b_iter, r_iter, len);
+    detail::poly_sub<POLY_FIELD><<<grid, block, 0, stream>>>(a_iter, b_iter, r_iter, len, upper_len, neg);
     CUDA_CHECK(cudaGetLastError());
     return cudaSuccess;
 }
 
 cudaError_t poly_mul(PolyPtr r, ConstPolyPtr a, ConstPolyPtr b, cudaStream_t stream) {
     auto len = std::min(a.len, b.len);
+    auto upper_len = std::max(a.len, b.len);
+    if (a.len < b.len) {
+        std::swap(a, b);
+    }
     unsigned int block = 256;
-    unsigned int grid = (len - 1) / block + 1;
+    unsigned int grid = (upper_len - 1) / block + 1;
     auto a_iter = iter::make_slice_iter<POLY_FIELD>(a);
     auto b_iter = iter::make_slice_iter<POLY_FIELD>(b);
     auto r_iter = iter::make_slice_iter<POLY_FIELD>(r);
-    detail::poly_mul<POLY_FIELD><<<grid, block, 0, stream>>>(a_iter, b_iter, r_iter, len);
+    detail::poly_mul<POLY_FIELD><<<grid, block, 0, stream>>>(a_iter, b_iter, r_iter, len, upper_len);
     CUDA_CHECK(cudaGetLastError());
     return cudaSuccess;
 }

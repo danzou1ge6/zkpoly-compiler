@@ -36,7 +36,7 @@ cudaError_t poly_eval(void* temp_buf, usize *temp_buf_size, ConstPolyPtr poly,  
         CUDA_CHECK(get_pow_series(reinterpret_cast<char*>(temp_buf) + x_size, nullptr, reinterpret_cast<u32*>(temp_buf), x, len, stream));
 
         // a_i * x^i
-        poly_mul<Field><<<blocks, threads, 0, stream>>>(poly_iter, x_iter, x_iter, len);
+        poly_mul<Field><<<blocks, threads, 0, stream>>>(poly_iter, x_iter, x_iter, len, len);
         CUDA_CHECK(cudaGetLastError());
 
         // ruduce

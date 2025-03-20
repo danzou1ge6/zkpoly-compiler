@@ -422,11 +422,9 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     let expected = expected_guard.as_ref().unwrap();
                     if !assert_eq::assert_eq(value, expected) {
                         println!(
-                            "assertion eq failed at thread {:?}: {:?} != {:?}\nlhs = {:?}\nrhs = {:?}",
+                            "assertion eq failed at thread {:?}: {:?} != {:?}",
                             _thread_id, value_id, expected_id,
-                            value, expected
                         );
-                        panic!("abort");
                     } else {
                         println!(
                             "assertion eq passed at thread {:?}: {:?} == {:?}",

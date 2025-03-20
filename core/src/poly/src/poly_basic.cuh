@@ -2,9 +2,10 @@
 #include "common.cuh"
 namespace detail {
     template <typename Field>
-    __global__ void poly_add(SliceIterator<const Field> ita, SliceIterator<const Field> itb, SliceIterator<Field> dst, usize len) {
+    __global__ void poly_add(
+        SliceIterator<const Field> ita, SliceIterator<const Field> itb, SliceIterator<Field> dst, usize len, usize upper_len) {
         usize index = blockIdx.x * blockDim.x + threadIdx.x;
-        if (index >= len) {
+        if (index >= len && index < upper_len) {
             dst[index] = ita[index];
         } else {
             auto a = ita[index];
@@ -14,9 +15,10 @@ namespace detail {
     }
 
     template <typename Field>
-    __global__ void poly_mul(SliceIterator<const Field> ita, SliceIterator<const Field> itb, SliceIterator<Field> dst, usize len) {
+    __global__ void poly_mul(
+        SliceIterator<const Field> ita, SliceIterator<const Field> itb, SliceIterator<Field> dst, usize len, usize upper_len) {
         usize index = blockIdx.x * blockDim.x + threadIdx.x;
-        if (index >= len) {
+        if (index >= len && index < upper_len) {
             dst[index] = ita[index];
         } else {
             auto a = ita[index];
@@ -26,14 +28,24 @@ namespace detail {
     }
 
     template <typename Field>
-    __global__ void poly_sub(SliceIterator<const Field> ita, SliceIterator<const Field> itb, SliceIterator<Field> dst, usize len) {
+    __global__ void poly_sub(
+        SliceIterator<const Field> ita, SliceIterator<const Field> itb, SliceIterator<Field> dst, usize len,
+        usize upper_len, bool neg) {
         usize index = blockIdx.x * blockDim.x + threadIdx.x;
-        if (index >= len) {
-            dst[index] = ita[index];
+        if (index >= len && index < upper_len) {
+            if (neg) {
+                dst[index] = ita[index].neg();
+            } else {
+                dst[index] = ita[index];
+            }
         } else {
             auto a = ita[index];
             auto b = itb[index];
-            dst[index] = a - b;
+            if (neg) {
+                dst[index] = b - a;
+            } else {
+                dst[index] = a - b;
+            }
         }
     }
 
