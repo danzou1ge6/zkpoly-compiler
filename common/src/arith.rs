@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use crate::{
     define_usize_id,
     digraph::internal::{Digraph, Predecessors},
-    heap::{Heap, UsizeId},
+    heap::{Heap, UsizeId}, typ::PolyType,
 };
 
 /// Scalar-Polynomial operator
@@ -239,6 +239,7 @@ pub struct ArithGraph<OuterId, ArithIndex> {
     pub outputs: Vec<ArithIndex>, // output ids
     pub inputs: Vec<ArithIndex>,  // input ids
     pub g: Digraph<ArithIndex, ArithVertex<OuterId, ArithIndex>>,
+    pub poly_repr: PolyType
 }
 
 impl<OuterId, ArithIndex> ArithGraph<OuterId, ArithIndex>
@@ -389,6 +390,7 @@ where
             outputs: self.outputs.clone(),
             inputs: self.inputs.clone(),
             g: heap,
+            poly_repr: self.poly_repr.clone(),
         }
     }
 }

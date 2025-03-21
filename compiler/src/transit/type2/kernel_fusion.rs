@@ -3,7 +3,7 @@ use std::{
     panic::Location,
 };
 
-use crate::transit::SourceInfo;
+use crate::transit::{type2, SourceInfo};
 
 use super::{Cg, Vertex, VertexId, VertexNode};
 use zkpoly_common::{
@@ -241,6 +241,7 @@ pub fn fuse_arith<'s, Rt: RuntimeType>(mut cg: Cg<'s, Rt>) -> Cg<'s, Rt> {
                 inputs: Vec::new(),
                 outputs: Vec::new(),
                 g: Digraph::new(),
+                poly_repr: PolyType::Coef, // revised later
             };
             let mut output_v = Vec::new();
             let mut src_info = Vec::new();
@@ -270,6 +271,23 @@ pub fn fuse_arith<'s, Rt: RuntimeType>(mut cg: Cg<'s, Rt>) -> Cg<'s, Rt> {
                     (old.typ().clone(), (fused_type, old_src))
                 })
                 .collect::<(Vec<_>, Vec<_>)>();
+
+            // correct the polynomial representation
+            ag.poly_repr = output_types
+                .iter()
+                .fold(None, |acc, t| {
+                    if let type2::Typ::Poly((t_repr, _)) = t {
+                        if let Some(acc_repr) = acc {
+                            if &acc_repr != t_repr {
+                                panic!("outputs have different polynomial representation");
+                            }
+                        }
+                        Some(t_repr.clone())
+                    } else {
+                        acc
+                    }
+                })
+                .unwrap_or(PolyType::Coef);
 
             // change input mutability
             let mut mut_inputs = ag.change_mutability(&succ, output_polys).into_iter();

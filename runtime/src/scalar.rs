@@ -13,10 +13,20 @@ use zkpoly_memory_pool::PinnedMemoryPool;
 
 use crate::{devices::DeviceType, runtime::transfer::Transfer};
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Scalar<F: Field> {
     pub value: *mut F,
     pub device: DeviceType,
+}
+
+impl<F: Field> std::fmt::Debug for Scalar<F> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Scalar")
+            .field("value_ptr", &self.value)
+            .field("device", &self.device)
+            .field("value", unsafe { self.value.as_ref().unwrap() })
+            .finish()
+    }
 }
 
 unsafe impl<F: Field> Send for Scalar<F> {}

@@ -15,6 +15,7 @@ use zkpoly_common::{
     get_project_root::get_project_root,
     heap::UsizeId,
     load_dynamic::Libs,
+    typ::PolyType,
 };
 use zkpoly_cuda_api::{
     bindings::{
@@ -113,6 +114,23 @@ pub struct FusedOp<OuterId, InnerId> {
 const TMP_PREFIX: &str = "tmp";
 const SCALAR_PREFIX: &str = "var";
 const ITER_PREFIX: &str = "iter";
+
+fn scalar_poly_arith(
+    head: usize,
+    lhs: usize,
+    rhs: usize,
+    op: &'static str,
+    repr: PolyType,
+) -> String {
+    match repr {
+        PolyType::Coef => {
+            format!("auto {TMP_PREFIX}{head} = idx == 0 ? {TMP_PREFIX}{lhs} {op} {TMP_PREFIX}{rhs} : {TMP_PREFIX}{rhs};")
+        }
+        PolyType::Lagrange => {
+            format!("auto {TMP_PREFIX}{head} = {TMP_PREFIX}{lhs} {op} {TMP_PREFIX}{rhs};")
+        }
+    }
+}
 
 impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
     pub fn new(
@@ -364,22 +382,37 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                             },
                             BinOp::Sp(op) => match op {
                                 SpOp::Add => {
-                                    kernel += &format!(
-                                        "auto {TMP_PREFIX}{} = {TMP_PREFIX}{} + {TMP_PREFIX}{};\n",
-                                        head, lhs, rhs
-                                    )
+                                    let stmt = match self.graph.poly_repr {
+                                        PolyType::Coef => {
+                                            format!("auto {TMP_PREFIX}{head} = idx == 0 ? {TMP_PREFIX}{lhs} + {TMP_PREFIX}{rhs} : {TMP_PREFIX}{rhs};")
+                                        }
+                                        PolyType::Lagrange => {
+                                            format!("auto {TMP_PREFIX}{head} = {TMP_PREFIX}{lhs} + {TMP_PREFIX}{rhs};")
+                                        }
+                                    };
+                                    kernel += &stmt;
                                 }
                                 SpOp::Sub => {
-                                    kernel += &format!(
-                                        "auto {TMP_PREFIX}{} = {TMP_PREFIX}{} - {TMP_PREFIX}{};\n",
-                                        head, lhs, rhs
-                                    )
+                                    let stmt = match self.graph.poly_repr {
+                                        PolyType::Coef => {
+                                            format!("auto {TMP_PREFIX}{head} = idx == 0 ? {TMP_PREFIX}{lhs} - {TMP_PREFIX}{rhs} : {TMP_PREFIX}{rhs}.neg();")
+                                        }
+                                        PolyType::Lagrange => {
+                                            format!("auto {TMP_PREFIX}{head} = {TMP_PREFIX}{lhs} - {TMP_PREFIX}{rhs};")
+                                        }
+                                    };
+                                    kernel += &stmt;
                                 }
                                 SpOp::SubBy => {
-                                    kernel += &format!(
-                                        "auto {TMP_PREFIX}{} = {TMP_PREFIX}{} - {TMP_PREFIX}{};\n",
-                                        head, rhs, lhs
-                                    )
+                                    let stmt = match self.graph.poly_repr {
+                                        PolyType::Coef => {
+                                            format!("auto {TMP_PREFIX}{head} = idx == 0 ? {TMP_PREFIX}{rhs} - {TMP_PREFIX}{lhs} : {TMP_PREFIX}{rhs};")
+                                        }
+                                        PolyType::Lagrange => {
+                                            format!("auto {TMP_PREFIX}{head} = {TMP_PREFIX}{rhs} - {TMP_PREFIX}{lhs};")
+                                        }
+                                    };
+                                    kernel += &stmt;
                                 }
                                 SpOp::Mul => {
                                     kernel += &format!(
