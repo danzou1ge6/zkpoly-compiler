@@ -595,6 +595,7 @@ namespace mont
     template <usize n>
     __device__ __forceinline__ void final_sub(uint32_t *even, uint32_t carry, uint32_t *tmp, const uint32_t *m)
     {
+      #pragma nv_diag_surpress 550
       size_t i;
       asm volatile("{ .reg.pred %top;");
 
