@@ -94,7 +94,7 @@ pub fn print_subgraph_edges<I: Copy + Eq>(
     Ok(())
 }
 
-fn format_node_label<I>(op: &Operation<I, ExprId>) -> String {
+pub(crate) fn format_node_label<I>(op: &Operation<I, ExprId>) -> String {
     match op {
         Operation::Arith(Arith::Bin(op, ..)) => {
             format!("{:?}", op)
@@ -116,7 +116,7 @@ fn format_node_label<I>(op: &Operation<I, ExprId>) -> String {
     }
 }
 
-fn labeled_uses<I>(op: &Operation<I, ExprId>) -> Vec<(ExprId, &'static str)> {
+pub(crate) fn labeled_uses<I>(op: &Operation<I, ExprId>) -> Vec<(ExprId, &'static str)> {
     match op {
         Operation::Arith(Arith::Bin(_, lhs, rhs)) => vec![(*lhs, "lhs"), (*rhs, "rhs")],
         Operation::Arith(Arith::Unr(_, expr)) => vec![(*expr, "")],

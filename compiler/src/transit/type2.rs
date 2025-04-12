@@ -691,6 +691,7 @@ pub mod memory_planning;
 pub mod object_analysis;
 pub mod precompute;
 pub mod pretty_print;
+pub mod visualize;
 pub mod temporary_space;
 pub mod typ;
 pub mod user_function;

@@ -6,6 +6,8 @@ pub struct PinnedMemoryPool {
     base_size: usize,
 }
 
+unsafe impl Send for PinnedMemoryPool {}
+
 impl PinnedMemoryPool {
     pub fn new(max_log_factor: u32, base_size: usize) -> Self {
         Self {

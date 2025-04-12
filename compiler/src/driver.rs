@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     io::Write,
     panic::PanicHookInfo,
     path::PathBuf,
@@ -37,6 +38,7 @@ pub struct DebugOptions {
     debug_track_splitting: bool,
     debug_multithread_instructions: bool,
     debug_instructions: bool,
+    type2_visualizer: Type2DebugVisualizer,
     log: bool,
 }
 
@@ -59,8 +61,49 @@ impl DebugOptions {
             debug_track_splitting: true,
             debug_multithread_instructions: true,
             debug_instructions: true,
+            type2_visualizer: Type2DebugVisualizer::Graphviz,
             log: false,
         }
+    }
+
+    pub fn none(debug_dir: PathBuf) -> Self {
+        Self {
+            debug_dir,
+            debug_fresh_type2: false,
+            debug_intt_mending: false,
+            debug_type_inference: false,
+            debug_precompute: false,
+            debug_manage_invers: false,
+            debug_kernel_fusion: false,
+            debug_graph_scheduling: false,
+            debug_obj_def_use: false,
+            debug_obj_liveness: false,
+            debug_obj_gpu_next_use: false,
+            debug_fresh_type3: false,
+            debug_extend_rewriting: false,
+            debug_track_splitting: false,
+            debug_multithread_instructions: false,
+            debug_instructions: false,
+            type2_visualizer: Type2DebugVisualizer::Graphviz,
+            log: false,
+        }
+    }
+
+    pub fn with_type3(mut self, switch: bool) -> Self {
+        self.debug_fresh_type3 = switch;
+        self.debug_extend_rewriting = switch;
+        self
+    }
+
+    pub fn with_inst(mut self, switch: bool) -> Self {
+        self.debug_multithread_instructions = switch;
+        self.debug_instructions = switch;
+        self
+    }
+
+    pub fn with_type2_visualizer(mut self, type2_visualizer: Type2DebugVisualizer) -> Self {
+        self.type2_visualizer = type2_visualizer;
+        self
     }
 
     pub fn with_log(mut self, log: bool) -> Self {
@@ -130,16 +173,133 @@ static GRAPHVIZ_INTERACTIVE_HTML_2: &'static str = r#"
 </html>
 "#;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Type2DebugVisualizer {
+    Cytoscape,
+    Graphviz,
+}
+
 fn debug_type2<'s, Ty: std::fmt::Debug>(
     fpath: PathBuf,
     g: &Digraph<type2::VertexId, type2::partial_typed::Vertex<'s, Ty>>,
     output_vid: type2::VertexId,
-) -> JoinHandle<()> {
-    let mut f = std::fs::File::create(&fpath).unwrap();
-    type2::pretty_print::write_graph(g, output_vid, &mut f).unwrap();
-    drop(f);
+    visualizer: Type2DebugVisualizer,
+) -> Option<JoinHandle<()>> {
+    match visualizer {
+        Type2DebugVisualizer::Cytoscape => {
+            let fpath = fpath.with_extension("html");
+            let mut f = std::fs::File::create(&fpath).unwrap();
+            type2::visualize::write_graph(g, output_vid, &mut f).unwrap();
+            None
+        }
+        Type2DebugVisualizer::Graphviz => {
+            let mut f = std::fs::File::create(&fpath).unwrap();
+            type2::pretty_print::write_graph(g, output_vid, &mut f).unwrap();
+            drop(f);
 
-    compile_dot(fpath)
+            Some(compile_dot(fpath))
+        }
+    }
+}
+
+fn debug_type2_def_use<'s, Rt: std::fmt::Debug + RuntimeType>(
+    fpath: PathBuf,
+    g: &Digraph<type2::VertexId, type2::Vertex<'s, Rt>>,
+    devices: &BTreeMap<type2::VertexId, type2::Device>,
+    seq: &[type2::VertexId],
+    obj_def: &type2::object_analysis::ObjectsDef,
+    vertex_inputs: &type2::object_analysis::ObjectUse,
+    visualizer: Type2DebugVisualizer,
+) -> Option<JoinHandle<()>> {
+    let fpath = match visualizer {
+        Type2DebugVisualizer::Cytoscape => fpath.with_extension("html"),
+        Type2DebugVisualizer::Graphviz => fpath,
+    };
+    let mut f = std::fs::File::create(&fpath).unwrap();
+
+    let vf: Box<dyn Fn(_, _, _, _, _, _, _, _) -> _> = match visualizer {
+        Type2DebugVisualizer::Cytoscape => {
+            Box::new(type2::visualize::write_graph_with_optional_seq)
+        }
+        Type2DebugVisualizer::Graphviz => {
+            Box::new(type2::pretty_print::write_graph_with_optional_seq)
+        }
+    };
+
+    vf(
+        g,
+        &mut f,
+        seq.last().copied(),
+        seq.iter().copied(),
+        true,
+        |vid, _| match devices[&vid] {
+            type2::Device::Cpu => Some("#FFFFFF"),
+            type2::Device::Gpu => Some("#A5D6A7"),
+            type2::Device::PreferGpu => {
+                panic!("PreferGpu should has been resolved during deciding device")
+            }
+        },
+        |vid, _| Some(format!("{:?}", &obj_def.values[&vid])),
+        |vid, v| {
+            Some(
+                v.uses()
+                    .zip(vertex_inputs.input_of(vid).map(|vv| format!("{:?}", vv)))
+                    .collect(),
+            )
+        },
+    )
+    .unwrap();
+
+    if let Type2DebugVisualizer::Graphviz = visualizer {
+        Some(compile_dot(fpath))
+    } else {
+        None
+    }
+}
+
+fn debug_type2_with_seq<'s, Rt: std::fmt::Debug + RuntimeType>(
+    fpath: PathBuf,
+    g: &Digraph<type2::VertexId, type2::Vertex<'s, Rt>>,
+    seq: &[type2::VertexId],
+    visualizer: Type2DebugVisualizer,
+) -> Option<JoinHandle<()>> {
+    match visualizer {
+        Type2DebugVisualizer::Cytoscape => {
+            let fpath = fpath.with_extension("html");
+            let mut f = std::fs::File::create(&fpath).unwrap();
+            type2::visualize::write_graph_with_seq(g, &mut f, seq.iter().cloned()).unwrap();
+            None
+        }
+        Type2DebugVisualizer::Graphviz => {
+            let mut f = std::fs::File::create(&fpath).unwrap();
+            type2::pretty_print::write_graph_with_seq(g, &mut f, seq.iter().cloned()).unwrap();
+            Some(compile_dot(fpath))
+        }
+    }
+}
+
+fn debug_partial_typed_type2<'s, Ty: std::fmt::Debug>(
+    fpath: PathBuf,
+    g: &Digraph<type2::VertexId, type2::partial_typed::Vertex<'s, Option<Ty>>>,
+    error_vid: type2::VertexId,
+    output_vid: type2::VertexId,
+    visualizer: Type2DebugVisualizer,
+) -> Option<JoinHandle<()>> {
+    match visualizer {
+        Type2DebugVisualizer::Cytoscape => {
+            let fpath = fpath.with_extension("html");
+            let mut f = std::fs::File::create(&fpath).unwrap();
+            type2::visualize::write_optinally_typed_graph(g, error_vid, output_vid, &mut f)
+                .unwrap();
+            None
+        }
+        Type2DebugVisualizer::Graphviz => {
+            let mut f = std::fs::File::create(&fpath).unwrap();
+            type2::pretty_print::write_optinally_typed_graph(g, error_vid, output_vid, &mut f)
+                .unwrap();
+            Some(compile_dot(fpath))
+        }
+    }
 }
 
 fn compile_dot(fpath: PathBuf) -> JoinHandle<()> {
@@ -171,20 +331,46 @@ fn check_type2_dag<'s, Rt: RuntimeType>(
     fpath: PathBuf,
     g: &Digraph<type2::VertexId, type2::Vertex<'s, Rt>>,
     output_vid: type2::VertexId,
+    visualizer: Type2DebugVisualizer,
 ) -> bool {
     if let Some(cycle) = g.try_find_cycle() {
         let mut f = std::fs::File::create(&fpath).unwrap();
-        type2::pretty_print::write_graph_with_vertices_colored(g, output_vid, &mut f, |vid, _| {
-            if cycle[vid] {
-                Some("#e74c3c")
-            } else {
-                None
-            }
-        })
-        .unwrap();
-        drop(f);
 
-        compile_dot(fpath).join().unwrap();
+        match visualizer {
+            Type2DebugVisualizer::Cytoscape => {
+                type2::visualize::write_graph_with_vertices_colored(
+                    g,
+                    output_vid,
+                    &mut f,
+                    |vid, _| {
+                        if cycle[vid] {
+                            Some("#e74c3c")
+                        } else {
+                            None
+                        }
+                    },
+                )
+                .unwrap();
+            }
+            Type2DebugVisualizer::Graphviz => {
+                type2::pretty_print::write_graph_with_vertices_colored(
+                    g,
+                    output_vid,
+                    &mut f,
+                    |vid, _| {
+                        if cycle[vid] {
+                            Some("#e74c3c")
+                        } else {
+                            None
+                        }
+                    },
+                )
+                .unwrap();
+                drop(f);
+
+                compile_dot(fpath).join().unwrap()
+            }
+        }
         false
     } else {
         true
@@ -227,8 +413,10 @@ impl Ctx {
             .for_each(|j| j.join().unwrap());
     }
 
-    fn add(&self, j: JoinHandle<()>) {
-        self.0.lock().unwrap().0.push(j);
+    fn add(&self, j: Option<JoinHandle<()>>) {
+        if let Some(j) = j {
+            self.0.lock().unwrap().0.push(j);
+        }
     }
 
     fn abort(&self, pi: &std::panic::PanicHookInfo<'_>) {
@@ -268,6 +456,7 @@ pub fn ast2inst<Rt: RuntimeType>(
             options.debug_dir.join("type2_fresh.dot"),
             &ast_cg.g,
             output_vid,
+            options.type2_visualizer,
         ));
     }
 
@@ -277,12 +466,9 @@ pub fn ast2inst<Rt: RuntimeType>(
             Ok(t2prog) => Ok(t2prog),
             Err((e, g)) => {
                 let fpath = options.debug_dir.join("type2_type_inference.dot");
-                let mut f = std::fs::File::create(&fpath).unwrap();
-                type2::pretty_print::write_optinally_typed_graph(&g, e.vid, output_vid, &mut f)
-                    .unwrap();
-                drop(f);
+                debug_partial_typed_type2(fpath, &g, e.vid, output_vid, options.type2_visualizer)
+                    .map(|j| j.join().unwrap());
 
-                compile_dot(fpath);
                 Err(Error::Typ(e))
             }
         }?;
@@ -291,6 +477,7 @@ pub fn ast2inst<Rt: RuntimeType>(
         options.debug_dir.join("type2_type_inference.dot"),
         &t2prog.cg.g,
         output_vid,
+        options.type2_visualizer,
     ) {
         return Err(Error::NotDag);
     }
@@ -308,6 +495,7 @@ pub fn ast2inst<Rt: RuntimeType>(
             options.debug_dir.join("type2_type_inference.dot"),
             &t2cg.g,
             output_vid,
+            options.type2_visualizer,
         ));
     }
 
@@ -323,6 +511,7 @@ pub fn ast2inst<Rt: RuntimeType>(
         options.debug_dir.join("type2_intt_mending.dot"),
         &t2cg.g,
         output_vid,
+        options.type2_visualizer,
     ) {
         panic!("graph is not a DAG after INTT Mending");
     }
@@ -332,6 +521,7 @@ pub fn ast2inst<Rt: RuntimeType>(
             options.debug_dir.join("type2_intt_mending.dot"),
             &t2cg.g,
             output_vid,
+            options.type2_visualizer,
         ));
     }
 
@@ -354,6 +544,7 @@ pub fn ast2inst<Rt: RuntimeType>(
         options.debug_dir.join("type2_precompute.dot"),
         &t2cg.g,
         output_vid,
+        options.type2_visualizer,
     ) {
         panic!("graph is not a DAG after Precomputing");
     }
@@ -363,6 +554,7 @@ pub fn ast2inst<Rt: RuntimeType>(
             options.debug_dir.join("type2_precompute.dot"),
             &t2cg.g,
             output_vid,
+            options.type2_visualizer,
         ));
     }
 
@@ -377,6 +569,7 @@ pub fn ast2inst<Rt: RuntimeType>(
         options.debug_dir.join("type2_manage_invers.dot"),
         &t2cg.g,
         output_vid,
+        options.type2_visualizer,
     ) {
         panic!("graph is not a DAG after Managing Inversions");
     }
@@ -386,6 +579,7 @@ pub fn ast2inst<Rt: RuntimeType>(
             options.debug_dir.join("type2_manage_invers.dot"),
             &t2cg.g,
             output_vid,
+            options.type2_visualizer,
         ));
     }
 
@@ -400,6 +594,7 @@ pub fn ast2inst<Rt: RuntimeType>(
         options.debug_dir.join("type2_kernel_fusion.dot"),
         &t2cg.g,
         output_vid,
+        options.type2_visualizer,
     ) {
         panic!("graph is not a DAG after Arithmetic Kernel Fusion");
     }
@@ -409,6 +604,7 @@ pub fn ast2inst<Rt: RuntimeType>(
             options.debug_dir.join("type2_kernel_fusion.dot"),
             &t2cg.g,
             output_vid,
+            options.type2_visualizer,
         ));
     }
 
@@ -421,9 +617,12 @@ pub fn ast2inst<Rt: RuntimeType>(
 
     if options.debug_graph_scheduling {
         let path = options.debug_dir.join("type2_graph_scheduled.dot");
-        let mut f = std::fs::File::create(&path).unwrap();
-        type2::pretty_print::write_graph_with_seq(&t2cg.g, &mut f, seq.iter().cloned()).unwrap();
-        ctx.add(compile_dot(path));
+        ctx.add(debug_type2_with_seq(
+            path,
+            &t2cg.g,
+            &seq,
+            options.type2_visualizer,
+        ));
     }
 
     let g = SubDigraph::new(&t2cg.g, t2cg.g.connected_component(output_vid));
@@ -461,30 +660,15 @@ pub fn ast2inst<Rt: RuntimeType>(
 
     if options.debug_obj_def_use {
         let fpath = options.debug_dir.join("type2_object_def_use.dot");
-        let mut f = std::fs::File::create(&fpath).unwrap();
-        type2::pretty_print::write_graph_with_optional_seq(
+        ctx.add(debug_type2_def_use(
+            fpath,
             &t2cg.g,
-            &mut f,
-            seq.iter().copied(),
-            true,
-            |vid, _| match devices[&vid] {
-                type2::Device::Cpu => Some("#FFFFFF"),
-                type2::Device::Gpu => Some("#A5D6A7"),
-                type2::Device::PreferGpu => {
-                    panic!("PreferGpu should has been resolved during deciding device")
-                }
-            },
-            |vid, _| Some(format!("{:?}", &obj_def.values[&vid])),
-            |vid, v| {
-                Some(
-                    v.uses()
-                        .zip(vertex_inputs.input_of(vid).map(|vv| format!("{:?}", vv)))
-                        .collect(),
-                )
-            },
-        )
-        .unwrap();
-        ctx.add(compile_dot(fpath));
+            &devices,
+            &seq,
+            &obj_def,
+            &vertex_inputs,
+            options.type2_visualizer,
+        ));
     }
 
     let obj_def = obj_def;

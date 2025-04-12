@@ -416,3 +416,4 @@ where
 }
 
 pub mod pretty_print;
+pub mod visualize;

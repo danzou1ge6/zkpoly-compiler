@@ -10,7 +10,16 @@ pub fn write_graph<'s, Ty: Debug>(
     writer: &mut impl Write,
 ) -> std::io::Result<()> {
     let seq = g.dfs().add_begin(output_vid).map(|(vid, _)| vid);
-    write_graph_with_optional_seq(g, writer, seq, false, |_, _| None, |_, _| None, |_, _| None)
+    write_graph_with_optional_seq(
+        g,
+        writer,
+        None,
+        seq,
+        false,
+        |_, _| None,
+        |_, _| None,
+        |_, _| None,
+    )
 }
 
 pub fn write_optinally_typed_graph<'s, Ty: Debug>(
@@ -23,6 +32,7 @@ pub fn write_optinally_typed_graph<'s, Ty: Debug>(
     write_graph_with_optional_seq(
         g,
         writer,
+        None,
         seq,
         false,
         |vid, vertex| {
@@ -51,6 +61,7 @@ pub fn write_graph_with_vertices_colored<'s, Ty: Debug>(
     write_graph_with_optional_seq(
         g,
         writer,
+        None,
         seq,
         false,
         override_color,
@@ -64,7 +75,16 @@ pub fn write_graph_with_seq<'s, Ty: Debug>(
     writer: &mut impl Write,
     seq: impl Iterator<Item = VertexId> + Clone,
 ) -> std::io::Result<()> {
-    write_graph_with_optional_seq(g, writer, seq, true, |_, _| None, |_, _| None, |_, _| None)
+    write_graph_with_optional_seq(
+        g,
+        writer,
+        None,
+        seq,
+        true,
+        |_, _| None,
+        |_, _| None,
+        |_, _| None,
+    )
 }
 
 pub(crate) fn format_source_info<'s>(src: &SourceInfo<'s>) -> String {
@@ -79,6 +99,7 @@ pub(crate) fn format_source_info<'s>(src: &SourceInfo<'s>) -> String {
 pub fn write_graph_with_optional_seq<'s, Ty: Debug>(
     g: &Digraph<VertexId, partial_typed::Vertex<'s, Ty>>,
     writer: &mut impl Write,
+    _first_shown: Option<VertexId>,
     seq: impl Iterator<Item = VertexId> + Clone,
     print_seq: bool,
     override_color: impl Fn(VertexId, &partial_typed::Vertex<'s, Ty>) -> Option<&'static str>,

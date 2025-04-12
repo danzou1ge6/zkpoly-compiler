@@ -1,0 +1,928 @@
+<!DOCTYPE html>
+<html lang="">
+
+<head>
+    <meta charset="utf-8">
+    <title>{{title}}</title>
+    <script src="https://cdn.jsdelivr.net/npm/cytoscape@3.31.2/dist/cytoscape.min.js"></script>
+    <script src="https://unpkg.com/dagre@0.7.4/dist/dagre.js"></script>
+    <script>
+        (function webpackUniversalModuleDefinition(root, factory) {
+	if(typeof exports === 'object' && typeof module === 'object')
+		module.exports = factory(require("dagre"));
+	else if(typeof define === 'function' && define.amd)
+		define(["dagre"], factory);
+	else if(typeof exports === 'object')
+		exports["cytoscapeDagre"] = factory(require("dagre"));
+	else
+		root["cytoscapeDagre"] = factory(root["dagre"]);
+})(this, function(__WEBPACK_EXTERNAL_MODULE__4__) {
+return /******/ (function(modules) { // webpackBootstrap
+/******/ 	// The module cache
+/******/ 	var installedModules = {};
+/******/
+/******/ 	// The require function
+/******/ 	function __webpack_require__(moduleId) {
+/******/
+/******/ 		// Check if module is in cache
+/******/ 		if(installedModules[moduleId]) {
+/******/ 			return installedModules[moduleId].exports;
+/******/ 		}
+/******/ 		// Create a new module (and put it into the cache)
+/******/ 		var module = installedModules[moduleId] = {
+/******/ 			i: moduleId,
+/******/ 			l: false,
+/******/ 			exports: {}
+/******/ 		};
+/******/
+/******/ 		// Execute the module function
+/******/ 		modules[moduleId].call(module.exports, module, module.exports, __webpack_require__);
+/******/
+/******/ 		// Flag the module as loaded
+/******/ 		module.l = true;
+/******/
+/******/ 		// Return the exports of the module
+/******/ 		return module.exports;
+/******/ 	}
+/******/
+/******/
+/******/ 	// expose the modules object (__webpack_modules__)
+/******/ 	__webpack_require__.m = modules;
+/******/
+/******/ 	// expose the module cache
+/******/ 	__webpack_require__.c = installedModules;
+/******/
+/******/ 	// define getter function for harmony exports
+/******/ 	__webpack_require__.d = function(exports, name, getter) {
+/******/ 		if(!__webpack_require__.o(exports, name)) {
+/******/ 			Object.defineProperty(exports, name, { enumerable: true, get: getter });
+/******/ 		}
+/******/ 	};
+/******/
+/******/ 	// define __esModule on exports
+/******/ 	__webpack_require__.r = function(exports) {
+/******/ 		if(typeof Symbol !== 'undefined' && Symbol.toStringTag) {
+/******/ 			Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' });
+/******/ 		}
+/******/ 		Object.defineProperty(exports, '__esModule', { value: true });
+/******/ 	};
+/******/
+/******/ 	// create a fake namespace object
+/******/ 	// mode & 1: value is a module id, require it
+/******/ 	// mode & 2: merge all properties of value into the ns
+/******/ 	// mode & 4: return value when already ns object
+/******/ 	// mode & 8|1: behave like require
+/******/ 	__webpack_require__.t = function(value, mode) {
+/******/ 		if(mode & 1) value = __webpack_require__(value);
+/******/ 		if(mode & 8) return value;
+/******/ 		if((mode & 4) && typeof value === 'object' && value && value.__esModule) return value;
+/******/ 		var ns = Object.create(null);
+/******/ 		__webpack_require__.r(ns);
+/******/ 		Object.defineProperty(ns, 'default', { enumerable: true, value: value });
+/******/ 		if(mode & 2 && typeof value != 'string') for(var key in value) __webpack_require__.d(ns, key, function(key) { return value[key]; }.bind(null, key));
+/******/ 		return ns;
+/******/ 	};
+/******/
+/******/ 	// getDefaultExport function for compatibility with non-harmony modules
+/******/ 	__webpack_require__.n = function(module) {
+/******/ 		var getter = module && module.__esModule ?
+/******/ 			function getDefault() { return module['default']; } :
+/******/ 			function getModuleExports() { return module; };
+/******/ 		__webpack_require__.d(getter, 'a', getter);
+/******/ 		return getter;
+/******/ 	};
+/******/
+/******/ 	// Object.prototype.hasOwnProperty.call
+/******/ 	__webpack_require__.o = function(object, property) { return Object.prototype.hasOwnProperty.call(object, property); };
+/******/
+/******/ 	// __webpack_public_path__
+/******/ 	__webpack_require__.p = "";
+/******/
+/******/
+/******/ 	// Load entry module and return exports
+/******/ 	return __webpack_require__(__webpack_require__.s = 0);
+/******/ })
+/************************************************************************/
+/******/ ([
+/* 0 */
+/***/ (function(module, exports, __webpack_require__) {
+
+var impl = __webpack_require__(1); // registers the extension on a cytoscape lib ref
+
+
+var register = function register(cytoscape) {
+  if (!cytoscape) {
+    return;
+  } // can't register if cytoscape unspecified
+
+
+  cytoscape('layout', 'dagre', impl); // register with cytoscape.js
+};
+
+if (typeof cytoscape !== 'undefined') {
+  // expose to global cytoscape (i.e. window.cytoscape)
+  register(cytoscape);
+}
+
+module.exports = register;
+
+/***/ }),
+/* 1 */
+/***/ (function(module, exports, __webpack_require__) {
+
+function _typeof(obj) { "@babel/helpers - typeof"; if (typeof Symbol === "function" && typeof Symbol.iterator === "symbol") { _typeof = function _typeof(obj) { return typeof obj; }; } else { _typeof = function _typeof(obj) { return obj && typeof Symbol === "function" && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }; } return _typeof(obj); }
+
+var isFunction = function isFunction(o) {
+  return typeof o === 'function';
+};
+
+var defaults = __webpack_require__(2);
+
+var assign = __webpack_require__(3);
+
+var dagre = __webpack_require__(4); // constructor
+// options : object containing layout options
+
+
+function DagreLayout(options) {
+  this.options = assign({}, defaults, options);
+} // runs the layout
+
+
+DagreLayout.prototype.run = function () {
+  var options = this.options;
+  var layout = this;
+  var cy = options.cy; // cy is automatically populated for us in the constructor
+
+  var eles = options.eles;
+
+  var getVal = function getVal(ele, val) {
+    return isFunction(val) ? val.apply(ele, [ele]) : val;
+  };
+
+  var bb = options.boundingBox || {
+    x1: 0,
+    y1: 0,
+    w: cy.width(),
+    h: cy.height()
+  };
+
+  if (bb.x2 === undefined) {
+    bb.x2 = bb.x1 + bb.w;
+  }
+
+  if (bb.w === undefined) {
+    bb.w = bb.x2 - bb.x1;
+  }
+
+  if (bb.y2 === undefined) {
+    bb.y2 = bb.y1 + bb.h;
+  }
+
+  if (bb.h === undefined) {
+    bb.h = bb.y2 - bb.y1;
+  }
+
+  var g = new dagre.graphlib.Graph({
+    multigraph: true,
+    compound: true
+  });
+  var gObj = {};
+
+  var setGObj = function setGObj(name, val) {
+    if (val != null) {
+      gObj[name] = val;
+    }
+  };
+
+  setGObj('nodesep', options.nodeSep);
+  setGObj('edgesep', options.edgeSep);
+  setGObj('ranksep', options.rankSep);
+  setGObj('rankdir', options.rankDir);
+  setGObj('align', options.align);
+  setGObj('ranker', options.ranker);
+  setGObj('acyclicer', options.acyclicer);
+  g.setGraph(gObj);
+  g.setDefaultEdgeLabel(function () {
+    return {};
+  });
+  g.setDefaultNodeLabel(function () {
+    return {};
+  }); // add nodes to dagre
+
+  var nodes = eles.nodes();
+
+  if (isFunction(options.sort)) {
+    nodes = nodes.sort(options.sort);
+  }
+
+  for (var i = 0; i < nodes.length; i++) {
+    var node = nodes[i];
+    var nbb = node.layoutDimensions(options);
+    g.setNode(node.id(), {
+      width: nbb.w,
+      height: nbb.h,
+      name: node.id()
+    }); // console.log( g.node(node.id()) );
+  } // set compound parents
+
+
+  for (var _i = 0; _i < nodes.length; _i++) {
+    var _node = nodes[_i];
+
+    if (_node.isChild()) {
+      g.setParent(_node.id(), _node.parent().id());
+    }
+  } // add edges to dagre
+
+
+  var edges = eles.edges().stdFilter(function (edge) {
+    return !edge.source().isParent() && !edge.target().isParent(); // dagre can't handle edges on compound nodes
+  });
+
+  if (isFunction(options.sort)) {
+    edges = edges.sort(options.sort);
+  }
+
+  for (var _i2 = 0; _i2 < edges.length; _i2++) {
+    var edge = edges[_i2];
+    g.setEdge(edge.source().id(), edge.target().id(), {
+      minlen: getVal(edge, options.minLen),
+      weight: getVal(edge, options.edgeWeight),
+      name: edge.id()
+    }, edge.id()); // console.log( g.edge(edge.source().id(), edge.target().id(), edge.id()) );
+  }
+
+  dagre.layout(g);
+  var gNodeIds = g.nodes();
+
+  for (var _i3 = 0; _i3 < gNodeIds.length; _i3++) {
+    var id = gNodeIds[_i3];
+    var n = g.node(id);
+    cy.getElementById(id).scratch().dagre = n;
+  }
+
+  var dagreBB;
+
+  if (options.boundingBox) {
+    dagreBB = {
+      x1: Infinity,
+      x2: -Infinity,
+      y1: Infinity,
+      y2: -Infinity
+    };
+    nodes.forEach(function (node) {
+      var dModel = node.scratch().dagre;
+      dagreBB.x1 = Math.min(dagreBB.x1, dModel.x);
+      dagreBB.x2 = Math.max(dagreBB.x2, dModel.x);
+      dagreBB.y1 = Math.min(dagreBB.y1, dModel.y);
+      dagreBB.y2 = Math.max(dagreBB.y2, dModel.y);
+    });
+    dagreBB.w = dagreBB.x2 - dagreBB.x1;
+    dagreBB.h = dagreBB.y2 - dagreBB.y1;
+  } else {
+    dagreBB = bb;
+  }
+
+  var constrainPos = function constrainPos(p) {
+    if (options.boundingBox) {
+      var xPct = dagreBB.w === 0 ? 0 : (p.x - dagreBB.x1) / dagreBB.w;
+      var yPct = dagreBB.h === 0 ? 0 : (p.y - dagreBB.y1) / dagreBB.h;
+      return {
+        x: bb.x1 + xPct * bb.w,
+        y: bb.y1 + yPct * bb.h
+      };
+    } else {
+      return p;
+    }
+  };
+
+  nodes.layoutPositions(layout, options, function (ele) {
+    ele = _typeof(ele) === "object" ? ele : this;
+    var dModel = ele.scratch().dagre;
+    return constrainPos({
+      x: dModel.x,
+      y: dModel.y
+    });
+  });
+  return this; // chaining
+};
+
+module.exports = DagreLayout;
+
+/***/ }),
+/* 2 */
+/***/ (function(module, exports) {
+
+var defaults = {
+  // dagre algo options, uses default value on undefined
+  nodeSep: undefined,
+  // the separation between adjacent nodes in the same rank
+  edgeSep: undefined,
+  // the separation between adjacent edges in the same rank
+  rankSep: undefined,
+  // the separation between adjacent nodes in the same rank
+  rankDir: undefined,
+  // 'TB' for top to bottom flow, 'LR' for left to right,
+  align: undefined,
+  // alignment for rank nodes. Can be 'UL', 'UR', 'DL', or 'DR', where U = up, D = down, L = left, and R = right
+  acyclicer: undefined,
+  // If set to 'greedy', uses a greedy heuristic for finding a feedback arc set for a graph.
+  // A feedback arc set is a set of edges that can be removed to make a graph acyclic.
+  ranker: undefined,
+  // Type of algorithm to assigns a rank to each node in the input graph.
+  // Possible values: network-simplex, tight-tree or longest-path
+  minLen: function minLen(edge) {
+    return 1;
+  },
+  // number of ranks to keep between the source and target of the edge
+  edgeWeight: function edgeWeight(edge) {
+    return 1;
+  },
+  // higher weight edges are generally made shorter and straighter than lower weight edges
+  // general layout options
+  fit: true,
+  // whether to fit to viewport
+  padding: 30,
+  // fit padding
+  spacingFactor: undefined,
+  // Applies a multiplicative factor (>0) to expand or compress the overall area that the nodes take up
+  nodeDimensionsIncludeLabels: false,
+  // whether labels should be included in determining the space used by a node
+  animate: false,
+  // whether to transition the node positions
+  animateFilter: function animateFilter(node, i) {
+    return true;
+  },
+  // whether to animate specific nodes when animation is on; non-animated nodes immediately go to their final positions
+  animationDuration: 500,
+  // duration of animation in ms if enabled
+  animationEasing: undefined,
+  // easing of animation if enabled
+  boundingBox: undefined,
+  // constrain layout bounds; { x1, y1, x2, y2 } or { x1, y1, w, h }
+  transform: function transform(node, pos) {
+    return pos;
+  },
+  // a function that applies a transform to the final node position
+  ready: function ready() {},
+  // on layoutready
+  sort: undefined,
+  // a sorting function to order the nodes and edges; e.g. function(a, b){ return a.data('weight') - b.data('weight') }
+  // because cytoscape dagre creates a directed graph, and directed graphs use the node order as a tie breaker when
+  // defining the topology of a graph, this sort function can help ensure the correct order of the nodes/edges.
+  // this feature is most useful when adding and removing the same nodes and edges multiple times in a graph.
+  stop: function stop() {} // on layoutstop
+
+};
+module.exports = defaults;
+
+/***/ }),
+/* 3 */
+/***/ (function(module, exports) {
+
+// Simple, internal Object.assign() polyfill for options objects etc.
+module.exports = Object.assign != null ? Object.assign.bind(Object) : function (tgt) {
+  for (var _len = arguments.length, srcs = new Array(_len > 1 ? _len - 1 : 0), _key = 1; _key < _len; _key++) {
+    srcs[_key - 1] = arguments[_key];
+  }
+
+  srcs.forEach(function (src) {
+    Object.keys(src).forEach(function (k) {
+      return tgt[k] = src[k];
+    });
+  });
+  return tgt;
+};
+
+/***/ }),
+/* 4 */
+/***/ (function(module, exports) {
+
+module.exports = __WEBPACK_EXTERNAL_MODULE__4__;
+
+/***/ })
+/******/ ]);
+});
+    </script>
+</head>
+
+<body>
+    <div id="cy"></div>
+    <div id="menu">
+        <div class="menu-item">
+            <label>Show Vertex</label>
+        </div>
+        <div class="menu-item">
+            <label>Vertex Id</label>
+            <input type="text" id="show-vertex-input" placeholder="">
+        </div>
+        <div class="menu-item">
+            <label>DFS Depth</label>
+            <input type="text" id="dfs-depth-input" placeholder="">
+        </div>
+        <div class="menu-item">
+            <button id="show-vertex-button">Show</button>
+            <button id="reset-button">Reset</button>
+        </div>
+        <hr>
+        <div class="menu-item">
+            <label>Click Mode</label>
+        </div>
+        <div class="menu-item">
+            <label>
+                Extend
+                <input type="radio" name="click-mode-radio" value="extend">
+            </label>
+            <label>
+                Highlight
+                <input type="radio" name="click-mode-radio" value="highlight">
+            </label>
+        </div>
+        <hr>
+        <div class="menu-item">
+            <label>Layout Graph</label>
+        </div>
+        <div class="menu-item">
+            <label>
+                COSE
+                <input type="radio" name="layout-mode-radio" value="cose">
+            </label>
+            <label>
+                Breadth First
+                <input type="radio" name="layout-mode-radio" value="breadthfirst">
+            </label>
+            <label>
+                DAGRE
+                <input type="radio" name="layout-mode-radio" value="dagre">
+            </label>
+        </div>
+        <div class="menu-item">
+            <button id="run-layout-button">Run Layout</button>
+        </div>
+        <hr>
+        <div class="menu-item">
+            <code><pre id="info-display"></pre></code>
+        </div>
+    </div>
+
+    <script>
+        // const vertices = {
+        //   v1: { label: "v1sdfoiwhefk", classes: ['vertex'], color: '#ffffff', borderStyle: 'dashed', incoming: ["v2_1"], info: "Some data here\nLine2" },
+        //   v2: { label: "v2", classes: ['cluster'], color: '#99ff99', borderStyle: 'solid', children: ["v2_1", "v2_2"], incoming: [] },
+        //   v2_1: { label: "v2_1", parent: "v2", classes: ['vertex'], color: '#ffffff', borderStyle: 'solid', incoming: ["v3", "v2_2"] },
+        //   v2_2: { label: "v2_2", parent: "v2", classes: ['vertex'], color: '#ffffff', borderStyle: 'solid', incoming: ["v4"] },
+        //   v3: { label: "v3", classes: ['vertex'], color: '#ffffff', borderStyle: 'solid', incoming: ["v4"] },
+        //   v4: { label: "v4", classes: ['vertex'], color: '#ff9999', borderStyle: 'solid', incoming: ["v5"] },
+        //   v5: { label: "v5", classes: ['vertex'], color: '#ffffff', borderStyle: 'solid', incoming: [] },
+        // }
+        // const edgesInv = {
+        //   v1: [],
+        //   v2: [],
+        //   v2_1: ["v1"],
+        //   v2_2: ["v2_1"],
+        //   v3: ["v2_1"],
+        //   v4: ["v2_2", "v3"],
+        //   v5: ["v4"]
+        // }
+        // const edgeLabels = {
+        //   v1: {
+        //     v2_1: "e1"
+        //   },
+        //   v2_1: {
+        //     v3: "e2"
+        //   }
+        // }
+        // const edgeInfos = {
+        //   v1: {
+        //     v2_1: "tooltip here"
+        //   }
+        // }
+
+        {{data}}
+
+        let cy;
+        function initCy() {
+            cy = cytoscape({
+                container: document.getElementById('cy'),
+                elements: [],
+                style: [
+                    {
+                        selector: 'node[label]',
+                        style: {
+                            label: 'data(label)',
+                            "text-valign": 'center',
+                            "text-halign": 'center',
+                        }
+                    },
+                    {
+                        selector: 'node[color].cluster',
+                        style: {
+                            'background-opacity': 0.4,
+                            'background-color': 'data(color)'
+                        }
+                    },
+                    {
+                        selector: 'node[color].vertex',
+                        style: {
+                            'text-background-opacity': 0.9,
+                            'text-background-color': 'data(color)',
+                            'text-background-shape': 'rectangle',
+                        }
+                    },
+                    {
+                        selector: 'node[borderStyle]',
+                        style: {
+                            'text-border-style': 'data(borderStyle)',
+                            'text-border-width': "1px",
+                            'text-border-color': "#000000",
+                        }
+                    },
+                    {
+                        selector: ':parent',
+                        style: {
+                            'text-valign': 'top',
+                            'text-halign': 'center',
+                        }
+                    },
+                    {
+                        selector: 'node',
+                        style: {
+                            'shape': 'rectangle',
+                            'height': '20px',
+                            'width': '40px',
+                        }
+                    },
+                    {
+                        selector: 'edge[label]',
+                        style: {
+                            'label': 'data(label)',
+                            'text-margin-x': '10px'
+                        }
+                    },
+                    {
+                        selector: 'edge',
+                        style: {
+                            'mid-target-arrow-shape': 'triangle',
+                        }
+                    },
+                    {
+                        selector: 'edge.emphasis',
+                        style: {
+                            'line-color': '#0000ff',
+                            'target-arrow-color': '#0000ff',
+                            'width': 3,
+                        }
+                    }
+                ]
+            })
+        }
+
+        function reset() {
+            cy.destroy()
+            initCy()
+            setInfoDisplay("")
+        }
+
+        let clickMode = 'extend'
+        let layoutMode = 'dagre'
+
+        function runLayout(after) {
+            const cose = {
+                name: 'cose',
+                nodeDimensionsIncludeLabels: true,
+                animate: true,
+                stop: after
+            }
+            const breadthfirst = {
+                name: 'breadthfirst',
+                directed: true,
+                nodeDimensionsIncludeLabels: true,
+                fit: false,
+                spacingFactor: 0.8,
+                animate: true,
+                stop: after
+            }
+            const dagre = {
+                name: 'dagre',
+                fit: false,
+                animate: true,
+                spacingFactor: 1.5
+            }
+
+            let config;
+            if (layoutMode == 'cose') {
+                config = cose
+            } else if (layoutMode == 'breadthfirst') {
+                config = breadthfirst
+            } else if (layoutMode == 'dagre') {
+                config = dagre
+            }
+
+            let layout = cy.layout(config).run()
+        }
+
+        function edgeIdFor(source, target) {
+            return source + '-' + target
+        }
+
+        function addEdge(source, target) {
+            const eid = edgeIdFor(source, target)
+            const label = edgeLabels[target] === undefined ? undefined : edgeLabels[target][source]
+
+            if (cy.edges('#' + eid).size() == 0) {
+                cy.add({
+                    group: 'edges',
+                    data: {
+                        id: eid,
+                        source: source,
+                        target: target,
+                        label: label
+                    },
+                })
+
+                cy.edges('#' + eid).on('select', event => {
+                    const info = edgeInfos[target] === undefined ? undefined : edgeInfos[target][source]
+                    setInfoDisplay(info)
+                })
+
+                cy.edges('#' + eid).on('unselect', event => {
+                    setInfoDisplay("")
+                })
+
+                return true
+            }
+            return false
+        }
+
+        function addIncomingVertices(vid, fuel = 1) {
+            let added = false;
+            for (const incoming of vertices[vid].incoming) {
+                added |= addVertex(incoming, fuel - 1)
+                added |= addEdge(incoming, vid)
+            }
+            return added
+        }
+
+        function addOutgoingVertices(vid, fuel = 1) {
+            let added = false;
+            for (const outgoing of edgesInv[vid]) {
+                added |= addVertex(outgoing, fuel - 1)
+                added |= addEdge(vid, outgoing)
+            }
+            return added
+        }
+
+        function onClickVertex(vid) {
+            if (clickMode == 'extend') {
+                if (addIncomingVertices(vid) | addOutgoingVertices(vid)) {
+                    runLayout(() => { })
+                }
+            }
+        }
+
+        function toggleAdjacentEdgeEmphasis(vid, on) {
+            for (const outgoing of edgesInv[vid]) {
+                const eid = edgeIdFor(vid, outgoing)
+                if (cy.edges('#' + eid).size() > 0) {
+                    cy.$('#' + eid).toggleClass('emphasis', on)
+                }
+            }
+
+            for (const incoming of vertices[vid].incoming) {
+                const eid = edgeIdFor(incoming, vid)
+                if (cy.edges('#' + eid).size() > 0) {
+                    cy.$('#' + eid).toggleClass('emphasis', on)
+                }
+            }
+        }
+
+        function setInfoDisplay(info) {
+            const infoDisplay = document.getElementById('info-display')
+            infoDisplay.innerText = info != undefined ? info : ''
+        }
+
+        function onSelectVertex(vid) {
+            if (clickMode == 'highlight') {
+                toggleAdjacentEdgeEmphasis(vid, true)
+                setInfoDisplay(vertices[vid].info)
+            }
+        }
+
+        function onUnselectVertex(vid) {
+            if (clickMode == 'highlight') {
+                toggleAdjacentEdgeEmphasis(vid, false)
+                setInfoDisplay("")
+            }
+        }
+
+        function isVertexShown(vid) {
+            return cy.$('#' + vid).size() > 0
+        }
+
+        function vertexToCytoObject(vid, v) {
+            if ('children' in v) {
+                return {
+                    group: 'nodes',
+                    data: {
+                        id: vid,
+                        label: vertices[vid].label,
+                        color: vertices[vid].color,
+                        borderStyle: vertices[vid].borderStyle,
+                        borderColor: vertices[vid].borderColor
+                    },
+                    classes: vertices[vid].classes,
+                }
+            } else {
+                return {
+                    group: 'nodes',
+                    data: {
+                        id: vid,
+                        label: vertices[vid].label,
+                        color: vertices[vid].color,
+                        borderStyle: vertices[vid].borderStyle,
+                        borderColor: vertices[vid].borderColor,
+                        parent: vertices[vid].parent
+                    },
+                    classes: vertices[vid].classes,
+                }
+            }
+        }
+
+        function addVertex(vid, fuel = 0) {
+            // Check vid is in nodes
+            if (!(vid in vertices)) {
+                return false
+            }
+
+            let added = false;
+
+            // Add vertex if not in cy
+            if (!isVertexShown(vid)) {
+
+                if (vertices[vid].parent !== undefined) {
+                    if (addVertex(vertices[vid].parent)) {
+                        for (const child of vertices[vertices[vid].parent].children) {
+                            if (child != vid) {
+                                addVertex(child)
+                            }
+                        }
+                    }
+                }
+
+                const obj = vertexToCytoObject(vid, vertices[vid])
+                cy.add(obj)
+
+                // Bind tap event
+                cy.$('#' + vid).on('tap', event => {
+                    onClickVertex(vid)
+                })
+
+                // Bind select and unselect event
+                cy.$('#' + vid).on('select', event => {
+                    onSelectVertex(vid)
+                })
+
+                cy.$('#' + vid).on('unselect', event => {
+                    onUnselectVertex(vid)
+                })
+
+                // Add edges to shown vertices
+                if (fuel == 0) {
+                    for (const incoming of vertices[vid].incoming) {
+                        if (isVertexShown(incoming)) {
+                            addEdge(incoming, vid)
+                        }
+                    }
+
+                    for (const outgoing of edgesInv[vid]) {
+                        if (isVertexShown(outgoing)) {
+                            addEdge(vid, outgoing)
+                        }
+                    }
+                }
+
+                added = true;
+            }
+
+            // Add incoming vertices
+            if (fuel > 0) {
+                added |= addIncomingVertices(vid, fuel)
+                added |= addOutgoingVertices(vid, fuel)
+            }
+
+            return added
+        }
+
+        function focusVertex(vid) {
+            let v = cy.$('#' + vid)
+            cy.center(v)
+        }
+
+        function onShowVertexButtonClick() {
+            const showVertexField = document.getElementById('show-vertex-input')
+            const vid = showVertexField.value
+
+            const dfsDepthField = document.getElementById('dfs-depth-input')
+            const dfsDepthN = parseFloat(dfsDepthField.value)
+            const dfsDepth = isNaN(dfsDepthN) ? 1 : dfsDepthN
+
+            if (addVertex(vid, dfsDepth)) {
+                runLayout(() => { })
+            }
+        }
+
+        function onClickModeRadio() {
+            const selected = document.querySelector('input[name="click-mode-radio"]:checked')
+
+            if (selected) {
+                clickMode = selected.value
+            }
+        }
+
+        function onClickLayoutModeRadio() {
+            const selected = document.querySelector('input[name="layout-mode-radio"]:checked')
+
+            if (selected) {
+                layoutMode = selected.value
+            }
+        }
+
+        initCy()
+
+        for (const vid of firstShownVertices) {
+            addVertex(vid, 1)
+        }
+        if (firstShownVertices.length > 0) {
+            runLayout(() => {
+                focusVertex(firstShownVertices[0])
+            })
+        }
+
+        document.getElementById('show-vertex-input').addEventListener('keypress', event => {
+            if (event.key === 'Enter') {
+                onShowVertexButtonClick()
+            }
+        })
+
+        document.getElementById('reset-button').addEventListener('click', reset)
+
+        document.getElementById('show-vertex-button').addEventListener('click', onShowVertexButtonClick)
+
+        document.getElementById('run-layout-button').addEventListener('click', runLayout)
+
+        document.querySelector(`input[name='click-mode-radio'][value='${clickMode}']`).checked = true;
+        document.querySelectorAll('input[name="click-mode-radio"]').forEach(radio => {
+            radio.addEventListener('change', onClickModeRadio)
+        })
+
+        document.querySelector(`input[name='layout-mode-radio'][value='${layoutMode}']`).checked = true;
+        document.querySelectorAll('input[name="layout-mode-radio"]').forEach(radio => {
+            radio.addEventListener('change', onClickLayoutModeRadio)
+        })
+
+    </script>
+</body>
+
+<style>
+    body,
+    html {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        overflow: hidden;
+    }
+
+    #cy {
+        width: 100%;
+        height: 100%;
+        background-color: #f0f0f0;
+    }
+
+    #menu {
+        position: absolute;
+        max-width: 300px;
+        top: 10px;
+        right: 10px;
+        background-color: white;
+        border: 1px solid #ccc;
+        padding: 10px;
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    }
+
+    .menu-item {
+        display: flex;
+        margin-bottom: 10px;
+    }
+
+    .menu-item label {
+        margin-right: 10px;
+    }
+
+    #info-display {
+        white-space: pre-wrap;
+        text-wrap-mode: wrap;
+    }
+</style>
+
+</html>
