@@ -126,6 +126,33 @@ where
     }
 }
 
+pub struct InvTopologyIterator<'g, I, V> {
+    g: &'g Digraph<I, V>,
+    deg: Heap<I, usize>,
+    queue: VecDeque<I>,
+}
+
+impl<'g, I, V> Iterator for InvTopologyIterator<'g, I, V>
+where
+    I: UsizeId,
+    V: Predecessors<I>,
+{
+    type Item = (I, &'g V);
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(i) = self.queue.pop_front() {
+            for pred in self.g.vertex(i).predecessors() {
+                self.deg[pred] -= 1;
+                if self.deg[pred] == 0 {
+                    self.queue.push_back(pred)
+                }
+            }
+            Some((i, &self.g.0[i]))
+        } else {
+            None
+        }
+    }
+}
+
 impl<I, V> Digraph<I, V>
 where
     I: UsizeId,
@@ -249,6 +276,21 @@ where
             deg,
             queue,
             successors,
+        }
+    }
+
+    pub fn topology_sort_inv<'g>(
+        &'g self,
+    ) -> impl Iterator<Item = (I, &'g V)> + 'g {
+        let deg = self.degrees_out();
+        let queue: VecDeque<I> = deg
+            .iter_with_id()
+            .filter_map(|(id, d)| if *d == 0 { Some(id) } else { None })
+            .collect();
+        InvTopologyIterator {
+            g: self,
+            deg,
+            queue,
         }
     }
 }

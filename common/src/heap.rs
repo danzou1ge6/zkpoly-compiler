@@ -52,8 +52,16 @@ impl<I: UsizeId> IdAllocator<I> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Heap<I, T>(pub Vec<T>, PhantomData<I>);
+
+impl<I, T> std::fmt::Debug for Heap<I, T> where T: std::fmt::Debug {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_map()
+            .entries(self.0.iter().enumerate())
+            .finish()
+    }
+}
 
 const PANIC_MSG: &'static str =
     "Assigned indices should never exceed vector length. Perhaps more than one heap is used?";
