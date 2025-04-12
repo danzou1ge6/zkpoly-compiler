@@ -118,19 +118,26 @@ pub fn write_graph_with_optional_seq<'s, Ty: Debug>(
                 label.push_str(&format!("({})", i));
             }
 
+            let tooltip = format!(
+                "{:?}\\n@{}\\n{}",
+                vertex.typ(),
+                format_source_info(vertex.src()),
+                extra_tooltip(vid, vertex).unwrap_or_default()
+            );
+
             let color =
                 override_color(vid, vertex).map_or_else(vis::Color::light_blue, vis::Color::new);
 
-            let cluster_id = format!("v{}", usize::from(vid));
+            let cluster_id = format!("_{}_arith_", usize::from(vid));
             builder.cluster(
                 cluster_id,
-                vis::Cluster::new(vis::Vertex::new(label).with_color(color))
+                vis::Cluster::new(vis::Vertex::new(label).with_color(color).with_info(tooltip))
                     .with_children(subgraph_vertices),
             );
             continue;
         }
 
-        let mut label = format_node_label(vertex.node());
+        let mut label = format!("{}: ", usize::from(vid)) + &format_node_label(vertex.node());
 
         if print_seq {
             label.push_str(&format!("({})", i));
@@ -176,8 +183,8 @@ pub fn write_graph_with_optional_seq<'s, Ty: Debug>(
             arith::visualize::subgraph_edges(
                 arith,
                 &format!("_{}_arith_", to_vid.0),
-                format!("{}", to_vid.0),
-                |ivid| format!("{}", ivid.0),
+                format!("v{}", to_vid.0),
+                |ivid| format!("v{}", ivid.0),
                 tooltips,
                 &mut builder,
             );

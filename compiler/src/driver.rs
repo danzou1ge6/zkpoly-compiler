@@ -23,6 +23,7 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct DebugOptions {
     debug_dir: PathBuf,
+    debug_user_function_table: bool,
     debug_fresh_type2: bool,
     debug_type_inference: bool,
     debug_intt_mending: bool,
@@ -46,6 +47,7 @@ impl DebugOptions {
     pub fn all(debug_dir: PathBuf) -> Self {
         Self {
             debug_dir,
+            debug_user_function_table: true,
             debug_fresh_type2: true,
             debug_intt_mending: true,
             debug_type_inference: true,
@@ -69,6 +71,7 @@ impl DebugOptions {
     pub fn none(debug_dir: PathBuf) -> Self {
         Self {
             debug_dir,
+            debug_user_function_table: true,
             debug_fresh_type2: false,
             debug_intt_mending: false,
             debug_type_inference: false,
@@ -450,6 +453,11 @@ pub fn ast2inst<Rt: RuntimeType>(
         || Ok(ast::lowering::Cg::new(ast, allocator)),
         "Done.",
     )?;
+
+    if options.debug_user_function_table {
+        let mut f = std::fs::File::create(&options.debug_dir.join("user_functions.txt")).unwrap();
+        write!(f, "{:#?}", ast_cg.user_function_table).unwrap();
+    }
 
     if options.debug_fresh_type2 {
         ctx.add(debug_type2(

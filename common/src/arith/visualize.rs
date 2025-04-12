@@ -15,7 +15,7 @@ pub fn subgraph_vertices<I: Copy>(
     for v in ag.g.vertices() {
         let op = &ag.g.vertex(v).op;
         let label = format_node_label(op);
-        let id = format!("v{}{}", vertex_name_prefix, v.0);
+        let id = format!("{}{}", vertex_name_prefix, v.0);
 
         vertices.push(id.clone());
         builder.vertex(id, vis::Vertex::new(label));
@@ -40,8 +40,8 @@ pub fn subgraph_edges<I: Copy + Eq>(
         let op = &ag.g.vertex(v).op;
         // Write internal edges
         for (us, label) in labeled_uses(op).into_iter() {
-            let from_id = format!("v{}{}", vertex_name_prefix, us.0);
-            let to_id = format!("v{}{}", vertex_name_prefix, v.0);
+            let from_id = format!("{}{}", vertex_name_prefix, us.0);
+            let to_id = format!("{}{}", vertex_name_prefix, v.0);
             builder.edge(
                 vis::Edge::new(from_id, to_id).with_optional_label(if label.is_empty() {
                     None
@@ -63,14 +63,14 @@ pub fn subgraph_edges<I: Copy + Eq>(
                 .flatten();
 
             let from_id = vid(*outer_id);
-            let to_id = format!("v{}{}", vertex_name_prefix, v.0);
+            let to_id = format!("{}{}", vertex_name_prefix, v.0);
 
             builder.edge(vis::Edge::new(from_id, to_id).with_optional_info(tooltip));
         }
     }
 
     for (i, &output) in ag.outputs.iter().enumerate() {
-        let from_id = format!("v{}{}", vertex_name_prefix, output.0);
+        let from_id = format!("{}{}", vertex_name_prefix, output.0);
         builder.edge(vis::Edge::new(from_id, &all_output_id).with_label(format!("{i}")));
     }
 }

@@ -458,6 +458,12 @@ module.exports = __WEBPACK_EXTERNAL_MODULE__4__;
             </label>
         </div>
         <div class="menu-item">
+            <label>
+                Animation
+                <input type="checkbox" id="animation-checkbox">
+            </label>
+        </div>
+        <div class="menu-item">
             <button id="run-layout-button">Run Layout</button>
         </div>
         <hr>
@@ -586,12 +592,14 @@ module.exports = __WEBPACK_EXTERNAL_MODULE__4__;
 
         let clickMode = 'extend'
         let layoutMode = 'dagre'
+        let animateSwitch = true
 
         function runLayout(after) {
             const cose = {
                 name: 'cose',
                 nodeDimensionsIncludeLabels: true,
-                animate: true,
+                fit: false,
+                animate: animateSwitch,
                 stop: after
             }
             const breadthfirst = {
@@ -600,13 +608,13 @@ module.exports = __WEBPACK_EXTERNAL_MODULE__4__;
                 nodeDimensionsIncludeLabels: true,
                 fit: false,
                 spacingFactor: 0.8,
-                animate: true,
+                animate: animateSwitch,
                 stop: after
             }
             const dagre = {
                 name: 'dagre',
                 fit: false,
-                animate: true,
+                animate: animateSwitch,
                 spacingFactor: 1.5
             }
 
@@ -761,13 +769,7 @@ module.exports = __WEBPACK_EXTERNAL_MODULE__4__;
             if (!isVertexShown(vid)) {
 
                 if (vertices[vid].parent !== undefined) {
-                    if (addVertex(vertices[vid].parent)) {
-                        for (const child of vertices[vertices[vid].parent].children) {
-                            if (child != vid) {
-                                addVertex(child)
-                            }
-                        }
-                    }
+                    addVertex(vertices[vid].parent)
                 }
 
                 const obj = vertexToCytoObject(vid, vertices[vid])
@@ -879,6 +881,11 @@ module.exports = __WEBPACK_EXTERNAL_MODULE__4__;
         document.querySelector(`input[name='layout-mode-radio'][value='${layoutMode}']`).checked = true;
         document.querySelectorAll('input[name="layout-mode-radio"]').forEach(radio => {
             radio.addEventListener('change', onClickLayoutModeRadio)
+        })
+
+        document.getElementById('animation-checkbox').checked = animateSwitch;
+        document.getElementById('animation-checkbox').addEventListener('change', event => {
+            animateSwitch = event.target.checked
         })
 
     </script>

@@ -291,7 +291,10 @@ impl Builder {
         from: impl Into<Id> + Borrow<str>,
         to: impl Into<Id> + Borrow<str>,
     ) -> &mut Self {
-        let points_to = self.edges_inverse.get_mut(from.borrow()).unwrap();
+        let points_to = self
+            .edges_inverse
+            .get_mut(from.borrow())
+            .unwrap_or_else(|| panic!("Vertex with ID {} not created yet", from.borrow()));
         self.vertices
             .get_mut(to.borrow())
             .unwrap()
@@ -420,7 +423,7 @@ impl Builder {
         write!(f, "const firstShownVertices = [")?;
         for (i, id) in self.first_shown_vertices.iter().enumerate() {
             write!(f, "\"{}\"", id)?;
-            if i!= self.first_shown_vertices.len() - 1 {
+            if i != self.first_shown_vertices.len() - 1 {
                 write!(f, ", ")?;
             }
         }
