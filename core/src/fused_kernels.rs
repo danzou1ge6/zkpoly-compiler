@@ -1,10 +1,7 @@
 use std::{
-    any::type_name,
-    collections::{BTreeMap, BTreeSet},
-    fs,
-    marker::PhantomData,
-    os::raw::{c_uint, c_ulonglong},
+    any::type_name, borrow::Borrow, collections::{BTreeMap, BTreeSet}, fs, marker::PhantomData, os::raw::{c_uint, c_ulonglong}
 };
+use std::io::Write;
 
 use libloading::Symbol;
 use zkpoly_common::{
@@ -148,13 +145,14 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
         }
     }
 
-    pub fn gen(&self) {
+    pub fn gen(&self, head_annotation: impl Borrow<str>) {
         let header = self.gen_header();
         let kernel = self.gen_kernel();
         let wrapper = self.gen_wrapper();
         let project_root = get_project_root();
         let path = project_root + "/core/src/fused_kernels/src/" + self.name.as_str() + ".cu";
-        fs::write(path, header + &kernel + &wrapper).unwrap();
+        let mut f = fs::File::create(&path).unwrap();
+        write!(f, "{}\n{}{}{}", head_annotation.borrow(), header, kernel, wrapper).unwrap();
     }
 
     fn gen_header(&self) -> String {
