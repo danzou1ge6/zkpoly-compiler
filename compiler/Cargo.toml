@@ -11,6 +11,8 @@ zkpoly_common = { path = "../common" }
 zkpoly_core = { path = "../core" }
 zkpoly_memory_pool = { path = "../memory_pool" }
 zkpoly_cuda_api = { path = "../cuda_api" }
-cytoscape_visualizer ={ path = "../cytoscape_visualizer" }
+cytoscape_visualizer = { path = "../cytoscape_visualizer" }
 halo2curves = { version = "0.6.0", default-features = false }
 group = "0.13"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

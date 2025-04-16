@@ -10,7 +10,7 @@ pub trait UsizeId:
 #[macro_export]
 macro_rules! define_usize_id {
     ($name:ident) => {
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, serde::Serialize, serde::Deserialize)]
         pub struct $name(usize);
         impl From<usize> for $name {
             fn from(value: usize) -> Self {
@@ -52,7 +52,7 @@ impl<I: UsizeId> IdAllocator<I> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct Heap<I, T>(pub Vec<T>, PhantomData<I>);
 
 impl<I, T> std::fmt::Debug for Heap<I, T> where T: std::fmt::Debug {

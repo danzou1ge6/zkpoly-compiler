@@ -42,7 +42,7 @@ impl PolyMeta {
         use PolyMeta::*;
         match self {
             Sliced(Slice(start, len)) => (*start, *len),
-            Rotated(rot) => ((deg as i64 + *rot as i64) as u64, deg),
+            Rotated(rot) => (((deg as i64 + *rot as i64) % (deg as i64)) as u64, deg),
         }
     }
 
@@ -53,8 +53,9 @@ impl PolyMeta {
 
 pub mod template {
     use super::any;
+    use serde::{Deserialize, Serialize};
 
-    #[derive(Debug, Clone, PartialEq, Eq)]
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
     pub enum Typ<P> {
         ScalarArray { len: usize, meta: P },
         PointBase { len: usize },
@@ -62,7 +63,7 @@ pub mod template {
         Transcript,
         Point,
         Tuple,
-        Any(any::TypeId, usize),
+        Any(usize),
         Stream,
         GpuBuffer(usize),
     }
@@ -120,7 +121,7 @@ impl template::Typ<PolyMeta> {
             Transcript => Transcript,
             Point => Point,
             Tuple => Tuple,
-            Any(id, len) => Any(*id, *len),
+            Any(len) => Any(*len),
             Stream => Stream,
             GpuBuffer(len) => GpuBuffer(*len),
         }

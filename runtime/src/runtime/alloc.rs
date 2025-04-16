@@ -76,7 +76,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                 Variable::Point(crate::point::Point::new(T::PointAffine::identity()))
             }
             Typ::Tuple => unreachable!("Tuple can only be assembled"),
-            Typ::Any(_, _) => {
+            Typ::Any(_) => {
                 assert!(device.is_cpu());
                 Variable::Any(Arc::new(0)) // placeholder
             }

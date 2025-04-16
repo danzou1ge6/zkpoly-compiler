@@ -4,8 +4,9 @@ use crate::args::{ConstantId, EntryId, RuntimeType, VariableId};
 use crate::devices::{DeviceType, EventId, ThreadId};
 use crate::functions::{self, FunctionId};
 use zkpoly_common::typ::Typ;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Instruction {
     Allocate {
         device: DeviceType,

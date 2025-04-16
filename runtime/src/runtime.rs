@@ -126,8 +126,8 @@ impl<T: RuntimeType> RuntimeInfo<T> {
             // if thread_id == 3 {
             //     println!("variable13: {:?}", self.variable[13.into()].read().unwrap());
             // }
-            // let _guard = global_mutex.lock().unwrap();
-            // println!("instruction: {:?}, thread_id {:?}", instruction, thread_id);
+            let _guard = global_mutex.lock().unwrap();
+            println!("instruction: {:?}, thread_id {:?}", instruction, _thread_id);
 
             match instruction {
                 Instruction::Allocate {

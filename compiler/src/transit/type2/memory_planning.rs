@@ -893,7 +893,7 @@ fn lower_typ<Rt: RuntimeType>(t2typ: &super::Typ<Rt>, value: &Value) -> Typ {
         Transcript => Typ::Transcript,
         Tuple(..) => panic!("tuple unexpected"),
         Array(..) => panic!("array unexpected"),
-        Any(id, size) => Typ::Any(*id, *size as usize),
+        Any(_, size) => Typ::Any(*size as usize),
         _Phantom(_) => unreachable!(),
     }
 }
