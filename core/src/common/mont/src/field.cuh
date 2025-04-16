@@ -603,7 +603,7 @@ namespace mont
       for (i = 1; i < n; i++)
         asm volatile("subc.cc.u32 %0, %1, %2;" : "=r"(tmp[i]) : "r"(even[i]), "r"(m[i]));
 
-      asm volatile("subc.u32 %0, 0, 0; setp.eq.u32 %top, %0, 0;" : "=r"(carry));
+      asm volatile("subc.u32 %0, 0, 0; setp.eq.u32 %top, %0, 0;" : "+r"(carry));
 
       for (i = 0; i < n; i++)
         asm volatile("@%top mov.b32 %0, %1;" : "+r"(even[i]) : "r"(tmp[i]));
