@@ -251,8 +251,21 @@ impl<F: Field> ScalarArray<F> {
         self.rotate as usize
     }
 
-    pub fn set_slice_raw(&self, offset: usize, len: usize) -> Self {
-        Self {
+    pub fn set_slice_raw(&self, mut offset: usize, len: usize) -> Option<Self> {
+        let whole_len = if self.slice_info.is_none() {
+            self.len
+        } else {
+            self.slice_info.as_ref().unwrap().whole_len
+        };
+        offset = offset % whole_len;
+        if len > whole_len || offset >= whole_len {
+            eprintln!(
+                "get invalid slice: offset {}, len {}, whole_len {}",
+                offset, len, whole_len
+            );
+            return None;
+        }
+        Some(Self {
             values: self.values.clone(),
             len,
             rotate: 0,
@@ -265,7 +278,7 @@ impl<F: Field> ScalarArray<F> {
                     self.slice_info.as_ref().unwrap().whole_len
                 },
             }),
-        }
+        })
     }
 
     pub fn slice(&self, start: usize, end: usize) -> Self {

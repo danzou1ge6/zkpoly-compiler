@@ -363,11 +363,14 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                         .unwrap()
                         .unwrap_scalar_array()
                         .set_slice_raw(offset, len);
+                    if poly.is_none() {
+                        panic!("set_slice_raw failed at thread {:?}, instruction {:?}", _thread_id, i);
+                    }
                     drop(src_guard);
                     // println!("set dst {:?} meta to {:?}", dst.clone(), poly.clone());
                     let mut dst_guard = self.variable[dst].write().unwrap();
                     assert!(dst_guard.is_none());
-                    *dst_guard = Some(Variable::ScalarArray(poly));
+                    *dst_guard = Some(Variable::ScalarArray(poly.unwrap()));
                 }
                 Instruction::GetScalarFromArray {
                     src,
