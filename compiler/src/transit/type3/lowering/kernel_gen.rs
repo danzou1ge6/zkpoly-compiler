@@ -1,3 +1,5 @@
+use std::fmt::Write;
+
 use crate::ast::lowering::UserFunctionId;
 use crate::ast::{self, PolyInit};
 use crate::transit::type2::{self, NttAlgorithm};
@@ -119,13 +121,13 @@ pub fn gen_fused_kernels<'s, Rt: RuntimeType>(
     let mut inst_idx2name = BTreeMap::new();
 
     // first pass to generate fused arith kernels
-    for (id, instruct) in program.iter_instructions() {
+    for (idx, instruct) in program.iter_instructions() {
         if let InstructionNode::Type2 { ids, vertex, .. } = &instruct.node {
             if let VertexNode::Arith { arith, .. } = vertex {
                 let normalized = arith::hash::NormalizedDag::from(arith);
-                let name = cache.entry(normalized).or_insert_with(|| {
+                let (name, _op, included_indices) = cache.entry(normalized).or_insert_with(|| {
                     let arith = arith.relabeled(|r| reg_id2var_id(r));
-                    let id: usize = id.into();
+                    let id: usize = idx.into();
                     let name = format!("{FUSED_PERFIX}{id}");
                     let outputs_i2o = arith
                         .outputs
@@ -140,13 +142,24 @@ pub fn gen_fused_kernels<'s, Rt: RuntimeType>(
                             }
                         }))
                         .collect();
-                    FusedOp::new(arith, name.clone(), outputs_i2o).gen(); // generate fused kernel
-                    name
+                    let op = FusedOp::new(arith, name.clone(), outputs_i2o); // generate fused kernel
+                    (name, op, vec![])
                 });
-                inst_idx2name.insert(id, name.to_string());
+                included_indices.push(idx);
+                inst_idx2name.insert(idx, name.clone());
             }
         }
     }
+
+    cache.into_iter().for_each(|(_, (_, op, indices))| {
+        let mut anno = String::new();
+        write!(&mut anno, "// Included names: ").unwrap();
+        for name in indices {
+            write!(&mut anno, "{}, ", usize::from(name)).unwrap();
+        }
+        anno.push('\n');
+        op.gen(anno);
+    });
 
     inst_idx2name
 }
