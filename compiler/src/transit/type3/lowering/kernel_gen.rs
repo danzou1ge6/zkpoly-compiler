@@ -2,9 +2,9 @@ use crate::ast::lowering::UserFunctionId;
 use crate::ast::{self, PolyInit};
 use crate::transit::type2::{self, NttAlgorithm};
 use crate::transit::type3::{self, RegisterId};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
-use zkpoly_common::arith::{BinOp, UnrOp};
+use zkpoly_common::arith::{self, BinOp, UnrOp};
 use zkpoly_common::heap::Heap;
 use zkpoly_common::load_dynamic::Libs;
 use zkpoly_common::msm_config::MsmConfig;
@@ -114,31 +114,41 @@ const FUSED_PERFIX: &str = "fused_arith_";
 pub fn gen_fused_kernels<'s, Rt: RuntimeType>(
     program: &Chunk<'s, Rt>,
     reg_id2var_id: &impl Fn(RegisterId) -> VariableId,
-) {
+) -> BTreeMap<InstructionIndex, String> {
+    let mut cache = HashMap::new();
+    let mut inst_idx2name = BTreeMap::new();
+
     // first pass to generate fused arith kernels
     for (id, instruct) in program.iter_instructions() {
         if let InstructionNode::Type2 { ids, vertex, .. } = &instruct.node {
             if let VertexNode::Arith { arith, .. } = vertex {
-                let arith = arith.relabeled(|r| reg_id2var_id(r));
-                let id: usize = id.into();
-                let name = format!("{FUSED_PERFIX}{id}");
-                let outputs_i2o = arith
-                    .outputs
-                    .iter()
-                    .copied()
-                    .zip((*ids).clone().into_iter().map(|(ra, rb)| {
-                        // see def in InstructionNode::Type2
-                        if rb.is_some() {
-                            reg_id2var_id(rb.unwrap()) // in-place should reuse the input variable
-                        } else {
-                            reg_id2var_id(ra) // otherwise, create a new variable
-                        }
-                    }))
-                    .collect();
-                FusedOp::new(arith, name, outputs_i2o).gen(); // generate fused kernel
+                let normalized = arith::hash::NormalizedDag::from(arith);
+                let name = cache.entry(normalized).or_insert_with(|| {
+                    let arith = arith.relabeled(|r| reg_id2var_id(r));
+                    let id: usize = id.into();
+                    let name = format!("{FUSED_PERFIX}{id}");
+                    let outputs_i2o = arith
+                        .outputs
+                        .iter()
+                        .copied()
+                        .zip((*ids).clone().into_iter().map(|(ra, rb)| {
+                            // see def in InstructionNode::Type2
+                            if rb.is_some() {
+                                reg_id2var_id(rb.unwrap()) // in-place should reuse the input variable
+                            } else {
+                                reg_id2var_id(ra) // otherwise, create a new variable
+                            }
+                        }))
+                        .collect();
+                    FusedOp::new(arith, name.clone(), outputs_i2o).gen(); // generate fused kernel
+                    name
+                });
+                inst_idx2name.insert(id, name.to_string());
             }
         }
     }
+
+    inst_idx2name
 }
 
 pub struct GeneratedFunctions {
@@ -246,7 +256,7 @@ pub fn get_function_id<'s, Rt: RuntimeType>(
     reg_id2var_id: &impl Fn(RegisterId) -> VariableId,
     libs: &mut Libs,
 ) -> GeneratedFunctions {
-    gen_fused_kernels(program, reg_id2var_id);
+    let inst_idx2fused_name = gen_fused_kernels(program, reg_id2var_id);
 
     let mut uf_table: Heap<UserFunctionId, _> = user_ftable.map(&mut (|_, f| Some(f)));
 
@@ -306,8 +316,7 @@ pub fn get_function_id<'s, Rt: RuntimeType>(
                 inst2func.insert(id, func_id);
             }
             KernelType::FusedArith => {
-                let id_usize: usize = id.into();
-                let name = format!("{FUSED_PERFIX}{id_usize}");
+                let name = inst_idx2fused_name[&id].clone();
                 let fuse_kernel = FusedKernel::new(libs, name);
                 let func_id = f_table.push(fuse_kernel.get_fn());
                 inst2func.insert(id, func_id);

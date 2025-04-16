@@ -7,7 +7,7 @@ use crate::{
 };
 
 /// Scalar-Polynomial operator
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum SpOp {
     Add,
     Sub,
@@ -50,7 +50,7 @@ impl SpOp {
 mod op_template {
     /// Binary operator.
     /// [`P`]: polynomial-Polynomial opertor
-    #[derive(Debug, Clone)]
+    #[derive(Debug, Clone, Hash, PartialEq, Eq)]
     pub enum BinOp<Pp, Ss, Sp> {
         Pp(Pp),
         Ss(Ss),
@@ -59,14 +59,14 @@ mod op_template {
 
     /// Unary operator.
     /// [`Po`]: polynomial unary operator
-    #[derive(Debug, Clone)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub enum UnrOp<Po, So> {
         P(Po),
         S(So),
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ArithBinOp {
     Add,
     Sub,
@@ -83,7 +83,7 @@ impl ArithBinOp {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ArithUnrOp {
     Neg,
     Inv,
@@ -105,7 +105,7 @@ pub type UnrOp = op_template::UnrOp<ArithUnrOp, ArithUnrOp>;
 define_usize_id!(ExprId);
 
 /// Kind-specific data of expressions.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum Arith<Index> {
     Bin(BinOp, Index, Index),
     Unr(UnrOp, Index),
@@ -137,7 +137,7 @@ where
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
 pub enum FusedType {
     Scalar,
     ScalarArray,
@@ -227,7 +227,7 @@ where
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Hash, Eq, PartialOrd, Ord)]
 pub enum Mutability {
     Const,
     Mut,
@@ -417,3 +417,4 @@ where
 
 pub mod pretty_print;
 pub mod visualize;
+pub mod hash;

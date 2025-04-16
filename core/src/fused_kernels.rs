@@ -458,7 +458,7 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                             }
                             UnrOp::S(ArithUnrOp::Neg) => {
                                 kernel +=
-                                    &format!("auto {TMP_PREFIX}{} = -{TMP_PREFIX}{};\n", head, arg);
+                                    &format!("auto {TMP_PREFIX}{} = {TMP_PREFIX}{}.neg();\n", head, arg);
                             }
                             UnrOp::S(ArithUnrOp::Inv) => {
                                 unreachable!("invert scalar should be handled in scalar invert")
