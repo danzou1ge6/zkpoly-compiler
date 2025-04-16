@@ -23,7 +23,7 @@ use zkpoly_cuda_api::{
 use zkpoly_runtime::{
     args::{RuntimeType, Variable},
     error::RuntimeError,
-    functions::{Function, FunctionValue, RegisteredFunction},
+    functions::{FuncMeta, Function, FunctionValue, KernelType, RegisteredFunction},
 };
 
 use crate::{
@@ -570,7 +570,10 @@ impl<T: RuntimeType> RegisteredFunction<T> for FusedKernel<T> {
             Ok(())
         };
         Function {
-            name: self.name.clone(),
+            meta: FuncMeta::new(
+                self.name.clone(),
+                KernelType::FusedArith(self.name.clone()),
+            ),
             f: FunctionValue::Fn(Box::new(rust_func)),
         }
     }

@@ -6,7 +6,7 @@ use group::ff::{BatchInvert, Field};
 use zkpoly_runtime::{
     args::{RuntimeType, Variable},
     error::RuntimeError,
-    functions::{Function, FunctionValue, RegisteredFunction},
+    functions::{FuncMeta, Function, FunctionValue, KernelType, RegisteredFunction},
     scalar::ScalarArray,
     transcript::{Transcript, TranscriptWrite},
 };
@@ -115,7 +115,10 @@ impl<T: RuntimeType> RegisteredFunction<T> for InterpolateKernel<T> {
             Ok(())
         };
         Function {
-            name: "interpolate".to_string(),
+            meta: FuncMeta::new(
+                "interpolate".to_string(),
+                KernelType::Interpolate,
+            ),
             f: FunctionValue::Fn(Box::new(rust_func)),
         }
     }
@@ -135,7 +138,10 @@ impl<T: RuntimeType> RegisteredFunction<T> for AssmblePoly<T> {
             Ok(())
         };
         Function {
-            name: "assmble_poly".to_string(),
+            meta: FuncMeta::new(
+                "assmble_poly".to_string(),
+                KernelType::AssmblePoly,
+            ),
             f: FunctionValue::Fn(Box::new(rust_func)),
         }
     }
@@ -166,7 +172,10 @@ impl<T: RuntimeType> RegisteredFunction<T> for HashTranscript<T> {
             Ok(())
         };
         Function {
-            name: "hash_transcript".to_string(),
+            meta: FuncMeta::new(
+                "hash_transcript".to_string(),
+                KernelType::HashTranscript,
+            ),
             f: FunctionValue::Fn(Box::new(rust_func)),
         }
     }
@@ -197,7 +206,10 @@ impl<T: RuntimeType> RegisteredFunction<T> for HashTranscriptWrite<T> {
             Ok(())
         };
         Function {
-            name: "hash_transcript_write".to_string(),
+            meta: FuncMeta::new(
+                "hash_transcript_write".to_string(),
+                KernelType::HashTranscriptWrite,
+            ),
             f: FunctionValue::Fn(Box::new(rust_func)),
         }
     }
@@ -218,7 +230,10 @@ impl<T: RuntimeType> RegisteredFunction<T> for SqueezeScalar<T> {
             Ok(())
         };
         Function {
-            name: "squeeze_scalar".to_string(),
+            meta: FuncMeta::new(
+                "squeeze_scalar".to_string(),
+                KernelType::SqueezeScalar,
+            ),
             f: FunctionValue::Fn(Box::new(rust_func)),
         }
     }

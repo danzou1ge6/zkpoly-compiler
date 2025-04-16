@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 use zkpoly_common::{
     arith::{Arith, BinOp, UnrOp},
-    define_usize_id,
     digraph::internal::Digraph,
     heap::Heap,
     typ::PolyType,
@@ -126,7 +125,7 @@ impl<Rt: RuntimeType> Constant<Rt> {
 
 pub type ConstantTable<Rt: RuntimeType> = Heap<ConstantId, Constant<Rt>>;
 
-define_usize_id!(UserFunctionId);
+pub type UserFunctionId = zkpoly_runtime::functions::UserFunctionId;
 
 pub type UserFunctionTable<Rt: RuntimeType> = Heap<UserFunctionId, Function<Rt>>;
 

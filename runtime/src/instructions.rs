@@ -147,7 +147,7 @@ pub fn instruction_label<Rt: RuntimeType>(
             format!("Transfer({:?}->{:?})", src_device, dst_device)
         }
         FuncCall { func_id, .. } => {
-            format!("Call({}: {})", usize::from(*func_id), &ftab[*func_id].name)
+            format!("Call({}: {})", usize::from(*func_id), &ftab[*func_id].meta.name)
         }
         Wait { stream, .. } => {
             stream.map_or_else(|| format!("WaitThread"), |_| format!("WaitStream"))

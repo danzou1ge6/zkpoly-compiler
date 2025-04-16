@@ -1,9 +1,13 @@
 use crate::args::{RuntimeType, Variable};
 use crate::error::RuntimeError;
 use std::sync::Mutex;
+use serde::{Deserialize, Serialize};
 use zkpoly_common::heap;
+use zkpoly_common::msm_config::MsmConfig;
 
 zkpoly_common::define_usize_id!(FunctionId);
+zkpoly_common::define_usize_id!(UserFunctionId);
+
 pub type FunctionTable<T> = heap::Heap<FunctionId, Function<T>>;
 
 pub trait RegisteredFunction<T: RuntimeType> {
@@ -44,8 +48,49 @@ pub enum FunctionValue<T: RuntimeType> {
 }
 
 pub struct Function<T: RuntimeType> {
-    pub name: String,
+    pub meta: FuncMeta,
     pub f: FunctionValue<T>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum KernelType {
+    NttPrcompute,
+    NttRecompute,
+    Msm(MsmConfig),
+    BatchedInvert,
+    KateDivision,
+    EvaluatePoly,
+    ScanMul,
+    FusedArith(String),
+    Interpolate,
+    AssmblePoly,
+    HashTranscript,
+    HashTranscriptWrite,
+    SqueezeScalar,
+    UserFunction(UserFunctionId),
+    DistributePowers,
+    NewOneLagrange,
+    NewOneCoef,
+    NewZero,
+    ScalarInvert,   // TODO: support both cpu and gpu
+    ScalarPow(u64), // TODO: support both cpu and gpu
+    // there two kernels are mainly for input with different len
+    // which auto generated kernels can't handle
+    PolyAdd,
+    PolySub,
+    Other, // for test use
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct FuncMeta {
+    pub name: String,
+    pub typ: KernelType,
+}
+
+impl FuncMeta {
+    pub fn new(name: String, typ: KernelType) -> Self {
+        Self { name, typ }
+    }
 }
 
 impl<T: RuntimeType> std::fmt::Debug for Function<T> {
@@ -63,7 +108,7 @@ impl<T: RuntimeType> std::fmt::Debug for Function<T> {
 
 impl<T: RuntimeType> Function<T> {
     pub fn new_once(
-        name: String,
+        meta: FuncMeta,
         f: Box<
             dyn FnOnce(Vec<&mut Variable<T>>, Vec<&Variable<T>>) -> Result<(), RuntimeError>
                 + Sync
@@ -72,13 +117,13 @@ impl<T: RuntimeType> Function<T> {
         >,
     ) -> Self {
         Self {
-            name,
+            meta,
             f: FunctionValue::FnOnce(Mutex::new(Some(f))),
         }
     }
 
     pub fn new_mut(
-        name: String,
+        meta: FuncMeta,
         f: Box<
             dyn FnMut(Vec<&mut Variable<T>>, Vec<&Variable<T>>) -> Result<(), RuntimeError>
                 + Sync
@@ -87,13 +132,13 @@ impl<T: RuntimeType> Function<T> {
         >,
     ) -> Self {
         Self {
-            name,
+            meta,
             f: FunctionValue::FnMut(Mutex::new(f)),
         }
     }
 
     pub fn new(
-        name: String,
+        meta: FuncMeta,
         f: Box<
             dyn Fn(Vec<&mut Variable<T>>, Vec<&Variable<T>>) -> Result<(), RuntimeError>
                 + Sync
@@ -102,7 +147,7 @@ impl<T: RuntimeType> Function<T> {
         >,
     ) -> Self {
         Self {
-            name,
+            meta,
             f: FunctionValue::Fn(f),
         }
     }

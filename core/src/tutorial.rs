@@ -7,6 +7,7 @@ use libloading::Symbol;
 use zkpoly_runtime::{
     args::{RuntimeType, Variable},
     error::RuntimeError,
+    functions::{FuncMeta, KernelType},
 };
 
 use zkpoly_runtime::functions::{Function, FunctionValue, RegisteredFunction};
@@ -65,7 +66,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for SimpleFunc<T> {
             Ok(())
         };
         Function {
-            name: "simple_add".to_string(),
+            meta: FuncMeta::new("simple_add".to_string(), KernelType::Other),
             f: FunctionValue::Fn(Box::new(rust_func)),
         }
     }

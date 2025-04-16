@@ -219,7 +219,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     event: event_id,
                 } => {
                     // println!("waiting for event{:?}", event_id);
-                    // drop(_guard);
+                    drop(_guard);
                     let ref event = self.events[event_id];
                     match event {
                         Event::GpuEvent(cuda_event) => match slave {
