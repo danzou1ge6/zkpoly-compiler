@@ -23,18 +23,19 @@ use zkpoly_core::poly::{
 use zkpoly_runtime::args::{RuntimeType, Variable, VariableId};
 use zkpoly_runtime::error::RuntimeError;
 use zkpoly_runtime::functions::{
-    FuncMeta, FunctionId, FunctionTable, KernelType, RegisteredFunction
+    FuncMeta, FunctionId, FunctionTable, KernelType, RegisteredFunction,
 };
 
 use super::super::template::InstructionNode;
 use super::super::{Chunk, InstructionIndex, VertexNode};
 
-pub fn kernel_type_from_vertex(vertex: &VertexNode, fuse_name: Option<&String>) -> Option<KernelType> {
+pub fn kernel_type_from_vertex(
+    vertex: &VertexNode,
+    fuse_name: Option<&String>,
+) -> Option<KernelType> {
     assert!(!vertex.unexpcted_during_kernel_gen());
     match vertex {
-        VertexNode::Arith { .. } => Some(KernelType::FusedArith(
-            fuse_name.unwrap().to_string(),
-        )),
+        VertexNode::Arith { .. } => Some(KernelType::FusedArith(fuse_name.unwrap().to_string())),
         VertexNode::Ntt { alg, .. } => match alg {
             NttAlgorithm::Standard { .. } => Some(KernelType::NttRecompute),
             NttAlgorithm::Precomputed { .. } => Some(KernelType::NttPrcompute),
@@ -72,7 +73,10 @@ pub fn kernel_type_from_vertex(vertex: &VertexNode, fuse_name: Option<&String>) 
         _ => None,
     }
 }
-pub fn kernel_type_from_inst(inst: &type3::Instruction, fuse_name: Option<&String>) -> Option<KernelType> {
+pub fn kernel_type_from_inst(
+    inst: &type3::Instruction,
+    fuse_name: Option<&String>,
+) -> Option<KernelType> {
     match &inst.node {
         type3::InstructionNode::FillPoly { init, pty, .. } => match (init, pty) {
             (PolyInit::Zeros, _) => Some(KernelType::NewZero),
@@ -95,27 +99,14 @@ pub fn gen_fused_kernels<'s, Rt: RuntimeType>(
 
     // first pass to generate fused arith kernels
     for (idx, instruct) in program.iter_instructions() {
-        if let InstructionNode::Type2 { ids, vertex, .. } = &instruct.node {
+        if let InstructionNode::Type2 { vertex, .. } = &instruct.node {
             if let VertexNode::Arith { arith, .. } = vertex {
                 let normalized = arith::hash::NormalizedDag::from(arith);
                 let (name, _op, included_indices) = cache.entry(normalized).or_insert_with(|| {
                     let arith = arith.relabeled(|r| reg_id2var_id(r));
                     let id: usize = idx.into();
                     let name = format!("{FUSED_PERFIX}{id}");
-                    let outputs_i2o = arith
-                        .outputs
-                        .iter()
-                        .copied()
-                        .zip((*ids).clone().into_iter().map(|(ra, rb)| {
-                            // see def in InstructionNode::Type2
-                            if rb.is_some() {
-                                reg_id2var_id(rb.unwrap()) // in-place should reuse the input variable
-                            } else {
-                                reg_id2var_id(ra) // otherwise, create a new variable
-                            }
-                        }))
-                        .collect();
-                    let op = FusedOp::new(arith, name.clone(), outputs_i2o); // generate fused kernel
+                    let op = FusedOp::new(arith, name.clone()); // generate fused kernel
                     (name, op, vec![])
                 });
                 included_indices.push(idx);
@@ -291,7 +282,6 @@ pub fn load_function<Rt: RuntimeType>(
         KernelType::BatchedInvert => {
             let batched_invert = PolyInvert::new(libs);
             batched_invert.get_fn()
-
         }
         KernelType::KateDivision => {
             let kate_division = KateDivision::new(libs);

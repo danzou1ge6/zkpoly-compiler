@@ -1,13 +1,14 @@
 use std::{
     any::{self, type_name},
     cell::Cell,
-    sync::Arc,
 };
+
+use zkpoly_runtime::any::AnyWrapper;
 
 use super::*;
 
 pub enum WhateverNode<Rt: RuntimeType> {
-    Constant(Cell<Arc<dyn any::Any + Send + Sync>>),
+    Constant(Cell<Box<dyn any::Any + Send + Sync>>),
     Common(CommonNode<Rt>),
 }
 
@@ -30,8 +31,8 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for WhateverUntyped<Rt> {
 
             match &self.inner.t {
                 Constant(x) => {
-                    let val = x.replace(Arc::new(0));
-                    let var = Variable::Any(val);
+                    let val = x.replace(Box::new(0));
+                    let var = Variable::Any(AnyWrapper::new(val));
                     let constant = cg.add_constant(var, None);
                     new_vertex(VertexNode::Constant(constant), Some(Typ::Scalar))
                 }
@@ -67,12 +68,13 @@ where
     type RtcBorrowedMut<'a> = Box<dyn FnOnce(Self::Rtc) + 'a>;
 
     fn to_variable(x: Self::Rtc) -> Variable<Rt> {
-        Variable::Any(Arc::new(x))
+        Variable::Any(AnyWrapper::new(Box::new(x)))
     }
 
     fn try_borrow_variable(var: &Variable<Rt>) -> Option<Self::RtcBorrowed<'_>> {
         match var {
             Variable::Any(x) => {
+                let x = x.get();
                 let down_cast = x.downcast_ref();
                 if down_cast.is_some() {
                     Some(down_cast.unwrap())
@@ -90,7 +92,7 @@ where
     }
     fn try_borrow_variable_mut(var: &mut Variable<Rt>) -> Option<Self::RtcBorrowedMut<'_>> {
         match var {
-            Variable::Any(x) => Some(Box::new(|t| *x = Arc::new(t))),
+            Variable::Any(x) => Some(Box::new(|t| x.replace(Box::new(t)))),
             _ => {
                 eprintln!("expected Any, got {:?}", var);
                 None
@@ -103,7 +105,7 @@ impl<Rt: RuntimeType, T> Whatever<Rt, T> {
     #[track_caller]
     pub fn constant(data: impl any::Any + Send + Sync, name: String) -> Self {
         let src = SourceInfo::new(Location::caller().clone(), Some(name));
-        let untyped = WhateverUntyped::new(WhateverNode::Constant(Cell::new(Arc::new(data))), src);
+        let untyped = WhateverUntyped::new(WhateverNode::Constant(Cell::new(Box::new(data))), src);
         Phantomed::wrap(untyped)
     }
 }

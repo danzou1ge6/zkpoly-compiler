@@ -14,7 +14,9 @@ use crate::poly_ptr::PolyPtr;
 
 use super::build_func::{resolve_type, xmake_config, xmake_run};
 use zkpoly_common::load_dynamic::Libs;
-use zkpoly_runtime::functions::{FuncMeta, Function, FunctionValue, KernelType, RegisteredFunction};
+use zkpoly_runtime::functions::{
+    FuncMeta, Function, FunctionValue, KernelType, RegisteredFunction,
+};
 
 use zkpoly_cuda_api::bindings::{
     cudaError_cudaSuccess, cudaError_t, cudaGetErrorString, cudaSetDevice, cudaStream_t,
@@ -281,10 +283,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for RecomputeNtt<T> {
             Ok(())
         };
         Function {
-            meta: FuncMeta::new(
-                "recompute_ntt".to_string(),
-                KernelType::NttRecompute,
-            ),
+            meta: FuncMeta::new("recompute_ntt".to_string(), KernelType::NttRecompute),
             f: FunctionValue::Fn(Box::new(rust_func)),
         }
     }

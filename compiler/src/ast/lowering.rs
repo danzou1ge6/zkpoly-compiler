@@ -221,15 +221,11 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
     pub fn empty(allocator: PinnedMemoryPool) -> Self {
         let mut constant_table = Heap::new();
         let one = constant_table.push(Constant::new(
-            super::Scalar::to_variable(rt::scalar::Scalar::from_ff(
-                &<Rt::Field as group::ff::Field>::ONE,
-            )),
+            super::Scalar::to_variable(<Rt::Field as group::ff::Field>::ONE),
             "scalar_one".to_string(),
         ));
         let zero = constant_table.push(Constant::new(
-            super::Scalar::to_variable(rt::scalar::Scalar::from_ff(
-                &<Rt::Field as group::ff::Field>::ZERO,
-            )),
+            super::Scalar::to_variable(<Rt::Field as group::ff::Field>::ZERO),
             "scalar_zero".to_string(),
         ));
         Self {

@@ -115,10 +115,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for InterpolateKernel<T> {
             Ok(())
         };
         Function {
-            meta: FuncMeta::new(
-                "interpolate".to_string(),
-                KernelType::Interpolate,
-            ),
+            meta: FuncMeta::new("interpolate".to_string(), KernelType::Interpolate),
             f: FunctionValue::Fn(Box::new(rust_func)),
         }
     }
@@ -138,10 +135,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for AssmblePoly<T> {
             Ok(())
         };
         Function {
-            meta: FuncMeta::new(
-                "assmble_poly".to_string(),
-                KernelType::AssmblePoly,
-            ),
+            meta: FuncMeta::new("assmble_poly".to_string(), KernelType::AssmblePoly),
             f: FunctionValue::Fn(Box::new(rust_func)),
         }
     }
@@ -172,10 +166,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for HashTranscript<T> {
             Ok(())
         };
         Function {
-            meta: FuncMeta::new(
-                "hash_transcript".to_string(),
-                KernelType::HashTranscript,
-            ),
+            meta: FuncMeta::new("hash_transcript".to_string(), KernelType::HashTranscript),
             f: FunctionValue::Fn(Box::new(rust_func)),
         }
     }
@@ -230,10 +221,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for SqueezeScalar<T> {
             Ok(())
         };
         Function {
-            meta: FuncMeta::new(
-                "squeeze_scalar".to_string(),
-                KernelType::SqueezeScalar,
-            ),
+            meta: FuncMeta::new("squeeze_scalar".to_string(), KernelType::SqueezeScalar),
             f: FunctionValue::Fn(Box::new(rust_func)),
         }
     }

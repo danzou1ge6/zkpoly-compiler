@@ -3,8 +3,8 @@ use std::io::Write;
 use crate::args::{ConstantId, EntryId, RuntimeType, VariableId};
 use crate::devices::{DeviceType, EventId, ThreadId};
 use crate::functions::{self, FunctionId};
-use zkpoly_common::typ::Typ;
 use serde::{Deserialize, Serialize};
+use zkpoly_common::typ::Typ;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Instruction {
@@ -124,7 +124,7 @@ pub enum Instruction {
     CopyRegister {
         src: VariableId,
         dst: VariableId,
-    }
+    },
 }
 
 pub fn instruction_label<Rt: RuntimeType>(
@@ -147,7 +147,11 @@ pub fn instruction_label<Rt: RuntimeType>(
             format!("Transfer({:?}->{:?})", src_device, dst_device)
         }
         FuncCall { func_id, .. } => {
-            format!("Call({}: {})", usize::from(*func_id), &ftab[*func_id].meta.name)
+            format!(
+                "Call({}: {})",
+                usize::from(*func_id),
+                &ftab[*func_id].meta.name
+            )
         }
         Wait { stream, .. } => {
             stream.map_or_else(|| format!("WaitThread"), |_| format!("WaitStream"))
@@ -172,7 +176,7 @@ pub fn instruction_label<Rt: RuntimeType>(
         LoadInput { .. } => "LoadInput".to_string(),
         AssertEq { .. } => "AssertEq".to_string(),
         Print(_, label) => format!("Print({})", label),
-        CopyRegister {..} => "CopyRegister".to_string(),
+        CopyRegister { .. } => "CopyRegister".to_string(),
     }
 }
 

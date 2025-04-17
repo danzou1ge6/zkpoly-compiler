@@ -10,7 +10,9 @@ use zkpoly_cuda_api::bindings::{cudaError_cudaSuccess, cudaError_t, cudaGetError
 use zkpoly_cuda_api::cuda_check;
 use zkpoly_runtime::args::{RuntimeType, Variable};
 use zkpoly_runtime::error::RuntimeError;
-use zkpoly_runtime::functions::{FuncMeta, Function, FunctionValue, KernelType, RegisteredFunction};
+use zkpoly_runtime::functions::{
+    FuncMeta, Function, FunctionValue, KernelType, RegisteredFunction,
+};
 use zkpoly_runtime::point::PointArray;
 
 use crate::build_func::{resolve_curve, xmake_config, xmake_run};
@@ -206,10 +208,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for MSM<T> {
         };
 
         Function {
-            meta: FuncMeta::new(
-                "msm".to_string(),
-                KernelType::Msm(self.config.clone()),
-            ),
+            meta: FuncMeta::new("msm".to_string(), KernelType::Msm(self.config.clone())),
             f: FunctionValue::Fn(Box::new(rust_func)),
         }
     }

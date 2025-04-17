@@ -33,9 +33,7 @@ pub fn mend<'s, Rt: RuntimeType>(
 
                             let divisor = *divisors.entry(pred_deg).or_insert_with(|| {
                                 let f = Rt::Field::from(pred_deg).invert().unwrap();
-                                let var = crate::ast::Scalar::to_variable(
-                                    zkpoly_runtime::scalar::Scalar::from_ff(&f),
-                                );
+                                let var = crate::ast::Scalar::to_variable(f);
                                 let cid = constant_table.push(super::Constant::new(
                                     var,
                                     format!("intt_divisor_{}", pred_deg),

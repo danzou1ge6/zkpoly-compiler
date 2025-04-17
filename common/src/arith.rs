@@ -3,7 +3,8 @@ use std::collections::BTreeSet;
 use crate::{
     define_usize_id,
     digraph::internal::{Digraph, Predecessors},
-    heap::{Heap, UsizeId}, typ::PolyType,
+    heap::{Heap, UsizeId},
+    typ::PolyType,
 };
 
 /// Scalar-Polynomial operator
@@ -239,7 +240,7 @@ pub struct ArithGraph<OuterId, ArithIndex> {
     pub outputs: Vec<ArithIndex>, // output ids
     pub inputs: Vec<ArithIndex>,  // input ids
     pub g: Digraph<ArithIndex, ArithVertex<OuterId, ArithIndex>>,
-    pub poly_repr: PolyType
+    pub poly_repr: PolyType,
 }
 
 impl<OuterId, ArithIndex> ArithGraph<OuterId, ArithIndex>
@@ -282,6 +283,26 @@ where
     ArithIndex: UsizeId,
     OuterId: Copy,
 {
+    pub fn gen_var_lists(&self) -> (Vec<(FusedType, ArithIndex)>, Vec<(FusedType, ArithIndex)>) {
+        let mut vars = Vec::new();
+        let mut mut_vars = Vec::new();
+        for inner_id in self.inputs.iter() {
+            if let Operation::Input { typ, .. } = &self.g.vertex(*inner_id).op {
+                vars.push((typ.clone(), *inner_id));
+            } else {
+                unreachable!("input should be an Operation::Input");
+            }
+        }
+        for inner_id in self.outputs.iter() {
+            if let Operation::Output { typ, .. } = &self.g.vertex(*inner_id).op {
+                mut_vars.push((typ.clone(), *inner_id));
+            } else {
+                unreachable!("output should be an Operation::Output");
+            }
+        }
+        (vars, mut_vars)
+    }
+
     pub fn uses<'s>(&'s self) -> impl Iterator<Item = OuterId> + 's {
         self.inputs
             .iter()
@@ -415,6 +436,6 @@ where
     }
 }
 
+pub mod hash;
 pub mod pretty_print;
 pub mod visualize;
-pub mod hash;

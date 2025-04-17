@@ -1,11 +1,10 @@
-use std::sync::Arc;
-
 use group::prime::PrimeCurveAffine;
 use zkpoly_common::typ::Typ;
 use zkpoly_cuda_api::{mem::CudaAllocator, stream::CudaStream};
 use zkpoly_memory_pool::PinnedMemoryPool;
 
 use crate::{
+    any::AnyWrapper,
     args::{RuntimeType, Variable, VariableId},
     devices::DeviceType,
     gpu_buffer::GpuBuffer,
@@ -78,7 +77,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
             Typ::Tuple => unreachable!("Tuple can only be assembled"),
             Typ::Any(_) => {
                 assert!(device.is_cpu());
-                Variable::Any(Arc::new(0)) // placeholder
+                Variable::Any(AnyWrapper::new(Box::new(0))) // default payload
             }
             Typ::Stream => {
                 let device = device.unwrap_gpu();
@@ -138,6 +137,10 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                 }
                 _ => {}
             },
+            Variable::Any(any) => {
+                // deallocate the payload
+                any.dealloc();
+            }
             _ => {}
         }
     }

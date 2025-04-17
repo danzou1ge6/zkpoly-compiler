@@ -1,7 +1,7 @@
 use crate::args::{RuntimeType, Variable};
 use crate::error::RuntimeError;
-use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
+use std::sync::Mutex;
 use zkpoly_common::heap;
 use zkpoly_common::msm_config::MsmConfig;
 

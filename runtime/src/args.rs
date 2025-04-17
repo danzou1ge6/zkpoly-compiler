@@ -1,3 +1,4 @@
+use crate::any::AnyWrapper;
 use crate::gpu_buffer::GpuBuffer;
 use crate::point::{Point, PointArray};
 use crate::scalar::{Scalar, ScalarArray};
@@ -5,8 +6,8 @@ use crate::transcript::{EncodedChallenge, TranscriptObject, TranscriptWrite};
 use group::ff::PrimeField;
 use pasta_curves::arithmetic::CurveAffine;
 use std::fmt::Debug;
-use std::sync::{Arc, Mutex};
-use std::{any::Any, sync::RwLock};
+use std::sync::Mutex;
+use std::sync::RwLock;
 use zkpoly_common::heap;
 use zkpoly_cuda_api::stream::CudaStream;
 
@@ -44,7 +45,7 @@ pub enum Variable<T: RuntimeType> {
     Point(Point<T::PointAffine>),    // cpu only
     Tuple(Vec<Variable<T>>),         // cpu only
     Stream(CudaStream),              // cpu only
-    Any(Arc<dyn Any + Send + Sync>), // cpu only
+    Any(AnyWrapper),                 // cpu only
     GpuBuffer(GpuBuffer),            // gpu only
 }
 
@@ -144,13 +145,6 @@ impl<T: RuntimeType> Variable<T> {
         match self {
             Variable::Stream(stream) => stream,
             _ => panic!("unwrap_stream: not a stream"),
-        }
-    }
-
-    pub fn unwrap_any(&self) -> &dyn Any {
-        match self {
-            Variable::Any(any) => any.as_ref(),
-            _ => panic!("unwrap_any: not an any"),
         }
     }
 
