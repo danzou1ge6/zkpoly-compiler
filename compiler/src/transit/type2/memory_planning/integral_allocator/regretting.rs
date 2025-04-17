@@ -347,6 +347,13 @@ impl Allocator {
         self.blocks.get_mut(&lbs).unwrap().get_mut(&addr).unwrap()
     }
 
+    fn insert_block(&mut self, addr: u64, lbs: u32, block: Block) {
+        if let Some(next_use) = block.status.try_next_use() {
+            self.update_next_use_in_parent(addr, lbs, next_use);
+        }
+        self.blocks.get_mut(&lbs).unwrap().insert(addr, block);
+    }
+
     fn plan_relocation_of_children<const ALLOW_TRANSFER: bool>(
         &mut self,
         addr: u64,
@@ -424,14 +431,8 @@ impl Allocator {
                 Addr(*src),
                 Size::Integral(IntegralSize(child_lbs)),
             );
-            self.blocks
-                .get_mut(&child_lbs)
-                .unwrap()
-                .insert(*dest, src_block);
-            self.blocks
-                .get_mut(&child_lbs)
-                .unwrap()
-                .insert(*src, dest_block);
+            self.insert_block(*dest, child_lbs, src_block);
+            self.insert_block(*src, child_lbs, dest_block);
         });
 
         // Transfer blocks
@@ -451,14 +452,8 @@ impl Allocator {
             std::mem::swap(&mut src_block.addr, &mut dest_block.addr);
             // The block "swapped" here died after last instant, as the transfer should be executed before `now`
             dest_block.status = BlockStatus::Free(self.now - 1);
-            self.blocks
-                .get_mut(&child_lbs)
-                .unwrap()
-                .insert(*dest, src_block);
-            self.blocks
-                .get_mut(&child_lbs)
-                .unwrap()
-                .insert(*src, dest_block);
+            self.insert_block(*dest, child_lbs, src_block);
+            self.insert_block(*src, child_lbs, dest_block);
         });
 
         let transfers = transfer_dest2src
@@ -469,7 +464,11 @@ impl Allocator {
             })
             .collect();
 
-        *self.block_mut(addr, lbs).status.unwrap_splitted_mut() = MmHeap::new();
+        for child_addr in self.child_addrs(addr, lbs).unwrap() {
+            self.blocks.get_mut(&child_lbs).unwrap().remove(&child_addr);
+        }
+        self.block_mut(addr, lbs).status = BlockStatus::Free(self.now - 1);
+        self.remove_next_use_in_parent(addr, lbs);
 
         Some(transfers)
     }
@@ -477,6 +476,7 @@ impl Allocator {
     fn try_condense_smaller_blocks<const ALLOW_TRANSFER: bool>(
         &mut self,
         lbs: u32,
+        next_use: usize,
         mapping: &mut impl AddrMappingHandler,
     ) -> Option<(Vec<Transfer>, AddrId)> {
         if let Some(child_lbs) = self.child_lbs(lbs) {
@@ -503,11 +503,8 @@ impl Allocator {
                 if let Some(transfers) = self
                     .plan_relocation_of_children::<ALLOW_TRANSFER>(addr, lbs, child_lbs, mapping)
                 {
-                    self.child_addrs(addr, child_lbs)
-                        .unwrap()
-                        .for_each(|child_addr| {
-                            self.blocks.get_mut(&child_lbs).unwrap().remove(&child_addr);
-                        });
+                    self.block_mut(addr, lbs).status = BlockStatus::Occupied(self.now, next_use);
+                    self.update_next_use_in_parent(addr, lbs, next_use);
                     return Some((transfers, self.addr_id_of(addr, lbs)));
                 }
             }
@@ -549,7 +546,9 @@ impl Allocator {
 
         // Otherwise, try condensing smaller blocks together by regretting previous allocations, where transfers are not allowed
         if TRY_CONDENSING {
-            if let Some((transfers, r)) = self.try_condense_smaller_blocks::<false>(lbs, mapping) {
+            if let Some((transfers, r)) =
+                self.try_condense_smaller_blocks::<false>(lbs, next_use, mapping)
+            {
                 return Some((transfers, r));
             }
         }
@@ -609,7 +608,9 @@ impl Allocator {
 
         // Otherwise, try condensing smaller blocks together by regretting previous allocations, while allowing transfers
         if TRY_CONDENSING {
-            if let Some((transfers, r)) = self.try_condense_smaller_blocks::<true>(lbs, mapping) {
+            if let Some((transfers, r)) =
+                self.try_condense_smaller_blocks::<true>(lbs, next_use, mapping)
+            {
                 return Some((transfers, r));
             }
         }
@@ -631,6 +632,9 @@ impl Allocator {
         let r = self._allocate::<true>(size, next_use, mapping);
 
         if DEBUG {
+            if let Some((_, addr)) = &r {
+                println!("Allocated at {:?}", mapping.get(*addr))
+            }
             println!("{:#?}", self);
         }
         r
