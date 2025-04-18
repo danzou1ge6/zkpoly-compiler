@@ -1,9 +1,5 @@
 #include "poly.h"
 #include "poly_basic.cuh"
-#include "poly_eval.cuh"
-#include "kate_division.cuh"
-#include "scan_mul.cuh"
-#include "batched_invert.cuh"
 
 cudaError_t poly_add(PolyPtr r, ConstPolyPtr a, ConstPolyPtr b, cudaStream_t stream) {
     auto len = std::min(a.len, b.len);
@@ -65,22 +61,6 @@ cudaError_t poly_one_coef(PolyPtr target, cudaStream_t stream) {
 
 cudaError_t poly_zero(PolyPtr target, cudaStream_t stream) {
     return detail::poly_zero<POLY_FIELD>(target, stream);
-}
-
-cudaError_t poly_eval(void* temp_buf, unsigned long *temp_buf_size, ConstPolyPtr poly,  unsigned int* res, const unsigned int*x, cudaStream_t stream) {
-    return detail::poly_eval<POLY_FIELD>(temp_buf, temp_buf_size, poly, res, reinterpret_cast<const POLY_FIELD*>(x), stream);
-}
-
-cudaError_t kate_division(void* temp_buf, unsigned long *temp_buf_size, unsigned int log_p, ConstPolyPtr p, const unsigned int *b, PolyPtr q, cudaStream_t stream) {
-    return detail::kate_division<POLY_FIELD>(temp_buf, temp_buf_size, log_p, p, reinterpret_cast<const POLY_FIELD*>(b), q, stream);
-}
-
-cudaError_t scan_mul(void * temp_buffer, unsigned long *buffer_size, PolyPtr target, cudaStream_t stream) {
-    return detail::scan_mul<POLY_FIELD>(temp_buffer, buffer_size, target, stream);
-}
-
-cudaError_t batched_invert(void *temp_buffer, unsigned long *buffer_size, PolyPtr poly, cudaStream_t stream) {
-    return detail::batched_invert<POLY_FIELD>(temp_buffer, buffer_size, poly, stream);
 }
 
 cudaError_t inv_scalar(unsigned int* target, cudaStream_t stream) {

@@ -5,7 +5,8 @@ namespace detail {
     __global__ void poly_add(
         SliceIterator<const Field> ita, SliceIterator<const Field> itb, SliceIterator<Field> dst, usize len, usize upper_len) {
         usize index = blockIdx.x * blockDim.x + threadIdx.x;
-        if (index >= len && index < upper_len) {
+        if (index >= upper_len) return;
+        if (index >= len) {
             dst[index] = ita[index];
         } else {
             auto a = ita[index];
@@ -18,9 +19,10 @@ namespace detail {
     __global__ void poly_mul(
         SliceIterator<const Field> ita, SliceIterator<const Field> itb, SliceIterator<Field> dst, usize len, usize upper_len) {
         usize index = blockIdx.x * blockDim.x + threadIdx.x;
-        if (index >= len && index < upper_len) {
+        if (index >= upper_len) return;
+        if (index >= len) {
             dst[index] = ita[index];
-        } else {
+        } else{
             auto a = ita[index];
             auto b = itb[index];
             dst[index] = a * b;
@@ -32,7 +34,8 @@ namespace detail {
         SliceIterator<const Field> ita, SliceIterator<const Field> itb, SliceIterator<Field> dst, usize len,
         usize upper_len, bool neg) {
         usize index = blockIdx.x * blockDim.x + threadIdx.x;
-        if (index >= len && index < upper_len) {
+        if (index >= upper_len) return;
+        if (index >= len) {
             if (neg) {
                 dst[index] = ita[index].neg();
             } else {
