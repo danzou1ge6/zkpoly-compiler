@@ -24,7 +24,7 @@ pub fn log2_ceil(x: u64) -> u32 {
     if x == 0 {
         panic!("log2(0) is undefined");
     }
-    64 - x.leading_zeros() - 1
+    64 - (x - 1).leading_zeros()
 }
 
 pub fn log2(x: u64) -> Option<u32> {
