@@ -127,7 +127,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
             //     println!("variable13: {:?}", self.variable[13.into()].read().unwrap());
             // }
             let _guard = global_mutex.lock().unwrap();
-            println!("instruction: {:?}, thread_id {:?}", instruction, _thread_id);
+            // println!("instruction: {:?}, thread_id {:?}", instruction, _thread_id);
 
             match instruction {
                 Instruction::Allocate {
@@ -172,27 +172,21 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     arg_mut,
                     arg,
                 } => {
-                    // dbg!("FuncCall", id, func_id, arg_mut.clone(), arg.clone());
-                    let mut arg_mut_guards: Vec<_> = arg_mut
+                    // dbg!("FuncCall", func_id, arg_mut.clone(), arg.clone());
+                    let arg_holder = arg
                         .iter()
-                        .map(|id| {
-                            // println!("waiting for {:?}, write", id);
-                            self.variable[*id].write().unwrap()
-                        })
-                        .collect();
-                    let arg_guards: Vec<_> = arg
+                        .map(|id| self.variable[*id].read().unwrap().clone())
+                        .collect::<Vec<_>>();
+                    let mut arg_mut_holder = arg_mut
                         .iter()
-                        .map(|id| {
-                            // println!("waiting for {:?}, read", id);
-                            self.variable[*id].read().unwrap()
-                        })
-                        .collect();
+                        .map(|id| self.variable[*id].write().unwrap().clone())
+                        .collect::<Vec<_>>();
 
-                    let args_mut: Vec<_> = arg_mut_guards
+                    let args_mut: Vec<_> = arg_mut_holder
                         .iter_mut()
                         .map(|guard| guard.as_mut().unwrap())
                         .collect();
-                    let args: Vec<_> = arg_guards
+                    let args: Vec<_> = arg_holder
                         .iter()
                         .map(|guard| guard.as_ref().unwrap())
                         .collect();
@@ -219,7 +213,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     event: event_id,
                 } => {
                     // println!("waiting for event{:?}", event_id);
-                    // drop(_guard);
+                    drop(_guard);
                     let ref event = self.events[event_id];
                     match event {
                         Event::GpuEvent(cuda_event) => match slave {
@@ -364,7 +358,10 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                         .unwrap_scalar_array()
                         .set_slice_raw(offset, len);
                     if poly.is_none() {
-                        panic!("set_slice_raw failed at thread {:?}, instruction {:?}", _thread_id, i);
+                        panic!(
+                            "set_slice_raw failed at thread {:?}, instruction {:?}",
+                            _thread_id, i
+                        );
                     }
                     drop(src_guard);
                     // println!("set dst {:?} meta to {:?}", dst.clone(), poly.clone());

@@ -1,14 +1,15 @@
-use std::{
-    any::type_name, borrow::Borrow, collections::{BTreeMap, BTreeSet}, fs, marker::PhantomData, os::raw::{c_uint, c_ulonglong}
-};
 use std::io::Write;
+use std::{
+    any::type_name,
+    borrow::Borrow,
+    fs,
+    marker::PhantomData,
+    os::raw::{c_uint, c_ulonglong},
+};
 
 use libloading::Symbol;
 use zkpoly_common::{
-    arith::{
-        Arith, ArithBinOp, ArithGraph, ArithUnrOp, BinOp, FusedType, Mutability, Operation, SpOp,
-        UnrOp,
-    },
+    arith::{Arith, ArithBinOp, ArithGraph, ArithUnrOp, BinOp, FusedType, Operation, SpOp, UnrOp},
     get_project_root::get_project_root,
     heap::UsizeId,
     load_dynamic::Libs,
@@ -23,7 +24,7 @@ use zkpoly_cuda_api::{
 use zkpoly_runtime::{
     args::{RuntimeType, Variable},
     error::RuntimeError,
-    functions::{Function, FunctionValue, RegisteredFunction},
+    functions::{FuncMeta, Function, FunctionValue, KernelType, RegisteredFunction},
 };
 
 use crate::{
@@ -47,101 +48,42 @@ pub struct FusedKernel<T: RuntimeType> {
     >,
 }
 
-pub fn gen_var_lists<OuterId: Ord + Copy, InnerId: UsizeId>(
-    outputs: impl Iterator<Item = OuterId>,
-    graph: &ArithGraph<OuterId, InnerId>,
-) -> (Vec<(FusedType, OuterId)>, Vec<(FusedType, OuterId)>) {
-    let mut vars = Vec::new();
-    let mut mut_vars = Vec::new();
-    let mut var_set = BTreeSet::new();
-    for inner_id in graph.inputs.iter() {
-        if let Operation::Input {
-            outer_id,
-            typ,
-            mutability,
-        } = &graph.g.vertex(*inner_id).op
-        {
-            if var_set.get(outer_id).is_none() {
-                var_set.insert(*outer_id);
-                let outer_id = (*outer_id).clone();
-                match (typ, mutability) {
-                    (FusedType::Scalar, Mutability::Const) => {
-                        vars.push((FusedType::Scalar, outer_id))
-                    }
-                    (FusedType::Scalar, Mutability::Mut) => {
-                        mut_vars.push((FusedType::Scalar, outer_id))
-                    }
-                    (FusedType::ScalarArray, Mutability::Const) => {
-                        vars.push((FusedType::ScalarArray, outer_id))
-                    }
-                    (FusedType::ScalarArray, Mutability::Mut) => {
-                        mut_vars.push((FusedType::ScalarArray, outer_id))
-                    }
-                }
-            }
-        } else {
-            unreachable!("input should be an Operation::Input");
-        }
-    }
-    for (inner_id, outer_id) in graph.outputs.iter().zip(outputs) {
-        if let Operation::Output { typ, .. } = &graph.g.vertex(*inner_id).op {
-            if var_set.get(&outer_id).is_none() {
-                var_set.insert(outer_id);
-                let outer_id = (outer_id).clone();
-                match typ {
-                    FusedType::Scalar => mut_vars.push((FusedType::Scalar, outer_id)),
-                    FusedType::ScalarArray => mut_vars.push((FusedType::ScalarArray, outer_id)),
-                }
-            }
-        } else {
-            unreachable!("output should be an Operation::Output");
-        }
-    }
-    (vars, mut_vars)
-}
-
 pub struct FusedOp<OuterId, InnerId> {
     graph: ArithGraph<OuterId, InnerId>,
     name: String,
-    vars: Vec<(FusedType, OuterId)>,
-    mut_vars: Vec<(FusedType, OuterId)>,
-    outputs_i2o: BTreeMap<InnerId, OuterId>,
+    vars: Vec<(FusedType, InnerId)>,
+    mut_vars: Vec<(FusedType, InnerId)>,
 }
 
 const TMP_PREFIX: &str = "tmp";
 const SCALAR_PREFIX: &str = "var";
 const ITER_PREFIX: &str = "iter";
 
-fn scalar_poly_arith(
-    head: usize,
-    lhs: usize,
-    rhs: usize,
-    op: &'static str,
-    repr: PolyType,
-) -> String {
-    match repr {
-        PolyType::Coef => {
-            format!("auto {TMP_PREFIX}{head} = idx == 0 ? {TMP_PREFIX}{lhs} {op} {TMP_PREFIX}{rhs} : {TMP_PREFIX}{rhs};")
-        }
-        PolyType::Lagrange => {
-            format!("auto {TMP_PREFIX}{head} = {TMP_PREFIX}{lhs} {op} {TMP_PREFIX}{rhs};")
-        }
-    }
-}
+// fn scalar_poly_arith(
+//     head: usize,
+//     lhs: usize,
+//     rhs: usize,
+//     op: &'static str,
+//     repr: PolyType,
+// ) -> String {
+//     match repr {
+//         PolyType::Coef => {
+//             format!("auto {TMP_PREFIX}{head} = idx == 0 ? {TMP_PREFIX}{lhs} {op} {TMP_PREFIX}{rhs} : {TMP_PREFIX}{rhs};")
+//         }
+//         PolyType::Lagrange => {
+//             format!("auto {TMP_PREFIX}{head} = {TMP_PREFIX}{lhs} {op} {TMP_PREFIX}{rhs};")
+//         }
+//     }
+// }
 
 impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
-    pub fn new(
-        graph: ArithGraph<OuterId, InnerId>,
-        name: String,
-        outputs_i2o: BTreeMap<InnerId, OuterId>,
-    ) -> Self {
-        let (vars, mut_vars) = gen_var_lists(graph.outputs.iter().map(|i| outputs_i2o[i]), &graph);
+    pub fn new(graph: ArithGraph<OuterId, InnerId>, name: String) -> Self {
+        let (vars, mut_vars) = graph.gen_var_lists();
         Self {
             graph,
             name,
             vars,
             mut_vars,
-            outputs_i2o,
         }
     }
 
@@ -152,7 +94,15 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
         let project_root = get_project_root();
         let path = project_root + "/core/src/fused_kernels/src/" + self.name.as_str() + ".cu";
         let mut f = fs::File::create(&path).unwrap();
-        write!(f, "{}\n{}{}{}", head_annotation.borrow(), header, kernel, wrapper).unwrap();
+        write!(
+            f,
+            "{}\n{}{}{}",
+            head_annotation.borrow(),
+            header,
+            kernel,
+            wrapper
+        )
+        .unwrap();
     }
 
     fn gen_header(&self) -> String {
@@ -295,7 +245,7 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                     typ, store_node, ..
                 } => {
                     let src: usize = store_node.clone().into();
-                    let id: usize = self.outputs_i2o[&head].clone().into();
+                    let id: usize = head.clone().into();
                     match typ {
                         FusedType::Scalar => {
                             kernel += &format!("*{SCALAR_PREFIX}{id} = {TMP_PREFIX}{src};\n");
@@ -305,16 +255,16 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                         }
                     }
                 }
-                Operation::Input { outer_id, typ, .. } => {
-                    let id = outer_id.clone().into();
+                Operation::Input { typ, .. } => {
                     let head = head.clone().into();
                     match typ {
                         FusedType::Scalar => {
-                            kernel += &format!("auto {TMP_PREFIX}{head} = *{SCALAR_PREFIX}{id};\n");
+                            kernel +=
+                                &format!("auto {TMP_PREFIX}{head} = *{SCALAR_PREFIX}{head};\n");
                         }
                         FusedType::ScalarArray => {
                             kernel +=
-                                &format!("auto {TMP_PREFIX}{head} = {ITER_PREFIX}{id}[idx];\n");
+                                &format!("auto {TMP_PREFIX}{head} = {ITER_PREFIX}{head}[idx];\n");
                         }
                     }
                 }
@@ -455,8 +405,10 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                                 );
                             }
                             UnrOp::S(ArithUnrOp::Neg) => {
-                                kernel +=
-                                    &format!("auto {TMP_PREFIX}{} = {TMP_PREFIX}{}.neg();\n", head, arg);
+                                kernel += &format!(
+                                    "auto {TMP_PREFIX}{} = {TMP_PREFIX}{}.neg();\n",
+                                    head, arg
+                                );
                             }
                             UnrOp::S(ArithUnrOp::Inv) => {
                                 unreachable!("invert scalar should be handled in scalar invert")
@@ -570,7 +522,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for FusedKernel<T> {
             Ok(())
         };
         Function {
-            name: self.name.clone(),
+            meta: FuncMeta::new(self.name.clone(), KernelType::FusedArith(self.name.clone())),
             f: FunctionValue::Fn(Box::new(rust_func)),
         }
     }

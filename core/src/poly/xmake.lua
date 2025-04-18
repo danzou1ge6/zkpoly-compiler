@@ -30,7 +30,7 @@ target("test_invert")
 target("poly")
     set_kind("shared")
     set_targetdir(os.projectdir().."/lib")
-    add_files("src/poly.cu")
+    add_files("src/*.cu")
     if has_config("POLY_FIELD") then
         add_defines("POLY_FIELD="..get_config("POLY_FIELD"))
     end

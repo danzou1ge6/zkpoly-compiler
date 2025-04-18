@@ -2,8 +2,7 @@ use crate::transit::type3::{Device, InstructionIndex};
 
 use super::super::{RegisterId, VertexNode};
 use super::{Stream, StreamSpecific, Track};
-use zkpoly_common::arith::{self, ArithUnrOp, BinOp, UnrOp};
-use zkpoly_core::fused_kernels::gen_var_lists;
+use zkpoly_common::arith::{self, ArithUnrOp, BinOp, Operation, UnrOp};
 use zkpoly_runtime::args::RuntimeType;
 use zkpoly_runtime::{args::VariableId, functions::FunctionId, instructions::Instruction};
 
@@ -22,14 +21,23 @@ pub fn emit_func<'s, Rt: RuntimeType>(
     let stream = Stream::of_track(track).map(|t| stream2variable_id.get(t).clone());
     match vertex {
         VertexNode::Arith { arith, .. } => {
-            let (var, var_mut) = gen_var_lists(outputs.iter().copied(), arith);
+            // we don't remove redundant input/output registers now
+            // left to the runtime to do that
             let mut arg = vec![stream.unwrap()];
-            for (_, id) in var.iter() {
-                arg.push(reg_id2var_id(*id));
+
+            // inputs
+            for inner_id in arith.inputs.iter() {
+                if let Operation::Input { outer_id, .. } = &arith.g.vertex(*inner_id).op {
+                    arg.push(reg_id2var_id(*outer_id));
+                } else {
+                    unreachable!("Expected input operation");
+                }
             }
-            let arg_mut = var_mut
+
+            // outputs
+            let arg_mut = outputs
                 .iter()
-                .map(|(_, id)| reg_id2var_id(*id))
+                .map(|id| reg_id2var_id(*id))
                 .collect::<Vec<_>>();
             generate_arith(arg, arg_mut, f_id, emit);
         }

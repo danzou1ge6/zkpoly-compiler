@@ -279,9 +279,7 @@ where
         }
     }
 
-    pub fn topology_sort_inv<'g>(
-        &'g self,
-    ) -> impl Iterator<Item = (I, &'g V)> + 'g {
+    pub fn topology_sort_inv<'g>(&'g self) -> impl Iterator<Item = (I, &'g V)> + 'g {
         let deg = self.degrees_out();
         let queue: VecDeque<I> = deg
             .iter_with_id()

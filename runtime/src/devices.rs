@@ -1,14 +1,13 @@
+use serde::{Deserialize, Serialize};
 use std::sync::{mpsc::Receiver, Mutex};
 use zkpoly_common::{cpu_event::CpuEvent, heap};
 use zkpoly_cuda_api::stream::CudaEvent;
-use serde::{Deserialize, Serialize};
 
 zkpoly_common::define_usize_id!(EventId);
 zkpoly_common::define_usize_id!(ThreadId);
 
 pub type EventTable = heap::Heap<EventId, Event>;
 pub type ThreadTable = heap::Heap<ThreadId, Mutex<Option<Receiver<i32>>>>;
-
 
 pub fn new_thread_table(len: usize) -> ThreadTable {
     heap::Heap::repeat_with(|| Mutex::new(None), len)
@@ -88,16 +87,18 @@ impl Event {
 
 impl Serialize for Event {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: serde::Serializer {
+    where
+        S: serde::Serializer,
+    {
         self.typ().serialize(serializer)
     }
 }
 
 impl<'de> Deserialize<'de> for Event {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where
-            D: serde::Deserializer<'de> {
+    where
+        D: serde::Deserializer<'de>,
+    {
         let typ = EventType::deserialize(deserializer)?;
         Ok(Event::new_from_typ(typ))
     }

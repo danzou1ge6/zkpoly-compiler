@@ -14,7 +14,9 @@ use crate::poly_ptr::PolyPtr;
 
 use super::build_func::{resolve_type, xmake_config, xmake_run};
 use zkpoly_common::load_dynamic::Libs;
-use zkpoly_runtime::functions::{Function, FunctionValue, RegisteredFunction};
+use zkpoly_runtime::functions::{
+    FuncMeta, Function, FunctionValue, KernelType, RegisteredFunction,
+};
 
 use zkpoly_cuda_api::bindings::{
     cudaError_cudaSuccess, cudaError_t, cudaGetErrorString, cudaSetDevice, cudaStream_t,
@@ -140,7 +142,10 @@ impl<T: RuntimeType> RegisteredFunction<T> for DistributePowers<T> {
             Ok(())
         };
         Function {
-            name: "distribute_pow_zeta".to_string(),
+            meta: FuncMeta::new(
+                "distribute_powers".to_string(),
+                KernelType::DistributePowers,
+            ),
             f: FunctionValue::Fn(Box::new(rust_func)),
         }
     }
@@ -189,7 +194,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for SsipNtt<T> {
             Ok(())
         };
         Function {
-            name: "ntt".to_string(),
+            meta: FuncMeta::new("ssip_ntt".to_string(), KernelType::NttPrcompute),
             f: FunctionValue::Fn(Box::new(rust_func)),
         }
     }
@@ -278,7 +283,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for RecomputeNtt<T> {
             Ok(())
         };
         Function {
-            name: "recompute_ntt".to_string(),
+            meta: FuncMeta::new("recompute_ntt".to_string(), KernelType::NttRecompute),
             f: FunctionValue::Fn(Box::new(rust_func)),
         }
     }

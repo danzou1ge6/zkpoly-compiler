@@ -3,7 +3,9 @@ use std::{collections::BTreeMap, io::Write, marker::PhantomData};
 use zkpoly_runtime::{
     args::{RuntimeType, VariableId},
     functions::FunctionTable,
-    instructions::{static_args, instruction_label, labeled_mutable_uses, labeled_uses, stream, Instruction},
+    instructions::{
+        instruction_label, labeled_mutable_uses, labeled_uses, static_args, stream, Instruction,
+    },
 };
 
 use crate::transit::type3;

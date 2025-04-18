@@ -70,10 +70,12 @@ impl<F: Field> Scalar<F> {
     }
 
     pub fn as_ref(&self) -> &F {
+        assert!(self.device == DeviceType::CPU);
         unsafe { &*self.value }
     }
 
     pub fn as_mut(&mut self) -> &mut F {
+        assert!(self.device == DeviceType::CPU);
         unsafe { &mut *self.value }
     }
 }

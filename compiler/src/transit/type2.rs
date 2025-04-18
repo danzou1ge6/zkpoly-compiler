@@ -186,7 +186,7 @@ pub mod template {
         },
         IndexPoly(I, u64),
         AssertEq(I, I),
-        Print(I, String)
+        Print(I, String),
     }
 
     impl<I, C, E> VertexNode<I, arith::ArithGraph<I, arith::ExprId>, C, E>
@@ -691,7 +691,7 @@ pub mod memory_planning;
 pub mod object_analysis;
 pub mod precompute;
 pub mod pretty_print;
-pub mod visualize;
 pub mod temporary_space;
 pub mod typ;
 pub mod user_function;
+pub mod visualize;

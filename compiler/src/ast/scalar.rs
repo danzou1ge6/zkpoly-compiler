@@ -37,8 +37,7 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for Scalar<Rt> {
                     new_vertex(VertexNode::SingleArith(arith), Some(Typ::Scalar))
                 }
                 Constant(x) => {
-                    let constant =
-                        cg.add_constant(Scalar::to_variable(rt::scalar::Scalar::from_ff(x)), None);
+                    let constant = cg.add_constant(Scalar::to_variable(*x), None);
                     new_vertex(VertexNode::Constant(constant), Some(Typ::Scalar))
                 }
                 One => new_vertex(VertexNode::Constant(cg.one), Some(Typ::Scalar)),
@@ -68,16 +67,16 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for Scalar<Rt> {
 }
 
 impl<Rt: RuntimeType> RuntimeCorrespondance<Rt> for Scalar<Rt> {
-    type Rtc = rt::scalar::Scalar<Rt::Field>;
+    type Rtc = Rt::Field;
     type RtcBorrowed<'a> = &'a Self::Rtc;
     type RtcBorrowedMut<'a> = &'a mut Self::Rtc;
 
     fn to_variable(x: Self::Rtc) -> Variable<Rt> {
-        Variable::Scalar(x)
+        Variable::Scalar(rt::scalar::Scalar::from_ff(&x))
     }
     fn try_borrow_variable(var: &Variable<Rt>) -> Option<Self::RtcBorrowed<'_>> {
         match var {
-            Variable::Scalar(x) => Some(x),
+            Variable::Scalar(x) => Some(x.as_ref()),
             _ => {
                 eprintln!("expected scalar, got {:?}", var);
                 None
@@ -86,7 +85,7 @@ impl<Rt: RuntimeType> RuntimeCorrespondance<Rt> for Scalar<Rt> {
     }
     fn try_borrow_variable_mut(var: &mut Variable<Rt>) -> Option<Self::RtcBorrowedMut<'_>> {
         match var {
-            Variable::Scalar(x) => Some(x),
+            Variable::Scalar(x) => Some(x.as_mut()),
             _ => {
                 eprintln!("expected scalar, got {:?}", var);
                 None

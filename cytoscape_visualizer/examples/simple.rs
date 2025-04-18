@@ -21,7 +21,11 @@ fn main() {
             Cluster::new(Vertex::new("v2").with_color(Color::light_green()))
                 .with_children(["v2_1", "v2_2"]),
         )
-        .edge(Edge::new("v2_1", "v1").with_label("e1").with_info("tooltip test"))
+        .edge(
+            Edge::new("v2_1", "v1")
+                .with_label("e1")
+                .with_info("tooltip test"),
+        )
         .edge_plain("v2_2", "v2_1")
         .edge(Edge::new("v3", "v2_1").with_label("e2"))
         .edge_plain("v4", "v2_2")
