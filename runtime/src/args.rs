@@ -180,3 +180,5 @@ impl<T: RuntimeType> Constant<T> {
         Self { name, value }
     }
 }
+
+pub mod serialization;

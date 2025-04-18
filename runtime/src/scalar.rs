@@ -143,7 +143,7 @@ pub struct ScalarArray<F: Field> {
     // you have to visit the slice with slice_offset or by index
     pub values: *mut F,
     pub len: usize,
-    rotate: i64, // the i64 is just to support neg during add, when getting rotate, we can safely assume it is positive
+    pub(crate) rotate: i64, // the i64 is just to support neg during add, when getting rotate, we can safely assume it is positive
     pub device: DeviceType,
     pub slice_info: Option<ScalarSlice>,
 }
@@ -204,7 +204,7 @@ impl<F: Field> ScalarArray<F> {
         }
     }
 
-    pub fn alloc_cpu(len: usize, allocator: &mut PinnedMemoryPool) -> Self {
+    pub fn alloc_cpu(len: usize, allocator: &PinnedMemoryPool) -> Self {
         let ptr = allocator.allocate(len);
         Self {
             values: ptr,
