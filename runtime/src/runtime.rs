@@ -142,6 +142,9 @@ impl<T: RuntimeType> RuntimeInfo<T> {
             // let _guard = global_mutex.lock().unwrap();
             // println!("instruction: {:?}, thread_id {:?}", instruction, _thread_id);
             let (start_time, instruct_copy) = if self.bench_start.is_some() {
+                unsafe {
+                    cuda_check!(cudaDeviceSynchronize()); // wait for all previous cuda calls
+                }
                 (Some(Instant::now()), Some(instruction.clone()))
             } else {
                 (None, None)

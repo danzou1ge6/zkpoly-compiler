@@ -45,6 +45,18 @@ impl CudaEvent {
     pub fn as_ptr(&self) -> cudaEvent_t {
         self.event
     }
+
+    pub fn elapsed(&self, other: &CudaEvent) -> f32 {
+        let mut elapsed: f32 = 0.0;
+        unsafe {
+            cuda_check!(cudaEventElapsedTime(
+                &mut elapsed,
+                self.event,
+                other.event
+            ));
+        }
+        elapsed
+    }
 }
 
 impl Drop for CudaEvent {
