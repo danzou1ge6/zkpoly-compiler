@@ -145,7 +145,12 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                 unsafe {
                     cuda_check!(cudaDeviceSynchronize()); // wait for all previous cuda calls
                 }
-                (Some(Instant::now()), Some(instruction.clone()))
+                let instruct_copy = if let Instruction::AssertEq{..} = &instruction {
+                    None
+                } else {
+                    Some(instruction.clone())
+                };
+                (Some(Instant::now()), instruct_copy)
             } else {
                 (None, None)
             };
@@ -458,7 +463,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     *dst_guard = Some(var);
                 }
             }
-            if self.bench_start.is_some() {
+            if self.bench_start.is_some() && instruct_copy.is_some() {
                 unsafe {
                     cuda_check!(cudaDeviceSynchronize());
                 }
@@ -469,9 +474,10 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     Instant::now().saturating_duration_since(self.bench_start.clone().unwrap());
                 if let Some(func_name) = function_name {
                     println!(
-                        "thread {:?} instruction FuncCall {} start: {:?} end: {:?}",
+                        "thread {:?} instruction FuncCall {} {:?} start: {:?} end: {:?}",
                         _thread_id,
                         func_name,
+                        instruct_copy.unwrap(),
                         start_duration.as_micros(),
                         end_duration.as_micros()
                     );
