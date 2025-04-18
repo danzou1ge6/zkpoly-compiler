@@ -93,6 +93,7 @@ impl<T: RuntimeType> Runtime<T> {
             main_thread: true,
             bench_start: Some(Instant::now()),
         };
+        self.mem_allocator.preallocate(30);
         let r = info.run(
             self.instructions,
             Some(self.mem_allocator),
@@ -133,6 +134,11 @@ impl<T: RuntimeType> RuntimeInfo<T> {
             // if thread_id == 3 {
             //     println!("variable13: {:?}", self.variable[13.into()].read().unwrap());
             // }
+            let _guard: Option<std::sync::MutexGuard<'_, ()>> = if self.bench_start.is_some() {
+                Some(global_mutex.lock().unwrap())
+            } else {
+                None
+            };
             // let _guard = global_mutex.lock().unwrap();
             // println!("instruction: {:?}, thread_id {:?}", instruction, _thread_id);
             let (start_time, instruct_copy) = if self.bench_start.is_some() {
@@ -226,7 +232,9 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     event: event_id,
                 } => {
                     // println!("waiting for event{:?}", event_id);
-                    // drop(_guard);
+                    if _guard.is_some() {
+                        drop(_guard);
+                    }
                     let ref event = self.events[event_id];
                     match event {
                         Event::GpuEvent(cuda_event) => match slave {

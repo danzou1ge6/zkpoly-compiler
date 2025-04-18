@@ -26,6 +26,18 @@ impl PinnedMemoryPool {
         unsafe { allocate(self.handle, log_factor) as *mut T }
     }
 
+    pub fn preallocate(&self, num: usize) {
+        // Preallocate memory for the pool, num: number of chunks
+        let alloc_ptrs = (0..num).into_iter().map(|_| {
+            unsafe {
+                allocate(self.handle, self.max_log_factor)
+            }
+        });
+        alloc_ptrs.for_each(|ptr| {
+            unsafe { deallocate(self.handle, ptr) }
+        });
+    }
+
     pub fn free<T: Sized>(&self, ptr: *mut T) {
         unsafe { deallocate(self.handle, ptr as *mut std::ffi::c_void) }
     }
