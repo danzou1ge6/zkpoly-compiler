@@ -13,13 +13,16 @@ target("ntt")
     end
     add_cugencodes("native")
     set_optimize("fastest")
+    set_languages("c++17")
 
 target("test_ssip")
     set_kind("binary")
     add_cugencodes("native")
     add_files("tests/test_ssip.cu")
+    set_languages("c++17")
 
 target("test_recompute")
     set_kind("binary")
     add_cugencodes("native")
     add_files("tests/test_recompute.cu")
+    set_languages("c++17")

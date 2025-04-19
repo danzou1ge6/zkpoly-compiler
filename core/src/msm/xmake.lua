@@ -64,6 +64,7 @@ for curve_id, curve_names in ipairs(curve_names) do
                     add_defines("MSM_DEBUG="..(tostring(debug)))
                     add_cugencodes("native")
                     set_optimize("fastest")
+                    set_languages("c++17")
             end
         end
     end

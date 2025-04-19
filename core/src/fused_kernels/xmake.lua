@@ -12,3 +12,4 @@ target("fused_kernels")
     end
     add_cugencodes("native")
     set_optimize("fastest")
+    set_languages("c++17")

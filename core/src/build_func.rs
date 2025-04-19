@@ -18,22 +18,10 @@ pub fn resolve_curve(name: &str) -> &str {
 }
 
 pub fn xmake_run(target: &str) {
-    if !Command::new("xmake")
+    if !Command::new("sh")
         .current_dir(get_project_root())
-        .arg("build")
-        .arg(target)
-        .status()
-        .expect("could not spawn `xmake`")
-        .success()
-    {
-        // Panic if the command was not successful.
-        panic!("could not build the library");
-    }
-    // run twice because the bug of xmake not linking the library sometimes
-    if !Command::new("xmake")
-        .current_dir(get_project_root())
-        .arg("build")
-        .arg(target)
+        .arg("-c")
+        .arg(format!("xmake build {}", target))
         .status()
         .expect("could not spawn `xmake`")
         .success()
@@ -44,10 +32,10 @@ pub fn xmake_run(target: &str) {
 }
 
 pub fn xmake_config(name: &str, value: &str) {
-    if !Command::new("xmake")
+    if !Command::new("sh")
         .current_dir(get_project_root())
-        .arg("f")
-        .arg(format!("--{}={}", name, value))
+        .arg("-c")
+        .arg(format!("xmake f --{}={}", name, value))
         .status()
         .expect("could not spawn `xmake`")
         .success()

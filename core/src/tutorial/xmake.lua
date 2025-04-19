@@ -30,6 +30,7 @@ for _, field in ipairs(fields) do
         set_optimize("fastest")
         add_defines("FIELD="..field.."::Element")
         add_files("src/add.cu")
+        set_languages("c++17")
 end
 
 
