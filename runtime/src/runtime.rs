@@ -415,6 +415,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                 Instruction::AssertEq {
                     value: value_id,
                     expected: expected_id,
+                    msg,
                 } => {
                     let value_guard = self.variable[value_id].read().unwrap();
                     let expected_guard = self.variable[expected_id].read().unwrap();
@@ -422,8 +423,11 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     let expected = expected_guard.as_ref().unwrap();
                     if !assert_eq::assert_eq(value, expected) {
                         println!(
-                            "assertion eq failed at thread {:?}: {:?} != {:?}",
-                            _thread_id, value_id, expected_id,
+                            "assertion eq failed at thread {:?}: {:?} != {:?} {}",
+                            _thread_id,
+                            value_id,
+                            expected_id,
+                            msg.unwrap_or_default()
                         );
                     } else {
                         println!(

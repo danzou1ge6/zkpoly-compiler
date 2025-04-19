@@ -185,7 +185,7 @@ pub mod template {
             powers: I,
         },
         IndexPoly(I, u64),
-        AssertEq(I, I),
+        AssertEq(I, I, Option<String>),
         Print(I, String),
     }
 
@@ -245,7 +245,7 @@ pub mod template {
                 DistributePowers { powers, poly } => Box::new([poly, powers].into_iter()),
                 Return(x) => Box::new([x].into_iter()),
                 IndexPoly(x, _) => Box::new([x].into_iter()),
-                AssertEq(x, y) => Box::new([x, y].into_iter()),
+                AssertEq(x, y, _msg) => Box::new([x, y].into_iter()),
                 Print(x, _) => Box::new([x].into_iter()),
                 _ => Box::new(std::iter::empty()),
             }
@@ -284,7 +284,7 @@ pub mod template {
                 DistributePowers { powers, poly } => Box::new([*poly, *powers].into_iter()),
                 Return(x) => Box::new([*x].into_iter()),
                 IndexPoly(x, _) => Box::new([*x].into_iter()),
-                AssertEq(x, y) => Box::new([*x, *y].into_iter()),
+                AssertEq(x, y, _msg) => Box::new([*x, *y].into_iter()),
                 Print(x, _) => Box::new([*x].into_iter()),
                 _ => Box::new(std::iter::empty()),
             }
@@ -561,7 +561,7 @@ where
             },
             ScalarInvert { val } => ScalarInvert { val: mapping(*val) },
             IndexPoly(x, idx) => IndexPoly(mapping(*x), *idx),
-            AssertEq(x, y) => AssertEq(mapping(*x), mapping(*y)),
+            AssertEq(x, y, msg) => AssertEq(mapping(*x), mapping(*y), msg.clone()),
             Print(x, s) => Print(mapping(*x), s.clone()),
         }
     }

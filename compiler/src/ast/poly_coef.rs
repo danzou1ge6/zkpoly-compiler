@@ -23,7 +23,7 @@ pub enum PolyCoefNode<Rt: RuntimeType> {
     DistributePowers(PolyCoef<Rt>, PolyLagrange<Rt>),
     Blind(PolyCoef<Rt>, u64, u64),
     KateDivision(PolyCoef<Rt>, Scalar<Rt>),
-    AssertEq(PolyCoef<Rt>, PolyCoef<Rt>),
+    AssertEq(PolyCoef<Rt>, PolyCoef<Rt>, Option<String>),
     Common(CommonNode<Rt>),
 }
 
@@ -50,8 +50,11 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for PolyCoef<Rt> {
                 Some(Typ::coef()),
             ),
             Constant(data) => {
-                let constant_id =
-                    cg.add_constant(PolyCoef::to_variable(data.clone()), self.src().name.clone());
+                let constant_id = cg.add_constant(
+                    PolyCoef::to_variable(data.clone()),
+                    self.src().name.clone(),
+                    zkpoly_common::typ::Typ::scalar_array(data.len),
+                );
                 new_vertex(
                     VertexNode::Constant(constant_id),
                     Some(Typ::coef_with_deg(data.len() as u64)),
@@ -118,10 +121,10 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for PolyCoef<Rt> {
                 let b = b.erase(cg);
                 new_vertex(VertexNode::KateDivision(lhs, b), Some(Typ::coef()))
             }
-            AssertEq(a, b) => {
+            AssertEq(a, b, msg) => {
                 let a = a.erase(cg);
                 let b = b.erase(cg);
-                new_vertex(VertexNode::AssertEq(a, b), Some(Typ::coef()))
+                new_vertex(VertexNode::AssertEq(a, b, msg.clone()), Some(Typ::coef()))
             }
             Common(cn) => cn.vertex(cg, self.src_lowered()),
         })
@@ -298,7 +301,13 @@ impl<Rt: RuntimeType> PolyCoef<Rt> {
     #[track_caller]
     pub fn assert_eq(&self, b: &PolyCoef<Rt>) -> Self {
         let src = SourceInfo::new(Location::caller().clone(), None);
-        PolyCoef::new(PolyCoefNode::AssertEq(self.clone(), b.clone()), src)
+        PolyCoef::new(PolyCoefNode::AssertEq(self.clone(), b.clone(), None), src)
+    }
+
+    #[track_caller]
+    pub fn assert_eq_with_msg(&self, b: &PolyCoef<Rt>, msg: String) -> Self {
+        let src = SourceInfo::new(Location::caller().clone(), None);
+        PolyCoef::new(PolyCoefNode::AssertEq(self.clone(), b.clone(), Some(msg)), src)
     }
 }
 

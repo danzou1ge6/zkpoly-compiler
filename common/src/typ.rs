@@ -1,3 +1,4 @@
+use serde::{ser::SerializeTuple, Deserialize, Serialize};
 use std::any;
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy, PartialOrd, Ord)]
@@ -51,8 +52,82 @@ impl PolyMeta {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct AnyTypeId {
+    type_id: any::TypeId,
+}
+
+impl std::fmt::Debug for AnyTypeId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.type_id.fmt(f)
+    }
+}
+
+impl From<any::TypeId> for AnyTypeId {
+    fn from(id: any::TypeId) -> Self {
+        AnyTypeId { type_id: id }
+    }
+}
+
+impl From<AnyTypeId> for any::TypeId {
+    fn from(value: AnyTypeId) -> Self {
+        value.type_id
+    }
+}
+
+
+impl Serialize for AnyTypeId {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let [u1, u2] = unsafe { std::mem::transmute::<_, [u64; 2]>(self.type_id) };
+        let mut tup = serializer.serialize_tuple(2)?;
+        tup.serialize_element(&u1)?;
+        tup.serialize_element(&u2)?;
+        tup.end()
+    }
+}
+
+struct AnyTypeIdVisitor;
+
+impl<'de> serde::de::Visitor<'de> for AnyTypeIdVisitor {
+    type Value = AnyTypeId;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("a tuple of 2 u64")
+    }
+
+    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: serde::de::SeqAccess<'de>,
+    {
+        let u1 = seq.next_element()?.map_or_else(
+            || Err(serde::de::Error::invalid_length(0, &"2 elements")),
+            |x| Ok(x),
+        )?;
+        let u2 = seq.next_element()?.map_or_else(
+            || Err(serde::de::Error::invalid_length(1, &"2 elements")),
+            |x| Ok(x),
+        )?;
+
+        Ok(AnyTypeId {
+            type_id: unsafe { std::mem::transmute::<[u64; 2], any::TypeId>([u1, u2]) },
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for AnyTypeId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_tuple(2, AnyTypeIdVisitor)
+    }
+}
+
 pub mod template {
-    use super::any;
+    use super::AnyTypeId;
     use serde::{Deserialize, Serialize};
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -63,7 +138,7 @@ pub mod template {
         Transcript,
         Point,
         Tuple,
-        Any(usize),
+        Any(AnyTypeId, usize),
         Stream,
         GpuBuffer(usize),
     }
@@ -121,7 +196,7 @@ impl template::Typ<PolyMeta> {
             Transcript => Transcript,
             Point => Point,
             Tuple => Tuple,
-            Any(len) => Any(*len),
+            Any(tid, len) => Any(*tid, *len),
             Stream => Stream,
             GpuBuffer(len) => GpuBuffer(*len),
         }

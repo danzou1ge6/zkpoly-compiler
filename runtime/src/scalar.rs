@@ -225,19 +225,6 @@ impl<F: Field> ScalarArray<F> {
         r
     }
 
-    pub fn from_vec_partially(v: &[F], len: usize, allocator: &mut PinnedMemoryPool) -> Self {
-        let r = Self::alloc_cpu(len, allocator);
-        unsafe {
-            copy_nonoverlapping(v.as_ptr(), r.values, len);
-        }
-        for i in v.len()..len {
-            unsafe {
-                *r.values.add(i) = F::ZERO;
-            }
-        }
-        r
-    }
-
     pub fn from_iter(
         v: impl Iterator<Item = F>,
         len: usize,

@@ -454,7 +454,7 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
 
                 type2::Typ::Scalar
             }
-            AssertEq(src, expected) => {
+            AssertEq(src, expected, _msg) => {
                 let src_typ = self.infer(cg, *src)?;
                 let expected_typ = self.infer(cg, *expected)?;
                 if src_typ != expected_typ {

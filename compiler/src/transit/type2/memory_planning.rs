@@ -865,7 +865,7 @@ fn ensure_copied(
     Ok(input_reg)
 }
 
-fn lower_typ<Rt: RuntimeType>(t2typ: &super::Typ<Rt>, value: &Value) -> Typ {
+pub fn lower_typ<Rt: RuntimeType>(t2typ: &super::Typ<Rt>, value: &Value) -> Typ {
     use super::typ::template::Typ::*;
     match t2typ {
         Poly((_, deg0)) => match value.node() {
@@ -893,7 +893,7 @@ fn lower_typ<Rt: RuntimeType>(t2typ: &super::Typ<Rt>, value: &Value) -> Typ {
         Transcript => Typ::Transcript,
         Tuple(..) => panic!("tuple unexpected"),
         Array(..) => panic!("array unexpected"),
-        Any(_, size) => Typ::Any(*size as usize),
+        Any(tid, size) => Typ::Any(tid.clone().into(), *size as usize),
         _Phantom(_) => unreachable!(),
     }
 }

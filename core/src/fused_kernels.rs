@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::io::{Read, Write};
 use std::{
     any::type_name,
     borrow::Borrow,
@@ -91,18 +91,28 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
         let header = self.gen_header();
         let kernel = self.gen_kernel();
         let wrapper = self.gen_wrapper();
-        let project_root = get_project_root();
-        let path = project_root + "/core/src/fused_kernels/src/" + self.name.as_str() + ".cu";
-        let mut f = fs::File::create(&path).unwrap();
-        write!(
-            f,
+
+        let s = format!(
             "{}\n{}{}{}",
             head_annotation.borrow(),
             header,
             kernel,
             wrapper
-        )
-        .unwrap();
+        );
+
+        let project_root = get_project_root();
+        let path = project_root + "/core/src/fused_kernels/src/" + self.name.as_str() + ".cu";
+
+        if let Ok(mut f) = fs::File::open(&path) {
+            let mut old = String::new();
+            f.read_to_string(&mut old).unwrap();
+            if s == old {
+                return;
+            }
+        }
+
+        let mut f = fs::File::create(&path).unwrap();
+        f.write_all(s.as_bytes()).unwrap();
     }
 
     fn gen_header(&self) -> String {

@@ -9,6 +9,7 @@ use std::fmt::Debug;
 use std::sync::Mutex;
 use std::sync::RwLock;
 use zkpoly_common::heap;
+use zkpoly_common::typ::Typ;
 use zkpoly_cuda_api::stream::CudaStream;
 
 zkpoly_common::define_usize_id!(VariableId);
@@ -33,7 +34,7 @@ pub trait RuntimeType: 'static + Clone + Send + Sync + Debug {
         + Into<<Self::PointAffine as CurveAffine>::ScalarExt>
         + From<<Self::PointAffine as CurveAffine>::ScalarExt>;
     type Challenge: EncodedChallenge<Self::PointAffine>;
-    type Trans: TranscriptWrite<Self::PointAffine, Self::Challenge>;
+    type Trans: TranscriptWrite<Self::PointAffine, Self::Challenge> + std::fmt::Debug;
 }
 
 #[derive(Debug, Clone)]
@@ -167,11 +168,12 @@ impl<T: RuntimeType> Variable<T> {
 pub struct Constant<T: RuntimeType> {
     pub name: String,
     pub value: Variable<T>,
+    pub typ: Typ,
 }
 
 impl<T: RuntimeType> Constant<T> {
-    pub fn new(name: String, value: Variable<T>) -> Self {
-        Self { name, value }
+    pub fn new(name: String, value: Variable<T>, typ: Typ) -> Self {
+        Self { name, value, typ }
     }
 }
 

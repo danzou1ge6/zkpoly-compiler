@@ -367,13 +367,14 @@ fn lower_instruction<'s, Rt: RuntimeType>(
                         stream,
                     })
                 }
-                VertexNode::AssertEq(src, truth) => {
+                VertexNode::AssertEq(src, truth, msg) => {
                     assert!(ids.len() == 1);
                     let src = reg_id2var_id(*src);
                     let truth = reg_id2var_id(*truth);
                     emit(Instruction::AssertEq {
                         value: src,
                         expected: truth,
+                        msg: msg.clone()
                     });
                     emit(Instruction::CopyRegister {
                         src,
@@ -780,6 +781,7 @@ pub fn lower_constants<Rt: RuntimeType>(
     const_table.map(&mut |_, c| Constant {
         name: c.name.unwrap_or_else(String::new),
         value: c.value,
+        typ: c.typ
     })
 }
 

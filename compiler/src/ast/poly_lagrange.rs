@@ -19,7 +19,7 @@ pub enum PolyLagrangeNode<Rt: RuntimeType> {
     DistributePowers(PolyLagrange<Rt>, PolyLagrange<Rt>),
     ScanMul(PolyLagrange<Rt>, Scalar<Rt>),
     Extend(PolyLagrange<Rt>, u64),
-    AssertEq(PolyLagrange<Rt>, PolyLagrange<Rt>),
+    AssertEq(PolyLagrange<Rt>, PolyLagrange<Rt>, Option<String>),
     Common(CommonNode<Rt>),
 }
 
@@ -53,6 +53,7 @@ impl<'c, Rt: RuntimeType> TypeEraseable<Rt> for PolyLagrange<Rt> {
                     let constant_id = cg.add_constant(
                         PolyLagrange::to_variable(data.clone()),
                         self.src().name.clone(),
+                        zkpoly_common::typ::Typ::scalar_array(*len as usize)
                     );
                     Vertex::new(
                         VertexNode::Constant(constant_id),
@@ -123,11 +124,11 @@ impl<'c, Rt: RuntimeType> TypeEraseable<Rt> for PolyLagrange<Rt> {
                         self.src_lowered(),
                     )
                 }
-                AssertEq(a, b) => {
+                AssertEq(a, b, msg) => {
                     let a = a.erase(cg);
                     let b = b.erase(cg);
                     Vertex::new(
-                        VertexNode::AssertEq(a, b),
+                        VertexNode::AssertEq(a, b, msg.clone()),
                         Some(Typ::lagrange()),
                         self.src_lowered(),
                     )
@@ -293,7 +294,13 @@ impl<'c, Rt: RuntimeType> PolyLagrange<Rt> {
     #[track_caller]
     pub fn assert_eq(&self, rhs: &PolyLagrange<Rt>) -> Self {
         let src = SourceInfo::new(Location::caller().clone(), None);
-        PolyLagrange::new(PolyLagrangeNode::AssertEq(self.clone(), rhs.clone()), src)
+        PolyLagrange::new(PolyLagrangeNode::AssertEq(self.clone(), rhs.clone(), None), src)
+    }
+
+    #[track_caller]
+    pub fn assert_eq_with_msg(&self, rhs: &PolyLagrange<Rt>, msg: String) -> Self {
+        let src = SourceInfo::new(Location::caller().clone(), None);
+        PolyLagrange::new(PolyLagrangeNode::AssertEq(self.clone(), rhs.clone(), Some(msg)), src)
     }
 }
 

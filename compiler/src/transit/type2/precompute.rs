@@ -82,6 +82,7 @@ pub fn precompute<'s, Rt: RuntimeType>(
                                     "precompute twiddle factor for ntt k = {log_len}, inv: {inv}"
                                 )),
                                 value: Variable::ScalarArray(omega_array),
+                                typ: zkpoly_common::typ::Typ::scalar_array((len / 2) as usize),
                             });
                             let load_c = cg.g.add_vertex(Vertex::new(
                                 VertexNode::Constant(c_id),
@@ -104,12 +105,14 @@ pub fn precompute<'s, Rt: RuntimeType>(
                             let pq_cid = constant_tb.push(crate::ast::lowering::Constant {
                                 name: Some(format!("pq for ntt k = {log_len}, inv: {inv}")),
                                 value: Variable::ScalarArray(pq),
+                                typ: zkpoly_common::typ::Typ::scalar_array(recompute_pq_len),
                             });
                             let omegas_cid = constant_tb.push(crate::ast::lowering::Constant {
                                 name: Some(format!(
                                     "omega bases for ntt k = {log_len}, inv: {inv}"
                                 )),
                                 value: Variable::ScalarArray(omegas),
+                                typ: zkpoly_common::typ::Typ::scalar_array(recompute_omega_len),
                             });
                             let load_pq = cg.g.add_vertex(Vertex::new(
                                 VertexNode::Constant(pq_cid),
@@ -179,6 +182,7 @@ pub fn precompute<'s, Rt: RuntimeType>(
                             constant_tb.push(Constant {
                                 name: Some("precompute points for msm".to_string()),
                                 value: Variable::PointArray(array),
+                                typ: zkpoly_common::typ::Typ::PointBase { len },
                             })
                         })
                         .collect::<Vec<_>>();

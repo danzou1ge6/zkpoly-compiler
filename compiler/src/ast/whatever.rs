@@ -8,14 +8,14 @@ use zkpoly_runtime::any::AnyWrapper;
 use super::*;
 
 pub enum WhateverNode<Rt: RuntimeType> {
-    Constant(Cell<Box<dyn any::Any + Send + Sync>>),
+    Constant(Cell<Box<dyn any::Any + Send + Sync>>, any::TypeId, usize),
     Common(CommonNode<Rt>),
 }
 
 impl<Rt: RuntimeType> Debug for WhateverNode<Rt> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            WhateverNode::Constant(_) => f.debug_tuple("Constant").finish(),
+            WhateverNode::Constant(..) => f.debug_tuple("Constant").finish(),
             WhateverNode::Common(cn) => f.debug_tuple("Common").field(cn).finish(),
         }
     }
@@ -30,11 +30,15 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for WhateverUntyped<Rt> {
             let new_vertex = |node, typ| Vertex::new(node, typ, self.src_lowered());
 
             match &self.inner.t {
-                Constant(x) => {
+                Constant(x, tid, size) => {
                     let val = x.replace(Box::new(0));
                     let var = Variable::Any(AnyWrapper::new(val));
-                    let constant = cg.add_constant(var, None);
-                    new_vertex(VertexNode::Constant(constant), Some(Typ::Scalar))
+                    let constant = cg.add_constant(
+                        var,
+                        None,
+                        zkpoly_common::typ::Typ::Any(tid.clone().into(), *size),
+                    );
+                    new_vertex(VertexNode::Constant(constant), Some(Typ::Any(*tid, *size)))
                 }
                 Common(cn) => cn.vertex(cg, self.src_lowered()),
             }
@@ -103,9 +107,19 @@ where
 
 impl<Rt: RuntimeType, T> Whatever<Rt, T> {
     #[track_caller]
-    pub fn constant(data: impl any::Any + Send + Sync, name: String) -> Self {
+    pub fn constant<A>(data: A, name: String) -> Self
+    where
+        A: any::Any + Send + Sync,
+    {
         let src = SourceInfo::new(Location::caller().clone(), Some(name));
-        let untyped = WhateverUntyped::new(WhateverNode::Constant(Cell::new(Box::new(data))), src);
+        let untyped = WhateverUntyped::new(
+            WhateverNode::Constant(
+                Cell::new(Box::new(data)),
+                any::TypeId::of::<A>(),
+                std::mem::size_of::<A>(),
+            ),
+            src,
+        );
         Phantomed::wrap(untyped)
     }
 }

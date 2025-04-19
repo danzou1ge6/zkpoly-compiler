@@ -26,8 +26,13 @@ impl<Rt: RuntimeType> PrecomputedPoints<Rt> {
 impl<Rt: RuntimeType> TypeEraseable<Rt> for PrecomputedPoints<Rt> {
     fn erase<'s>(&self, cg: &mut Cg<'s, Rt>) -> VertexId {
         cg.lookup_or_insert_with(self.as_ptr(), |cg| {
-            let constant =
-                cg.add_constant(PrecomputedPoints::to_variable(self.inner.t.0.clone()), None);
+            let constant = cg.add_constant(
+                PrecomputedPoints::to_variable(self.inner.t.0.clone()),
+                None,
+                zkpoly_common::typ::Typ::PointBase {
+                    len: 2usize.pow(self.inner.t.1),
+                },
+            );
             Vertex::new(
                 VertexNode::Constant(constant),
                 Some(Typ::PointBase {
@@ -71,7 +76,7 @@ impl<Rt: RuntimeType> RuntimeCorrespondance<Rt> for PrecomputedPoints<Rt> {
 
 #[derive(Debug)]
 pub enum PointNode<Rt: RuntimeType> {
-    AssertEq(Point<Rt>, Point<Rt>),
+    AssertEq(Point<Rt>, Point<Rt>, Option<String>),
     Constant(Rt::PointAffine),
     Common(CommonNode<Rt>),
 }
@@ -88,17 +93,18 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for Point<Rt> {
     fn erase<'s>(&self, cg: &mut Cg<'s, Rt>) -> VertexId {
         use PointNode::*;
         cg.lookup_or_insert_with(self.as_ptr(), |cg| match &self.inner.t {
-            AssertEq(a, b) => {
+            AssertEq(a, b, msg) => {
                 let a = a.erase(cg);
                 let b = b.erase(cg);
                 Vertex::new(
-                    VertexNode::AssertEq(a, b),
+                    VertexNode::AssertEq(a, b, msg.clone()),
                     Some(Typ::Point),
                     self.src_lowered(),
                 )
             }
             Constant(c) => {
-                let constant = cg.add_constant(Point::to_variable(c.clone()), None);
+                let constant =
+                    cg.add_constant(Point::to_variable(c.clone()), None, zkpoly_common::typ::Typ::Point);
                 Vertex::new(
                     VertexNode::Constant(constant),
                     Some(Typ::Point),
@@ -114,7 +120,13 @@ impl<Rt: RuntimeType> Point<Rt> {
     #[track_caller]
     pub fn assert_eq(&self, b: &Point<Rt>) -> Self {
         let src = SourceInfo::new(Location::caller().clone(), None);
-        Self::new(PointNode::AssertEq(self.clone(), b.clone()), src)
+        Self::new(PointNode::AssertEq(self.clone(), b.clone(), None), src)
+    }
+
+    #[track_caller]
+    pub fn assert_eq_with_msg(&self, b: &Point<Rt>, msg: String) -> Self {
+        let src = SourceInfo::new(Location::caller().clone(), None);
+        Self::new(PointNode::AssertEq(self.clone(), b.clone(), Some(msg)), src)
     }
 
     #[track_caller]

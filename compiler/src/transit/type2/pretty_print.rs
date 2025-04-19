@@ -346,7 +346,7 @@ pub(crate) fn format_labeled_uses<'s, Vid: UsizeId + Debug>(
         DistributePowers { poly, powers } => {
             vec![(*poly, "poly".to_string()), (*powers, "powers".to_string())]
         }
-        AssertEq(a, b) => {
+        AssertEq(a, b, _msg) => {
             vec![(*a, "a".to_string()), (*b, "".to_string())]
         }
         _ => vertex_node.uses().map(|u| (u, String::new())).collect(),

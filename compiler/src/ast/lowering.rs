@@ -112,13 +112,15 @@ impl<'s, Rt: RuntimeType> Vertex<'s, Rt> {
 pub struct Constant<Rt: RuntimeType> {
     pub(crate) name: Option<String>,
     pub(crate) value: Variable<Rt>,
+    pub(crate) typ: zkpoly_common::typ::Typ,
 }
 
 impl<Rt: RuntimeType> Constant<Rt> {
-    pub fn new(value: Variable<Rt>, name: String) -> Self {
+    pub fn new(value: Variable<Rt>, name: String, typ: zkpoly_common::typ::Typ) -> Self {
         Self {
             name: Some(name),
             value,
+            typ,
         }
     }
 }
@@ -158,8 +160,13 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
         id
     }
 
-    pub fn add_constant(&mut self, value: Variable<Rt>, name: Option<String>) -> ConstantId {
-        let id = self.constant_table.push(Constant { name, value });
+    pub fn add_constant(
+        &mut self,
+        value: Variable<Rt>,
+        name: Option<String>,
+        typ: zkpoly_common::typ::Typ,
+    ) -> ConstantId {
+        let id = self.constant_table.push(Constant { name, value, typ });
         id
     }
 
@@ -223,10 +230,12 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
         let one = constant_table.push(Constant::new(
             super::Scalar::to_variable(<Rt::Field as group::ff::Field>::ONE),
             "scalar_one".to_string(),
+            zkpoly_common::typ::Typ::Scalar,
         ));
         let zero = constant_table.push(Constant::new(
             super::Scalar::to_variable(<Rt::Field as group::ff::Field>::ZERO),
             "scalar_zero".to_string(),
+            zkpoly_common::typ::Typ::Scalar,
         ));
         Self {
             g: Digraph::new(),

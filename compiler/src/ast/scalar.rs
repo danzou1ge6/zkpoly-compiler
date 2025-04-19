@@ -13,7 +13,7 @@ pub enum ScalarNode<Rt: RuntimeType> {
     EvaluatePoly(PolyCoef<Rt>, Scalar<Rt>),
     IndexLagrange(PolyLagrange<Rt>, u64),
     IndexCoef(PolyCoef<Rt>, u64),
-    AssertEq(Scalar<Rt>, Scalar<Rt>),
+    AssertEq(Scalar<Rt>, Scalar<Rt>, Option<String>),
     Common(CommonNode<Rt>),
 }
 
@@ -37,7 +37,11 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for Scalar<Rt> {
                     new_vertex(VertexNode::SingleArith(arith), Some(Typ::Scalar))
                 }
                 Constant(x) => {
-                    let constant = cg.add_constant(Scalar::to_variable(*x), None);
+                    let constant = cg.add_constant(
+                        Scalar::to_variable(*x),
+                        None,
+                        zkpoly_common::typ::Typ::Scalar,
+                    );
                     new_vertex(VertexNode::Constant(constant), Some(Typ::Scalar))
                 }
                 One => new_vertex(VertexNode::Constant(cg.one), Some(Typ::Scalar)),
@@ -55,10 +59,10 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for Scalar<Rt> {
                     let poly = poly.erase(cg);
                     new_vertex(VertexNode::IndexPoly(poly, *idx), Some(Typ::Scalar))
                 }
-                AssertEq(a, b) => {
+                AssertEq(a, b, msg) => {
                     let a = a.erase(cg);
                     let b = b.erase(cg);
-                    new_vertex(VertexNode::AssertEq(a, b), Some(Typ::Scalar))
+                    new_vertex(VertexNode::AssertEq(a, b, msg.clone()), Some(Typ::Scalar))
                 }
                 Common(cn) => cn.vertex(cg, self.src_lowered()),
             }
@@ -152,7 +156,16 @@ impl<Rt: RuntimeType> Scalar<Rt> {
     #[track_caller]
     pub fn assert_eq(&self, rhs: &Scalar<Rt>) -> Self {
         let src = SourceInfo::new(Location::caller().clone(), None);
-        Scalar::new(ScalarNode::AssertEq(self.clone(), rhs.clone()), src)
+        Scalar::new(ScalarNode::AssertEq(self.clone(), rhs.clone(), None), src)
+    }
+
+    #[track_caller]
+    pub fn assert_eq_with_msg(&self, rhs: &Scalar<Rt>, msg: String) -> Self {
+        let src = SourceInfo::new(Location::caller().clone(), None);
+        Scalar::new(
+            ScalarNode::AssertEq(self.clone(), rhs.clone(), Some(msg)),
+            src,
+        )
     }
 }
 

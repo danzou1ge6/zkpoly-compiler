@@ -46,9 +46,15 @@ const KECCAK256_PREFIX_POINT: u8 = 1;
 /// Prefix to a prover's message containing a scalar
 const KECCAK256_PREFIX_SCALAR: u8 = 2;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct TranscriptObject<Rt: RuntimeType> {
     pub ptr: *mut Rt::Trans,
+}
+
+impl<Rt: RuntimeType> std::fmt::Debug for TranscriptObject<Rt> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        unsafe { self.ptr.as_ref().fmt(f) }
+    }
 }
 
 impl<Rt: RuntimeType> TranscriptObject<Rt> {
