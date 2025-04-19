@@ -18,7 +18,7 @@ use zkpoly_runtime::functions::{
 };
 use zkpoly_runtime::point::PointArray;
 
-use crate::build_func::{resolve_curve, xmake_run};
+use crate::build_func::{make_run, resolve_curve};
 
 fn get_curve_bits<T: RuntimeType>() -> (usize, usize) {
     // get the number of bits of the point and scalar
@@ -149,8 +149,9 @@ impl<T: RuntimeType> MSMPrecompute<T> {
     pub fn new(libs: &mut Libs, config: MsmConfig) -> Self {
         let lib_name = get_msm_lib_name::<T>(config.clone());
         let lib_path = "lib".to_string() + &lib_name + ".so";
+        let target_name = "lib/".to_string() + &lib_path;
         if !libs.contains(&lib_path) {
-            xmake_run(&lib_name);
+            make_run(&target_name, "Makefile.msm");
         }
 
         // load the dynamic library
@@ -190,8 +191,9 @@ impl<T: RuntimeType> MSM<T> {
     pub fn new(libs: &mut Libs, config: MsmConfig) -> Self {
         let lib_name = get_msm_lib_name::<T>(config.clone());
         let lib_path = "lib".to_string() + &lib_name + ".so";
+        let target_name = "lib/".to_string() + &lib_path;
         if !libs.contains(&lib_path) {
-            xmake_run(&lib_name);
+            make_run(&target_name, "Makefile.msm");
         }
 
         // load the dynamic library

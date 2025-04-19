@@ -44,3 +44,18 @@ pub fn xmake_config(name: &str, value: &str) {
         panic!("could not set the config");
     }
 }
+
+pub fn make_run(target: &str, makefile: &str) {
+    if !Command::new("make")
+        .current_dir(get_project_root())
+        .arg("-f")
+        .arg(makefile)
+        .arg(target)
+        .status()
+        .expect("could not spawn `make`")
+        .success()
+    {
+        // Panic if the command was not successful.
+        panic!("could not build the library");
+    }
+}
