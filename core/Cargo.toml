@@ -14,6 +14,6 @@ group = "0.13"
 rand_xorshift = "0.3.0"
 halo2_proofs = { git = "https://github.com/privacy-scaling-explorations/halo2.git ", tag = "v0.3.0", features =  ["circuit-params", "derive_serde"] }
 zkpoly_memory_pool = { path = "../memory_pool" }
-halo2curves = { version = "0.6.0", default-features = false }
+halo2curves = { version = "0.8.0", default-features = false }
 rand_core = { version = "0.6", default-features = false }
 rayon = "1.5.1"

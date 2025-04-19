@@ -8,8 +8,12 @@
 #include <cub/cub.cuh>
 
 #define BIG_INTEGER_CHUNKS8(c7, c6, c5, c4, c3, c2, c1, c0) {c0, c1, c2, c3, c4, c5, c6, c7}
+#define BIG_INTEGER_CHUNKS12(c11, c10, c9, c8, c7, c6, c5, c4, c3, c2, c1, c0) \
+  {c0, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11}
 #define BIG_INTEGER_CHUNKS16(c15, c14, c13, c12, c11, c10, c9, c8, c7, c6, c5, c4, c3, c2, c1, c0) \
   {c0, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15}
+#define BIG_INTEGER_CHUNKS24(c23, c22, c21, c20, c19, c18, c17, c16, c15, c14, c13, c12, c11, c10, c9, c8, c7, c6, c5, c4, c3, c2, c1, c0) \
+  {c0, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19, c20, c21, c22, c23}
 
 #include "ptx.cuh"
 
@@ -595,7 +599,6 @@ namespace mont
     template <usize n>
     __device__ __forceinline__ void final_sub(uint32_t *even, uint32_t carry, uint32_t *tmp, const uint32_t *m)
     {
-      #pragma nv_diag_surpress 550
       size_t i;
       asm volatile("{ .reg.pred %top;");
 
@@ -603,7 +606,7 @@ namespace mont
       for (i = 1; i < n; i++)
         asm volatile("subc.cc.u32 %0, %1, %2;" : "=r"(tmp[i]) : "r"(even[i]), "r"(m[i]));
 
-      asm volatile("subc.u32 %0, 0, 0; setp.eq.u32 %top, %0, 0;" : "+r"(carry));
+      asm volatile("subc.u32 %0, 0, 0; setp.eq.u32 %top, %0, 0;" : "=r"(carry));
 
       for (i = 0; i < n; i++)
         asm volatile("@%top mov.b32 %0, %1;" : "+r"(even[i]) : "r"(tmp[i]));
@@ -864,13 +867,13 @@ namespace mont
       return *this * *this;
     }
 
-    __device__ __forceinline__ Number shuffle_down(const u32 delta) const &
+    __device__ __forceinline__ Number shuffle_down(const u32 delta, u32 mask = 0xFFFFFFFF) const &
     {
       Number res;
 #pragma unroll
       for (usize i = 0; i < LIMBS; i++)
       {
-        res.limbs[i] = __shfl_down_sync(0xFFFFFFFF, limbs[i], delta);
+        res.limbs[i] = __shfl_down_sync(mask, limbs[i], delta);
       }
       return res;
     }
@@ -1168,10 +1171,10 @@ namespace mont
       return r;
     }
 
-    __device__ __forceinline__ Element shuffle_down(const u32 delta) const &
+    __device__ __forceinline__ Element shuffle_down(const u32 delta, u32 mask = 0xFFFFFFFF) const &
     {
       Element res;
-      res.n = n.shuffle_down(delta);
+      res.n = n.shuffle_down(delta, mask);
       return res;
     }
   };
@@ -1204,9 +1207,16 @@ namespace mont
   __forceinline__ std::ostream &
   operator<<(std::ostream &os, const Element<Params> &e)
   {
-    auto n = e.to_number();
-    os << n;
+    os << e.n;
     return os;
+  }
+
+  template <class Params>
+  __forceinline__ std::istream &
+  operator>>(std::istream &is, Element<Params> &e)
+  {
+    is >> e.n;
+    return is;
   }
 
   template <typename Field, u32 io_group>

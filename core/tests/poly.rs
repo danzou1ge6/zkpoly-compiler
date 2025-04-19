@@ -17,7 +17,6 @@ use zkpoly_cuda_api::stream::CudaStream;
 use zkpoly_memory_pool::PinnedMemoryPool;
 use zkpoly_runtime::args::Variable;
 use zkpoly_runtime::devices::DeviceType;
-use zkpoly_runtime::devices::Event;
 use zkpoly_runtime::functions::RegisteredFunction;
 use zkpoly_runtime::functions::*;
 use zkpoly_runtime::gpu_buffer::GpuBuffer;

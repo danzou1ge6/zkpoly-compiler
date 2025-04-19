@@ -15,8 +15,8 @@ use group::{
     ff::{Field, PrimeField},
     prime::PrimeCurveAffine,
 };
-use halo2_proofs::{arithmetic, *};
-use halo2curves::bn256::{Fr as Scalar, G1Affine as Point};
+mod msm_halo2;
+use ::halo2curves::bn256::{Fr as Scalar, G1Affine as Point};
 use rand_core::{RngCore, SeedableRng};
 use rand_xorshift::XorShiftRng;
 use rayon::{current_thread_index, prelude::*};
@@ -126,23 +126,24 @@ fn generate_coefficients(k: u8, bits: usize) -> Vec<Scalar> {
 #[test]
 fn test_msm() {
     let mut libs = Libs::new();
-    let (_, bits) = resolve_curve(type_name::<MyCurve>());
-    let msm_config = MsmConfig::new(16, 4, vec![0], false, 8, 2, 2, 2, bits);
-    let msm = MSM::<MyRuntimeType>::new(&mut libs, msm_config.clone());
-    let msm_precompute = MSMPrecompute::<MyRuntimeType>::new(&mut libs, msm_config.clone());
 
-    let msm_fn = match msm.get_fn() {
-        Function {
-            f: FunctionValue::Fn(func),
-            ..
-        } => func,
-        _ => panic!("expected Fn"),
-    };
-
-    let precompute_fn = msm_precompute.get_fn();
     let cpu_alloc = PinnedMemoryPool::new((MAX_K + 1) as u32, size_of::<MyField>());
 
     for k in 16..=MAX_K {
+        let msm_config = get_best_config::<MyRuntimeType>(1 << k, BATCHES, 4 * (1 << 30));
+        let msm = MSM::<MyRuntimeType>::new(&mut libs, msm_config.clone());
+        let msm_precompute = MSMPrecompute::<MyRuntimeType>::new(&mut libs, msm_config.clone());
+    
+        let msm_fn = match msm.get_fn() {
+            Function {
+                f: FunctionValue::Fn(func),
+                ..
+            } => func,
+            _ => panic!("expected Fn"),
+        };
+    
+        let precompute_fn = msm_precompute.get_fn();
+
         println!("generating data for k = {k}...");
         let bases: Vec<Point> = generate_curvepoints(k);
         let bits = [256];
@@ -151,7 +152,7 @@ fn test_msm() {
         println!("testing for k = {k}:");
         let n: usize = 1 << k;
 
-        let cpu_result = arithmetic::best_multiexp(&coeffs[0][..n], &bases[..n]);
+        let cpu_result = msm_halo2::best_multiexp(&coeffs[0][..n], &bases[..n]);
 
         let n_precompute = msm_config.get_precompute();
         println!("n_precompute: {n_precompute}");
@@ -246,5 +247,14 @@ fn test_msm() {
                 cudaFree(mut_var[i].unwrap_gpu_buffer_mut().ptr as *mut c_void);
             }
         }
+    }
+}
+
+#[test]
+fn test_cost_model() {
+    for i in (5..=20).rev() {
+        println!("testing for k = {i}...");
+        let config = get_best_config::<MyRuntimeType>(2_usize.pow(i), 4, 4 * (1 << 30));
+        println!("get config {:?}", config);
     }
 }

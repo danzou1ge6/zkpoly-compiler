@@ -3,16 +3,17 @@ use zkpoly_common::get_project_root::get_project_root;
 
 pub fn resolve_type(name: &str) -> &str {
     match name {
-        "halo2curves::bn256::fr::Fr" => "bn254_fr::Element",
-        "halo2curves::bn256::fq::Fq" => "bn254_fq::Element",
-        _ => unimplemented!(),
+        "halo2curves::bn256::fr::Fr" => "bn254_fr",
+        "halo2curves::bn256::fq::Fq" => "bn254_fq",
+        "halo2curves::bls12381::fr::Fr" => "bls12381_fr",
+        _ => unimplemented!("not implemented for type {}", name),
     }
 }
 
-pub fn resolve_curve(name: &str) -> (&str, u32) {
+pub fn resolve_curve(name: &str) -> &str {
     match name {
-        s if s.starts_with("halo2curves::bn256") => ("bn254", 254),
-        _ => unimplemented!(),
+        s if s.starts_with("halo2curves::bn256") => "bn254",
+        _ => unimplemented!("unimplemented for curve {}", name),
     }
 }
 

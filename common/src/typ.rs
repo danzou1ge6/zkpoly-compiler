@@ -1,5 +1,3 @@
-use std::any;
-
 #[derive(Debug, Clone, PartialEq, Eq, Copy, PartialOrd, Ord)]
 pub struct Slice(u64, u64);
 
@@ -52,7 +50,6 @@ impl PolyMeta {
 }
 
 pub mod template {
-    use super::any;
     use serde::{Deserialize, Serialize};
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -9,10 +9,9 @@ zkpoly_memory_pool = { path = "../memory_pool" }
 zkpoly_cuda_api = { path = "../cuda_api" }
 group = "0.13"
 threadpool = "1.8.0"
-pasta_curves = "0.5.1"
 blake2b_simd = "1" # MSRV 1.66.0
 sha3 = "0.9.1"
-halo2curves = { version = "0.6.0", default-features = false }
+halo2curves = { version = "0.8.0", default-features = false }
 rand_core = { version = "0.6", default-features = false }
 rand = { version = "0.6"}
 crossbeam-channel = { version = "0.5.14"}
