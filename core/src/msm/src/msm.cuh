@@ -35,8 +35,8 @@ namespace detail {
     struct Array2D {
         T *buf;
 
-        __forceinline__ Array2D() {}
-        __forceinline__ Array2D(T *buf) : buf(buf) {}
+        __host__ __device__ __forceinline__ Array2D() {}
+        __host__ __device__ __forceinline__ Array2D(T *buf) : buf(buf) {}
         __host__ __device__ __forceinline__ T &get(u32 i, u32 j) {
             return buf[i * D2 + j];
         }

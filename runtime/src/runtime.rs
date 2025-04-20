@@ -1,6 +1,7 @@
 use std::{
     sync::{mpsc::Sender, Arc},
     thread,
+    time::Instant,
 };
 
 pub use threadpool::ThreadPool;
@@ -18,7 +19,11 @@ use crate::{
     instructions::Instruction,
 };
 
-use zkpoly_cuda_api::mem::CudaAllocator;
+use zkpoly_cuda_api::{
+    bindings::{cudaDeviceSynchronize, cudaGetErrorString, cudaError_cudaSuccess},
+    cuda_check,
+    mem::CudaAllocator,
+};
 
 use zkpoly_memory_pool::PinnedMemoryPool;
 
@@ -86,7 +91,9 @@ impl<T: RuntimeType> Runtime<T> {
             threads: Arc::new(self.threads),
             rng: self.rng,
             main_thread: true,
+            bench_start: Some(Instant::now()),
         };
+        self.mem_allocator.preallocate(30);
         let r = info.run(
             self.instructions,
             Some(self.mem_allocator),
@@ -110,6 +117,7 @@ pub struct RuntimeInfo<T: RuntimeType> {
     pub threads: Arc<ThreadTable>,
     pub rng: AsyncRng,
     pub main_thread: bool,
+    pub bench_start: Option<Instant>,
 }
 
 impl<T: RuntimeType> RuntimeInfo<T> {
@@ -126,9 +134,27 @@ impl<T: RuntimeType> RuntimeInfo<T> {
             // if thread_id == 3 {
             //     println!("variable13: {:?}", self.variable[13.into()].read().unwrap());
             // }
-            let _guard = global_mutex.lock().unwrap();
+            let _guard: Option<std::sync::MutexGuard<'_, ()>> = if self.bench_start.is_some() {
+                Some(global_mutex.lock().unwrap())
+            } else {
+                None
+            };
+            // let _guard = global_mutex.lock().unwrap();
             // println!("instruction: {:?}, thread_id {:?}", instruction, _thread_id);
-
+            let (start_time, instruct_copy) = if self.bench_start.is_some() {
+                unsafe {
+                    cuda_check!(cudaDeviceSynchronize()); // wait for all previous cuda calls
+                }
+                let instruct_copy = if let Instruction::AssertEq{..} = &instruction {
+                    None
+                } else {
+                    Some(instruction.clone())
+                };
+                (Some(Instant::now()), instruct_copy)
+            } else {
+                (None, None)
+            };
+            let mut function_name = None;
             match instruction {
                 Instruction::Allocate {
                     device,
@@ -191,6 +217,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                         .map(|guard| guard.as_ref().unwrap())
                         .collect();
 
+                    function_name = Some(self.funcs[func_id].meta.name.clone());
                     let ref target = self.funcs[func_id].f;
                     match target {
                         FnOnce(mutex) => {
@@ -213,7 +240,9 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     event: event_id,
                 } => {
                     // println!("waiting for event{:?}", event_id);
-                    drop(_guard);
+                    if _guard.is_some() {
+                        drop(_guard);
+                    }
                     let ref event = self.events[event_id];
                     match event {
                         Event::GpuEvent(cuda_event) => match slave {
@@ -271,16 +300,6 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                             global_mutex,
                         );
                     });
-                    // self.pool.execute(move || {
-                    //     sub_info.run(
-                    //         instructions,
-                    //         None,
-                    //         None,
-                    //         Some(tx),
-                    //         new_thread.into(),
-                    //         global_mutex,
-                    //     );
-                    // });
                 }
                 Instruction::Join { thread } => {
                     let rx = self.threads[thread].lock().unwrap().take().unwrap();
@@ -446,6 +465,34 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     let var = src_guard.as_ref().unwrap().clone();
                     let mut dst_guard = self.variable[dst].write().unwrap();
                     *dst_guard = Some(var);
+                }
+            }
+            if self.bench_start.is_some() && instruct_copy.is_some() {
+                unsafe {
+                    cuda_check!(cudaDeviceSynchronize());
+                }
+                let start_duration = start_time
+                    .unwrap()
+                    .saturating_duration_since(self.bench_start.clone().unwrap());
+                let end_duration =
+                    Instant::now().saturating_duration_since(self.bench_start.clone().unwrap());
+                if let Some(func_name) = function_name {
+                    println!(
+                        "thread {:?} instruction FuncCall {} {:?} start: {:?} end: {:?}",
+                        _thread_id,
+                        func_name,
+                        instruct_copy.unwrap(),
+                        start_duration.as_micros(),
+                        end_duration.as_micros()
+                    );
+                } else {
+                    println!(
+                        "thread {:?} instruction {:?} start: {:?} end: {:?}",
+                        _thread_id,
+                        instruct_copy.unwrap(),
+                        start_duration.as_micros(),
+                        end_duration.as_micros()
+                    );
                 }
             }
         }

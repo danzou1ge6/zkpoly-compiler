@@ -12,8 +12,8 @@
 #define likely(x) (__builtin_expect((x), 1))
 #define unlikely(x) (__builtin_expect((x), 0))
 #else
-#define likely(x) (x) [[likely]]
-#define unlikely(x) (x) [[unlikely]]
+#define likely(x) (x)
+#define unlikely(x) (x)
 #endif 
 
 namespace detail {
@@ -83,6 +83,26 @@ namespace detail {
         atomicCAS(mutex_ptr, (unsigned short int)1, (unsigned short int)0);
     }
 
+    template <typename Config, typename Point>
+    __device__ __forceinline__ void sum_back(
+        Point &acc,
+        u32 window_id,
+        u32 key,
+        Array2D<unsigned short, Config::n_windows, Config::n_buckets> mutex,
+        Array2D<unsigned short, Config::n_windows, Config::n_buckets> initialized,
+        Array2D<Point, Config::n_windows, Config::n_buckets> sum
+    ) {
+        auto mutex_ptr = mutex.addr(window_id, key - 1);
+        lock(mutex_ptr);
+        if (initialized.get(window_id, key - 1)) {
+            sum.get(window_id, key - 1) = sum.get(window_id, key - 1) + acc;
+        } else {
+            sum.get(window_id, key - 1) = acc;
+            initialized.get(window_id, key - 1) = 1;
+        }
+        unlock(mutex_ptr);
+    }
+
     template <typename Config, u32 WarpPerBlock, typename Point, typename PointAffine>
     __global__ void bucket_sum(
         const u64 len,
@@ -93,7 +113,9 @@ namespace detail {
         Array2D<unsigned short, Config::n_windows, Config::n_buckets> initialized,
         Array2D<Point, Config::n_windows, Config::n_buckets> sum
     ) {
-        __shared__ u32 point_buffer[WarpPerBlock * THREADS_PER_WARP][PointAffine::N_WORDS * 2 + 4]; // +4 for padding and alignment
+        extern __shared__ u32 smem[];
+        Array2D<u32, WarpPerBlock * THREADS_PER_WARP, PointAffine::N_WORDS * 2 + 4> point_buffer(smem);
+        // __shared__ u32 point_buffer[WarpPerBlock * THREADS_PER_WARP][PointAffine::N_WORDS * 2 + 4]; // +4 for padding and alignment
         const static u32 key_mask = (1u << Config::s) - 1;
         const static u32 sign_mask = 1u << Config::s;
         const static u32 window_mask = (1u << Config::window_bits) - 1;
@@ -110,8 +132,8 @@ namespace detail {
         indexs += zero_num;
 
         int stage = 0;
-        uint4 *smem_ptr0 = reinterpret_cast<uint4*>(point_buffer[threadIdx.x]);
-        uint4 *smem_ptr1 = reinterpret_cast<uint4*>(point_buffer[threadIdx.x] + PointAffine::N_WORDS);
+        uint4 *smem_ptr0 = reinterpret_cast<uint4*>(point_buffer.addr(threadIdx.x, 0));
+        uint4 *smem_ptr1 = reinterpret_cast<uint4*>(point_buffer.addr(threadIdx.x, PointAffine::N_WORDS));
 
         bool first = true; // only the first bucket and the last bucket may have conflict with other threads
         auto pip_thread = cuda::make_pipeline(); // pipeline for this thread
@@ -198,15 +220,57 @@ namespace detail {
         if (sign) p = p.neg();
         acc = acc + p;
         
-        auto mutex_ptr = mutex.addr(window_id, key - 1);
-        lock(mutex_ptr);
-        if (initialized.get(window_id, key - 1)) {
-            sum.get(window_id, key - 1) = sum.get(window_id, key - 1) + acc;
-        } else {
-            sum.get(window_id, key - 1) = acc;
-            initialized.get(window_id, key - 1) = 1;
+        // here may have conflict with other threads
+        // in the case when several threads calculate the same bucket
+        // we do intra warp reduction first
+        // use dynamic warp reduction, if no conflict, only extra shfl is used
+        // if all threads have same peer, full warp reduction is used
+
+        u32 mask[5] = {0xFFFFFFFF, 0x55555555, 0x11111111, 0x01010101, 0x00010001};
+        u32 lane_id = threadIdx.x & 31;
+        bool different_peer = false;
+        #pragma unroll
+        for (u32 lg_delta = 0; lg_delta < 5; lg_delta++) {
+            if (lg_delta != 0 && __all_sync(mask[lg_delta], different_peer)) {
+                // all threads have different peer, write back directly
+                sum_back<Config>(acc, window_id, key, mutex, initialized, sum);
+                break;
+            }
+            u32 delta = 1 << lg_delta;
+            u32 peer_window_id = __shfl_xor_sync(mask[lg_delta], window_id, delta);
+            u32 peer_key = __shfl_xor_sync(mask[lg_delta], key, delta);
+            Point peer_acc = acc.shuffle_down(delta, mask[lg_delta]);
+
+            different_peer = window_id != peer_window_id || key != peer_key;
+            if (lane_id % 2 != 0) {
+                if (different_peer) {
+                    // write back by myself
+                    sum_back<Config>(acc, window_id, key, mutex, initialized, sum);
+                }
+                break;
+            } else {
+                if (!different_peer) {
+                    // add up the peer
+                    acc = acc + peer_acc;
+                }
+                if (lg_delta == 4) {
+                    // write back by myself
+                    sum_back<Config>(acc, window_id, key, mutex, initialized, sum);
+                }
+            }
+            lane_id /= 2;
+            __syncwarp();
         }
-        unlock(mutex_ptr);
+        // direct write back
+        // auto mutex_ptr = mutex.addr(window_id, key - 1);
+        // lock(mutex_ptr);
+        // if (initialized.get(window_id, key - 1)) {
+        //     sum.get(window_id, key - 1) = sum.get(window_id, key - 1) + acc;
+        // } else {
+        //     sum.get(window_id, key - 1) = acc;
+        //     initialized.get(window_id, key - 1) = 1;
+        // }
+        // unlock(mutex_ptr);
     }
 
     template<typename Config, u32 WarpPerBlock, typename Point>
@@ -442,8 +506,15 @@ namespace detail {
                 // Do bucket sum
                 block_size = 256;
                 grid_size = num_sm;
+                constexpr u32 warp_num = 8;
 
-                bucket_sum<Config, 8, Point, PointAffine><<<grid_size, block_size, 0, stream>>>(
+                usize shared_size = (PointAffine::N_WORDS * 2 + 4) * warp_num * THREADS_PER_WARP * sizeof(u32);
+
+                auto sum_kernel = bucket_sum<Config, warp_num, Point, PointAffine>;
+
+                CUDA_CHECK(cudaFuncSetAttribute(sum_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, shared_size));
+
+                sum_kernel<<<grid_size, block_size, shared_size, stream>>>(
                     cur_len * Config::actual_windows,
                     cnt_zero,
                     indexs,
@@ -502,7 +573,7 @@ namespace detail {
         }
 
         return cudaSuccess;
-        }
+    }
  
     template <typename Config, typename Element, typename Point, typename PointAffine>
     MSM<Config, Element, Point, PointAffine>::MSM(u64 len, u32 batch_per_run, u32 parts, u32 scaler_stages, u32 point_stages, int device)

@@ -12,6 +12,7 @@ use rand_core::SeedableRng;
 use rand_xorshift::XorShiftRng;
 use zkpoly_common::load_dynamic::Libs;
 use zkpoly_core::poly::*;
+use zkpoly_cuda_api::stream::CudaEvent;
 use zkpoly_cuda_api::stream::CudaStream;
 use zkpoly_memory_pool::PinnedMemoryPool;
 use zkpoly_runtime::args::Variable;
@@ -396,11 +397,19 @@ fn test_scan() {
 
     poly.cpu2gpu(poly_d.unwrap_scalar_array_mut(), stream.unwrap_stream());
     x0.cpu2gpu(x0_d.unwrap_scalar_mut(), stream.unwrap_stream());
+    // add timer
+    let start = CudaEvent::new();
+    let end = CudaEvent::new();
+    stream.unwrap_stream().record(&start);
     func(
         vec![&mut temp_buf, &mut res_d],
         vec![&poly_d, &x0_d, &stream],
     )
     .unwrap();
+    stream.unwrap_stream().record(&end);
+    end.sync();
+    let elapsed = start.elapsed(&end);
+    println!("Elapsed time: {:?} ms", elapsed);
     res_d
         .unwrap_scalar_array()
         .gpu2cpu(&mut res, stream.unwrap_stream());

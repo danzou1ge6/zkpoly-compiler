@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, panic::Location};
 
 use zkpoly_common::{load_dynamic::Libs, msm_config::MsmConfig, typ::PolyType};
 use zkpoly_core::{
-    msm::MSMPrecompute,
+    msm::{get_best_config, MSMPrecompute},
     ntt::{GenPqOmegas, SsipPrecompute},
 };
 use zkpoly_memory_pool::PinnedMemoryPool;
@@ -141,10 +141,14 @@ pub fn precompute<'s, Rt: RuntimeType>(
                     precompute_ntts.insert((log_len, inv), alg);
                 }
             }
-            super::template::VertexNode::Msm { points, .. } => {
+            super::template::VertexNode::Msm { points, polys, .. } => {
                 assert_eq!(points.len(), 1);
                 let input_id = points[0];
-                let config = MsmConfig::default();
+                let input_constant_id = cg.g.vertex(input_id).node().unwrap_constant();
+                let input_points =
+                    (*constant_tb[*input_constant_id].value.unwrap_point_array()).clone();
+
+                let config = get_best_config::<Rt>(input_points.len, polys.len() as u32, memory_limit);
 
                 let precompute = msm_precomputes.get(&(input_id, config.clone()));
 
@@ -155,9 +159,7 @@ pub fn precompute<'s, Rt: RuntimeType>(
                 } else {
                     let msm_precompute_func = MSMPrecompute::<Rt>::new(libs, config.clone());
                     let f = msm_precompute_func.get_fn();
-                    let input_constant_id = cg.g.vertex(input_id).node().unwrap_constant();
-                    let input_points =
-                        (*constant_tb[*input_constant_id].value.unwrap_point_array()).clone();
+
                     let len = input_points.len;
                     let mut point_arrays = vec![input_points];
                     for _ in 1..config.get_precompute() {

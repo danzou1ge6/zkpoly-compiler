@@ -1,9 +1,12 @@
 use std::any::type_name;
+use std::io::{BufRead, BufReader};
 use std::marker::PhantomData;
 use std::os::raw::{c_long, c_uint, c_ulonglong, c_void};
+use std::process::{Command, Stdio};
 use std::ptr::{null, null_mut};
 
 use libloading::Symbol;
+use zkpoly_common::get_project_root::get_project_root;
 use zkpoly_common::load_dynamic::Libs;
 use zkpoly_common::msm_config::MsmConfig;
 use zkpoly_cuda_api::bindings::{cudaError_cudaSuccess, cudaError_t, cudaGetErrorString};
@@ -15,9 +18,97 @@ use zkpoly_runtime::functions::{
 };
 use zkpoly_runtime::point::PointArray;
 
-use crate::build_func::{resolve_curve, xmake_config, xmake_run};
+use crate::build_func::{make_run, resolve_curve};
 
-static LIB_NAME: &str = "libmsm.so";
+fn get_curve_bits<T: RuntimeType>() -> (usize, usize) {
+    // get the number of bits of the point and scalar
+    let name = resolve_curve(type_name::<T::PointAffine>());
+    if name == "bls12_381" {
+        return (381, 255);
+    } else if name == "bn254" {
+        return (254, 254);
+    } else {
+        unimplemented!("curve not supported")
+    }
+}
+
+pub fn get_best_config<T: RuntimeType>(len: usize, batches: u32, mem_limit: usize) -> MsmConfig {
+    let (point_bits, scalar_bits) = get_curve_bits::<T>();
+    let degree = 64 - (len as u64 - 1).leading_zeros(); // log2_ceil(len)
+
+    // call python script to get the best config
+    let python_script = "core/src/msm/tuning/cost_model.py";
+    let output = Command::new("python3")
+        .current_dir(get_project_root())
+        .arg(python_script)
+        .arg(format!("--k={}", degree))
+        .arg(format!("--n={}", batches))
+        .arg(format!("--l={}", scalar_bits))
+        .arg(format!("--p={}", point_bits))
+        .arg(format!("--mem={}", mem_limit))
+        .stdout(Stdio::piped()) // pipe the output
+        .spawn()
+        .expect("Failed to start Python script");
+
+    let mut results = Vec::new();
+    // read the output
+    if let Some(stdout) = output.stdout {
+        let reader = BufReader::new(stdout);
+        for line in reader.lines() {
+            // if empty line, continue
+            if line.as_ref().unwrap().is_empty() {
+                continue;
+            }
+            match line {
+                Ok(line) => {
+                    // each line is a number
+                    match line.trim().parse::<u64>() {
+                        Ok(number) => results.push(number),
+                        Err(err) => panic!("Failed to parse number: {}", err),
+                    }
+                }
+                Err(err) => panic!("Failed to read line: {}", err),
+            }
+        }
+    } else {
+        panic!("Failed to get stdout");
+    }
+
+    let (precompute, window, _, parts, batch_per_run) = (
+        results[0] as u32,
+        results[1] as u32,
+        results[2] as u32,
+        results[3] as u32,
+        results[4] as u32,
+    );
+
+    let (stage_scalars, stage_points) = if parts == 1 { (1, 1) } else { (2, 2) };
+
+    MsmConfig::new(
+        window,
+        precompute,
+        vec![0],
+        false,
+        batch_per_run,
+        parts,
+        stage_scalars,
+        stage_points,
+        scalar_bits as u32,
+    )
+}
+
+fn get_msm_lib_name<T: RuntimeType>(config: MsmConfig) -> String {
+    let mut lib_name = "msm".to_string();
+    lib_name += "_";
+    lib_name += resolve_curve(type_name::<T::PointAffine>());
+    lib_name += "_";
+    lib_name += &config.window_size.to_string();
+    lib_name += "_";
+    lib_name += &config.target_window.to_string();
+    lib_name += "_";
+    lib_name += &config.debug.to_string();
+    lib_name
+}
 
 pub struct MSM<T: RuntimeType> {
     _marker: PhantomData<T>,
@@ -56,21 +147,15 @@ pub struct MSMPrecompute<T: RuntimeType> {
 
 impl<T: RuntimeType> MSMPrecompute<T> {
     pub fn new(libs: &mut Libs, config: MsmConfig) -> Self {
-        if !libs.contains(LIB_NAME) {
-            let (curve, bits) = resolve_curve(type_name::<T::PointAffine>());
-            xmake_config("MSM_BITS", bits.to_string().as_str());
-            xmake_config("MSM_CURVE", curve);
-            xmake_config("MSM_WINDOW_SIZE", config.window_size.to_string().as_str());
-            xmake_config(
-                "MSM_TARGET_WINDOWS",
-                config.target_window.to_string().as_str(),
-            );
-            xmake_config("MSM_DEBUG", (config.debug as u32).to_string().as_str());
-            xmake_run("msm");
+        let lib_name = get_msm_lib_name::<T>(config.clone());
+        let lib_path = "lib".to_string() + &lib_name + ".so";
+        let target_name = "lib/".to_string() + &lib_path;
+        if !libs.contains(&lib_path) {
+            make_run(&target_name, "Makefile.msm");
         }
 
         // load the dynamic library
-        let lib = libs.load(LIB_NAME);
+        let lib = libs.load(&lib_path);
         // get the function pointer
         let c_func = unsafe { lib.get(b"msm_precompute\0") }.unwrap();
         Self {
@@ -104,21 +189,15 @@ impl<T: RuntimeType> MSMPrecompute<T> {
 
 impl<T: RuntimeType> MSM<T> {
     pub fn new(libs: &mut Libs, config: MsmConfig) -> Self {
-        if !libs.contains(LIB_NAME) {
-            let (curve, bits) = resolve_curve(type_name::<T::PointAffine>());
-            xmake_config("MSM_BITS", bits.to_string().as_str());
-            xmake_config("MSM_CURVE", curve);
-            xmake_config("MSM_WINDOW_SIZE", config.window_size.to_string().as_str());
-            xmake_config(
-                "MSM_TARGET_WINDOWS",
-                config.target_window.to_string().as_str(),
-            );
-            xmake_config("MSM_DEBUG", (config.debug as u32).to_string().as_str());
-            xmake_run("msm");
+        let lib_name = get_msm_lib_name::<T>(config.clone());
+        let lib_path = "lib".to_string() + &lib_name + ".so";
+        let target_name = "lib/".to_string() + &lib_path;
+        if !libs.contains(&lib_path) {
+            make_run(&target_name, "Makefile.msm");
         }
 
         // load the dynamic library
-        let lib = libs.load(LIB_NAME);
+        let lib = libs.load(&lib_path);
         // get the function pointer
         let c_func = unsafe { lib.get(b"msm\0") }.unwrap();
         Self {
@@ -137,7 +216,7 @@ impl<T: RuntimeType> MSM<T> {
                 len.try_into().unwrap(),
                 self.config.batch_per_run,
                 self.config.parts,
-                self.config.stage_scalers,
+                self.config.stage_scalars,
                 self.config.stage_points,
                 self.config.cards.len().try_into().unwrap(),
                 self.config.cards.as_ptr(),
@@ -194,7 +273,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for MSM<T> {
                     len.try_into().unwrap(),
                     config.batch_per_run,
                     config.parts,
-                    config.stage_scalers,
+                    config.stage_scalars,
                     config.stage_points,
                     config.cards.len().try_into().unwrap(),
                     config.cards.as_ptr(),

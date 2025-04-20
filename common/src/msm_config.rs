@@ -8,7 +8,7 @@ pub struct MsmConfig {
     pub debug: bool,
     pub batch_per_run: u32,
     pub parts: u32,
-    pub stage_scalers: u32,
+    pub stage_scalars: u32,
     pub stage_points: u32,
     pub bits: u32,
 }
@@ -31,7 +31,7 @@ impl MsmConfig {
         debug: bool,
         batch_per_run: u32,
         parts: u32,
-        stage_scalers: u32,
+        stage_scalars: u32,
         stage_points: u32,
         bits: u32,
     ) -> Self {
@@ -42,7 +42,7 @@ impl MsmConfig {
             debug,
             batch_per_run,
             parts,
-            stage_scalers,
+            stage_scalars,
             stage_points,
             bits,
         }

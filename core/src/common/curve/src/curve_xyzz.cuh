@@ -1,3 +1,147 @@
+/*
+The XYZZ representation of the curve
+we copied the following formulas from https://hyperelliptic.org/EFD/g1p/auto-shortw-xyzz.html
+for quick reference, as the website is not always available:
+
+XYZZ coordinates for short Weierstrass curves
+An elliptic curve in short Weierstrass form [more information] has parameters a b and coordinates x y satisfying the following equations:
+  y^2=x^3+a*x+b
+XYZZ coordinates [database entry] represent x y as X Y ZZ ZZZ satisfying the following equations:
+
+  x=X/ZZ
+  y=Y/ZZZ
+  ZZ3=ZZZ2
+
+Best operation counts
+Smallest multiplication counts assuming I=100M, S=1M, *param=0M, add=0M, *const=0M:
+14M for addition: 12M+2S.
+10M for addition with Z2=1: 8M+2S.
+6M for addition with Z1=1 and Z2=1: 4M+2S.
+14M for readdition: 12M+2S after 12M+2S.
+10M for readdition with Z2=1: 8M+2S after 8M+2S.
+6M for readdition with Z1=1 and Z2=1: 4M+2S after 4M+2S.
+10M for doubling: 6M+4S.
+7M for doubling with Z1=1: 4M+3S.
+104M for scaling: 1I+3M+1S.
+Smallest multiplication counts assuming I=100M, S=0.8M, *param=0M, add=0M, *const=0M:
+13.6M for addition: 12M+2S.
+9.6M for addition with Z2=1: 8M+2S.
+5.6M for addition with Z1=1 and Z2=1: 4M+2S.
+13.6M for readdition: 12M+2S after 12M+2S.
+9.6M for readdition with Z2=1: 8M+2S after 8M+2S.
+5.6M for readdition with Z1=1 and Z2=1: 4M+2S after 4M+2S.
+9.2M for doubling: 6M+4S.
+6.4M for doubling with Z1=1: 4M+3S.
+103.8M for scaling: 1I+3M+1S.
+Smallest multiplication counts assuming I=100M, S=0.67M, *param=0M, add=0M, *const=0M:
+13.34M for addition: 12M+2S.
+9.34M for addition with Z2=1: 8M+2S.
+5.34M for addition with Z1=1 and Z2=1: 4M+2S.
+13.34M for readdition: 12M+2S after 12M+2S.
+9.34M for readdition with Z2=1: 8M+2S after 8M+2S.
+5.34M for readdition with Z1=1 and Z2=1: 4M+2S after 4M+2S.
+8.68M for doubling: 6M+4S.
+6.01M for doubling with Z1=1: 4M+3S.
+103.67M for scaling: 1I+3M+1S.
+Summary of all explicit formulas
+Operation	Assumptions	Cost	Readdition cost
+addition	ZZ1=1 and ZZZ1=1 and ZZ2=1 and ZZZ2=1	4M + 2S	4M + 2S
+addition	ZZ2=1 and ZZZ2=1	8M + 2S	8M + 2S
+addition		12M + 2S	12M + 2S
+doubling	ZZ1=1 and ZZZ1=1	4M + 3S
+doubling		6M + 4S + 1*a
+scaling		1I + 3M + 1S
+Explicit formulas for addition
+The "mmadd-2008-s" addition formulas [database entry; Sage verification script; Sage output; three-operand code]:
+Assumptions: ZZ1=1 and ZZZ1=1 and ZZ2=1 and ZZZ2=1.
+Cost: 4M + 2S + 6add + 1*2.
+Source: 2008 Sutherland.
+Explicit formulas:
+      P = X2-X1
+      R = Y2-Y1
+      PP = P2
+      PPP = P*PP
+      Q = X1*PP
+      X3 = R2-PPP-2*Q
+      Y3 = R*(Q-X3)-Y1*PPP
+      ZZ3 = PP
+      ZZZ3 = PPP
+The "madd-2008-s" addition formulas [database entry; Sage verification script; Sage output; three-operand code]:
+Assumptions: ZZ2=1 and ZZZ2=1.
+Cost: 8M + 2S + 6add + 1*2.
+Source: 2008 Sutherland.
+Explicit formulas:
+      U2 = X2*ZZ1
+      S2 = Y2*ZZZ1
+      P = U2-X1
+      R = S2-Y1
+      PP = P2
+      PPP = P*PP
+      Q = X1*PP
+      X3 = R2-PPP-2*Q
+      Y3 = R*(Q-X3)-Y1*PPP
+      ZZ3 = ZZ1*PP
+      ZZZ3 = ZZZ1*PPP
+The "add-2008-s" addition formulas [database entry; Sage verification script; Sage output; three-operand code]:
+Cost: 12M + 2S + 6add + 1*2.
+Source: 2008 Sutherland.
+Explicit formulas:
+      U1 = X1*ZZ2
+      U2 = X2*ZZ1
+      S1 = Y1*ZZZ2
+      S2 = Y2*ZZZ1
+      P = U2-U1
+      R = S2-S1
+      PP = P2
+      PPP = P*PP
+      Q = U1*PP
+      X3 = R2-PPP-2*Q
+      Y3 = R*(Q-X3)-S1*PPP
+      ZZ3 = ZZ1*ZZ2*PP
+      ZZZ3 = ZZZ1*ZZZ2*PPP
+Explicit formulas for doubling
+The "mdbl-2008-s-1" doubling formulas [database entry; Sage verification script; Sage output; three-operand code]:
+Assumptions: ZZ1=1 and ZZZ1=1.
+Cost: 4M + 3S + 4add + 2*2 + 1*3.
+Source: 2008 Sutherland.
+Explicit formulas:
+      U = 2*Y1
+      V = U2
+      W = U*V
+      S = X1*V
+      M = 3*X12+a
+      X3 = M2-2*S
+      Y3 = M*(S-X3)-W*Y1
+      ZZ3 = V
+      ZZZ3 = W
+The "dbl-2008-s-1" doubling formulas [database entry; Sage verification script; Sage output; three-operand code]:
+Cost: 6M + 4S + 1*a + 4add + 2*2 + 1*3.
+Source: 2008 Sutherland.
+Explicit formulas:
+      U = 2*Y1
+      V = U2
+      W = U*V
+      S = X1*V
+      M = 3*X12+a*ZZ12
+      X3 = M2-2*S
+      Y3 = M*(S-X3)-W*Y1
+      ZZ3 = V*ZZ1
+      ZZZ3 = W*ZZZ1
+Explicit formulas for tripling
+Explicit formulas for differential addition
+Explicit formulas for differential addition and doubling
+Explicit formulas for scaling
+The "z" scaling formulas [database entry; Sage verification script; Sage output; three-operand code]:
+Cost: 1I + 3M + 1S + 0add.
+Explicit formulas:
+      A = 1/ZZZ1
+      B = (ZZ1*A)2
+      X3 = X1*B
+      Y3 = Y1*A
+      ZZ3 = 1
+      ZZZ3 = 1
+*/
+
 #pragma once
 
 #include "../../mont/src/field.cuh"
@@ -7,8 +151,8 @@
 #define likely(x) (__builtin_expect((x), 1))
 #define unlikely(x) (__builtin_expect((x), 0))
 #else
-#define likely(x) (x) [[likely]]
-#define unlikely(x) (x) [[unlikely]]
+#define likely(x) (x)
+#define unlikely(x) (x)
 #endif 
 
 namespace curve
@@ -36,7 +180,7 @@ namespace curve
             }
 
             friend std::istream& operator>>(std::istream &is, PointAffine &p) {
-                is >> p.x.n >> p.y.n;
+                is >> p.x >> p.y;
                 return is;
             }
 
@@ -263,15 +407,12 @@ namespace curve
                 return res;
             }
 
-            __device__ __host__ __forceinline__ PointXYZZ shuffle_down(const u32 delta) const & {
+            __device__ __host__ __forceinline__ PointXYZZ shuffle_down(const u32 delta, u32 mask = 0xffffffff) const & {
                 PointXYZZ res;
-                #pragma unroll
-                for (usize i = 0; i < Element::LIMBS; i++) {
-                    res.x.n.limbs[i] = __shfl_down_sync(0xFFFFFFFF, x.n.limbs[i], delta);
-                    res.y.n.limbs[i] = __shfl_down_sync(0xFFFFFFFF, y.n.limbs[i], delta);
-                    res.zz.n.limbs[i] = __shfl_down_sync(0xFFFFFFFF, zz.n.limbs[i], delta);
-                    res.zzz.n.limbs[i] = __shfl_down_sync(0xFFFFFFFF, zzz.n.limbs[i], delta);
-                }
+                res.x = x.shuffle_down(delta, mask);
+                res.y = y.shuffle_down(delta, mask);
+                res.zz = zz.shuffle_down(delta, mask);
+                res.zzz = zzz.shuffle_down(delta, mask);
                 return res;
             }
         };

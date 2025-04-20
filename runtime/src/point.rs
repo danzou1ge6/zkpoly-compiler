@@ -1,7 +1,7 @@
 use std::ops::Index;
 
 use crate::{devices::DeviceType, runtime::transfer::Transfer};
-use pasta_curves::arithmetic::CurveAffine;
+use halo2curves::CurveAffine;
 use zkpoly_cuda_api::{
     mem::{alloc_pinned, free_pinned},
     stream::CudaStream,

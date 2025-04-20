@@ -4,7 +4,7 @@ use crate::point::{Point, PointArray};
 use crate::scalar::{Scalar, ScalarArray};
 use crate::transcript::{EncodedChallenge, TranscriptObject, TranscriptWrite};
 use group::ff::PrimeField;
-use pasta_curves::arithmetic::CurveAffine;
+use halo2curves::CurveAffine;
 use std::fmt::Debug;
 use std::sync::Mutex;
 use std::sync::RwLock;

@@ -12,7 +12,7 @@ use zkpoly_runtime::{
 
 use zkpoly_runtime::functions::{Function, FunctionValue, RegisteredFunction};
 
-use super::build_func::{resolve_type, xmake_config, xmake_run};
+use super::build_func::{resolve_type, xmake_run};
 
 use zkpoly_common::load_dynamic::Libs;
 
@@ -25,15 +25,17 @@ pub struct SimpleFunc<T: RuntimeType> {
 
 impl<T: RuntimeType> SimpleFunc<T> {
     pub fn new(libs: &mut Libs) -> Self {
-        if !libs.contains("libsimple_add.so") {
+        let field_type = resolve_type(type_name::<T::Field>());
+        let lib_name = "simple_add".to_string() + "_" + field_type;
+        let lib_path = "libsimple_add".to_string() + "_" + field_type + ".so";
+
+        if !libs.contains(&lib_path) {
             // compile the dynamic library according to the template
-            let field_type = resolve_type(type_name::<T::Field>());
-            xmake_config("SIMPLE_ADD_FIELD", field_type);
-            xmake_run("simple_add");
+            xmake_run(&lib_name);
         }
 
         // load the dynamic library
-        let lib = libs.load("libsimple_add.so");
+        let lib = libs.load(&lib_path);
         // get the function pointer
         let c_func = unsafe { lib.get(b"simple_add\0") }.unwrap();
         Self {
