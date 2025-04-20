@@ -66,7 +66,7 @@ os.makedirs(lib_dir, exist_ok=True)
 os.makedirs(f"{build_dir}/.objs", exist_ok=True)
 
 # 生成直接的Makefile
-def generate_makefile(targets, output_file="Makefile.msm"):
+def generate_makefile(targets, output_file="Makefile.msm", cuda_path="/usr/local/cuda", cppc='usr/bin/g++'):
     # 查找所有头文件
     header_files = find_header_files(src_dir)
     headers_str = " ".join(header_files)
@@ -110,13 +110,13 @@ def generate_makefile(targets, output_file="Makefile.msm"):
         include_paths = ["-I" + os.path.dirname(src_dir)]
         
         # 步骤1：编译CUDA源文件到目标文件
-        compile_cmd = f"/usr/local/cuda/bin/nvcc -c -Xcompiler -fPIC -O3 -std={std} -I/usr/local/cuda/include {' '.join(include_paths)} {' '.join(defines)} -diag-suppress 550 -m64 -rdc=true -gencode arch=compute_{cuda_arch},code=sm_{cuda_arch} -DNDEBUG -o {obj_file} {src_file}"
+        compile_cmd = f"$(CUDA_PATH)/bin/nvcc -c -Xcompiler -fPIC -O3 -std={std} -I$(CUDA_PATH)/include {' '.join(include_paths)} {' '.join(defines)} -diag-suppress 550 -m64 -rdc=true -gencode arch=compute_{cuda_arch},code=sm_{cuda_arch} -DNDEBUG -o {obj_file} {src_file}"
         
         # 步骤2：设备链接
-        devlink_cmd = f"/usr/local/cuda/bin/nvcc -o {dev_obj_file} {obj_file} -L/usr/local/cuda/lib64 -lcudadevrt -lcudart_static -lrt -lpthread -ldl -m64 -gencode arch=compute_{cuda_arch},code=sm_{cuda_arch} -dlink -shared"
+        devlink_cmd = f"$(CUDA_PATH)/bin/nvcc -o {dev_obj_file} {obj_file} -L$(CUDA_PATH)/lib64 -lcudadevrt -lcudart_static -lrt -lpthread -ldl -m64 -gencode arch=compute_{cuda_arch},code=sm_{cuda_arch} -dlink -shared"
         
         # 步骤3：最终链接
-        link_cmd = f"/usr/bin/g++ -o {lib_file} {obj_file} {dev_obj_file} -shared -m64 -fPIC -L/usr/local/cuda/lib64 -s -lcudadevrt -lcudart_static -lrt -lpthread -ldl"
+        link_cmd = f"$(CPPC) -o {lib_file} {obj_file} {dev_obj_file} -shared -m64 -fPIC -L$(CUDA_PATH)/lib64 -s -lcudadevrt -lcudart_static -lrt -lpthread -ldl"
         
         # 添加规则，包含头文件依赖
         rules.append(f"{lib_file}: {src_file} {headers_str}")
@@ -136,6 +136,8 @@ def generate_makefile(targets, output_file="Makefile.msm"):
         f.write("# 自动生成的MSM编译Makefile\n\n")
         f.write("# 所有头文件依赖\n")
         f.write(f"HEADERS := {headers_str}\n\n")
+        f.write(f"CUDA_PATH = {cuda_path}\n")
+        f.write(f"CPPC = {cppc}\n\n")
         f.write(".PHONY: all clean\n\n")
         
         f.write(f"all: {' '.join(all_targets)}\n\n")
@@ -172,6 +174,8 @@ parser.add_argument("--debug", action="store_true", help="Generate only debug ta
 parser.add_argument("--no-debug", action="store_true", help="Generate only non-debug targets")
 parser.add_argument("--output", default="Makefile.msm", help="Output makefile name")
 parser.add_argument("--arch", default=cuda_arch, help="CUDA architecture (default: 80)")
+parser.add_argument("--cuda-path", default='/usr/local/cuda', help="Path to CUDA installation")
+parser.add_argument("--cppc", default='usr/bin/g++', help="Path to C++ compiler")
 
 args = parser.parse_args()
 
@@ -253,4 +257,4 @@ if not targets:
     print("使用默认配置生成Makefile")
 
 # 生成Makefile
-generate_makefile(targets, args.output)
+generate_makefile(targets, args.output, cuda_path=args.cuda_path, cppc=args.cppc)
