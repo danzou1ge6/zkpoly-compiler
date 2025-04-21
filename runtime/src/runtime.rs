@@ -378,8 +378,8 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                         .set_slice_raw(offset, len);
                     if poly.is_none() {
                         panic!(
-                            "set_slice_raw failed at thread {:?}, instruction {:?}",
-                            _thread_id, i
+                            "set_slice_raw failed at thread {:?}, instruction {:?}, for {:?} to {:?}",
+                            _thread_id, i, src, dst
                         );
                     }
                     drop(src_guard);
@@ -467,34 +467,34 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     *dst_guard = Some(var);
                 }
             }
-            if self.bench_start.is_some() && instruct_copy.is_some() {
-                unsafe {
-                    cuda_check!(cudaDeviceSynchronize());
-                }
-                let start_duration = start_time
-                    .unwrap()
-                    .saturating_duration_since(self.bench_start.clone().unwrap());
-                let end_duration =
-                    Instant::now().saturating_duration_since(self.bench_start.clone().unwrap());
-                if let Some(func_name) = function_name {
-                    println!(
-                        "thread {:?} instruction FuncCall {} {:?} start: {:?} end: {:?}",
-                        _thread_id,
-                        func_name,
-                        instruct_copy.unwrap(),
-                        start_duration.as_micros(),
-                        end_duration.as_micros()
-                    );
-                } else {
-                    println!(
-                        "thread {:?} instruction {:?} start: {:?} end: {:?}",
-                        _thread_id,
-                        instruct_copy.unwrap(),
-                        start_duration.as_micros(),
-                        end_duration.as_micros()
-                    );
-                }
-            }
+            // if self.bench_start.is_some() && instruct_copy.is_some() {
+            //     unsafe {
+            //         cuda_check!(cudaDeviceSynchronize());
+            //     }
+            //     let start_duration = start_time
+            //         .unwrap()
+            //         .saturating_duration_since(self.bench_start.clone().unwrap());
+            //     let end_duration =
+            //         Instant::now().saturating_duration_since(self.bench_start.clone().unwrap());
+            //     if let Some(func_name) = function_name {
+            //         println!(
+            //             "thread {:?} instruction FuncCall {} {:?} start: {:?} end: {:?}",
+            //             _thread_id,
+            //             func_name,
+            //             instruct_copy.unwrap(),
+            //             start_duration.as_micros(),
+            //             end_duration.as_micros()
+            //         );
+            //     } else {
+            //         println!(
+            //             "thread {:?} instruction {:?} start: {:?} end: {:?}",
+            //             _thread_id,
+            //             instruct_copy.unwrap(),
+            //             start_duration.as_micros(),
+            //             end_duration.as_micros()
+            //         );
+            //     }
+            // }
         }
         if !self.main_thread {
             epilogue
