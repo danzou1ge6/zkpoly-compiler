@@ -101,9 +101,6 @@ impl<T: RuntimeType> RuntimeInfo<T> {
     ) {
         match var {
             Variable::ScalarArray(poly) => {
-                if poly.slice_info.is_some() {
-                    panic!("slice at {:?} can't be deallocated", var_id)
-                }
                 match poly.device {
                     DeviceType::CPU => {
                         mem_allocator.as_ref().unwrap().free(poly.values);
