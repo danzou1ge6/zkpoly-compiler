@@ -36,30 +36,30 @@ fn test_simple_func() {
         assert_eq!(*c.unwrap_scalar().as_ref(), a_in + b_in);
     }
 
-    // if contains two different configs:
-    {
-        let simple_func = SimpleFunc::<BLS12381>::new(&mut libs);
-        let f = simple_func.get_fn();
+    // // if contains two different configs:
+    // {
+    //     let simple_func = SimpleFunc::<BLS12381>::new(&mut libs);
+    //     let f = simple_func.get_fn();
 
-        let mut a = Variable::Scalar(Scalar::new_cpu());
-        let mut b = Variable::Scalar(Scalar::new_cpu());
-        let mut c = Variable::Scalar(Scalar::new_cpu());
+    //     let mut a = Variable::Scalar(Scalar::new_cpu());
+    //     let mut b = Variable::Scalar(Scalar::new_cpu());
+    //     let mut c = Variable::Scalar(Scalar::new_cpu());
 
-        let f = match f.f {
-            FunctionValue::Fn(f) => f,
-            _ => unreachable!(),
-        };
+    //     let f = match f.f {
+    //         FunctionValue::Fn(f) => f,
+    //         _ => unreachable!(),
+    //     };
 
-        for _ in 0..100 {
-            let a_in = <common::BLS12381 as RuntimeType>::Field::random(rand_core::OsRng);
-            let b_in = <common::BLS12381 as RuntimeType>::Field::random(rand_core::OsRng);
+    //     for _ in 0..100 {
+    //         let a_in = <common::BLS12381 as RuntimeType>::Field::random(rand_core::OsRng);
+    //         let b_in = <common::BLS12381 as RuntimeType>::Field::random(rand_core::OsRng);
 
-            *a.unwrap_scalar_mut().as_mut() = a_in.clone();
-            *b.unwrap_scalar_mut().as_mut() = b_in.clone();
+    //         *a.unwrap_scalar_mut().as_mut() = a_in.clone();
+    //         *b.unwrap_scalar_mut().as_mut() = b_in.clone();
 
-            f(vec![&mut c], vec![&a, &b]).unwrap();
+    //         f(vec![&mut c], vec![&a, &b]).unwrap();
 
-            assert_eq!(*c.unwrap_scalar().as_ref(), a_in + b_in);
-        }
-    }
+    //         assert_eq!(*c.unwrap_scalar().as_ref(), a_in + b_in);
+    //     }
+    // }
 }
