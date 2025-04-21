@@ -256,6 +256,12 @@ impl Context {
             self.gpu_reg2addr.insert(to, *addr_id);
         }
     }
+
+    pub fn normalized_typ_for_obj(&self, obj_id: ObjectId, code: &Code) -> Typ {
+        let reg = self.object_residence[&obj_id].get_any().unwrap().0.pop().unwrap();
+        let typ = code.typ_of(reg).normalized();
+        typ
+    }
 }
 
 struct Code<'s>(Vec<Instruction<'s>>, Heap<RegisterId, Typ>);
@@ -613,7 +619,7 @@ fn ensure_same_type(
         let (deg, meta) = typ.unwrap_poly();
         let meta = meta.clone();
         let reg_id = candidate_regs.next().unwrap().clone();
-        let new_reg = code.alloc_register_id(typ);
+        let new_reg = code.alloc_register_id(typ.clone());
         let (slice_offset, slice_len) = meta.offset_and_len(deg as u64);
         code.emit(Instruction::new_no_src(InstructionNode::SetPolyMeta {
             id: new_reg,
@@ -708,7 +714,6 @@ fn ensure_on_device(
             ctx,
         ))
     } else {
-        let new_reg = code.alloc_register_id(typ.clone());
         let size = imctx.obj_size(obj_id);
 
         if let Some((from_reg_candidates, from_device)) = ctx
@@ -717,6 +722,8 @@ fn ensure_on_device(
             .map(|x| x.get_any())
             .flatten()
         {
+            let copied_typ = ctx.normalized_typ_for_obj(obj_id, &code);
+            let new_reg = code.alloc_register_id(copied_typ.clone());
             allocate(
                 device,
                 new_reg,
@@ -732,7 +739,7 @@ fn ensure_on_device(
             let from_reg = ensure_same_type(
                 from_device,
                 obj_id,
-                typ.normalized(),
+                copied_typ.clone(),
                 from_reg_candidates.iter().copied(),
                 code,
                 ctx,
@@ -742,8 +749,14 @@ fn ensure_on_device(
                 id: new_reg,
                 from: from_reg,
             }));
-            Ok(new_reg)
+
+            if copied_typ != typ {
+                Ok(emit_correct_type(new_reg, device, obj_id, typ, code, ctx))
+            } else {
+                Ok(new_reg)
+            }
         } else {
+            let new_reg = code.alloc_register_id(typ.clone());
             allocate(
                 device,
                 new_reg,
@@ -768,9 +781,12 @@ fn ensure_on_device(
                     )
                 })
                 .clone();
-            let (len, _) = typ.unwrap_poly();
-            let sliced_typ = Typ::ScalarArray { len, meta };
-            let from_reg = attempt_on_device(device, sliced_obj, sliced_typ, code, ctx, imctx);
+
+            let sliced_poly_typ = ctx.normalized_typ_for_obj(sliced_obj, code);
+            let (len, _) = sliced_poly_typ.unwrap_poly();
+            let slice_typ = Typ::ScalarArray { len, meta };
+
+            let from_reg = attempt_on_device(device, sliced_obj, slice_typ.clone(), code, ctx, imctx);
 
             code.emit(Instruction::new_no_src(InstructionNode::Transfer {
                 id: new_reg,
@@ -781,18 +797,33 @@ fn ensure_on_device(
     }
 }
 
-fn typ_for_copied(typ: &Typ, original_size: Size) -> (Typ, Size) {
-    match typ {
-        Typ::ScalarArray { len, meta } => {
-            let t = Typ::ScalarArray {
-                len: meta.len(*len as u64) as usize,
-                meta: PolyMeta::plain(),
-            };
-            let size = original_size * meta.len(*len as u64) / (*len as u64);
-            (t, size)
-        }
-        _ => (typ.clone(), original_size),
-    }
+fn emit_correct_type(
+    reg_id: RegisterId,
+    copied_reg_device: DeterminedDevice,
+    original_obj_id: ObjectId,
+    typ: Typ,
+    code: &mut Code,
+    ctx: &mut Context,
+) -> RegisterId {
+    let corrected_reg = code.alloc_register_id(typ.clone());
+    let (len, meta) = typ.unwrap_poly();
+    let (offset, slice_len) = meta.offset_and_len(len as u64);
+    code.emit(Instruction::new_no_src(InstructionNode::SetPolyMeta {
+        id: corrected_reg,
+        from: reg_id,
+        offset: offset as usize,
+        len: slice_len as usize,
+    }));
+
+    ctx.remove_residence_in_reg_for_object(original_obj_id, copied_reg_device, reg_id);
+    ctx.add_residence_for_object(original_obj_id, corrected_reg, copied_reg_device);
+    ctx.attempt_copy_gpu_addr_id_from(reg_id, corrected_reg);
+
+    code.emit(Instruction::new_no_src(InstructionNode::StackFree {
+        id: reg_id,
+    }));
+
+    corrected_reg
 }
 
 fn ensure_copied(
@@ -820,10 +851,11 @@ fn ensure_copied(
 
     let input_reg = if !no_need_copy {
         // that is, need copy
+        let copied_typ = ctx.normalized_typ_for_obj(original_obj_id, &code);
         let transferred_reg = ensure_on_device(
             device,
             original_obj_id,
-            typ.clone(),
+            copied_typ.clone(),
             now,
             gpu_allocator,
             code,
@@ -831,14 +863,13 @@ fn ensure_copied(
             imctx,
         )?;
         let size = imctx.obj_size(original_obj_id);
-        let (copied_typ, copied_size) = typ_for_copied(&typ, size);
-        let copied_reg = code.alloc_register_id(copied_typ);
+        let copied_reg = code.alloc_register_id(copied_typ.clone());
         allocate(
             device,
             copied_reg,
             original_obj_id, // this will be corrected later when assigning register for output
             now,
-            copied_size,
+            size,
             gpu_allocator,
             code,
             ctx,
@@ -848,7 +879,12 @@ fn ensure_copied(
             id: copied_reg,
             from: transferred_reg,
         }));
-        copied_reg
+
+        if copied_typ != typ {
+            emit_correct_type(copied_reg, device, original_obj_id, typ, code, ctx)
+        } else {
+            copied_reg
+        }
     } else {
         let on_device_reg = ensure_on_device(
             device,
@@ -876,10 +912,10 @@ pub fn lower_typ<Rt: RuntimeType>(t2typ: &super::Typ<Rt>, value: &Value) -> Typ 
                     meta: PolyMeta::Rotated(*rotation),
                 }
             }
-            ValueNode::SlicedPoly { slice, .. } => {
+            ValueNode::SlicedPoly { slice, deg } => {
                 // deg0 == deg should not be enforced, as deg is degree of the sliced polynomial, not the slice
                 Typ::ScalarArray {
-                    len: *deg0 as usize,
+                    len: *deg as usize,
                     meta: PolyMeta::Sliced(slice.clone()),
                 }
             }
