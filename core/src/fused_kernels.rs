@@ -15,12 +15,15 @@ use zkpoly_common::{
     load_dynamic::Libs,
     typ::PolyType,
 };
+use zkpoly_cuda_api::stream::CudaEvent;
 use zkpoly_cuda_api::{
     bindings::{
         cudaError_cudaSuccess, cudaError_t, cudaGetErrorString, cudaSetDevice, cudaStream_t,
     },
     cuda_check,
 };
+use zkpoly_runtime::runtime::transfer::Transfer;
+use zkpoly_runtime::scalar::{Scalar, ScalarArray};
 use zkpoly_runtime::{
     args::{RuntimeType, Variable},
     error::RuntimeError,
@@ -36,8 +39,8 @@ static LIB_NAME: &str = "libfused_kernels.so";
 
 pub struct FusedKernel<T: RuntimeType> {
     _marker: PhantomData<T>,
-    name: String,
-    c_func: Symbol<
+    pub name: String,
+    pub c_func: Symbol<
         'static,
         unsafe extern "C" fn(
             vars: *const ConstPolyPtr,
@@ -46,6 +49,14 @@ pub struct FusedKernel<T: RuntimeType> {
             stream: cudaStream_t,
         ) -> cudaError_t,
     >,
+}
+
+// all input/output are on cpu
+pub struct PipelinedFusedKernel<T: RuntimeType> {
+    kernel: FusedKernel<T>,
+    divide_parts: usize, // how many parts to divide the poly into, must > 3 and later calls must have len which is a multiple of this
+    num_scalars: usize,
+    num_mut_scalars: usize,
 }
 
 pub struct FusedOp<OuterId, InnerId> {
@@ -533,6 +544,255 @@ impl<T: RuntimeType> RegisteredFunction<T> for FusedKernel<T> {
         };
         Function {
             meta: FuncMeta::new(self.name.clone(), KernelType::FusedArith(self.name.clone())),
+            f: FunctionValue::Fn(Box::new(rust_func)),
+        }
+    }
+}
+
+impl<T: RuntimeType> PipelinedFusedKernel<T> {
+    pub fn new(
+        libs: &mut Libs,
+        name: String,
+        len: usize,
+        divide_parts: usize,
+        num_scalars: usize,
+        num_mut_scalars: usize,
+    ) -> Self {
+        assert!(divide_parts > 3, "divide_parts must be greater than 3");
+        assert!(
+            len % divide_parts == 0,
+            "len must be a multiple of divide_parts"
+        );
+        Self {
+            kernel: FusedKernel::new(libs, name),
+            divide_parts,
+            num_scalars,
+            num_mut_scalars,
+        }
+    }
+}
+
+impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
+    fn get_fn(&self) -> Function<T> {
+        let c_func = self.kernel.c_func.clone();
+        let num_scalars = self.num_scalars;
+        let num_mut_scalars = self.num_mut_scalars;
+        let divide_parts = self.divide_parts;
+        /*
+        args:
+        assume there are n mut polys, m polys, p mut scalars, q scalrs to compute the fused kernel
+        mut_var will have 4n + 2p elements, the first p are mut scalars, next n are the mut polys,
+        then next p is gpu buffer,
+        the next 3n are the gpu polys (triple buffer, one load, one compute, one store)
+        var will have 3m + 3 + 2q elements, the first 3 are streams(load, compute, store),
+        the next q are scalars, next m are polys, next q are scalar buffers, the next 2m are the gpu polys (double buffer, one load, one compute)
+         */
+        let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
+                              var: Vec<&Variable<T>>|
+              -> Result<(), RuntimeError> {
+            assert!((mut_var.len() - 2 * num_mut_scalars) % 4 == 0);
+            assert!((var.len() - 2 * num_scalars) % 3 == 0);
+
+            let num_mut_poly = (mut_var.len() - 2 * num_mut_scalars) / 4;
+            let num_mut_var = num_mut_poly + num_mut_scalars;
+            let num_poly = (var.len() - 3 - 2 * num_scalars) / 3;
+            let num_var = num_poly + num_scalars;
+
+            // get the length
+            let len = if num_mut_poly > 0 {
+                mut_var[num_mut_scalars].unwrap_scalar_array().len()
+            } else if num_poly > 0 {
+                var[3 + num_scalars].unwrap_scalar_array().len()
+            } else {
+                1
+            };
+
+            let chunk_len = len / divide_parts;
+
+            // get streams
+            let h2d_stream = var[0].unwrap_stream();
+            let compute_stream = var[1].unwrap_stream();
+            let d2h_stream = var[2].unwrap_stream();
+
+            // get scalars
+            let mut mut_scalars = Vec::new();
+            for i in 0..num_mut_scalars {
+                mut_scalars.push(mut_var[i].unwrap_scalar().clone());
+            }
+            let mut scalars = Vec::new();
+            for i in 0..num_scalars {
+                scalars.push(var[i + 3].unwrap_scalar().clone());
+            }
+
+            // get scalar buffers
+            let mut mut_gpu_scalars = Vec::new();
+            for i in 0..num_mut_scalars {
+                let buffer = mut_var[i + num_mut_scalars].unwrap_gpu_buffer();
+                let gpu_scalar =
+                    Scalar::new_gpu(buffer.ptr as *mut T::Field, buffer.device.unwrap_gpu());
+                mut_gpu_scalars.push(gpu_scalar);
+            }
+            let mut gpu_scalars = Vec::new();
+            for i in 0..num_scalars {
+                let buffer = var[i + 3 + num_scalars].unwrap_gpu_buffer();
+                let gpu_scalar =
+                    Scalar::new_gpu(buffer.ptr as *mut T::Field, buffer.device.unwrap_gpu());
+                gpu_scalars.push(gpu_scalar);
+            }
+
+            // transfer scalars to gpu
+            for (host_scalar, gpu_scalar) in mut_scalars.iter().zip(mut_gpu_scalars.iter_mut()) {
+                host_scalar.cpu2gpu(gpu_scalar, h2d_stream);
+            }
+            for (host_scalar, gpu_scalar) in scalars.iter().zip(gpu_scalars.iter_mut()) {
+                host_scalar.cpu2gpu(gpu_scalar, h2d_stream);
+            }
+
+            // get polys
+            let mut mut_polys = Vec::new();
+            for i in 0..num_mut_poly {
+                mut_polys.push(mut_var[i + num_mut_scalars].unwrap_scalar_array().clone());
+                assert!(
+                    mut_polys[i].slice_info.is_none(),
+                    "pipelined fused kernel doesn't support slice"
+                );
+            }
+            let mut polys = Vec::new();
+            for i in 0..num_poly {
+                polys.push(var[i + 3 + num_scalars].unwrap_scalar_array().clone());
+                assert!(
+                    polys[i].slice_info.is_none(),
+                    "pipelined fused kernel doesn't support slice"
+                );
+            }
+
+            // get poly buffers
+            let mut mut_gpu_polys = vec![Vec::new(); 3];
+            let base_index = num_mut_var + num_mut_scalars;
+            for i in 0..num_mut_poly {
+                for j in 0..3 {
+                    let buffer = mut_var[i + base_index + j * num_mut_poly].unwrap_gpu_buffer();
+                    let gpu_poly =
+                        ScalarArray::new(len, buffer.ptr as *mut T::Field, buffer.device.clone());
+                    mut_gpu_polys[j].push(gpu_poly);
+                }
+            }
+            let mut gpu_polys = vec![Vec::new(); 2];
+            let base_index = 3 + num_var + num_scalars;
+            for i in 0..num_var {
+                for j in 0..2 {
+                    let buffer = var[i + base_index + j * num_poly].unwrap_gpu_buffer();
+                    let gpu_poly =
+                        ScalarArray::new(len, buffer.ptr as *mut T::Field, buffer.device.clone());
+                    gpu_polys[j].push(gpu_poly);
+                }
+            }
+
+            // create events
+            let mut_h2d_complete = [CudaEvent::new(), CudaEvent::new(), CudaEvent::new()];
+            let mut_compute_complete = [CudaEvent::new(), CudaEvent::new(), CudaEvent::new()];
+            let mut_d2h_complete = [CudaEvent::new(), CudaEvent::new(), CudaEvent::new()];
+
+            let h2d_complete = [CudaEvent::new(), CudaEvent::new()];
+            let compute_complete = vec![CudaEvent::new(), CudaEvent::new()];
+
+            let mut mut_buffer_id = 0;
+            let mut buffer_id = 0;
+
+            // start computing
+            for chunk_id in 0..divide_parts {
+                // load mutable data to gpu
+                h2d_stream.wait(&mut_d2h_complete[mut_buffer_id]);
+
+                let compute_start = chunk_id * chunk_len;
+                let compute_end = (chunk_id + 1) * chunk_len;
+                // mut polys
+                for i in 0..num_mut_poly {
+                    let mut_poly = mut_polys[i].slice(compute_start, compute_end);
+                    mut_poly.cpu2gpu(&mut mut_gpu_polys[mut_buffer_id][i], h2d_stream);
+                }
+                mut_h2d_complete[mut_buffer_id].record(h2d_stream);
+
+                h2d_stream.wait(&compute_complete[buffer_id]);
+                // polys
+                for i in 0..num_poly {
+                    let poly = polys[i].slice(compute_start, compute_end);
+                    poly.cpu2gpu(&mut gpu_polys[buffer_id][i], h2d_stream);
+                }
+                h2d_complete[buffer_id].record(h2d_stream);
+
+                // wait for the previous transfer to finish
+                compute_stream.wait(&mut_h2d_complete[mut_buffer_id]);
+                compute_stream.wait(&h2d_complete[buffer_id]);
+
+                // compute
+                let mut mut_vars = Vec::new();
+                for scalar in mut_gpu_scalars.iter() {
+                    mut_vars.push(PolyPtr {
+                        ptr: scalar.value as *mut c_uint,
+                        len: 1,
+                        rotate: 0,
+                        offset: 0,
+                        whole_len: 1,
+                    })
+                }
+                for poly in mut_gpu_polys[mut_buffer_id].iter_mut() {
+                    mut_vars.push(PolyPtr::from(poly))
+                }
+                let mut vars = Vec::new();
+                for scalar in gpu_scalars.iter() {
+                    vars.push(ConstPolyPtr {
+                        ptr: scalar.value as *mut c_uint,
+                        len: 1,
+                        rotate: 0,
+                        offset: 0,
+                        whole_len: 1,
+                    })
+                }
+                for poly in gpu_polys[buffer_id].iter() {
+                    vars.push(ConstPolyPtr::from(poly))
+                }
+
+                unsafe {
+                    cuda_check!(cudaSetDevice(compute_stream.get_device()));
+                    cuda_check!((c_func)(
+                        vars.as_ptr(),
+                        mut_vars.as_ptr(),
+                        chunk_len.try_into().unwrap(),
+                        compute_stream.raw()
+                    ));
+                }
+
+                compute_complete[buffer_id].record(compute_stream);
+                mut_compute_complete[mut_buffer_id].record(compute_stream);
+
+                // wait for the previous compute to finish
+                d2h_stream.wait(&mut_compute_complete[mut_buffer_id]);
+                
+                // transfer back mutable data
+                for i in 0..num_mut_poly {
+                    let mut mut_poly = mut_polys[i].slice(compute_start, compute_end);
+                    mut_gpu_polys[mut_buffer_id][i]
+                        .gpu2cpu(&mut mut_poly, d2h_stream);
+                }
+                mut_d2h_complete[mut_buffer_id].record(d2h_stream);
+
+                mut_buffer_id = (mut_buffer_id + 1) % 3;
+                buffer_id = (buffer_id + 1) % 2;
+            }
+
+            // transfer back scalars
+            for (host_scalar, gpu_scalar) in mut_scalars.iter_mut().zip(mut_gpu_scalars.iter()) {
+                gpu_scalar.gpu2cpu(host_scalar, d2h_stream);
+            }
+
+            Ok(())
+        };
+        Function {
+            meta: FuncMeta::new(
+                self.kernel.name.clone(),
+                KernelType::FusedArith(self.kernel.name.clone()),
+            ),
             f: FunctionValue::Fn(Box::new(rust_func)),
         }
     }

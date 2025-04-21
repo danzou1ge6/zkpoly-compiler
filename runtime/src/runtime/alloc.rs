@@ -84,10 +84,11 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                 Variable::Stream(CudaStream::new(device))
             }
             Typ::GpuBuffer(size) => {
-                let device = device.unwrap_gpu();
+                let device_id = device.unwrap_gpu();
                 Variable::GpuBuffer(GpuBuffer {
-                    ptr: gpu_allocator.as_ref().unwrap()[device as usize].allocate(offset.unwrap()),
+                    ptr: gpu_allocator.as_ref().unwrap()[device_id as usize].allocate(offset.unwrap()),
                     size: size as usize,
+                    device: device,
                 })
             }
         }
