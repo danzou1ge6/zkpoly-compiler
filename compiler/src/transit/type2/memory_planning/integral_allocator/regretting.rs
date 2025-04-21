@@ -190,6 +190,10 @@ impl<'a> std::fmt::Debug for BlocksDebugger<'a> {
 
         write!(f, "\n")?;
 
+        if self.0.blocks.is_empty() {
+            return Ok(());
+        }
+
         for (&addr, _) in self.0.blocks[&max_lbs].iter() {
             fmt_block(f, max_lbs, addr, &self.0, 1, &mut marker)?;
         }
@@ -594,7 +598,7 @@ impl Allocator {
             for addr in self.child_addrs(parent_addr, parent_lbs).unwrap() {
                 let block = Block {
                     addr: Self::new_addr_id(addr, lbs, mapping),
-                    status: BlockStatus::Free(self.now - 1),
+                    status: BlockStatus::Free(self.now.saturating_sub(1)),
                 };
                 self.blocks.entry(lbs).or_default().insert(addr, block);
             }
@@ -692,8 +696,10 @@ impl Allocator {
             let old_addr_id = block.addr;
             block.addr = Self::new_addr_id(addr, lbs, mapping);
             block.status = BlockStatus::Occupied(now, next_use.0);
+            let addr_id = block.addr;
+            self.update_next_use_in_parent(addr, lbs, next_use.0);
 
-            return (block.addr, vec![old_addr_id]);
+            return (addr_id, vec![old_addr_id]);
         }
 
         // Otherwise, try find a splitted block of exact size, choosing the one that is used latest
@@ -725,12 +731,18 @@ impl Allocator {
             let block = self.block_mut(addr, lbs);
             block.addr = Self::new_addr_id(addr, lbs, mapping);
             block.status = BlockStatus::Occupied(now, next_use.0);
+            let addr_id = block.addr;
+            self.update_next_use_in_parent(addr, lbs, next_use.0);
 
-            return (block.addr, occupied_blocks);
+            return (addr_id, occupied_blocks);
         }
 
         // Otherwise, try find a occupied or splitted block of bigger size
-        self.decide_and_realloc_victim(size.double(), next_use, mapping)
+        if let Some(parent_lbs) = self.parent_lbs(lbs) {
+            self.decide_and_realloc_victim(IntegralSize(parent_lbs), next_use, mapping)
+        } else {
+            panic!("fail to find any victim block: allocator is empty")
+        }
     }
 
     fn _deallocate<const CHECK_OCCUPIED: bool>(&mut self, addr: u64, lbs: u32) {
@@ -790,4 +802,137 @@ impl Allocator {
             println!("{:#?}", self);
         }
     }
+}
+
+#[cfg(test)]
+mod test {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use super::super::AddrMappingHandler;
+    use crate::transit::{
+        type2::memory_planning::{GpuAddrMappingHandler, Instant},
+        type3::{AddrMapping, IntegralSize, Size},
+    };
+
+    struct A {
+        log_size_idx: usize,
+        next_use_after_alloc: usize,
+        deallocate_after_next_use: usize,
+    }
+
+    impl A {
+        fn new(
+            log_size_idx: usize,
+            next_use_after_alloc: usize,
+            deallocate_after_next_use: usize,
+        ) -> Self {
+            Self {
+                log_size_idx,
+                next_use_after_alloc,
+                deallocate_after_next_use,
+            }
+        }
+    }
+
+    fn run_list(list: Vec<A>, lbss: Vec<u32>, cap: usize) {
+        let mut allocator =
+            super::Allocator::new(cap as u64, lbss.iter().copied().map(IntegralSize).collect());
+        let mut mapping = AddrMapping::new();
+        let mut handler = GpuAddrMappingHandler(&mut mapping, 0);
+
+        let mut deallocation_queue = BTreeSet::new();
+        let mut ejected = BTreeSet::new();
+
+        for (
+            t,
+            A {
+                log_size_idx,
+                next_use_after_alloc,
+                deallocate_after_next_use,
+            },
+        ) in list.into_iter().enumerate()
+        {
+            allocator.tick(Instant(t));
+            let log_size = lbss[log_size_idx];
+
+            let addr_id = if let Some((_, addr_id)) = allocator.allocate(
+                IntegralSize(log_size),
+                Instant(t + next_use_after_alloc),
+                &mut handler,
+            ) {
+                addr_id
+            } else {
+                let (addr_id, victims) = allocator.decide_and_realloc_victim(
+                    IntegralSize(log_size),
+                    Instant(t + next_use_after_alloc),
+                    &mut handler,
+                );
+                let _ = victims.into_iter().map(|v| ejected.insert(v));
+                addr_id
+            };
+
+            deallocation_queue.insert((
+                t + next_use_after_alloc + deallocate_after_next_use,
+                addr_id,
+            ));
+
+            loop {
+                if let Some((t1, _)) = deallocation_queue.first() {
+                    if *t1 > t {
+                        break;
+                    }
+                    let (_, addr_id) = deallocation_queue.pop_first().unwrap();
+                    if !ejected.contains(&addr_id) {
+                        allocator.deallocate(addr_id, &mut handler);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test1() {
+        let lbss = vec![2, 4, 8];
+        let list = vec![
+            // Some random entries
+            A::new(0, 1, 2),
+            A::new(0, 0, 3),
+            A::new(0, 3, 4),
+            A::new(1, 3, 3),
+            A::new(1, 0, 4),
+            A::new(0, 4, 6),
+            A::new(0, 5, 2),
+            A::new(2, 0, 5),
+            A::new(2, 6, 6),
+            A::new(2, 0, 1),
+            A::new(0, 0, 2),
+            A::new(1, 3, 4),
+            A::new(0, 0, 1),
+            A::new(2, 3, 1),
+            A::new(0, 0, 2),
+            A::new(0, 0, 1),
+            A::new(1, 3, 4),
+            A::new(0, 0, 2),
+        ];
+
+        run_list(list, lbss, 1024);
+    }
+
+    #[test]
+    fn test_eject() {
+        let lbss = vec![1, 2, 3];
+        let list = vec![
+            A::new(0, 4, 6),
+            A::new(1, 2, 5),
+            A::new(2, 3, 6),
+            A::new(2, 4, 7),  // some is ejected here
+            A::new(0, 3, 1),
+            A::new(1, 2, 3),
+            A::new(2, 3, 4),
+            A::new(0, 3, 1),
+        ];
+
+        run_list(list, lbss, 16);
+    }
+
 }
