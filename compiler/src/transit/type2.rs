@@ -346,7 +346,7 @@ pub mod template {
         pub fn no_allocate_output(&self) -> bool {
             use VertexNode::*;
             match self {
-                Entry(..) | Constant(..) => true,
+                Entry(..) | Constant(..) | AssertEq(..) | Print(..) => true,
                 _ => false,
             }
         }
