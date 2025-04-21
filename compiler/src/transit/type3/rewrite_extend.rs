@@ -105,7 +105,7 @@ pub fn rewrite<'s, Rt: RuntimeType>(chunk: Chunk<'s, Rt>) -> Chunk<'s, Rt> {
                     let device = ra.device_of(t1);
                     let t2 = ra.alloc(
                         super::typ::Typ::ScalarArray {
-                            len: deg0,
+                            len: deg,
                             meta: PolyMeta::Sliced(Slice::new(0, deg0 as u64)),
                         },
                         device,
