@@ -5,6 +5,8 @@ import seaborn as sns
 import numpy as np
 import sys
 
+not_first = {}
+
 def parse_log_line(line):
     """Parse a log line into structured data."""
     # Fix missing 'T' in Thread if needed
@@ -22,6 +24,10 @@ def parse_log_line(line):
     if func_call_match:
         instruction_type = 'FuncCall'
         function_name = func_call_match.group(1)
+        # # visit the global variable first_load_fused
+        # if function_name.startswith('fused_arith') and function_name not in not_first:
+        #     not_first[function_name] = True
+        #     return None  # Skip the first load of fused_arith
     else:
         instr_match = re.search(r'instruction (\w+)', line)
         if not instr_match:
@@ -132,6 +138,48 @@ def create_instruction_time_chart(df):
     plt.tight_layout()
     plt.savefig('instruction_time_proportions.png', dpi=300)
     plt.close()
+
+def create_instruction_num_chart(df):
+    """Create a bar chart showing num proportions for each instruction type."""
+    # Create a column that combines instruction type and function name
+    df['operation'] = df.apply(
+        lambda x: f"FuncCall-{x['function_name']}" if x['instruction_type'] == 'FuncCall' and x['function_name']
+        else x['instruction_type'],
+        axis=1
+    )
+    
+    # fuse all the function calls start with "fused_arith" into one
+    df['operation'] = df['operation'].replace(to_replace=r'FuncCall-fused_arith.*', value='FuncCall-fused_arith', regex=True)
+    
+    # Group by operation and count occurrences
+    instr_counts = df.groupby('operation')['thread_id'].count().reset_index()
+    instr_counts.rename(columns={'thread_id': 'count'}, inplace=True)
+    
+    # Calculate percentages
+    total_count = instr_counts['count'].sum()
+    instr_counts['percentage'] = instr_counts['count'] / total_count * 100
+    
+    # Sort by count in descending order
+    instr_counts = instr_counts.sort_values('count', ascending=False)
+    
+    # Create bar plot
+    plt.figure(figsize=(14, 7))
+    ax = sns.barplot(x='operation', y='percentage', data=instr_counts)
+    plt.title('Instruction Count Proportion by Type', fontsize=14)
+    plt.xlabel('Instruction Type', fontsize=12)
+    plt.ylabel('Percentage of Total Count (%)', fontsize=12)
+    plt.xticks(rotation=45, ha='right')
+    
+    # Add percentage and count labels on top of bars
+    for i, p in enumerate(ax.patches):
+        ax.annotate(f'{instr_counts["percentage"].iloc[i]:.1f}% ({instr_counts["count"].iloc[i]})',
+                   (p.get_x() + p.get_width() / 2., p.get_height()),
+                   ha='center', va='bottom', fontsize=9, rotation=0)
+    
+    plt.tight_layout()
+    plt.savefig('instruction_num_proportions.png', dpi=300)
+    plt.close()
+
 
 def create_gantt_chart(df):
     """Create a Gantt chart showing execution timeline across threads with enhanced color variety."""
@@ -347,50 +395,75 @@ def create_function_call_analysis(df):
     # Sort by total duration
     func_stats = func_stats.sort_values('total_duration', ascending=False)
     
-    # Create bar chart for function call durations
-    plt.figure(figsize=(12, 6))
-    bars = plt.bar(func_stats['function_name'], func_stats['total_duration'])
-    plt.title('Total Execution Time by Function Call', fontsize=14)
-    plt.xlabel('Function Name', fontsize=12)
-    plt.ylabel('Total Duration', fontsize=12)
-    plt.xticks(rotation=45, ha='right')
+    num_functions = len(func_stats)
     
-    # Add duration and percentage labels
-    for bar, total, pct in zip(bars, func_stats['total_duration'], func_stats['percentage']):
-        height = bar.get_height()
-        plt.text(bar.get_x() + bar.get_width()/2., height + 5,
-                f'{total}\n({pct:.1f}%)',
-                ha='center', va='bottom', fontsize=9)
+    # 改用水平条形图格式 - 这对于大量函数名更加适合
+    # 限制最大图表尺寸，防止超过matplotlib的限制
+    figure_width = 16  # 固定宽度为16英寸
+    figure_height = min(40, max(10, num_functions * 0.4))  # 限制最大高度为40英寸
+    
+    plt.figure(figsize=(figure_width, figure_height))
+    
+    # 只显示前100个函数，如果超过这个数量
+    display_limit = 100
+    if num_functions > display_limit:
+        print(f"Warning: Only showing top {display_limit} functions by duration (out of {num_functions} total)")
+        plot_data = func_stats.iloc[:display_limit].copy()
+    else:
+        plot_data = func_stats
+    
+    # 使用水平条形图
+    bars = plt.barh(plot_data['function_name'], plot_data['total_duration'])
+    plt.title(f'Total Execution Time by Function Call (Top {len(plot_data)} of {num_functions})', fontsize=14)
+    plt.ylabel('Function Name', fontsize=12)
+    plt.xlabel('Total Duration', fontsize=12)
+    
+    # 自动调整字体大小，但设置合理的下限
+    font_size = max(7, min(10, 200 / len(plot_data)))
+    plt.yticks(fontsize=font_size)
+    
+    # 添加标签
+    for bar, total, pct in zip(bars, plot_data['total_duration'], plot_data['percentage']):
+        width = bar.get_width()
+        plt.text(width + (width * 0.01), bar.get_y() + bar.get_height()/2,
+                f'{total:.2f} ({pct:.1f}%)',
+                ha='left', va='center', fontsize=font_size)
     
     plt.tight_layout()
-    plt.savefig('function_call_durations.png', dpi=300)
+    plt.savefig('function_call_durations.png', dpi=150)  # 降低DPI以减小文件大小
     plt.close()
     
-    # Create a table of function call statistics
-    plt.figure(figsize=(12, len(func_stats) * 0.5 + 1))
-    plt.axis('off')
-    
-    # Fix: Properly format the data for the table
-    # First column is text, others are numeric and should be rounded
-    cell_data = []
-    for row in func_stats.itertuples(index=False):
-        # Convert row to list, keep function_name as is, round numeric values
-        formatted_row = [row[0]]  # function_name
-        for val in row[1:]:  # numeric columns
-            formatted_row.append(round(val, 2) if isinstance(val, (int, float)) else val)
-        cell_data.append(formatted_row)
-    
-    table = plt.table(
-        cellText=cell_data,
-        colLabels=['Function Name', 'Count', 'Avg Duration', 'Min Duration', 'Max Duration', 'Total Duration', 'Percentage (%)'],
-        loc='center',
-        cellLoc='center'
-    )
-    table.auto_set_font_size(False)
-    table.set_fontsize(9)
-    table.scale(1, 1.5)
-    plt.savefig('function_call_statistics.png', dpi=300, bbox_inches='tight')
-    plt.close()
+    # 表格视图也改为分页方式，每页最多40行
+    page_size = 40
+    for i in range(0, num_functions, page_size):
+        page_data = func_stats.iloc[i:i+page_size]
+        
+        plt.figure(figsize=(12, min(20, len(page_data) * 0.5 + 1)))
+        plt.axis('off')
+        
+        cell_data = []
+        for row in page_data.itertuples(index=False):
+            formatted_row = [row[0]]  # function_name
+            for val in row[1:]:  # numeric columns
+                formatted_row.append(round(val, 2) if isinstance(val, (int, float)) else val)
+            cell_data.append(formatted_row)
+        
+        table = plt.table(
+            cellText=cell_data,
+            colLabels=['Function Name', 'Count', 'Avg Duration', 'Min Duration', 'Max Duration', 'Total Duration', 'Percentage (%)'],
+            loc='center',
+            cellLoc='center'
+        )
+        table.auto_set_font_size(False)
+        table.set_fontsize(9)
+        table.scale(1, 1.5)
+        
+        page_num = i // page_size + 1
+        total_pages = (num_functions + page_size - 1) // page_size
+        plt.title(f'Function Statistics (Page {page_num} of {total_pages})', fontsize=14, y=0.99)
+        
+        plt.savefig(f'function_call_statistics_page{page_num}.png', dpi=150, bbox_inches='tight')
+        plt.close()
 
 def create_event_record_wait_analysis(df):
     """Analyze Record and Wait instructions to find synchronization patterns."""
@@ -562,11 +635,12 @@ def main():
         
         # Create visualizations
         create_instruction_time_chart(df)
-        create_gantt_chart(df)
+        create_instruction_num_chart(df)
+        # create_gantt_chart(df)
         create_function_call_analysis(df)
-        create_event_record_wait_analysis(df)
-        create_stream_activity_chart(df)
-        visualize_execution_flow(df)
+        # create_event_record_wait_analysis(df)
+        # create_stream_activity_chart(df)
+        # visualize_execution_flow(df)
         
         print("Visualization complete! Output files:")
         print("1. instruction_time_proportions.png - Bar chart of instruction time proportions")
