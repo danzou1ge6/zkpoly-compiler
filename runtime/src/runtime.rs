@@ -1,7 +1,5 @@
 use std::{
-    sync::{mpsc::Sender, Arc},
-    thread,
-    time::Instant,
+    collections::BTreeSet, sync::{mpsc::Sender, Arc, Mutex}, thread, time::Instant
 };
 
 pub use threadpool::ThreadPool;
@@ -13,8 +11,7 @@ use crate::{
     async_rng::AsyncRng,
     devices::{new_thread_table, DeviceType, Event, EventTable, ThreadTable},
     functions::{
-        FunctionTable,
-        FunctionValue::{Fn, FnMut, FnOnce},
+        FuncMeta, FunctionTable, FunctionValue::{Fn, FnMut, FnOnce}
     },
     instructions::Instruction,
 };
@@ -44,6 +41,13 @@ pub struct Runtime<T: RuntimeType> {
     gpu_allocator: Vec<CudaAllocator>,
     rng: AsyncRng,
     _libs: Libs,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
+pub enum RuntimeDebug {
+    RecordTime,
+    BenchKernel,
+    None,
 }
 
 impl<T: RuntimeType> Runtime<T> {
@@ -80,7 +84,17 @@ impl<T: RuntimeType> Runtime<T> {
             _libs: libs,
         }
     }
-    pub fn run(self) -> (Option<Variable<T>>, RuntimeInfo<T>) {
+    pub fn run(self, debug_opt: RuntimeDebug) -> (Option<Variable<T>>, RuntimeInfo<T>) {
+        let bench_start = if RuntimeDebug::RecordTime == debug_opt {
+            Some(Instant::now())
+        } else {
+            None
+        };
+        let executed_kernels = if RuntimeDebug::BenchKernel == debug_opt {
+            Some(Arc::new(Mutex::new(BTreeSet::new())))
+        } else {
+            None
+        };
         let info = RuntimeInfo {
             variable: Arc::new(self.variable),
             constant: Arc::new(self.constant),
@@ -91,7 +105,8 @@ impl<T: RuntimeType> Runtime<T> {
             threads: Arc::new(self.threads),
             rng: self.rng,
             main_thread: true,
-            bench_start: Some(Instant::now()),
+            bench_start,
+            executed_kernels,
         };
         self.mem_allocator.preallocate(30);
         let r = info.run(
@@ -118,6 +133,7 @@ pub struct RuntimeInfo<T: RuntimeType> {
     pub rng: AsyncRng,
     pub main_thread: bool,
     pub bench_start: Option<Instant>,
+    pub executed_kernels: Option<Arc<Mutex<BTreeSet<FuncMeta>>>>,
 }
 
 impl<T: RuntimeType> RuntimeInfo<T> {
@@ -131,16 +147,12 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         global_mutex: Arc<std::sync::Mutex<()>>,
     ) -> Option<Variable<T>> {
         for (i, instruction) in instructions.into_iter().enumerate() {
-            // if thread_id == 3 {
-            //     println!("variable13: {:?}", self.variable[13.into()].read().unwrap());
-            // }
-            let _guard: Option<std::sync::MutexGuard<'_, ()>> = if self.bench_start.is_some() {
+            let _guard: Option<std::sync::MutexGuard<'_, ()>> = if self.bench_start.is_some() || self.executed_kernels.is_some() {
                 Some(global_mutex.lock().unwrap())
             } else {
                 None
             };
-            // let _guard = global_mutex.lock().unwrap();
-            // println!("instruction: {:?}, thread_id {:?}", instruction, _thread_id);
+
             let (start_time, instruct_copy) = if self.bench_start.is_some() {
                 unsafe {
                     cuda_check!(cudaDeviceSynchronize()); // wait for all previous cuda calls
@@ -218,6 +230,15 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                         .collect();
 
                     function_name = Some(self.funcs[func_id].meta.name.clone());
+                    if self.executed_kernels.is_some() {
+                        let meta = self.funcs[func_id].meta.clone();
+                        let mut executed_kernels = self.executed_kernels.as_ref().unwrap().lock().unwrap();
+                        if executed_kernels.get(&meta).is_none() {
+                            executed_kernels.insert(meta.clone());
+                        } else {
+                            continue;
+                        }
+                    }
                     let ref target = self.funcs[func_id].f;
                     match target {
                         FnOnce(mutex) => {
@@ -467,34 +488,34 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     *dst_guard = Some(var);
                 }
             }
-            // if self.bench_start.is_some() && instruct_copy.is_some() {
-            //     unsafe {
-            //         cuda_check!(cudaDeviceSynchronize());
-            //     }
-            //     let start_duration = start_time
-            //         .unwrap()
-            //         .saturating_duration_since(self.bench_start.clone().unwrap());
-            //     let end_duration =
-            //         Instant::now().saturating_duration_since(self.bench_start.clone().unwrap());
-            //     if let Some(func_name) = function_name {
-            //         println!(
-            //             "thread {:?} instruction FuncCall {} {:?} start: {:?} end: {:?}",
-            //             _thread_id,
-            //             func_name,
-            //             instruct_copy.unwrap(),
-            //             start_duration.as_micros(),
-            //             end_duration.as_micros()
-            //         );
-            //     } else {
-            //         println!(
-            //             "thread {:?} instruction {:?} start: {:?} end: {:?}",
-            //             _thread_id,
-            //             instruct_copy.unwrap(),
-            //             start_duration.as_micros(),
-            //             end_duration.as_micros()
-            //         );
-            //     }
-            // }
+            if self.bench_start.is_some() && instruct_copy.is_some() {
+                unsafe {
+                    cuda_check!(cudaDeviceSynchronize());
+                }
+                let start_duration = start_time
+                    .unwrap()
+                    .saturating_duration_since(self.bench_start.clone().unwrap());
+                let end_duration =
+                    Instant::now().saturating_duration_since(self.bench_start.clone().unwrap());
+                if let Some(func_name) = function_name {
+                    println!(
+                        "thread {:?} instruction FuncCall {} {:?} start: {:?} end: {:?}",
+                        _thread_id,
+                        func_name,
+                        instruct_copy.unwrap(),
+                        start_duration.as_micros(),
+                        end_duration.as_micros()
+                    );
+                } else {
+                    println!(
+                        "thread {:?} instruction {:?} start: {:?} end: {:?}",
+                        _thread_id,
+                        instruct_copy.unwrap(),
+                        start_duration.as_micros(),
+                        end_duration.as_micros()
+                    );
+                }
+            }
         }
         if !self.main_thread {
             epilogue
