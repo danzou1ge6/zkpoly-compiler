@@ -8,12 +8,13 @@ pub fn schedule<OuterId: UsizeId, InnerId: UsizeId + 'static>(
     // reference: Optimal and Heuristic Min-Reg Scheduling Algorithms for GPU Programs, Algorithm 2
     // https://arxiv.org/abs/2303.06855
     let succ = ag.g.successors(); // follow the name in the paper
-    let mut out_degs = succ.iter().map(|users| users.len()).collect::<Vec<_>>();
+    let mut out_degs = ag.g.degrees_out();
     let mut max_rp = vec![0; ag.g.order()]; // max_rp[i] is the max register pressure at the subtree rooted at i, not accurate in dag (Sethi-Ullman algorithm)
     let def_sz = vec![1; ag.g.order()]; // all arith op have one output
     let mut live_ts: Vec<i32> = vec![-1; ag.g.order()]; //  the time-step at which the last use of node i is scheduled.
     let mut w = VecDeque::new();
     let mut q = BinaryHeap::new();
+    let mut pushed = vec![false; ag.g.order()]; // to check if the node is already scheduled
 
     // build the max_rp
     for (vid, v) in ag.g.topology_sort() {
@@ -54,10 +55,10 @@ pub fn schedule<OuterId: UsizeId, InnerId: UsizeId + 'static>(
             schedule.push(cur_id.clone());
             for source_id in ag.g.vertex(InnerId::from(cur_id)).uses() {
                 live_ts[source_id.into()] = (cur_step as i32).max(live_ts[source_id.into()]);
-                out_degs[source_id.into()] -= 1;
+                out_degs[source_id] -= 1;
             }
             for pred_id in ag.g.vertex(InnerId::from(cur_id)).uses() {
-                if out_degs[pred_id.clone().into()] == 0 {
+                if out_degs[pred_id] == 0 && !pushed[pred_id.clone().into()] {
                     let cur_id: usize = cur_id.into();
                     let mut d = if live_ts[cur_id] > 0 {
                         def_sz[cur_id]
@@ -79,6 +80,7 @@ pub fn schedule<OuterId: UsizeId, InnerId: UsizeId + 'static>(
                             pred_id.clone().into(),
                         ));
                     }
+                    pushed[pred_id.clone().into()] = true;
                 }
             }
             cur_step = cur_step - 1;
