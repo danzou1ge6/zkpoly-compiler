@@ -343,7 +343,7 @@ pub fn fuse_arith<'s, Rt: RuntimeType>(mut cg: Cg<'s, Rt>) -> Cg<'s, Rt> {
                 &mut output_v,
                 &mut src_info,
                 fuse_id,
-                512,
+                1500,
             );
 
 

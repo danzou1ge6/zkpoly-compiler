@@ -12,6 +12,10 @@ use zkpoly_common::{
     digraph::internal::{Digraph, SubDigraph},
     load_dynamic::Libs,
 };
+use zkpoly_cuda_api::{
+    bindings::{cudaDeviceSynchronize, cudaError_cudaSuccess, cudaGetErrorString},
+    cuda_check,
+};
 use zkpoly_memory_pool::PinnedMemoryPool;
 use zkpoly_runtime::args::{self, RuntimeType};
 
@@ -820,6 +824,9 @@ pub fn ast2inst<Rt: RuntimeType>(
     if options.debug_instructions {
         let mut f = std::fs::File::create(options.debug_dir.join("instructions.txt")).unwrap();
         zkpoly_runtime::instructions::print_instructions(&rt_chunk.instructions, &mut f).unwrap();
+    }
+    unsafe {
+        cuda_check!(cudaDeviceSynchronize());
     }
 
     Ok((rt_chunk, rt_const_tab, allocator))

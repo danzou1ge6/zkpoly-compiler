@@ -353,10 +353,10 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                                 SpOp::Add => {
                                     let stmt = match self.graph.poly_repr {
                                         PolyType::Coef => {
-                                            format!("auto {TMP_PREFIX}{head} = idx == 0 ? {TMP_PREFIX}{lhs} + {TMP_PREFIX}{rhs} : {TMP_PREFIX}{rhs};")
+                                            format!("auto {TMP_PREFIX}{head} = idx == 0 ? {TMP_PREFIX}{lhs} + {TMP_PREFIX}{rhs} : {TMP_PREFIX}{rhs};\n")
                                         }
                                         PolyType::Lagrange => {
-                                            format!("auto {TMP_PREFIX}{head} = {TMP_PREFIX}{lhs} + {TMP_PREFIX}{rhs};")
+                                            format!("auto {TMP_PREFIX}{head} = {TMP_PREFIX}{lhs} + {TMP_PREFIX}{rhs};\n")
                                         }
                                     };
                                     kernel += &stmt;
