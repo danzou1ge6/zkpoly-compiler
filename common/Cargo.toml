@@ -8,3 +8,4 @@ libloading = "0.8"
 pasta_curves = "0.5.1"
 cytoscape_visualizer = { path = "../cytoscape_visualizer" }
 serde = { version = "1.0", features = ["derive"] }
+event-listener = "5.4.0"

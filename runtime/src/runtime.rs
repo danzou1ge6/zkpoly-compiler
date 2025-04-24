@@ -105,7 +105,7 @@ impl<T: RuntimeType> Runtime<T> {
             // pool: Arc::new(self.pool),
             funcs: &mut self.funcs as *mut FunctionTable<T>,
             events: Arc::new(self.events),
-            threads: Arc::new(self.threads),
+            threads: &mut self.threads as *mut ThreadTable,
             rng: self.rng,
             main_thread: true,
             bench_start,
@@ -134,7 +134,7 @@ pub struct RuntimeInfo<T: RuntimeType> {
     // pub pool: Arc<ThreadPool>,
     pub funcs: *mut FunctionTable<T>,
     pub events: Arc<EventTable>,
-    pub threads: Arc<ThreadTable>,
+    pub threads: *mut ThreadTable,
     pub rng: AsyncRng,
     pub main_thread: bool,
     pub bench_start: Option<Instant>,
@@ -152,7 +152,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         gpu_allocator: Option<Vec<CudaAllocator>>,
         epilogue: Option<Sender<i32>>,
         _thread_id: usize,
-        global_mutex: Arc<std::sync::Mutex<()>>,
+        global_mutex: Arc<Mutex<()>>,
     ) -> Option<Variable<T>> {
         for (i, instruction) in instructions.into_iter().enumerate() {
             let _guard: Option<std::sync::MutexGuard<'_, ()>> =
@@ -313,7 +313,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     instructions,
                 } => {
                     let (tx, rx) = std::sync::mpsc::channel();
-                    self.threads[new_thread].lock().unwrap().replace(rx);
+                    (*self.threads)[new_thread].replace(rx);
                     let mut sub_info = self.clone();
                     sub_info.main_thread = false;
                     let global_mutex = global_mutex.clone();
@@ -329,7 +329,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     });
                 }
                 Instruction::Join { thread } => {
-                    let rx = self.threads[thread].lock().unwrap().take().unwrap();
+                    let rx = (*self.threads)[thread].take().unwrap();
                     rx.recv().unwrap();
                 }
                 Instruction::Rotation { src, dst, shift } => {

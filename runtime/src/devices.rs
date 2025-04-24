@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::sync::{mpsc::Receiver, Mutex};
+use std::sync::mpsc::Receiver;
 use zkpoly_common::{cpu_event::CpuEvent, heap};
 use zkpoly_cuda_api::stream::CudaEvent;
 
@@ -7,10 +7,10 @@ zkpoly_common::define_usize_id!(EventId);
 zkpoly_common::define_usize_id!(ThreadId);
 
 pub type EventTable = heap::Heap<EventId, Event>;
-pub type ThreadTable = heap::Heap<ThreadId, Mutex<Option<Receiver<i32>>>>;
+pub type ThreadTable = heap::Heap<ThreadId, Option<Receiver<i32>>>;
 
 pub fn new_thread_table(len: usize) -> ThreadTable {
-    heap::Heap::repeat_with(|| Mutex::new(None), len)
+    heap::Heap::repeat_with(|| (None), len)
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
