@@ -1,7 +1,7 @@
 use crate::{ast::lowering::UserFunctionId, transit::type2};
 
 use super::{kernel_gen::load_function, Chunk};
-use serde::{Deserialize, Serialize};
+use serde::{ser::SerializeStruct, Deserialize, Serialize};
 use zkpoly_common::{heap::Heap, load_dynamic::Libs};
 use zkpoly_runtime::{
     args::RuntimeType,
@@ -11,7 +11,7 @@ use zkpoly_runtime::{
 };
 
 #[derive(Serialize, Deserialize)]
-pub struct ChunkSerializer {
+pub struct ChunkDeserializer {
     pub(crate) instructions: Vec<Instruction>,
     pub(crate) f_table: Heap<FunctionId, KernelType>,
     pub(crate) event_table: EventTable,
@@ -19,21 +19,25 @@ pub struct ChunkSerializer {
     pub(crate) n_threads: usize,
 }
 
-impl<Rt: RuntimeType> From<Chunk<Rt>> for ChunkSerializer {
-    fn from(value: Chunk<Rt>) -> Self {
-        Self {
-            instructions: value.instructions,
-            f_table: value
-                .f_table
-                .map_by_ref::<FunctionId, _>(&mut |_, func| func.meta.typ.clone()),
-            event_table: value.event_table,
-            n_variables: value.n_variables,
-            n_threads: value.n_threads,
-        }
+impl<Rt: RuntimeType> Serialize for Chunk<Rt> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut struc = serializer.serialize_struct("ChunkDeserializer", 5)?;
+        struc.serialize_field("instructions", &self.instructions)?;
+        let f_table = self
+            .f_table
+            .map_by_ref::<FunctionId, _>(&mut |_, func| func.meta.typ.clone());
+        struc.serialize_field("f_table", &f_table)?;
+        struc.serialize_field("event_table", &self.event_table)?;
+        struc.serialize_field("n_variables", &self.n_variables)?;
+        struc.serialize_field("n_threads", &self.n_threads)?;
+        struc.end()
     }
 }
 
-impl ChunkSerializer {
+impl ChunkDeserializer {
     pub fn deserialize_into_chunk<Rt: RuntimeType>(
         self,
         user_ftable: type2::user_function::Table<Rt>,

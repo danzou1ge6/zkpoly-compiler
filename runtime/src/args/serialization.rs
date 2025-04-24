@@ -1,9 +1,13 @@
 use core::slice;
-use std::io::{self, Write, Read};
+use serde::{Deserialize, Serialize};
+use std::io::{self, Read, Seek, Write};
 
-use crate::{point::{Point, PointArray}, scalar::{Scalar, ScalarArray}};
+use crate::{
+    point::{Point, PointArray},
+    scalar::{Scalar, ScalarArray},
+};
 
-use super::{RuntimeType, Variable};
+use super::{Constant, ConstantId, ConstantTable, RuntimeType, Variable};
 use zkpoly_common::typ::Typ;
 use zkpoly_memory_pool::PinnedMemoryPool;
 
@@ -61,7 +65,21 @@ impl<Rt: RuntimeType> Variable<Rt> {
         Ok(())
     }
 
-    pub fn load_binary(&self, typ: &Typ, reader: &mut impl Read, allocator: &mut PinnedMemoryPool) -> io::Result<Self> {
+    pub fn dump_size(&self) -> Option<usize> {
+        match self {
+            Variable::ScalarArray(poly) => Some(poly.len * std::mem::size_of::<Rt::Field>()),
+            Variable::Scalar(_) => Some(std::mem::size_of::<Rt::Field>()),
+            Variable::Point(_) => Some(std::mem::size_of::<Rt::PointAffine>()),
+            Variable::PointArray(ps) => Some(ps.len * std::mem::size_of::<Rt::PointAffine>()),
+            _ => None,
+        }
+    }
+
+    pub fn load_binary(
+        typ: &Typ,
+        reader: &mut impl Read,
+        allocator: &mut PinnedMemoryPool,
+    ) -> io::Result<Self> {
         match typ {
             Typ::ScalarArray { len, .. } => {
                 let p: ScalarArray<Rt::Field> = ScalarArray::alloc_cpu(*len, allocator);
@@ -73,7 +91,7 @@ impl<Rt: RuntimeType> Variable<Rt> {
                     reader.read_exact(v)?;
                 }
                 Ok(Variable::ScalarArray(p))
-            },
+            }
             Typ::Scalar => {
                 let p: Scalar<Rt::Field> = Scalar::new_cpu();
                 unsafe {
@@ -113,4 +131,108 @@ impl<Rt: RuntimeType> Variable<Rt> {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct Entry {
+    /// (offset, size) if the data
+    position: Option<(usize, usize)>,
+    name: String,
+    typ: Typ,
+}
+
+#[derive(Serialize, Deserialize, Default, Clone, Debug)]
+pub struct Header {
+    entries: Vec<Entry>,
+    data_size: usize,
+}
+
+impl Header {
+    pub fn build<Rt: RuntimeType>(ct: &ConstantTable<Rt>) -> Self {
+        let mut data_offset = 0;
+
+        let entries: Vec<_> = ct
+            .iter()
+            .map(|v| {
+                let r = if let Some(size) = v.value.dump_size() {
+                    Entry {
+                        position: Some((data_offset, size)),
+                        name: v.name.clone(),
+                        typ: v.typ.clone(),
+                    }
+                } else {
+                    Entry {
+                        position: None,
+                        name: v.name.clone(),
+                        typ: v.typ.clone(),
+                    }
+                };
+
+                data_offset += v.value.dump_size().unwrap_or(0);
+                r
+            })
+            .collect();
+
+        Self {
+            entries,
+            data_size: data_offset,
+        }
+    }
+
+    pub fn dump_entries_data<Rt: RuntimeType>(
+        &self,
+        ct: &ConstantTable<Rt>,
+        writer: &mut impl Write,
+    ) -> io::Result<()> {
+        for (entry, c) in self.entries.iter().zip(ct.iter()) {
+            if let Some(_) = entry.position {
+                c.value.dump_binary(writer)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn load_constant_table<Rt: RuntimeType>(
+        &self,
+        ct: &mut ConstantTable<Rt>,
+        reader: &mut (impl Read + Seek),
+        allocator: &mut PinnedMemoryPool,
+    ) -> io::Result<()> {
+        for (i, entry) in self.entries.iter().enumerate() {
+            if let Some((offset, _size)) = entry.position {
+                reader.seek(io::SeekFrom::Start(offset as u64))?;
+                let val = Variable::load_binary(&entry.typ, reader, allocator)?;
+                let constant = Constant::new(entry.name.clone(), val, entry.typ.clone());
+
+                while ct.len() <= i {
+                    // Tuple(vec![]) is placeholder
+                    ct.push(Constant::new(
+                        entry.name.clone(),
+                        Variable::Tuple(vec![]),
+                        entry.typ.clone(),
+                    ));
+                }
+
+                ct[ConstantId::from(i)] = constant;
+            } else {
+                if ct.len() <= i {
+                    panic!("expect some constant table already exists at index {}", i);
+                }
+                let constant = &ct[ConstantId::from(i)];
+                if constant.name != entry.name {
+                    panic!(
+                        "constant name mismatch at index {}, expect {}, got {}",
+                        i, &entry.name, &constant.name
+                    );
+                }
+                if constant.typ != entry.typ {
+                    panic!(
+                        "constant type mismatch at index {}, expect {:?}, got {:?}",
+                        i, &entry.typ, &constant.typ
+                    );
+                }
+            };
+        }
+
+        Ok(())
+    }
+}
 

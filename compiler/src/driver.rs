@@ -45,6 +45,7 @@ pub struct DebugOptions {
 
 impl DebugOptions {
     pub fn all(debug_dir: PathBuf) -> Self {
+        std::fs::create_dir_all(&debug_dir).unwrap();
         Self {
             debug_dir,
             debug_user_function_table: true,
@@ -69,6 +70,7 @@ impl DebugOptions {
     }
 
     pub fn none(debug_dir: PathBuf) -> Self {
+        std::fs::create_dir_all(&debug_dir).unwrap();
         Self {
             debug_dir,
             debug_user_function_table: true,
@@ -387,7 +389,7 @@ pub enum Error<'s, Rt: RuntimeType> {
 }
 
 #[derive(Clone)]
-struct Ctx(
+pub struct PanicJoinHandler(
     Arc<
         Mutex<(
             Vec<JoinHandle<()>>,
@@ -396,8 +398,8 @@ struct Ctx(
     >,
 );
 
-impl Ctx {
-    fn new() -> Self {
+impl PanicJoinHandler {
+    pub fn new() -> Self {
         let hook = std::panic::take_hook();
         let hook: Box<dyn FnOnce(&PanicHookInfo) + Send + Sync> = Box::new(move |info| hook(info));
         let r = Self(Arc::new(Mutex::new((Vec::new(), hook))));
@@ -430,34 +432,18 @@ impl Ctx {
     }
 }
 
-pub fn ast2inst<Rt: RuntimeType>(
+pub fn ast2type2<Rt: RuntimeType>(
     ast: impl ast::TypeEraseable<Rt>,
-    allocator: PinnedMemoryPool,
     options: &DebugOptions,
-    hardware_info: &HardwareInfo,
-) -> Result<
-    (
-        type3::lowering::Chunk<Rt>,
-        args::ConstantTable<Rt>,
-        PinnedMemoryPool,
-    ),
-    Error<'static, Rt>,
-> {
-    let ctx = Ctx::new();
-
-    std::fs::create_dir_all(&options.debug_dir).unwrap();
-
+    allocator: PinnedMemoryPool,
+    ctx: &PanicJoinHandler,
+) -> Result<type2::Program<'static, Rt>, Error<'static, Rt>> {
     // First from AST to Type2
     let (ast_cg, output_vid) = options.log_suround(
         "Lowering AST to Type2...",
         || Ok(ast::lowering::Cg::new(ast, allocator)),
         "Done.",
     )?;
-
-    if options.debug_user_function_table {
-        let mut f = std::fs::File::create(&options.debug_dir.join("user_functions.txt")).unwrap();
-        write!(f, "{:#?}", ast_cg.user_function_table).unwrap();
-    }
 
     if options.debug_fresh_type2 {
         ctx.add(debug_type2(
@@ -466,6 +452,11 @@ pub fn ast2inst<Rt: RuntimeType>(
             output_vid,
             options.type2_visualizer,
         ));
+    }
+
+    if options.debug_user_function_table {
+        let mut f = std::fs::File::create(&options.debug_dir.join("user_functions.txt")).unwrap();
+        write!(f, "{:#?}", ast_cg.user_function_table).unwrap();
     }
 
     // Type inference
@@ -489,13 +480,49 @@ pub fn ast2inst<Rt: RuntimeType>(
     ) {
         return Err(Error::NotDag);
     }
+    Ok(t2prog)
+}
 
+pub fn ast2inst<Rt: RuntimeType>(
+    ast: impl ast::TypeEraseable<Rt>,
+    allocator: PinnedMemoryPool,
+    options: &DebugOptions,
+    hardware_info: &HardwareInfo,
+    ctx: &PanicJoinHandler,
+) -> Result<
+    (
+        type3::lowering::Chunk<Rt>,
+        args::ConstantTable<Rt>,
+        PinnedMemoryPool,
+    ),
+    Error<'static, Rt>,
+> {
+    let t2prog = ast2type2(ast, options, allocator, &ctx)?;
+    type2_to_inst(t2prog, options, hardware_info, &ctx)
+}
+
+pub fn type2_to_inst<Rt: RuntimeType>(
+    t2prog: type2::Program<'static, Rt>,
+    options: &DebugOptions,
+    hardware_info: &HardwareInfo,
+    ctx: &PanicJoinHandler,
+) -> Result<
+    (
+        type3::lowering::Chunk<Rt>,
+        args::ConstantTable<Rt>,
+        PinnedMemoryPool,
+    ),
+    Error<'static, Rt>,
+> {
     let type2::Program {
         cg: t2cg,
         consant_table: mut t2const_tab,
         user_function_table: t2uf_tab,
         memory_pool: mut allocator,
     } = t2prog;
+
+    let output_vid = t2cg.output;
+
     let mut libs = Libs::new();
 
     if options.debug_type_inference {
@@ -741,7 +768,7 @@ pub fn ast2inst<Rt: RuntimeType>(
                 &mut obj_id_allocator,
                 libs,
             )
-            .expect("The computation graph is using too much smithereen space"))
+            .expect("memory plan failed"))
         },
         "Done.",
     )?;
@@ -823,6 +850,63 @@ pub fn ast2inst<Rt: RuntimeType>(
     }
 
     Ok((rt_chunk, rt_const_tab, allocator))
+}
+
+pub fn dump_artifect<Rt: RuntimeType>(
+    rt_chunk: &type3::lowering::Chunk<Rt>,
+    rt_const_tab: &args::ConstantTable<Rt>,
+    dir: impl AsRef<std::path::Path>,
+) -> std::io::Result<()> {
+    std::fs::create_dir_all(dir.as_ref())?;
+
+    let mut chunk_f = std::fs::File::create(dir.as_ref().join("chunk.json"))?;
+    serde_json::to_writer_pretty(&mut chunk_f, &rt_chunk)?;
+
+    let mut ct_header_f = std::fs::File::create(dir.as_ref().join("constants-manifest.json"))?;
+    let ct_header = args::serialization::Header::build(rt_const_tab);
+    serde_json::to_writer_pretty(&mut ct_header_f, &ct_header)?;
+
+    let mut ct_f = std::fs::File::create(dir.as_ref().join("constants.bin"))?;
+    ct_header.dump_entries_data(rt_const_tab, &mut ct_f)?;
+
+    Ok(())
+}
+
+pub fn load_artifect<Rt: RuntimeType>(
+    t2prog: type2::Program<'static, Rt>,
+    dir: impl AsRef<std::path::Path>,
+) -> std::io::Result<(
+    type3::lowering::Chunk<Rt>,
+    args::ConstantTable<Rt>,
+    PinnedMemoryPool,
+)> {
+    let uf_table = t2prog.user_function_table;
+    let ct_table = t2prog.consant_table;
+    let mut allocator = t2prog.memory_pool;
+    let (rt_chunk, rt_const_tab) = load_artifect_(uf_table, ct_table, &mut allocator, dir)?;
+    Ok((rt_chunk, rt_const_tab, allocator))
+}
+
+fn load_artifect_<Rt: RuntimeType>(
+    uf_table: type2::user_function::Table<Rt>,
+    ct_table: ast::lowering::ConstantTable<Rt>,
+    allocator: &mut PinnedMemoryPool,
+    dir: impl AsRef<std::path::Path>,
+) -> std::io::Result<(type3::lowering::Chunk<Rt>, args::ConstantTable<Rt>)> {
+    let mut chunk_f = std::fs::File::open(dir.as_ref().join("chunk.json"))?;
+    let rt_chunk_deserializer: type3::lowering::serialization::ChunkDeserializer =
+        serde_json::from_reader(&mut chunk_f)?;
+    let rt_chunk = rt_chunk_deserializer.deserialize_into_chunk(uf_table);
+
+    let mut ct_header_f = std::fs::File::open(dir.as_ref().join("constants-manifest.json"))?;
+    let ct_header: args::serialization::Header = serde_json::from_reader(&mut ct_header_f)?;
+
+    let mut rt_const_tab = type3::lowering::lower_constants(ct_table);
+
+    let mut ct_f = std::fs::File::open(dir.as_ref().join("constants.bin"))?;
+    ct_header.load_constant_table(&mut rt_const_tab, &mut ct_f, allocator)?;
+
+    Ok((rt_chunk, rt_const_tab))
 }
 
 pub fn prepare_vm<Rt: RuntimeType>(
