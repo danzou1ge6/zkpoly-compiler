@@ -1,7 +1,10 @@
 use core::slice;
-use std::io::{self, Write, Read};
+use std::io::{self, Read, Write};
 
-use crate::{point::{Point, PointArray}, scalar::{Scalar, ScalarArray}};
+use crate::{
+    point::{Point, PointArray},
+    scalar::{Scalar, ScalarArray},
+};
 
 use super::{RuntimeType, Variable};
 use zkpoly_common::typ::Typ;
@@ -61,7 +64,12 @@ impl<Rt: RuntimeType> Variable<Rt> {
         Ok(())
     }
 
-    pub fn load_binary(&self, typ: &Typ, reader: &mut impl Read, allocator: &mut PinnedMemoryPool) -> io::Result<Self> {
+    pub fn load_binary(
+        &self,
+        typ: &Typ,
+        reader: &mut impl Read,
+        allocator: &mut PinnedMemoryPool,
+    ) -> io::Result<Self> {
         match typ {
             Typ::ScalarArray { len, .. } => {
                 let p: ScalarArray<Rt::Field> = ScalarArray::alloc_cpu(*len, allocator);
@@ -73,7 +81,7 @@ impl<Rt: RuntimeType> Variable<Rt> {
                     reader.read_exact(v)?;
                 }
                 Ok(Variable::ScalarArray(p))
-            },
+            }
             Typ::Scalar => {
                 let p: Scalar<Rt::Field> = Scalar::new_cpu();
                 unsafe {
@@ -112,5 +120,3 @@ impl<Rt: RuntimeType> Variable<Rt> {
         }
     }
 }
-
-

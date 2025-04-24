@@ -152,6 +152,7 @@ fn test_eval() {
     let mut temp_buf = Variable::GpuBuffer(GpuBuffer::new(
         stream.unwrap_stream().allocate(buf_size),
         buf_size,
+        DeviceType::GPU { device_id: 0 },
     ));
 
     poly.cpu2gpu(poly_d.unwrap_scalar_array_mut(), stream.unwrap_stream());
@@ -220,6 +221,7 @@ fn test_kate() {
     let mut temp_buf = Variable::GpuBuffer(GpuBuffer::new(
         stream.unwrap_stream().allocate(buf_size),
         buf_size,
+        DeviceType::GPU { device_id: 0 },
     ));
 
     poly.cpu2gpu(poly_d.unwrap_scalar_array_mut(), stream.unwrap_stream());
@@ -393,6 +395,7 @@ fn test_scan() {
     let mut temp_buf = Variable::GpuBuffer(GpuBuffer::new(
         stream.unwrap_stream().allocate(buf_size),
         buf_size,
+        DeviceType::GPU { device_id: 0 },
     ));
 
     poly.cpu2gpu(poly_d.unwrap_scalar_array_mut(), stream.unwrap_stream());
@@ -465,6 +468,7 @@ fn test_invert() {
     let mut temp_buf = Variable::GpuBuffer(GpuBuffer::new(
         stream.unwrap_stream().allocate(buf_size),
         buf_size,
+        DeviceType::GPU { device_id: 0 },
     ));
 
     poly.cpu2gpu(poly_d.unwrap_scalar_array_mut(), stream.unwrap_stream());

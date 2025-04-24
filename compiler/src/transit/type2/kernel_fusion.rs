@@ -253,7 +253,11 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
     }
 }
 
-pub fn reorder_input_outputs<Rt: RuntimeType>(ag: &mut ArithGraph<VertexId, ExprId>, old_outputs_v: &mut Vec<Vec<(VertexId, VertexId)>>, old_output_types: &mut Vec<Typ<Rt>>) {
+pub fn reorder_input_outputs<Rt: RuntimeType>(
+    ag: &mut ArithGraph<VertexId, ExprId>,
+    old_outputs_v: &mut Vec<Vec<(VertexId, VertexId)>>,
+    old_output_types: &mut Vec<Typ<Rt>>,
+) {
     // reorder into scalars  polys order
     let mut inputs = Vec::new();
     let mut outputs = Vec::new();
@@ -271,7 +275,12 @@ pub fn reorder_input_outputs<Rt: RuntimeType>(ag: &mut ArithGraph<VertexId, Expr
             panic!("arith vertex in the inputs table should be inputs")
         }
     }
-    for ((id, output_v), old_output_type) in ag.outputs.iter().zip(old_outputs_v.iter()).zip(old_output_types.iter()) {
+    for ((id, output_v), old_output_type) in ag
+        .outputs
+        .iter()
+        .zip(old_outputs_v.iter())
+        .zip(old_output_types.iter())
+    {
         let v = ag.g.vertex(*id);
         if let Operation::Output { typ, .. } = &v.op {
             if typ == &FusedType::Scalar {
@@ -295,7 +304,12 @@ pub fn reorder_input_outputs<Rt: RuntimeType>(ag: &mut ArithGraph<VertexId, Expr
             panic!("arith vertex in the inputs table should be inputs")
         }
     }
-    for ((id, output_v), old_output_type) in ag.outputs.iter().zip(old_outputs_v.iter()).zip(old_output_types.iter()) {
+    for ((id, output_v), old_output_type) in ag
+        .outputs
+        .iter()
+        .zip(old_outputs_v.iter())
+        .zip(old_output_types.iter())
+    {
         let v = ag.g.vertex(*id);
         if let Operation::Output { typ, .. } = &v.op {
             if typ == &FusedType::ScalarArray {
@@ -345,7 +359,6 @@ pub fn fuse_arith<'s, Rt: RuntimeType>(mut cg: Cg<'s, Rt>) -> Cg<'s, Rt> {
                 fuse_id,
                 1500,
             );
-
 
             let mut output_polys = 0;
             let (mut output_types, output_outer_info) = output_v

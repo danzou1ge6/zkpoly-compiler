@@ -258,7 +258,12 @@ impl Context {
     }
 
     pub fn normalized_typ_for_obj(&self, obj_id: ObjectId, code: &Code) -> Typ {
-        let reg = self.object_residence[&obj_id].get_any().unwrap().0.pop().unwrap();
+        let reg = self.object_residence[&obj_id]
+            .get_any()
+            .unwrap()
+            .0
+            .pop()
+            .unwrap();
         let typ = code.typ_of(reg).normalized();
         typ
     }
@@ -786,7 +791,8 @@ fn ensure_on_device(
             let (len, _) = sliced_poly_typ.unwrap_poly();
             let slice_typ = Typ::ScalarArray { len, meta };
 
-            let from_reg = attempt_on_device(device, sliced_obj, slice_typ.clone(), code, ctx, imctx);
+            let from_reg =
+                attempt_on_device(device, sliced_obj, slice_typ.clone(), code, ctx, imctx);
 
             code.emit(Instruction::new_no_src(InstructionNode::Transfer {
                 id: new_reg,

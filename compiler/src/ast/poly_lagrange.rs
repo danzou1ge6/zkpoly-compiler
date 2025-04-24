@@ -53,7 +53,7 @@ impl<'c, Rt: RuntimeType> TypeEraseable<Rt> for PolyLagrange<Rt> {
                     let constant_id = cg.add_constant(
                         PolyLagrange::to_variable(data.clone()),
                         self.src().name.clone(),
-                        zkpoly_common::typ::Typ::scalar_array(*len as usize)
+                        zkpoly_common::typ::Typ::scalar_array(*len as usize),
                     );
                     Vertex::new(
                         VertexNode::Constant(constant_id),
@@ -294,13 +294,19 @@ impl<'c, Rt: RuntimeType> PolyLagrange<Rt> {
     #[track_caller]
     pub fn assert_eq(&self, rhs: &PolyLagrange<Rt>) -> Self {
         let src = SourceInfo::new(Location::caller().clone(), None);
-        PolyLagrange::new(PolyLagrangeNode::AssertEq(self.clone(), rhs.clone(), None), src)
+        PolyLagrange::new(
+            PolyLagrangeNode::AssertEq(self.clone(), rhs.clone(), None),
+            src,
+        )
     }
 
     #[track_caller]
     pub fn assert_eq_with_msg(&self, rhs: &PolyLagrange<Rt>, msg: String) -> Self {
         let src = SourceInfo::new(Location::caller().clone(), None);
-        PolyLagrange::new(PolyLagrangeNode::AssertEq(self.clone(), rhs.clone(), Some(msg)), src)
+        PolyLagrange::new(
+            PolyLagrangeNode::AssertEq(self.clone(), rhs.clone(), Some(msg)),
+            src,
+        )
     }
 }
 

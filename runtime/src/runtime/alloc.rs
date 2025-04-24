@@ -86,7 +86,8 @@ impl<T: RuntimeType> RuntimeInfo<T> {
             Typ::GpuBuffer(size) => {
                 let device_id = device.unwrap_gpu();
                 Variable::GpuBuffer(GpuBuffer {
-                    ptr: gpu_allocator.as_ref().unwrap()[device_id as usize].allocate(offset.unwrap()),
+                    ptr: gpu_allocator.as_ref().unwrap()[device_id as usize]
+                        .allocate(offset.unwrap()),
                     size: size as usize,
                     device: device,
                 })
@@ -101,14 +102,12 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         mem_allocator: &Option<PinnedMemoryPool>,
     ) {
         match var {
-            Variable::ScalarArray(poly) => {
-                match poly.device {
-                    DeviceType::CPU => {
-                        mem_allocator.as_ref().unwrap().free(poly.values);
-                    }
-                    _ => {}
+            Variable::ScalarArray(poly) => match poly.device {
+                DeviceType::CPU => {
+                    mem_allocator.as_ref().unwrap().free(poly.values);
                 }
-            }
+                _ => {}
+            },
             Variable::PointArray(point_base) => match point_base.device {
                 DeviceType::CPU => {
                     mem_allocator.as_ref().unwrap().free(point_base.values);

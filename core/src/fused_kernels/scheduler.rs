@@ -20,10 +20,7 @@ pub fn schedule<OuterId: UsizeId, InnerId: UsizeId + 'static>(
     for (vid, v) in ag.g.topology_sort() {
         let mut max_rp_sub_def_sz: Vec<(i32, InnerId)> = Vec::new();
         for child_id in v.uses() {
-            max_rp_sub_def_sz.push((
-                max_rp[child_id.into()] - def_sz[child_id.into()],
-                child_id,
-            ));
+            max_rp_sub_def_sz.push((max_rp[child_id.into()] - def_sz[child_id.into()], child_id));
         }
         max_rp_sub_def_sz.sort(); // from the smallest to the largest max_rp - def_sz
         let mut cur_max_rp = 0;

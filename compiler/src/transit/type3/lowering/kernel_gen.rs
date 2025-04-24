@@ -5,7 +5,6 @@ use crate::ast::{self, PolyInit};
 use crate::transit::type2::{self, NttAlgorithm};
 use crate::transit::type3::{self, RegisterId};
 use std::collections::{BTreeMap, HashMap};
-use std::sync::Mutex;
 use zkpoly_common::arith::{self, BinOp, UnrOp};
 use zkpoly_common::heap::Heap;
 use zkpoly_common::load_dynamic::Libs;
@@ -177,10 +176,10 @@ fn convert_to_runtime_func<Rt: RuntimeType>(
                     fn_mut(mut_var[0], var)
                 }
             };
-            zkpoly_runtime::functions::Function {
-                meta: FuncMeta::new(name, KernelType::UserFunction(id)),
-                f: zkpoly_runtime::functions::FunctionValue::FnMut(Mutex::new(Box::new(rust_func))),
-            }
+            zkpoly_runtime::functions::Function::new_once(
+                FuncMeta::new(name, KernelType::UserFunction(id)),
+                Box::new(rust_func),
+            )
         }
         ast::user_function::Value::Once(fn_once) => {
             let rust_func = move |mut mut_var: Vec<&mut Variable<Rt>>,
@@ -197,12 +196,11 @@ fn convert_to_runtime_func<Rt: RuntimeType>(
                     fn_once(mut_var[0], var)
                 }
             };
-            zkpoly_runtime::functions::Function {
-                meta: FuncMeta::new(name, KernelType::UserFunction(id)),
-                f: zkpoly_runtime::functions::FunctionValue::FnOnce(Mutex::new(Some(Box::new(
-                    rust_func,
-                )))),
-            }
+
+            zkpoly_runtime::functions::Function::new_once(
+                FuncMeta::new(name, KernelType::UserFunction(id)),
+                Box::new(rust_func),
+            )
         }
         ast::user_function::Value::Fn(f) => {
             let rust_func = move |mut mut_var: Vec<&mut Variable<Rt>>,
@@ -219,10 +217,10 @@ fn convert_to_runtime_func<Rt: RuntimeType>(
                     f(mut_var[0], var)
                 }
             };
-            zkpoly_runtime::functions::Function {
-                meta: FuncMeta::new(name, KernelType::UserFunction(id)),
-                f: zkpoly_runtime::functions::FunctionValue::Fn(Box::new(rust_func)),
-            }
+            zkpoly_runtime::functions::Function::new(
+                FuncMeta::new(name, KernelType::UserFunction(id)),
+                Box::new(rust_func),
+            )
         }
     }
 }

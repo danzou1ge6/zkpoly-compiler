@@ -46,7 +46,7 @@ macro_rules! match_transfer_stream {
         match $src {
             $(Variable::$variant(src) => {
                 let dst = $dst.$unwrap_fn();
-                let stream_guard = $self.variable[$stream.unwrap()].read().unwrap();
+                let stream_guard = &(*$self.variable)[$stream.unwrap()];
                 src.$method(dst, stream_guard.as_ref().unwrap().unwrap_stream());
             })+
             _ => unreachable!(),
@@ -55,7 +55,7 @@ macro_rules! match_transfer_stream {
 }
 
 impl<T: RuntimeType> RuntimeInfo<T> {
-    pub(super) fn transfer(
+    pub(super) unsafe fn transfer(
         &self,
         src: &Variable<T>,
         dst: &mut Variable<T>,

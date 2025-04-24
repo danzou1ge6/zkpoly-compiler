@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::{Cg, VertexId};
 use zkpoly_common::{digraph::internal::Predecessors, heap::Heap, mm_heap::MmHeap};

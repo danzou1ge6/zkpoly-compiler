@@ -1,5 +1,4 @@
 mod common;
-use std::any::type_name;
 use std::os::raw::c_void;
 use std::ptr::null_mut;
 use std::time::SystemTime;
@@ -21,8 +20,6 @@ use rand_core::{RngCore, SeedableRng};
 use rand_xorshift::XorShiftRng;
 use rayon::{current_thread_index, prelude::*};
 use zkpoly_common::load_dynamic::Libs;
-use zkpoly_common::msm_config::MsmConfig;
-use zkpoly_core::build_func::resolve_curve;
 use zkpoly_core::msm::*;
 use zkpoly_cuda_api::bindings::{cudaFree, cudaMalloc};
 use zkpoly_memory_pool::PinnedMemoryPool;
@@ -133,7 +130,7 @@ fn test_msm() {
         let msm_config = get_best_config::<MyRuntimeType>(1 << k, BATCHES, 4 * (1 << 30));
         let msm = MSM::<MyRuntimeType>::new(&mut libs, msm_config.clone());
         let msm_precompute = MSMPrecompute::<MyRuntimeType>::new(&mut libs, msm_config.clone());
-    
+
         let msm_fn = match msm.get_fn() {
             Function {
                 f: FunctionValue::Fn(func),
@@ -141,7 +138,7 @@ fn test_msm() {
             } => func,
             _ => panic!("expected Fn"),
         };
-    
+
         let precompute_fn = msm_precompute.get_fn();
 
         println!("generating data for k = {k}...");
@@ -192,6 +189,7 @@ fn test_msm() {
             mut_var.push(Variable::GpuBuffer::<MyRuntimeType>(GpuBuffer::new(
                 ptr,
                 buffer_size,
+                DeviceType::GPU { device_id: 0 },
             )));
         }
 

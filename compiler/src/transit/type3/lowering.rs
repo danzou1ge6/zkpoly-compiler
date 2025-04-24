@@ -374,7 +374,7 @@ fn lower_instruction<'s, Rt: RuntimeType>(
                     emit(Instruction::AssertEq {
                         value: src,
                         expected: truth,
-                        msg: msg.clone()
+                        msg: msg.clone(),
                     });
                     emit(Instruction::CopyRegister {
                         src,
@@ -516,7 +516,7 @@ fn lower_cpu_waits_any(
                 .unwrap_or_else(|| {
                     let event_id = event_table.push(Event::new_gpu());
                     instruct2gpu_event.insert(depended_t3idx, event_id);
-                    
+
                     chunk.append_at(
                         depended_t3idx,
                         Instruction::Record {
@@ -526,7 +526,6 @@ fn lower_cpu_waits_any(
                     );
                     event_id
                 });
-
 
             chunk.emit(
                 thread,
@@ -589,14 +588,14 @@ fn lower_gpu_waits_gpu(
             chunk.append_at(
                 depended_t3idx,
                 Instruction::Record {
-                    stream: Some(*stream2variable_id.get(Stream::of_track(depended_track).unwrap())),
+                    stream: Some(
+                        *stream2variable_id.get(Stream::of_track(depended_track).unwrap()),
+                    ),
                     event: event_id,
                 },
             );
             event_id
         });
-
-
 
     chunk.emit(
         launch_thread,
@@ -821,7 +820,7 @@ pub fn lower_constants<Rt: RuntimeType>(
     const_table.map(&mut |_, c| Constant {
         name: c.name.unwrap_or_else(String::new),
         value: c.value,
-        typ: c.typ
+        typ: c.typ,
     })
 }
 

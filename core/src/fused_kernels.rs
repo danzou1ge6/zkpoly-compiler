@@ -756,12 +756,11 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
 
                 // wait for the previous compute to finish
                 d2h_stream.wait(&mut_compute_complete[mut_buffer_id]);
-                
+
                 // transfer back mutable data
                 for i in 0..num_mut_poly {
                     let mut mut_poly = mut_polys[i].slice(compute_start, compute_end);
-                    mut_gpu_polys[mut_buffer_id][i]
-                        .gpu2cpu(&mut mut_poly, d2h_stream);
+                    mut_gpu_polys[mut_buffer_id][i].gpu2cpu(&mut mut_poly, d2h_stream);
                 }
                 mut_d2h_complete[mut_buffer_id].record(d2h_stream);
 

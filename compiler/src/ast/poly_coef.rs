@@ -307,7 +307,10 @@ impl<Rt: RuntimeType> PolyCoef<Rt> {
     #[track_caller]
     pub fn assert_eq_with_msg(&self, b: &PolyCoef<Rt>, msg: String) -> Self {
         let src = SourceInfo::new(Location::caller().clone(), None);
-        PolyCoef::new(PolyCoefNode::AssertEq(self.clone(), b.clone(), Some(msg)), src)
+        PolyCoef::new(
+            PolyCoefNode::AssertEq(self.clone(), b.clone(), Some(msg)),
+            src,
+        )
     }
 }
 

@@ -49,11 +49,7 @@ impl CudaEvent {
     pub fn elapsed(&self, other: &CudaEvent) -> f32 {
         let mut elapsed: f32 = 0.0;
         unsafe {
-            cuda_check!(cudaEventElapsedTime(
-                &mut elapsed,
-                self.event,
-                other.event
-            ));
+            cuda_check!(cudaEventElapsedTime(&mut elapsed, self.event, other.event));
         }
         elapsed
     }
