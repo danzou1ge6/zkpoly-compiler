@@ -37,6 +37,8 @@ use crate::{
 
 static LIB_NAME: &str = "libfused_kernels.so";
 
+pub mod scheduler;
+
 pub struct FusedKernel<T: RuntimeType> {
     _marker: PhantomData<T>,
     pub name: String,
@@ -69,23 +71,6 @@ pub struct FusedOp<OuterId, InnerId> {
 const TMP_PREFIX: &str = "tmp";
 const SCALAR_PREFIX: &str = "var";
 const ITER_PREFIX: &str = "iter";
-
-// fn scalar_poly_arith(
-//     head: usize,
-//     lhs: usize,
-//     rhs: usize,
-//     op: &'static str,
-//     repr: PolyType,
-// ) -> String {
-//     match repr {
-//         PolyType::Coef => {
-//             format!("auto {TMP_PREFIX}{head} = idx == 0 ? {TMP_PREFIX}{lhs} {op} {TMP_PREFIX}{rhs} : {TMP_PREFIX}{rhs};")
-//         }
-//         PolyType::Lagrange => {
-//             format!("auto {TMP_PREFIX}{head} = {TMP_PREFIX}{lhs} {op} {TMP_PREFIX}{rhs};")
-//         }
-//     }
-// }
 
 impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
     pub fn new(graph: ArithGraph<OuterId, InnerId>, name: String) -> Self {
@@ -259,8 +244,11 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
         kernel += "unsigned long long idx = blockIdx.x * blockDim.x + threadIdx.x;\n";
         kernel += "if (idx >= len) return;\n";
 
+        let schedule = scheduler::schedule(&self.graph);
+
         // topological ordering
-        for (head, vertex) in self.graph.topology_sort() {
+        for head in schedule {
+            let vertex = self.graph.g.vertex(head.clone());
             match &vertex.op {
                 Operation::Output {
                     typ, store_node, ..
@@ -587,7 +575,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
         var will have 3m + 3 + 2q elements, the first 3 are streams(load, compute, store),
         the next q are scalars, next m are polys, next q are scalar buffers, the next 2m are the gpu polys (double buffer, one load, one compute)
          */
-        let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
+        let rust_func = move |mut_var: Vec<&mut Variable<T>>,
                               var: Vec<&Variable<T>>|
               -> Result<(), RuntimeError> {
             assert!((mut_var.len() - 2 * num_mut_scalars) % 4 == 0);
