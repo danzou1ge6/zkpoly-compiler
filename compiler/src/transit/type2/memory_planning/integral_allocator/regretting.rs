@@ -4,6 +4,7 @@ use zkpoly_common::mm_heap::MmHeap;
 
 static DEBUG: bool = false;
 
+#[derive(Clone, Debug)]
 pub struct Transfer {
     pub from: AddrId,
     pub to: AddrId,
@@ -122,14 +123,16 @@ impl<'a> std::fmt::Debug for BlocksDebugger<'a> {
             depth: usize,
             marker: &mut BTreeSet<(u32, u64)>,
         ) -> std::fmt::Result {
-            match &a.blocks[&lbs][&addr].status {
+            let block = &a.blocks[&lbs][&addr];
+            match &block.status {
                 BlockStatus::Free(..) => {}
                 BlockStatus::Occupied(lve_at, next_use) => write!(
                     f,
-                    "{}({}, {}): Occupied({},{})\n",
+                    "{}({}, {}, {}): Occupied({},{})\n",
                     " ".repeat(depth * 2),
                     lbs,
                     addr,
+                    usize::from(block.addr),
                     lve_at,
                     if *next_use == usize::MAX {
                         "INF".to_string()
@@ -140,10 +143,11 @@ impl<'a> std::fmt::Debug for BlocksDebugger<'a> {
                 BlockStatus::Splitted(live_at, children_next_use) => {
                     write!(
                         f,
-                        "{}({}, {}): Splitted({}, {})\n",
+                        "{}({}, {}, {}): Splitted({}, {})\n",
                         " ".repeat(depth * 2),
                         lbs,
                         addr,
+                        usize::from(block.addr),
                         live_at,
                         {
                             let next_use = children_next_use.min().unwrap();
@@ -516,6 +520,32 @@ impl Allocator {
         None
     }
 
+    fn subdivide_parent_and_alloc_first(
+        &mut self,
+        parent_addr: u64,
+        parent_lbs: u32,
+        next_use: usize,
+        mapping: &mut impl AddrMappingHandler,
+    ) -> u64 {
+        let lbs = self.child_lbs(parent_lbs).unwrap();
+
+        let now = self.now;
+        self.block_mut(parent_addr, parent_lbs).status = BlockStatus::Splitted(now, MmHeap::new());
+
+        for addr in self.child_addrs(parent_addr, parent_lbs).unwrap() {
+            let block = Block {
+                addr: Self::new_addr_id(addr, lbs, mapping),
+                status: BlockStatus::Free(self.now.saturating_sub(1)),
+            };
+            self.blocks.entry(lbs).or_default().insert(addr, block);
+        }
+
+        self.block_mut(parent_addr, lbs).status = BlockStatus::Occupied(self.now, next_use);
+        self.update_next_use_in_parent(parent_addr, lbs, next_use);
+
+        parent_addr
+    }
+
     fn _allocate<const TRY_CONDENSING: bool>(
         &mut self,
         size: IntegralSize,
@@ -542,6 +572,7 @@ impl Allocator {
             .flatten()
         {
             block.status = BlockStatus::Occupied(self.now, next_use);
+            block.addr = Self::new_addr_id(*addr, lbs, mapping);
             let addr_id = block.addr;
             let addr = *addr;
             self.update_next_use_in_parent(addr, lbs, next_use);
@@ -590,22 +621,8 @@ impl Allocator {
             assert!(transfers.len() == 0);
 
             let (Addr(parent_addr), _) = mapping.get(parent_addr);
-
-            let now = self.now;
-            self.block_mut(parent_addr, parent_lbs).status =
-                BlockStatus::Splitted(now, MmHeap::new());
-
-            for addr in self.child_addrs(parent_addr, parent_lbs).unwrap() {
-                let block = Block {
-                    addr: Self::new_addr_id(addr, lbs, mapping),
-                    status: BlockStatus::Free(self.now.saturating_sub(1)),
-                };
-                self.blocks.entry(lbs).or_default().insert(addr, block);
-            }
-
-            self.block_mut(parent_addr, lbs).status = BlockStatus::Occupied(self.now, next_use);
-            self.update_next_use_in_parent(parent_addr, lbs, next_use);
-            let addr_id = self.addr_id_of(parent_addr, lbs);
+            let addr = self.subdivide_parent_and_alloc_first(parent_addr, parent_lbs, next_use, mapping);
+            let addr_id = self.addr_id_of(addr, lbs);
 
             return Some((vec![], addr_id));
         }
@@ -638,6 +655,8 @@ impl Allocator {
         if DEBUG {
             if let Some((_, addr)) = &r {
                 println!("Allocated at {:?}", mapping.get(*addr))
+            } else {
+                println!("Allocation failed");
             }
             println!("{:#?}", self);
         }
@@ -649,19 +668,23 @@ impl Allocator {
         addr: u64,
         lbs: u32,
         append: &mut impl FnMut(AddrId),
+        remove_self: bool,
     ) {
         match &self.blocks[&lbs][&addr].status {
             BlockStatus::Occupied(..) => {
                 append(self.blocks[&lbs][&addr].addr);
             }
-            BlockStatus::Splitted(_, children_next_use) => {
-                for addr in children_next_use.keys().copied().collect::<Vec<_>>() {
-                    self.gather_and_remove_occupied_child_blocks(addr, lbs, append);
+            BlockStatus::Splitted(_, _) => {
+                let child_lbs = self.child_lbs(lbs).unwrap();
+                for addr in self.child_addrs(addr, lbs).unwrap() {
+                    self.gather_and_remove_occupied_child_blocks(addr, child_lbs, append, true);
                 }
             }
             BlockStatus::Free(..) => {}
         }
-        self.blocks.get_mut(&lbs).unwrap().remove(&addr);
+        if remove_self {
+            self.blocks.get_mut(&lbs).unwrap().remove(&addr);
+        }
     }
 
     pub fn decide_and_realloc_victim(
@@ -671,6 +694,10 @@ impl Allocator {
         mapping: &mut impl AddrMappingHandler,
     ) -> (AddrId, Vec<AddrId>) {
         let lbs = size.0;
+
+        if DEBUG {
+            println!("Decide victim {:?}, next_use = {:?}", size, next_use);
+        }
 
         // First try find a occupied block of exact size, choosing the one that is used latest
         if let Some((addr, _)) = self
@@ -699,6 +726,11 @@ impl Allocator {
             let addr_id = block.addr;
             self.update_next_use_in_parent(addr, lbs, next_use.0);
 
+            if DEBUG {
+                println!("Decided victim at {:?}", mapping.get(addr_id));
+                println!("{:#?}", self)
+            }
+
             return (addr_id, vec![old_addr_id]);
         }
 
@@ -723,9 +755,12 @@ impl Allocator {
             let addr = *addr;
 
             let mut occupied_blocks = Vec::new();
-            self.gather_and_remove_occupied_child_blocks(addr, lbs, &mut |id| {
-                occupied_blocks.push(id)
-            });
+            self.gather_and_remove_occupied_child_blocks(
+                addr,
+                lbs,
+                &mut |id| occupied_blocks.push(id),
+                false,
+            );
 
             let now = self.now;
             let block = self.block_mut(addr, lbs);
@@ -734,12 +769,23 @@ impl Allocator {
             let addr_id = block.addr;
             self.update_next_use_in_parent(addr, lbs, next_use.0);
 
+            if DEBUG {
+                println!("Decided victim at {:?}", mapping.get(addr_id));
+                println!("{:#?}", self)
+            }
+
             return (addr_id, occupied_blocks);
         }
 
         // Otherwise, try find a occupied or splitted block of bigger size
         if let Some(parent_lbs) = self.parent_lbs(lbs) {
-            self.decide_and_realloc_victim(IntegralSize(parent_lbs), next_use, mapping)
+            let (addr_id, victims) = self.decide_and_realloc_victim(IntegralSize(parent_lbs), next_use, mapping);
+            let (Addr(parent_addr), _) = mapping.get(addr_id);
+
+            let addr = self.subdivide_parent_and_alloc_first(parent_addr, parent_lbs, next_use.0, mapping);
+            let addr_id = self.addr_id_of(addr, lbs);
+
+            (addr_id, victims)
         } else {
             panic!("fail to find any victim block: allocator is empty")
         }
@@ -925,7 +971,7 @@ mod test {
             A::new(0, 4, 6),
             A::new(1, 2, 5),
             A::new(2, 3, 6),
-            A::new(2, 4, 7),  // some is ejected here
+            A::new(2, 4, 7), // some is ejected here
             A::new(0, 3, 1),
             A::new(1, 2, 3),
             A::new(2, 3, 4),
@@ -934,5 +980,4 @@ mod test {
 
         run_list(list, lbss, 16);
     }
-
 }

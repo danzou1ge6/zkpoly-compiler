@@ -2,7 +2,7 @@
 
 # 所有头文件依赖
 HEADERS := core/src/msm/src/msm.h core/src/msm/src/msm.cuh core/src/msm/src/msm_impl.cuh
-CUDA_PATH = /opt/cuda
+CUDA_PATH = /usr/local/cuda
 CPPC = /usr/bin/g++
 
 .PHONY: all clean

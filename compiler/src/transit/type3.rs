@@ -98,6 +98,13 @@ impl Size {
             Self::Smithereen(ss)
         }
     }
+
+    pub fn unwrap_integral(self) -> IntegralSize {
+        match self {
+            Size::Integral(size) => size,
+            Size::Smithereen(..) => panic!("unwrap_integral on Size::Smithereen")
+        }
+    }
 }
 
 impl From<u64> for Size {

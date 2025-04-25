@@ -672,7 +672,7 @@ pub fn analyze_die_after(
             // The object is defined on GPU, and it's used by some GPU task now.
             // We force that the object lives after current task.
             (Gpu, Gpu) => vec![(Gpu, AtModifier::After)],
-            // The object is defined on CPU, and it's used by some CPU task now.
+            // The object is defined on GPU, and it's used by some CPU task now.
             // - If the object has been used on CPU, it should has already been on CPU,
             //   so we only enforce liveness on CPU,
             //   allowing the object die earliear on GPU.
@@ -832,6 +832,7 @@ pub fn analyze_gpu_next_use(
         });
 
     // Collect instant of direct uses of each object
+    let mut cpu_use_mark = BTreeSet::new();
     let mut chains: BTreeMap<ObjectId, BTreeSet<usize>> = used_by
         .used_by
         .iter()
@@ -842,7 +843,11 @@ pub fn analyze_gpu_next_use(
                     if *dev == Device::Gpu {
                         Some(seq_num[vid])
                     } else {
-                        None
+                        if cpu_use_mark.insert(*oid) {
+                            None
+                        } else {
+                            Some(seq_num[vid])
+                        }
                     }
                 })
                 .collect();
