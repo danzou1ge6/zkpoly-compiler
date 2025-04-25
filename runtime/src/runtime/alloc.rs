@@ -20,8 +20,8 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         device: DeviceType,
         typ: Typ,
         offset: Option<usize>,
-        mem_allocator: &Option<PinnedMemoryPool>,
-        gpu_allocator: &Option<Vec<CudaAllocator>>,
+        mem_allocator: &Option<&mut PinnedMemoryPool>,
+        gpu_allocator: &Option<&mut Vec<CudaAllocator>>,
     ) -> Variable<T> {
         match typ {
             Typ::ScalarArray { len, meta: _ } => {
@@ -84,10 +84,12 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                 Variable::Stream(CudaStream::new(device))
             }
             Typ::GpuBuffer(size) => {
-                let device = device.unwrap_gpu();
+                let device_id = device.unwrap_gpu();
                 Variable::GpuBuffer(GpuBuffer {
-                    ptr: gpu_allocator.as_ref().unwrap()[device as usize].allocate(offset.unwrap()),
+                    ptr: gpu_allocator.as_ref().unwrap()[device_id as usize]
+                        .allocate(offset.unwrap()),
                     size: size as usize,
+                    device: device,
                 })
             }
         }
@@ -97,17 +99,15 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         &self,
         var: &mut Variable<T>,
         var_id: VariableId,
-        mem_allocator: &Option<PinnedMemoryPool>,
+        mem_allocator: &Option<&mut PinnedMemoryPool>,
     ) {
         match var {
-            Variable::ScalarArray(poly) => {
-                match poly.device {
-                    DeviceType::CPU => {
-                        mem_allocator.as_ref().unwrap().free(poly.values);
-                    }
-                    _ => {}
+            Variable::ScalarArray(poly) => match poly.device {
+                DeviceType::CPU => {
+                    mem_allocator.as_ref().unwrap().free(poly.values);
                 }
-            }
+                _ => {}
+            },
             Variable::PointArray(point_base) => match point_base.device {
                 DeviceType::CPU => {
                     mem_allocator.as_ref().unwrap().free(point_base.values);

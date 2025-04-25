@@ -1,7 +1,6 @@
 use crate::args::{RuntimeType, Variable};
 use crate::error::RuntimeError;
 use serde::{Deserialize, Serialize};
-use std::sync::Mutex;
 use zkpoly_common::heap;
 use zkpoly_common::msm_config::MsmConfig;
 
@@ -16,25 +15,21 @@ pub trait RegisteredFunction<T: RuntimeType> {
 
 pub enum FunctionValue<T: RuntimeType> {
     FnOnce(
-        Mutex<
-            Option<
-                Box<
-                    dyn FnOnce(Vec<&mut Variable<T>>, Vec<&Variable<T>>) -> Result<(), RuntimeError>
-                        + Sync
-                        + Send
-                        + 'static,
-                >,
-            >,
-        >,
-    ),
-    FnMut(
-        Mutex<
+        Option<
             Box<
-                dyn FnMut(Vec<&mut Variable<T>>, Vec<&Variable<T>>) -> Result<(), RuntimeError>
+                dyn FnOnce(Vec<&mut Variable<T>>, Vec<&Variable<T>>) -> Result<(), RuntimeError>
                     + Sync
                     + Send
                     + 'static,
             >,
+        >,
+    ),
+    FnMut(
+        Box<
+            dyn FnMut(Vec<&mut Variable<T>>, Vec<&Variable<T>>) -> Result<(), RuntimeError>
+                + Sync
+                + Send
+                + 'static,
         >,
     ),
     Fn(
@@ -118,7 +113,7 @@ impl<T: RuntimeType> Function<T> {
     ) -> Self {
         Self {
             meta,
-            f: FunctionValue::FnOnce(Mutex::new(Some(f))),
+            f: FunctionValue::FnOnce(Some(f)),
         }
     }
 
@@ -133,7 +128,7 @@ impl<T: RuntimeType> Function<T> {
     ) -> Self {
         Self {
             meta,
-            f: FunctionValue::FnMut(Mutex::new(f)),
+            f: FunctionValue::FnMut(f),
         }
     }
 

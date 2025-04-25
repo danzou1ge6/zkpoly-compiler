@@ -5,7 +5,8 @@ import seaborn as sns
 import numpy as np
 import sys
 
-not_first = {}
+global first
+first = True
 
 def parse_log_line(line):
     """Parse a log line into structured data."""
@@ -24,10 +25,11 @@ def parse_log_line(line):
     if func_call_match:
         instruction_type = 'FuncCall'
         function_name = func_call_match.group(1)
-        # # visit the global variable first_load_fused
-        # if function_name.startswith('fused_arith') and function_name not in not_first:
-        #     not_first[function_name] = True
-        #     return None  # Skip the first load of fused_arith
+        # visit the global variable first_load_fused
+        global first
+        if function_name.startswith('fused_arith') and first:
+            first = False
+            return None  # Skip the first load of fused_arith
     else:
         instr_match = re.search(r'instruction (\w+)', line)
         if not instr_match:

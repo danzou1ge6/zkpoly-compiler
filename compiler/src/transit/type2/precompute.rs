@@ -148,7 +148,8 @@ pub fn precompute<'s, Rt: RuntimeType>(
                 let input_points =
                     (*constant_tb[*input_constant_id].value.unwrap_point_array()).clone();
 
-                let config = get_best_config::<Rt>(input_points.len, polys.len() as u32, memory_limit);
+                let config =
+                    get_best_config::<Rt>(input_points.len, polys.len() as u32, memory_limit);
 
                 let precompute = msm_precomputes.get(&(input_id, config.clone()));
 

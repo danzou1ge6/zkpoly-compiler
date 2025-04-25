@@ -1,30 +1,35 @@
-use std::sync::{Condvar, Mutex};
+use event_listener::{Event, Listener};
+use std::sync::atomic::{AtomicBool, Ordering};
 
-// note that this event can only be used once
 pub struct CpuEvent {
-    cond_var: Condvar,
-    mutex: Mutex<bool>,
+    event: Event,
+    notified: AtomicBool,
 }
 
 impl CpuEvent {
+    pub fn reset(&mut self) {
+        self.notified.store(false, Ordering::SeqCst);
+    }
+    
     pub fn new() -> Self {
         Self {
-            cond_var: Condvar::new(),
-            mutex: Mutex::new(false),
+            event: Event::new(),
+            notified: AtomicBool::new(false),
         }
     }
 
     pub fn notify(&self) {
-        let mut notified = self.mutex.lock().unwrap();
-        assert!(*notified == false); // Only notify once
-        *notified = true;
-        self.cond_var.notify_all();
+        if !self.notified.swap(true, Ordering::SeqCst) {
+            self.event.notify(usize::MAX); // Wake all listeners
+        }
     }
 
     pub fn wait(&self) {
-        let mut notified = self.mutex.lock().unwrap();
-        while !*notified {
-            notified = self.cond_var.wait(notified).unwrap();
+        if !self.notified.load(Ordering::SeqCst) {
+            let listener = self.event.listen();
+            if !self.notified.load(Ordering::SeqCst) {
+                listener.wait();
+            }
         }
     }
 }

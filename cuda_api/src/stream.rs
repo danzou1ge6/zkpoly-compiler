@@ -13,6 +13,10 @@ pub struct CudaEvent {
 }
 
 impl CudaEvent {
+    pub fn reset(&mut self) {
+        self.event_ready.reset();
+    }
+
     pub fn new() -> Self {
         let mut event: cudaEvent_t = std::ptr::null_mut();
         unsafe {
@@ -49,11 +53,7 @@ impl CudaEvent {
     pub fn elapsed(&self, other: &CudaEvent) -> f32 {
         let mut elapsed: f32 = 0.0;
         unsafe {
-            cuda_check!(cudaEventElapsedTime(
-                &mut elapsed,
-                self.event,
-                other.event
-            ));
+            cuda_check!(cudaEventElapsedTime(&mut elapsed, self.event, other.event));
         }
         elapsed
     }

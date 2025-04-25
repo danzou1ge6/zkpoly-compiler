@@ -10,7 +10,7 @@ use zkpoly_common::heap::{Heap, IdAllocator};
 use zkpoly_common::load_dynamic::Libs;
 use zkpoly_common::typ::Typ;
 use zkpoly_runtime::args::{Constant, ConstantTable, RuntimeType, VariableId};
-use zkpoly_runtime::devices::{DeviceType, Event, EventTable, ThreadId};
+use zkpoly_runtime::devices::{DeviceType, Event, EventId, EventTable, ThreadId};
 use zkpoly_runtime::functions::FunctionTable;
 use zkpoly_runtime::instructions::Instruction;
 
@@ -374,7 +374,7 @@ fn lower_instruction<'s, Rt: RuntimeType>(
                     emit(Instruction::AssertEq {
                         value: src,
                         expected: truth,
-                        msg: msg.clone()
+                        msg: msg.clone(),
                     });
                     emit(Instruction::CopyRegister {
                         src,
@@ -505,18 +505,27 @@ fn lower_cpu_waits_any(
     stream2variable_id: &StreamSpecific<VariableId>,
     event_table: &mut EventTable,
     chunk: &mut MultithreadChunk,
+    instruct2cpu_event: &mut BTreeMap<super::InstructionIndex, EventId>,
+    instruct2gpu_event: &mut BTreeMap<super::InstructionIndex, EventId>,
 ) {
     match Stream::of_track(depended_track) {
         Some(depended_stream) => {
-            let event_id = event_table.push(Event::new_gpu());
+            let event_id = instruct2gpu_event
+                .get(&depended_t3idx)
+                .copied()
+                .unwrap_or_else(|| {
+                    let event_id = event_table.push(Event::new_gpu());
+                    instruct2gpu_event.insert(depended_t3idx, event_id);
 
-            chunk.append_at(
-                depended_t3idx,
-                Instruction::Record {
-                    stream: Some(*stream2variable_id.get(depended_stream)),
-                    event: event_id,
-                },
-            );
+                    chunk.append_at(
+                        depended_t3idx,
+                        Instruction::Record {
+                            stream: Some(*stream2variable_id.get(depended_stream)),
+                            event: event_id,
+                        },
+                    );
+                    event_id
+                });
 
             chunk.emit(
                 thread,
@@ -528,15 +537,22 @@ fn lower_cpu_waits_any(
             );
         }
         None => {
-            let event_id = event_table.push(Event::new_thread());
+            let event_id = instruct2cpu_event
+                .get(&depended_t3idx)
+                .copied()
+                .unwrap_or_else(|| {
+                    let event_id = event_table.push(Event::new_thread());
+                    instruct2cpu_event.insert(depended_t3idx, event_id);
 
-            chunk.append_at(
-                depended_t3idx,
-                Instruction::Record {
-                    stream: None,
-                    event: event_id,
-                },
-            );
+                    chunk.append_at(
+                        depended_t3idx,
+                        Instruction::Record {
+                            stream: None,
+                            event: event_id,
+                        },
+                    );
+                    event_id
+                });
 
             chunk.emit(
                 thread,
@@ -560,16 +576,26 @@ fn lower_gpu_waits_gpu(
     stream2variable_id: &StreamSpecific<VariableId>,
     event_table: &mut EventTable,
     chunk: &mut MultithreadChunk,
+    instruct2gpu_event: &mut BTreeMap<super::InstructionIndex, EventId>,
 ) {
-    let event_id = event_table.push(Event::new_gpu());
+    let event_id = instruct2gpu_event
+        .get(&depended_t3idx)
+        .copied()
+        .unwrap_or_else(|| {
+            let event_id = event_table.push(Event::new_gpu());
+            instruct2gpu_event.insert(depended_t3idx, event_id);
 
-    chunk.append_at(
-        depended_t3idx,
-        Instruction::Record {
-            stream: Some(*stream2variable_id.get(Stream::of_track(depended_track).unwrap())),
-            event: event_id,
-        },
-    );
+            chunk.append_at(
+                depended_t3idx,
+                Instruction::Record {
+                    stream: Some(
+                        *stream2variable_id.get(Stream::of_track(depended_track).unwrap()),
+                    ),
+                    event: event_id,
+                },
+            );
+            event_id
+        });
 
     chunk.emit(
         launch_thread,
@@ -589,6 +615,8 @@ fn lower_dependency(
     stream2variable_id: &StreamSpecific<VariableId>,
     event_table: &mut EventTable,
     chunk: &mut MultithreadChunk,
+    instruct2cpu_event: &mut BTreeMap<super::InstructionIndex, EventId>,
+    instruct2gpu_event: &mut BTreeMap<super::InstructionIndex, EventId>,
 ) {
     let thread = *chunk.primary_thread_id.get(thread);
     match (Stream::of_track(track), Stream::of_track(depended_track)) {
@@ -599,6 +627,8 @@ fn lower_dependency(
             stream2variable_id,
             event_table,
             chunk,
+            instruct2cpu_event,
+            instruct2gpu_event,
         ),
         (Some(stream), Some(..)) => lower_gpu_waits_gpu(
             depended_t3idx,
@@ -608,6 +638,7 @@ fn lower_dependency(
             stream2variable_id,
             event_table,
             chunk,
+            instruct2gpu_event,
         ),
         (a, b) => panic!(
             "cannot handle {:?}@{:?} waits {:?}@{:?} here",
@@ -654,6 +685,9 @@ pub fn emit_multithread_instructions<'s, Rt: RuntimeType>(
 
     let mut chunk = MultithreadChunk::new();
 
+    let mut instruct2cpu_event = BTreeMap::new();
+    let mut instruct2gpu_event = BTreeMap::new();
+
     for (t3idx, t3inst) in t3chunk.iter_instructions() {
         let track = track_tasks.inst_track[&t3idx];
         let pthread = PrimaryThread::for_track(track);
@@ -686,6 +720,8 @@ pub fn emit_multithread_instructions<'s, Rt: RuntimeType>(
                         &stream2variable_id,
                         &mut event_table,
                         &mut chunk,
+                        &mut instruct2cpu_event,
+                        &mut instruct2gpu_event,
                     );
                 }
 
@@ -720,6 +756,7 @@ pub fn emit_multithread_instructions<'s, Rt: RuntimeType>(
                             &stream2variable_id,
                             &mut event_table,
                             &mut chunk,
+                            &mut instruct2gpu_event,
                         );
                     }
                 }
@@ -748,6 +785,8 @@ pub fn emit_multithread_instructions<'s, Rt: RuntimeType>(
                     &stream2variable_id,
                     &mut event_table,
                     &mut chunk,
+                    &mut instruct2cpu_event,
+                    &mut instruct2gpu_event,
                 );
             }
 
@@ -781,7 +820,7 @@ pub fn lower_constants<Rt: RuntimeType>(
     const_table.map(&mut |_, c| Constant {
         name: c.name.unwrap_or_else(String::new),
         value: c.value,
-        typ: c.typ
+        typ: c.typ,
     })
 }
 

@@ -117,7 +117,7 @@ pub enum Instruction {
     AssertEq {
         value: VariableId,
         expected: VariableId,
-        msg: Option<String>
+        msg: Option<String>,
     },
 
     Print(VariableId, String),
@@ -243,7 +243,9 @@ pub fn labeled_uses(inst: &Instruction) -> Vec<(VariableId, String)> {
         GetScalarFromArray { src, .. } => vec![(*src, "".to_string())],
         MoveRegister { src, .. } => vec![(*src, "".to_string())],
         LoadInput { .. } => vec![],
-        AssertEq { value, expected, .. } => vec![
+        AssertEq {
+            value, expected, ..
+        } => vec![
             (*value, "value".to_string()),
             (*expected, "expected".to_string()),
         ],

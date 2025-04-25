@@ -160,6 +160,9 @@ impl<I, T> Heap<I, T> {
     pub fn iter(&self) -> impl Iterator<Item = &T> {
         self.0.iter()
     }
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
+        self.0.iter_mut()
+    }
     pub fn freeze(self) -> (RoHeap<I, T>, IdAllocator<I>) {
         let a = IdAllocator(self.0.len(), PhantomData);
         (RoHeap(self.0, PhantomData), a)

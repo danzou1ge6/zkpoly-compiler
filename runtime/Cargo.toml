@@ -16,6 +16,7 @@ rand_core = { version = "0.6", default-features = false }
 rand = { version = "0.6"}
 crossbeam-channel = { version = "0.5.14"}
 serde = { version = "1.0", features = ["derive"] }
+rayon = "1.10.0"
 
 [dev-dependencies]
 zkpoly_core = { path = "../core" }

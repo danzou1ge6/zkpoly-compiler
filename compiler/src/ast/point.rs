@@ -103,8 +103,11 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for Point<Rt> {
                 )
             }
             Constant(c) => {
-                let constant =
-                    cg.add_constant(Point::to_variable(c.clone()), None, zkpoly_common::typ::Typ::Point);
+                let constant = cg.add_constant(
+                    Point::to_variable(c.clone()),
+                    None,
+                    zkpoly_common::typ::Typ::Point,
+                );
                 Vertex::new(
                     VertexNode::Constant(constant),
                     Some(Typ::Point),

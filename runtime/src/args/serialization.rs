@@ -134,7 +134,6 @@ impl<Rt: RuntimeType> Variable<Rt> {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 struct Entry {
     /// (offset, size) if the data
-    position: Option<(usize, usize)>,
     name: String,
     typ: Typ,
 }

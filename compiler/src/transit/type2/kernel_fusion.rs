@@ -5,7 +5,7 @@ use std::{
 
 use crate::transit::{type2, SourceInfo};
 
-use super::{Cg, Vertex, VertexId, VertexNode};
+use super::{Cg, Typ, Vertex, VertexId, VertexNode};
 use zkpoly_common::{
     arith::{
         self, Arith, ArithGraph, ArithUnrOp, ArithVertex, ExprId, FusedType, Mutability, Operation,
@@ -253,6 +253,81 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
     }
 }
 
+pub fn reorder_input_outputs<Rt: RuntimeType>(
+    ag: &mut ArithGraph<VertexId, ExprId>,
+    old_outputs_v: &mut Vec<Vec<(VertexId, VertexId)>>,
+    old_output_types: &mut Vec<Typ<Rt>>,
+) {
+    // reorder into scalars  polys order
+    let mut inputs = Vec::new();
+    let mut outputs = Vec::new();
+    let mut outputs_v = Vec::new();
+    let mut output_types = Vec::new();
+
+    // first push all scalars
+    for id in ag.inputs.iter() {
+        let v = ag.g.vertex(*id);
+        if let Operation::Input { typ, .. } = &v.op {
+            if typ == &FusedType::Scalar {
+                inputs.push(*id);
+            }
+        } else {
+            panic!("arith vertex in the inputs table should be inputs")
+        }
+    }
+    for ((id, output_v), old_output_type) in ag
+        .outputs
+        .iter()
+        .zip(old_outputs_v.iter())
+        .zip(old_output_types.iter())
+    {
+        let v = ag.g.vertex(*id);
+        if let Operation::Output { typ, .. } = &v.op {
+            if typ == &FusedType::Scalar {
+                outputs.push(*id);
+                outputs_v.push(output_v.clone());
+                output_types.push(old_output_type.clone());
+            }
+        } else {
+            panic!("arith vertex in the outputs table should be outputs")
+        }
+    }
+
+    // then push all polys
+    for id in ag.inputs.iter() {
+        let v = ag.g.vertex(*id);
+        if let Operation::Input { typ, .. } = &v.op {
+            if typ == &FusedType::ScalarArray {
+                inputs.push(*id);
+            }
+        } else {
+            panic!("arith vertex in the inputs table should be inputs")
+        }
+    }
+    for ((id, output_v), old_output_type) in ag
+        .outputs
+        .iter()
+        .zip(old_outputs_v.iter())
+        .zip(old_output_types.iter())
+    {
+        let v = ag.g.vertex(*id);
+        if let Operation::Output { typ, .. } = &v.op {
+            if typ == &FusedType::ScalarArray {
+                outputs.push(*id);
+                outputs_v.push(output_v.clone());
+                output_types.push(old_output_type.clone());
+            }
+        } else {
+            panic!("arith vertex in the outputs table should be outputs")
+        }
+    }
+
+    ag.inputs = inputs;
+    ag.outputs = outputs;
+    *old_outputs_v = outputs_v;
+    *old_output_types = output_types;
+}
+
 pub fn fuse_arith<'s, Rt: RuntimeType>(mut cg: Cg<'s, Rt>) -> Cg<'s, Rt> {
     let mut succ: Heap<VertexId, BTreeSet<VertexId>> = cg.g.successors();
     let mut fused = vec![0; cg.g.order()];
@@ -282,11 +357,11 @@ pub fn fuse_arith<'s, Rt: RuntimeType>(mut cg: Cg<'s, Rt>) -> Cg<'s, Rt> {
                 &mut output_v,
                 &mut src_info,
                 fuse_id,
-                512,
+                1500,
             );
 
             let mut output_polys = 0;
-            let (output_types, output_outer_info) = output_v
+            let (mut output_types, output_outer_info) = output_v
                 .iter()
                 .map(|output_i /*(targetid, old_src_id)*/| {
                     let old_src = output_i[0].1;
@@ -334,6 +409,9 @@ pub fn fuse_arith<'s, Rt: RuntimeType>(mut cg: Cg<'s, Rt>) -> Cg<'s, Rt> {
                     },
                 });
             }
+
+            // reorder inputs and outputs
+            reorder_input_outputs(&mut ag, &mut output_v, &mut output_types);
 
             assert_eq!(output_types.len(), ag.outputs.len());
             let typ = super::typ::template::Typ::Tuple(output_types.clone());

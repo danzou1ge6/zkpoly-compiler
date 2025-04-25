@@ -75,7 +75,6 @@ impl From<AnyTypeId> for any::TypeId {
     }
 }
 
-
 impl Serialize for AnyTypeId {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
