@@ -13,6 +13,10 @@ pub struct CudaEvent {
 }
 
 impl CudaEvent {
+    pub fn reset(&mut self) {
+        self.event_ready.reset();
+    }
+
     pub fn new() -> Self {
         let mut event: cudaEvent_t = std::ptr::null_mut();
         unsafe {

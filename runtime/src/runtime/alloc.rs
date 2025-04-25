@@ -20,8 +20,8 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         device: DeviceType,
         typ: Typ,
         offset: Option<usize>,
-        mem_allocator: &Option<PinnedMemoryPool>,
-        gpu_allocator: &Option<Vec<CudaAllocator>>,
+        mem_allocator: &Option<&mut PinnedMemoryPool>,
+        gpu_allocator: &Option<&mut Vec<CudaAllocator>>,
     ) -> Variable<T> {
         match typ {
             Typ::ScalarArray { len, meta: _ } => {
@@ -99,7 +99,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         &self,
         var: &mut Variable<T>,
         var_id: VariableId,
-        mem_allocator: &Option<PinnedMemoryPool>,
+        mem_allocator: &Option<&mut PinnedMemoryPool>,
     ) {
         match var {
             Variable::ScalarArray(poly) => match poly.device {

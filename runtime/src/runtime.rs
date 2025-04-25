@@ -5,6 +5,7 @@ use std::{
     time::Instant,
 };
 
+use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 pub use threadpool::ThreadPool;
 
 use zkpoly_common::load_dynamic::Libs;
@@ -37,7 +38,6 @@ pub struct Runtime<T: RuntimeType> {
     variable: VariableTable<T>,
     constant: ConstantTable<T>,
     inputs: EntryTable<T>,
-    // pool: ThreadPool,
     funcs: FunctionTable<T>,
     events: EventTable,
     threads: ThreadTable,
@@ -87,7 +87,23 @@ impl<T: RuntimeType> Runtime<T> {
             _libs: libs,
         }
     }
-    pub fn run(mut self, debug_opt: RuntimeDebug) -> (Option<Variable<T>>, RuntimeInfo<T>) {
+
+    pub fn reset(&mut self) {
+        self.events.0.par_iter_mut().for_each(|event| {
+            match event {
+                Event::GpuEvent(e) => e.reset(),
+                Event::ThreadEvent(e) => e.reset(),
+            }
+        });
+        for (i, var) in self.variable.0.iter_mut().enumerate() {
+            if let Some(v) = var {
+                println!("var {} is not eliminated", i);
+            }
+            *var = None;
+        }
+    }
+
+    pub fn run(&mut self, debug_opt: RuntimeDebug) -> (Option<Variable<T>>, RuntimeInfo<T>) {
         let bench_start = if RuntimeDebug::RecordTime == debug_opt {
             Some(Instant::now())
         } else {
@@ -100,23 +116,21 @@ impl<T: RuntimeType> Runtime<T> {
         };
         let info = RuntimeInfo {
             variable: &mut self.variable as *mut VariableTable<T>,
-            constant: Arc::new(self.constant),
+            constant: &self.constant as *const ConstantTable<T>,
             inputs: &mut self.inputs as *mut EntryTable<T>,
-            // pool: Arc::new(self.pool),
             funcs: &mut self.funcs as *mut FunctionTable<T>,
-            events: Arc::new(self.events),
+            events: &self.events as *const EventTable,
             threads: &mut self.threads as *mut ThreadTable,
-            rng: self.rng,
+            rng: self.rng.clone(),
             main_thread: true,
             bench_start,
             executed_kernels,
         };
-        self.mem_allocator.preallocate(30);
         let r = unsafe {
             info.run(
-                self.instructions,
-                Some(self.mem_allocator),
-                Some(self.gpu_allocator),
+                self.instructions.clone(),
+                Some(&mut self.mem_allocator),
+                Some(&mut self.gpu_allocator),
                 None,
                 0,
                 Arc::new(std::sync::Mutex::new(())),
@@ -129,11 +143,10 @@ impl<T: RuntimeType> Runtime<T> {
 #[derive(Clone)]
 pub struct RuntimeInfo<T: RuntimeType> {
     pub variable: *mut VariableTable<T>,
-    pub constant: Arc<ConstantTable<T>>,
+    pub constant: *const ConstantTable<T>,
     pub inputs: *mut EntryTable<T>,
-    // pub pool: Arc<ThreadPool>,
     pub funcs: *mut FunctionTable<T>,
-    pub events: Arc<EventTable>,
+    pub events: *const EventTable,
     pub threads: *mut ThreadTable,
     pub rng: AsyncRng,
     pub main_thread: bool,
@@ -148,8 +161,8 @@ impl<T: RuntimeType> RuntimeInfo<T> {
     pub unsafe fn run(
         &self,
         instructions: Vec<Instruction>,
-        mem_allocator: Option<PinnedMemoryPool>,
-        gpu_allocator: Option<Vec<CudaAllocator>>,
+        mem_allocator: Option<&mut PinnedMemoryPool>,
+        gpu_allocator: Option<&mut Vec<CudaAllocator>>,
         epilogue: Option<Sender<i32>>,
         _thread_id: usize,
         global_mutex: Arc<Mutex<()>>,
@@ -270,7 +283,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     if _guard.is_some() {
                         drop(_guard);
                     }
-                    let ref event = self.events[event_id];
+                    let ref event = (*self.events)[event_id];
                     match event {
                         Event::GpuEvent(cuda_event) => match slave {
                             DeviceType::CPU => {
@@ -293,7 +306,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     // println!("event{:?} done", event_id);
                 }
                 Instruction::Record { stream, event } => {
-                    let ref event = self.events[event];
+                    let ref event = (*self.events)[event];
                     match event {
                         Event::GpuEvent(cuda_event) => {
                             let stream_guard = &(*self.variable)[stream.unwrap()];
@@ -357,7 +370,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     *dst_guard = Some(Variable::ScalarArray(slice));
                 }
                 Instruction::LoadConstant { src, dst } => {
-                    let constant = self.constant[src].clone();
+                    let constant = (*self.constant)[src].clone();
                     let guard = &mut (*self.variable)[dst];
                     assert!(guard.is_none());
                     *guard = Some(constant.value);
@@ -439,7 +452,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                 }
                 Instruction::LoadInput { src, dst } => {
                     let input_guard = &mut (*self.inputs)[src];
-                    let input = input_guard.take().unwrap();
+                    let input = input_guard.clone();
                     let guard = &mut (*self.variable)[dst];
                     assert!(guard.is_none());
                     *guard = Some(input);

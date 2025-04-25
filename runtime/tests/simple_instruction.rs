@@ -1,5 +1,3 @@
-use std::sync::RwLock;
-
 use halo2curves::bn256;
 use threadpool::ThreadPool;
 use zkpoly_common::load_dynamic::Libs;
@@ -11,11 +9,11 @@ use zkpoly_memory_pool::PinnedMemoryPool;
 use zkpoly_runtime::args::{ConstantTable, EntryTable, RuntimeType, Variable, VariableTable};
 use zkpoly_runtime::async_rng::AsyncRng;
 use zkpoly_runtime::devices::{DeviceType, Event, EventTable};
+use zkpoly_runtime::functions::*;
 use zkpoly_runtime::instructions::Instruction;
 use zkpoly_runtime::runtime::Runtime;
 use zkpoly_runtime::scalar::ScalarArray;
 use zkpoly_runtime::transcript::{Blake2bWrite, Challenge255};
-use zkpoly_runtime::{functions::*, instructions};
 
 #[derive(Debug, Clone)]
 pub struct MyRuntimeType;
@@ -54,13 +52,13 @@ fn test_add() {
 
     let mut variable = VariableTable::<MyRuntimeType>::new();
 
-    let ida = variable.push(RwLock::new(Some(a_in)));
-    let idb = variable.push(RwLock::new(None));
-    let idc = variable.push(RwLock::new(Some(c_out)));
-    let ida_d = variable.push(RwLock::new(None));
-    let idb_d = variable.push(RwLock::new(None));
-    let idc_d = variable.push(RwLock::new(None));
-    let stream_id = variable.push(RwLock::new(None));
+    let ida = variable.push(Some(a_in));
+    let idb = variable.push(None);
+    let idc = variable.push(Some(c_out));
+    let ida_d = variable.push(None);
+    let idb_d = variable.push(None);
+    let idc_d = variable.push(None);
+    let stream_id = variable.push(None);
 
     let mut libs = Libs::new();
     let mut funcs = FunctionTable::<MyRuntimeType>::new();
@@ -166,7 +164,7 @@ fn test_add() {
     let cpu_alloc = PinnedMemoryPool::new(k, size_of::<MyField>());
     let gpu_alloc = CudaAllocator::new(0, len * size_of::<MyField>() * 3);
 
-    let runtime = Runtime::new(
+    let mut runtime = Runtime::new(
         instructions,
         0,
         ConstantTable::new(),
@@ -181,35 +179,31 @@ fn test_add() {
         libs,
     )
     .with_variables(variable);
-    let (_, info) = runtime.run();
+    let (_, info) = runtime.run(zkpoly_runtime::runtime::RuntimeDebug::None);
     let variable = info.variable;
 
-    let binding_c = variable[idc].read().unwrap();
+    let binding_c = unsafe { &(*variable)[idc] };
 
     for ci in binding_c.as_ref().unwrap().unwrap_scalar_array().iter() {
         assert_eq!(*ci, MyField::one() + MyField::one() + MyField::one());
     }
 
-    drop(binding_c);
-
-    compiler_alloc.free(
-        variable[ida]
-            .write()
-            .unwrap()
-            .as_mut()
-            .unwrap()
-            .unwrap_scalar_array_mut()
-            .values,
-    );
-    compiler_alloc.free(
-        variable[idc]
-            .write()
-            .unwrap()
-            .as_mut()
-            .unwrap()
-            .unwrap_scalar_array_mut()
-            .values,
-    );
+    unsafe {
+        compiler_alloc.free(
+            (*variable)[ida]
+                .as_mut()
+                .unwrap()
+                .unwrap_scalar_array_mut()
+                .values,
+        );
+        compiler_alloc.free(
+            (*variable)[idc]
+                .as_mut()
+                .unwrap()
+                .unwrap_scalar_array_mut()
+                .values,
+        );
+    }
 }
 
 #[test]
@@ -238,15 +232,15 @@ fn test_extend() {
     ));
 
     let mut variable = VariableTable::<MyRuntimeType>::new();
-    let ids = variable.push(RwLock::new(None));
-    let ida = variable.push(RwLock::new(Some(a_in)));
-    let idc = variable.push(RwLock::new(Some(c_out)));
-    let id0 = variable.push(RwLock::new(None));
-    let id1 = variable.push(RwLock::new(None));
-    let id2 = variable.push(RwLock::new(None));
-    let id3 = variable.push(RwLock::new(None));
-    let id4 = variable.push(RwLock::new(None));
-    let id5 = variable.push(RwLock::new(None));
+    let ids = variable.push(None);
+    let ida = variable.push(Some(a_in));
+    let idc = variable.push(Some(c_out));
+    let id0 = variable.push(None);
+    let id1 = variable.push(None);
+    let id2 = variable.push(None);
+    let id3 = variable.push(None);
+    let id4 = variable.push(None);
+    let id5 = variable.push(None);
 
     let mut libs = Libs::new();
     let mut funcs = FunctionTable::<MyRuntimeType>::new();
@@ -315,7 +309,7 @@ fn test_extend() {
         },
     ];
 
-    let runtime = Runtime::new(
+    let mut runtime = Runtime::new(
         instructions,
         0,
         ConstantTable::new(),
@@ -330,24 +324,23 @@ fn test_extend() {
         libs,
     )
     .with_variables(variable);
-    let (_, info) = runtime.run();
+    let (_, info) = runtime.run(zkpoly_runtime::runtime::RuntimeDebug::None);
     let variable = info.variable;
+    unsafe {
+        let binding_c = &(*variable)[idc];
 
-    let binding_c = variable[idc].read().unwrap();
-
-    for (i, ci) in binding_c
-        .as_ref()
-        .unwrap()
-        .unwrap_scalar_array()
-        .iter()
-        .enumerate()
-    {
-        if i < half_len {
-            assert_eq!(*ci, MyField::one());
-        } else {
-            assert_eq!(*ci, MyField::zero());
+        for (i, ci) in binding_c
+            .as_ref()
+            .unwrap()
+            .unwrap_scalar_array()
+            .iter()
+            .enumerate()
+        {
+            if i < half_len {
+                assert_eq!(*ci, MyField::one());
+            } else {
+                assert_eq!(*ci, MyField::zero());
+            }
         }
     }
-
-    drop(binding_c);
 }

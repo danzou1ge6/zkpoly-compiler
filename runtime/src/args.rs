@@ -16,14 +16,14 @@ zkpoly_common::define_usize_id!(EntryId);
 
 pub type VariableTable<T> = heap::Heap<VariableId, Option<Variable<T>>>;
 pub type ConstantTable<T> = heap::Heap<ConstantId, Constant<T>>;
-pub type EntryTable<T> = heap::Heap<EntryId, Option<Variable<T>>>;
+pub type EntryTable<T> = heap::Heap<EntryId, Variable<T>>;
 
 pub fn new_variable_table<T: RuntimeType>(len: usize) -> VariableTable<T> {
     heap::Heap::repeat_with(|| (None), len)
 }
 
 pub fn add_entry<T: RuntimeType>(t: &mut EntryTable<T>, var: Variable<T>) {
-    t.push(Some(var));
+    t.push(var);
 }
 
 pub trait RuntimeType: 'static + Clone + Send + Sync + Debug {
