@@ -2,7 +2,7 @@ use super::{Addr, AddrId, AddrMappingHandler, Instant, IntegralSize, Size};
 use std::collections::{BTreeMap, BTreeSet};
 use zkpoly_common::mm_heap::MmHeap;
 
-static DEBUG: bool = false;
+static DEBUG: bool = true;
 
 #[derive(Clone, Debug)]
 pub struct Transfer {
@@ -699,7 +699,7 @@ impl Allocator {
             println!("Decide victim {:?}, next_use = {:?}", size, next_use);
         }
 
-        // First try find a occupied block of exact size, choosing the one that is used latest
+        // Try choosing the block of exact size that is used latest
         if let Some((addr, _)) = self
             .blocks
             .get(&lbs)
@@ -707,11 +707,7 @@ impl Allocator {
                 blocks
                     .iter()
                     .filter_map(|(addr, block)| {
-                        if let BlockStatus::Occupied(_, next_use) = block.status {
-                            Some((addr, next_use))
-                        } else {
-                            None
-                        }
+                        block.status.try_next_use().map(|nu| (addr, nu))
                     })
                     .max_by_key(|(_, next_use)| *next_use)
             })
@@ -719,40 +715,6 @@ impl Allocator {
         {
             let addr = *addr;
             let now = self.now;
-            let block = self.block_mut(addr, lbs);
-            let old_addr_id = block.addr;
-            block.addr = Self::new_addr_id(addr, lbs, mapping);
-            block.status = BlockStatus::Occupied(now, next_use.0);
-            let addr_id = block.addr;
-            self.update_next_use_in_parent(addr, lbs, next_use.0);
-
-            if DEBUG {
-                println!("Decided victim at {:?}", mapping.get(addr_id));
-                println!("{:#?}", self)
-            }
-
-            return (addr_id, vec![old_addr_id]);
-        }
-
-        // Otherwise, try find a splitted block of exact size, choosing the one that is used latest
-        if let Some((addr, _)) = self
-            .blocks
-            .get(&lbs)
-            .map(|blocks| {
-                blocks
-                    .iter()
-                    .filter_map(|(addr, block)| {
-                        if let BlockStatus::Splitted(_, children_next_use) = &block.status {
-                            Some((addr, children_next_use.max().unwrap()))
-                        } else {
-                            None
-                        }
-                    })
-                    .max_by_key(|(_, next_use)| *next_use)
-            })
-            .flatten()
-        {
-            let addr = *addr;
 
             let mut occupied_blocks = Vec::new();
             self.gather_and_remove_occupied_child_blocks(
@@ -762,10 +724,10 @@ impl Allocator {
                 false,
             );
 
-            let now = self.now;
             let block = self.block_mut(addr, lbs);
             block.addr = Self::new_addr_id(addr, lbs, mapping);
             block.status = BlockStatus::Occupied(now, next_use.0);
+
             let addr_id = block.addr;
             self.update_next_use_in_parent(addr, lbs, next_use.0);
 

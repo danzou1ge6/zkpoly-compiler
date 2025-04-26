@@ -657,7 +657,8 @@ pub fn plan_vertex_inputs<'s, Rt: RuntimeType>(
     }
 }
 
-pub fn analyze_die_after(
+pub fn analyze_die_after<'s, Rt: RuntimeType>(
+    g: &SubDigraph<'_, VertexId, type2::Vertex<'s, Rt>>,
     seq: &[VertexId],
     def: &ObjectsDef,
     uses: &ObjectUse,
@@ -701,6 +702,10 @@ pub fn analyze_die_after(
     };
 
     for &vid in seq.iter() {
+        if g.vertex(vid).node().is_virtual() {
+            continue;
+        }
+
         vertex_inputs.inputs[&vid]
             .iter()
             .map(|input_vv| input_vv.iter())
@@ -817,7 +822,8 @@ impl ObjectsGpuNextUse {
     }
 }
 
-pub fn analyze_gpu_next_use(
+pub fn analyze_gpu_next_use<'s, Rt: RuntimeType>(
+    g: &SubDigraph<'_, VertexId, type2::Vertex<'s, Rt>>,
     seq: &[VertexId],
     vertex_inputs: &ObjectUse,
     used_by: &ObjectsUsedBy,
@@ -840,13 +846,15 @@ pub fn analyze_gpu_next_use(
             let seq = vids
                 .iter()
                 .filter_map(|UsedByEntry { vid, dev }| {
-                    if *dev == Device::Gpu {
+                    if g.vertex(*vid).node().is_virtual() {
+                        None
+                    } else if *dev == Device::Gpu {
                         Some(seq_num[vid])
                     } else {
                         if cpu_use_mark.insert(*oid) {
-                            None
-                        } else {
                             Some(seq_num[vid])
+                        } else {
+                            None
                         }
                     }
                 })
@@ -890,3 +898,4 @@ pub fn analyze_gpu_next_use(
         first_use_at,
     }
 }
+

@@ -102,7 +102,7 @@ impl Size {
     pub fn unwrap_integral(self) -> IntegralSize {
         match self {
             Size::Integral(size) => size,
-            Size::Smithereen(..) => panic!("unwrap_integral on Size::Smithereen")
+            Size::Smithereen(..) => panic!("unwrap_integral on Size::Smithereen"),
         }
     }
 }
@@ -179,6 +179,17 @@ impl<T> DeviceSpecific<T> {
             Device::Gpu => &mut self.gpu,
             Device::Cpu => &mut self.cpu,
             Device::Stack => &mut self.stack,
+        }
+    }
+}
+
+impl std::ops::Sub<Self> for DeviceSpecific<bool> {
+    type Output = Self;
+    fn sub(self, rhs: Self::Output) -> Self::Output {
+        DeviceSpecific {
+            gpu: self.gpu && !rhs.gpu,
+            cpu: self.cpu && !rhs.cpu,
+            stack: self.stack && !rhs.stack,
         }
     }
 }

@@ -715,6 +715,7 @@ pub fn type2_to_inst<Rt: RuntimeType>(
         "Analyzing object lifetimes",
         || {
             let d = type2::object_analysis::analyze_die_after(
+                &g,
                 &seq,
                 &obj_def,
                 &vertex_inputs,
@@ -739,7 +740,7 @@ pub fn type2_to_inst<Rt: RuntimeType>(
         || {
             let obj_used_by = type2::object_analysis::analyze_used_by(&seq, &vertex_inputs);
             let obj_gpu_next_use =
-                type2::object_analysis::analyze_gpu_next_use(&seq, &vertex_inputs, &obj_used_by);
+                type2::object_analysis::analyze_gpu_next_use(&g, &seq, &vertex_inputs, &obj_used_by);
 
             Ok((obj_used_by, obj_gpu_next_use))
         },

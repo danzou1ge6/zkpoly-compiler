@@ -1,4 +1,4 @@
-static DEBUG: bool = false;
+static DEBUG: bool = true;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -166,7 +166,7 @@ struct Context {
     /// Tuple registers will not be included
     reg_device: BTreeMap<RegisterId, DeterminedDevice>,
     reg2obj: BTreeMap<RegisterId, ObjectId>,
-    inplace_obj: BTreeSet<ObjectId>,
+    inplace_obj: BTreeMap<ObjectId, DeviceSpecific<bool>>,
 }
 
 #[derive(Debug)]
@@ -281,6 +281,24 @@ impl Context {
             );
             println!("{:?}", &self.gpu_obj2addr);
         }
+    }
+
+    pub fn set_gpu_addr_id_for_reg(&mut self, reg_id: RegisterId, addr_id: AddrId) {
+        self.gpu_reg2addr.insert(reg_id, addr_id);
+
+        if DEBUG {
+            println!(
+                "[MP.ctx] {:?} now points to {:?}({:?})",
+                reg_id, addr_id, self.gpu_addr_mapping[addr_id]
+            );
+        }
+    }
+
+    pub fn mark_space_inplace(&mut self, obj_id: ObjectId, device: DeterminedDevice) {
+        if DEBUG {
+            println!("[MP.ctx] Mark {:?} inplace on {:?}", obj_id, device);
+        }
+        *self.inplace_obj.entry(obj_id).or_default().get_device_mut(device) = true;
     }
 
     pub fn try_copy_reg_addr_id(&mut self, from: RegisterId, to: RegisterId) {
@@ -596,10 +614,12 @@ impl GpuAllocator {
             addr,
         }));
 
-        ctx.gpu_reg2addr.insert(reg_id, addr);
+        ctx.set_gpu_addr_id_for_reg(reg_id, addr);
         if let Some(obj_id) = obj_id {
             ctx.set_gpu_addr_id_for_obj(obj_id, addr);
             ctx.add_residence_for_object(obj_id, reg_id, DeterminedDevice::Gpu);
+        } else {
+            ctx.reg_device.insert(reg_id, DeterminedDevice::Gpu);
         }
 
         if DEBUG {
@@ -1158,6 +1178,7 @@ fn ensure_copied(
         }
 
         ctx.remove_residence_in_reg_for_object(original_obj_id, device, on_device_reg);
+        ctx.mark_space_inplace(original_obj_id, device);
 
         on_device_reg
     };
@@ -1204,31 +1225,24 @@ fn deallocate_dead_objects<'a>(
     ctx: &mut Context,
 ) {
     for (dead_obj, device_collection) in dead_objects {
-        if ctx.inplace_obj.contains(&dead_obj) {
-            if DEBUG {
-                println!(
-                    "[MP.deallocate_dead_objects] {:?} is inplace object, skipping",
-                    dead_obj
-                );
-            }
-            continue;
-        }
+        let inplace_collection = ctx.inplace_obj.entry(dead_obj).or_default().clone();
+        let dead_devices = device_collection.clone() - inplace_collection.clone();
 
         if DEBUG {
             println!(
-                "[MP.deallocate_dead_objects] Deallocating {:?} on {:?}",
-                dead_obj, &device_collection
+                "[MP.deallocate_dead_objects] Deallocating {:?} on {:?}, original device collection is {:?}, masked by inplace object collection {:?}",
+                dead_obj, &dead_devices, &device_collection, &inplace_collection
             );
         }
 
-        if device_collection.gpu() {
+        if dead_devices.gpu() {
             gpu_allocator.deallocate(dead_obj, code, ctx);
         }
 
-        if device_collection.cpu() {
+        if dead_devices.cpu() {
             deallocate_cpu(dead_obj, code, ctx);
         }
-        if device_collection.stack() {
+        if dead_devices.stack() {
             deallocate_stack(dead_obj, code, ctx);
         }
     }
@@ -1294,7 +1308,7 @@ pub fn plan<'s, Rt: RuntimeType>(
         object_residence: BTreeMap::new(),
         reg_device: BTreeMap::new(),
         reg2obj: BTreeMap::new(),
-        inplace_obj: BTreeSet::new(),
+        inplace_obj: BTreeMap::new(),
     };
     let mut register_types = BTreeMap::new();
     let imctx = ImmutableContext {
@@ -1316,6 +1330,10 @@ pub fn plan<'s, Rt: RuntimeType>(
         let now = Instant(i);
         gpu_allocator.tick(now);
         let exe_device = devices[&vid];
+
+        if DEBUG {
+            println!("[MP.plan] Scheduling {:?} on {:?} at {:?}", vid, exe_device, now);
+        }
 
         // Prepare inputs
         // - Move input objects to desired device
@@ -1343,7 +1361,6 @@ pub fn plan<'s, Rt: RuntimeType>(
                             panic!("an inplace input must not be a tuple")
                         }
                     };
-                    ctx.inplace_obj.insert(input_value.object_id());
 
                     if DEBUG {
                         println!("[MP.plan] {:?} is inplace input of {:?}", input_value, vid);
@@ -1504,8 +1521,9 @@ pub fn plan<'s, Rt: RuntimeType>(
                         ctx.add_residence_for_object(output_obj, output_reg, output_value.device());
 
                         if output_value.device() == DeterminedDevice::Gpu {
-                            if let Some(addr_id) = ctx.gpu_reg2addr.get(&inplace_reg) {
-                                ctx.set_gpu_addr_id_for_obj(output_obj, *addr_id);
+                            if let Some(&addr_id) = ctx.gpu_reg2addr.get(&inplace_reg) {
+                                ctx.set_gpu_addr_id_for_obj(output_obj, addr_id);
+                                ctx.set_gpu_addr_id_for_reg(output_reg, addr_id);
                             } else {
                                 return Err(Error::VertexInputsAndOutputsNotAccommodated(vid))
                             }
@@ -1544,7 +1562,7 @@ pub fn plan<'s, Rt: RuntimeType>(
                     .input_of(vid)
                     .map(|vv| vv.iter())
                     .flatten()
-                    .filter(|v| !ctx.inplace_obj.contains(&v.object_id()))
+                    .filter(|v| !ctx.inplace_obj.contains_key(&v.object_id()))
                     .chain(imctx.obj_def.values[&vid].iter()),
                 &ctx,
             ) {
@@ -1655,7 +1673,14 @@ pub fn plan<'s, Rt: RuntimeType>(
         {
             let obj = ctx.reg2obj[&output_reg];
             if let Some(first_use) = obj_gpu_next_use.first_use_of(obj) {
+                if DEBUG {
+                    println!("[MP.plan] Inplace output {:?} has {:?}, next_use updated to its first use at {:?}", output_reg, obj, first_use)
+                }
                 let _updated = gpu_allocator.update_next_use(obj, first_use, &mut ctx);
+            } else {
+                if DEBUG {
+                    println!("[MP.plan] Inplace output {:?} has {:?}, no next_use updated since it's never used on GPU", output_reg, obj);
+                }
             }
         }
     }
