@@ -37,7 +37,6 @@ pub struct Runtime<T: RuntimeType> {
     instructions: Vec<Instruction>,
     variable: VariableTable<T>,
     constant: ConstantTable<T>,
-    inputs: EntryTable<T>,
     funcs: FunctionTable<T>,
     events: EventTable,
     threads: ThreadTable,
@@ -63,9 +62,7 @@ impl<T: RuntimeType> Runtime<T> {
         instructions: Vec<Instruction>,
         n_variables: usize,
         constant: ConstantTable<T>,
-        inputs: EntryTable<T>,
         funcs: FunctionTable<T>,
-        _pool: ThreadPool,
         events: EventTable,
         n_threads: usize,
         mem_allocator: PinnedMemoryPool,
@@ -77,7 +74,6 @@ impl<T: RuntimeType> Runtime<T> {
             instructions,
             variable: new_variable_table(n_variables),
             constant,
-            inputs,
             funcs,
             events,
             threads: new_thread_table(n_threads),
@@ -96,14 +92,14 @@ impl<T: RuntimeType> Runtime<T> {
             }
         });
         for (i, var) in self.variable.0.iter_mut().enumerate() {
-            if let Some(v) = var {
-                println!("var {} is not eliminated", i);
-            }
+            // if let Some(_) = var {
+            //     println!("var {} is not eliminated", i);
+            // }
             *var = None;
         }
     }
 
-    pub fn run(&mut self, debug_opt: RuntimeDebug) -> (Option<Variable<T>>, RuntimeInfo<T>) {
+    pub fn run(&mut self, input_table: &mut EntryTable<T>, debug_opt: RuntimeDebug) -> (Option<Variable<T>>, RuntimeInfo<T>) {
         let bench_start = if RuntimeDebug::RecordTime == debug_opt {
             Some(Instant::now())
         } else {
@@ -117,7 +113,7 @@ impl<T: RuntimeType> Runtime<T> {
         let info = RuntimeInfo {
             variable: &mut self.variable as *mut VariableTable<T>,
             constant: &self.constant as *const ConstantTable<T>,
-            inputs: &mut self.inputs as *mut EntryTable<T>,
+            inputs: input_table as *mut EntryTable<T>,
             funcs: &mut self.funcs as *mut FunctionTable<T>,
             events: &self.events as *const EventTable,
             threads: &mut self.threads as *mut ThreadTable,

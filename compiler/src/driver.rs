@@ -921,8 +921,6 @@ pub fn prepare_vm<Rt: RuntimeType>(
     rt_chunk: type3::lowering::Chunk<Rt>,
     rt_const_tab: args::ConstantTable<Rt>,
     mem_allocator: PinnedMemoryPool,
-    inputs: args::EntryTable<Rt>,
-    pool: zkpoly_runtime::runtime::ThreadPool,
     gpu_allocator: Vec<zkpoly_cuda_api::mem::CudaAllocator>,
     rng: zkpoly_runtime::async_rng::AsyncRng,
 ) -> zkpoly_runtime::runtime::Runtime<Rt> {
@@ -930,9 +928,7 @@ pub fn prepare_vm<Rt: RuntimeType>(
         rt_chunk.instructions,
         rt_chunk.n_variables,
         rt_const_tab,
-        inputs,
         rt_chunk.f_table,
-        pool,
         rt_chunk.event_table,
         rt_chunk.n_threads,
         mem_allocator,
