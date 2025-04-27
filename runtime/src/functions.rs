@@ -47,6 +47,13 @@ pub struct Function<T: RuntimeType> {
     pub f: FunctionValue<T>,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, PartialOrd, Eq, Ord)]
+pub struct FusedKernelMeta {
+    pub name: String,
+    pub num_vars: usize,
+    pub num_mut_vars: usize,
+}
+
 #[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum KernelType {
     NttPrcompute,
@@ -56,7 +63,7 @@ pub enum KernelType {
     KateDivision,
     EvaluatePoly,
     ScanMul,
-    FusedArith(String),
+    FusedArith(FusedKernelMeta),
     Interpolate,
     AssmblePoly,
     HashTranscript,
