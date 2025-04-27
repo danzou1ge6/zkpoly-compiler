@@ -672,7 +672,9 @@ pub fn analyze_die_after<'s, Rt: RuntimeType>(
         let devices = match (def_at_device, dev) {
             // The object is defined on GPU, and it's used by some GPU task now.
             // We force that the object lives after current task.
-            (Gpu, Gpu) => vec![(Gpu, AtModifier::After)],
+            // But the object may also be ejected from GPU, so it's liveness on CPU should also be
+            // enforced.
+            (Gpu, Gpu) => vec![(Gpu, AtModifier::After), (Cpu, AtModifier::Before)],
             // The object is defined on GPU, and it's used by some CPU task now.
             // - If the object has been used on CPU, it should has already been on CPU,
             //   so we only enforce liveness on CPU,

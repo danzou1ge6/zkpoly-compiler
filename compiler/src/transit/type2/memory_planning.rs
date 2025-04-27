@@ -174,6 +174,7 @@ struct ImmutableContext<'a> {
     obj_def: &'a ObjectsDef,
     obj_dies_after: &'a ObjectsDieAfter,
     obj_dies_after_reversed: &'a ObjectsDieAfterReversed,
+    obj_gpu_next_use: &'a ObjectsGpuNextUse,
     vertex_inputs: &'a ObjectUse,
 }
 
@@ -298,7 +299,11 @@ impl Context {
         if DEBUG {
             println!("[MP.ctx] Mark {:?} inplace on {:?}", obj_id, device);
         }
-        *self.inplace_obj.entry(obj_id).or_default().get_device_mut(device) = true;
+        *self
+            .inplace_obj
+            .entry(obj_id)
+            .or_default()
+            .get_device_mut(device) = true;
     }
 
     pub fn try_copy_reg_addr_id(&mut self, from: RegisterId, to: RegisterId) {
@@ -467,7 +472,7 @@ fn allocate_gpu_integral(
     code: &mut Code,
     ctx: &mut Context,
     imctx: &ImmutableContext,
-) -> AddrId {
+) -> Result<AddrId, Error> {
     let addr = gpu_ialloc.allocate(
         size,
         next_use,
@@ -506,14 +511,16 @@ fn allocate_gpu_integral(
             ctx.set_gpu_addr_id_for_obj(obj_id, t.to);
         }
 
-        return addr;
+        return Ok(addr);
     }
 
-    let (addr, victims) = gpu_ialloc.decide_and_realloc_victim(
-        size,
-        next_use,
-        &mut GpuAddrMappingHandler::new(&mut ctx.gpu_addr_mapping, ioffset),
-    );
+    let (addr, victims) = gpu_ialloc
+        .decide_and_realloc_victim(
+            size,
+            next_use,
+            &mut GpuAddrMappingHandler::new(&mut ctx.gpu_addr_mapping, ioffset),
+        )
+        .ok_or(Error::VertexInputsAndOutputsNotAccommodated(0.into()))?;
 
     if DEBUG {
         println!(
@@ -526,13 +533,24 @@ fn allocate_gpu_integral(
 
     move_victims(&victims, code, ctx, imctx);
 
-    addr
+    Ok(addr)
 }
 
 #[derive(Debug)]
 pub enum Error {
     InsufficientSmithereenSpace,
     VertexInputsAndOutputsNotAccommodated(VertexId),
+}
+
+impl Error {
+    pub fn try_with_vid(self, vid: VertexId) -> Self {
+        match self {
+            Error::VertexInputsAndOutputsNotAccommodated(_) => {
+                Error::VertexInputsAndOutputsNotAccommodated(vid)
+            }
+            _ => self,
+        }
+    }
 }
 
 fn allocate_gpu_smithereen(
@@ -602,7 +620,7 @@ impl GpuAllocator {
 
         let addr = match normalize_size(size) {
             Size::Integral(size) => {
-                allocate_gpu_integral(size, next_use, &mut self.ialloc, ioffset, code, ctx, imctx)
+                allocate_gpu_integral(size, next_use, &mut self.ialloc, ioffset, code, ctx, imctx)?
             }
             Size::Smithereen(size) => {
                 allocate_gpu_smithereen(size, &mut self.salloc, soffset, &mut ctx.gpu_addr_mapping)?
@@ -786,21 +804,30 @@ fn allocate(
 }
 
 fn deallocate_cpu(obj_id: ObjectId, code: &mut Code, ctx: &mut Context) {
-    let reg_id = ctx
-        .pop_residence_of_object(obj_id, DeterminedDevice::Cpu)
-        .unwrap_or_else(|| panic!("cpu {:?} residence not found", obj_id));
-
-    code.emit(Instruction::new_no_src(InstructionNode::CpuFree {
-        id: reg_id,
-    }));
-
-    while let Some(reg_id) = ctx.pop_residence_of_object(obj_id, DeterminedDevice::Cpu) {
-        code.emit(Instruction::new_no_src(InstructionNode::StackFree {
+    if let Some(reg_id) = ctx.pop_residence_of_object(obj_id, DeterminedDevice::Cpu) {
+        code.emit(Instruction::new_no_src(InstructionNode::CpuFree {
             id: reg_id,
         }));
-    }
 
-    ctx.remove_residence_for_object(obj_id, DeterminedDevice::Cpu);
+        while let Some(reg_id) = ctx.pop_residence_of_object(obj_id, DeterminedDevice::Cpu) {
+            code.emit(Instruction::new_no_src(InstructionNode::StackFree {
+                id: reg_id,
+            }));
+        }
+
+        ctx.remove_residence_for_object(obj_id, DeterminedDevice::Cpu);
+
+        if DEBUG {
+            println!(
+                "[MP.deallocate] Deallocated Cpu space for {:?} using {:?}",
+                obj_id, reg_id
+            );
+        }
+    } else {
+        if DEBUG {
+            println!("[MP.deallocate] {:?} not alive on Cpu, skipping", obj_id);
+        }
+    }
 }
 
 fn deallocate_stack(obj_id: ObjectId, code: &mut Code, ctx: &mut Context) {
@@ -995,8 +1022,16 @@ fn ensure_on_device(
                 if DEBUG {
                     println!("[MP.ensure_on_device] Transferred {:?} from {:?} in {:?} to {:?} in {:?}, correcting typ", obj_id, from_reg, from_device, new_reg, device);
                 }
+                let corrected_reg = emit_correct_type(new_reg, device, obj_id, typ, code, ctx);
 
-                Ok(emit_correct_type(new_reg, device, obj_id, typ, code, ctx))
+                // Throw away the old register
+                ctx.remove_residence_in_reg_for_object(obj_id, device, new_reg);
+                ctx.add_residence_for_object(obj_id, corrected_reg, device);
+                code.emit(Instruction::new_no_src(InstructionNode::StackFree {
+                    id: new_reg,
+                }));
+
+                Ok(corrected_reg)
             } else {
                 if DEBUG {
                     println!(
@@ -1072,13 +1107,6 @@ fn emit_correct_type(
     }));
 
     ctx.try_copy_reg_addr_id(reg_id, corrected_reg);
-    ctx.remove_residence_in_reg_for_object(original_obj_id, copied_reg_device, reg_id);
-    ctx.add_residence_for_object(original_obj_id, corrected_reg, copied_reg_device);
-
-    code.emit(Instruction::new_no_src(InstructionNode::StackFree {
-        id: reg_id,
-    }));
-
     if DEBUG {
         println!(
             "[MP.emit_correct_type] Corrected typ of {:?} storing {:?} to {:?} in {:?}",
@@ -1148,7 +1176,15 @@ fn ensure_copied(
             if DEBUG {
                 println!("[MP.ensure_copied] Copied {:?} from {:?} to {:?} with typ {:?}, correcting typ", original_obj_id, transferred_reg, copied_reg, copied_typ);
             }
-            emit_correct_type(copied_reg, device, original_obj_id, typ, code, ctx)
+            let corrected_reg =
+                emit_correct_type(copied_reg, device, original_obj_id, typ, code, ctx);
+
+            // Throw away the old register
+            code.emit(Instruction::new_no_src(InstructionNode::StackFree {
+                id: copied_reg,
+            }));
+
+            corrected_reg
         } else {
             if DEBUG {
                 println!(
@@ -1267,89 +1303,36 @@ fn check_values_ready<'a>(values: impl Iterator<Item = &'a Value>, ctx: &Context
     true
 }
 
-pub fn plan<'s, Rt: RuntimeType>(
-    capacity: u64,
+fn plan_vertex<'s, Rt: RuntimeType>(
+    vid: VertexId,
+    exe_device: Device,
+    now: Instant,
+    updated_next_uses: impl Iterator<Item = (ObjectId, Instant)>,
     cg: &Cg<'s, Rt>,
     g: &SubDigraph<'_, VertexId, super::Vertex<'s, Rt>>,
-    seq: &[VertexId],
-    obj_dies_after: &ObjectsDieAfter,
-    obj_dies_after_reversed: &ObjectsDieAfterReversed,
-    obj_def: &ObjectsDef,
-    obj_gpu_next_use: &ObjectsGpuNextUse,
-    vertex_inputs: &ObjectUse,
-    devices: &BTreeMap<VertexId, Device>,
+    ctx: &mut Context,
+    register_types: &mut BTreeMap<RegisterId, super::Typ<Rt>>,
+    imctx: &ImmutableContext,
+    code: &mut Code<'s>,
+    gpu_allocator: &mut GpuAllocator,
     uf_table: &user_function::Table<Rt>,
     obj_id_allocator: &mut IdAllocator<ObjectId>,
-    mut libs: Libs,
-) -> Result<Chunk<'s, Rt>, Error> {
-    let integral_sizes = collect_integral_sizes(cg, &g, &mut libs);
-
-    if DEBUG {
-        println!("[MP.plan] Integral sizes: {:?}", &integral_sizes);
-    }
-
-    let (ispace, sspace) =
-        divide_integral_smithereens(capacity, integral_sizes.last().unwrap().clone());
-    
-    if DEBUG {
-        println!("[MP.plan] Integral space: {:?}", &ispace);
-        println!("[MP.plan] Smithereens space: {:?}", &sspace);
-    }
-
-    let mut gpu_allocator = GpuAllocator {
-        ialloc: integral_allocator::regretting::Allocator::new(ispace, integral_sizes),
-        salloc: smithereens_allocator::Allocator::new(sspace),
-    };
-
-    let mut ctx = Context {
-        gpu_obj2addr: Bijection::new(),
-        gpu_addr_mapping: AddrMapping::new(),
-        gpu_reg2addr: BTreeMap::new(),
-        object_residence: BTreeMap::new(),
-        reg_device: BTreeMap::new(),
-        reg2obj: BTreeMap::new(),
-        inplace_obj: BTreeMap::new(),
-    };
-    let mut register_types = BTreeMap::new();
-    let imctx = ImmutableContext {
-        obj_def,
-        obj_dies_after,
-        obj_dies_after_reversed,
-        vertex_inputs,
-    };
-
-    let mut code = Code::new();
-
-    for ((i, &vid), updated_next_uses) in
-        seq.iter().enumerate().zip(obj_gpu_next_use.iter_updates())
-    {
-        if g.vertex(vid).is_virtual() {
-            continue;
-        }
-
-        let now = Instant(i);
-        gpu_allocator.tick(now);
-        let exe_device = devices[&vid];
-
-        if DEBUG {
-            println!("[MP.plan] Scheduling {:?} on {:?} at {:?}", vid, exe_device, now);
-        }
-
-        // Prepare inputs
-        // - Move input objects to desired device
-        // - Make copies, if input is mutated and later used on the same device
-        //   - If the input's space is used inplace by an output, the copy's object ID is that of the output
-        //   - Otherwise, a new temporary object ID is allocated
-        // - Build tuples, if needed
-        let mutable_uses: Vec<VertexId> = g.vertex(vid).mutable_uses().collect();
-        let outputs_inplace: Vec<Option<VertexId>> = g
-            .vertex(vid)
-            .outputs_inplace(uf_table, exe_device)
-            .collect();
-        let mut tuple_registers = Vec::new();
-        let input_registers: Vec<RegisterId> = cg
-            .g
-            .vertex(vid)
+    libs: &mut Libs
+) -> Result<bool, Error> {
+    // Prepare inputs
+    // - Move input objects to desired device
+    // - Make copies, if input is mutated and later used on the same device
+    //   - If the input's space is used inplace by an output, the copy's object ID is that of the output
+    //   - Otherwise, a new temporary object ID is allocated
+    // - Build tuples, if needed
+    let mutable_uses: Vec<VertexId> = g.vertex(vid).mutable_uses().collect();
+    let outputs_inplace: Vec<Option<VertexId>> = g
+        .vertex(vid)
+        .outputs_inplace(uf_table, exe_device)
+        .collect();
+    let mut tuple_registers = Vec::new();
+    let input_registers: Vec<RegisterId> =
+        cg.g.vertex(vid)
             .uses()
             .zip(imctx.vertex_inputs.input_of(vid))
             .map(|(input_vid, input_vv)| {
@@ -1372,9 +1355,9 @@ pub fn plan<'s, Rt: RuntimeType>(
                         lower_typ(g.vertex(input_vid).typ(), &input_value),
                         input_value.object_id(),
                         now,
-                        &mut gpu_allocator,
-                        &mut code,
-                        &mut ctx,
+                        gpu_allocator,
+                        code,
+                        ctx,
                         &imctx,
                     )
                 } else if mutable_uses.contains(&input_vid) {
@@ -1391,9 +1374,9 @@ pub fn plan<'s, Rt: RuntimeType>(
                         lower_typ(g.vertex(input_vid).typ(), &input_value),
                         input_value.object_id(),
                         now,
-                        &mut gpu_allocator,
-                        &mut code,
-                        &mut ctx,
+                        gpu_allocator,
+                        code,
+                        ctx,
                         &imctx,
                     )?;
                     ctx.remove_residence_in_reg_for_object(
@@ -1424,9 +1407,9 @@ pub fn plan<'s, Rt: RuntimeType>(
                                 input_value.object_id(),
                                 lower_typ(g.vertex(input_vid).typ(), &input_value),
                                 now,
-                                &mut gpu_allocator,
-                                &mut code,
-                                &mut ctx,
+                                gpu_allocator,
+                                code,
+                                ctx,
                                 &imctx,
                             )
                         }
@@ -1447,9 +1430,9 @@ pub fn plan<'s, Rt: RuntimeType>(
                                         input_value.object_id(),
                                         lower_typ(input_typ, input_value),
                                         now,
-                                        &mut gpu_allocator,
-                                        &mut code,
-                                        &mut ctx,
+                                        gpu_allocator,
+                                        code,
+                                        ctx,
                                         &imctx,
                                     )
                                 })
@@ -1470,218 +1453,308 @@ pub fn plan<'s, Rt: RuntimeType>(
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        // Some objects die before the vertex is executed
-        deallocate_dead_objects(
-            obj_dies_after_reversed.before(vid),
-            &mut gpu_allocator,
-            &mut code,
-            &mut ctx,
-        );
+    // Some objects die before the vertex is executed
+    deallocate_dead_objects(
+        imctx.obj_dies_after_reversed.before(vid),
+        gpu_allocator,
+        code,
+        ctx,
+    );
 
-        // Allocate outputs
-        // - If the vertex is Entry, only new register is needed
-        // - Otherwise
-        //   - If the output use some input's space, kills the input register in ctx and let the output register inherit its space
-        //   - Otherwise, allocate new space for the output
-        let v = g.vertex(vid);
-        let output_registers: Vec<(RegisterId, Option<RegisterId>)> = if v
-            .node()
-            .no_allocate_output()
-        {
-            imctx.obj_def.values[&vid]
-                .iter()
-                .zip(v.outputs_inplace(uf_table, exe_device))
-                .zip(v.typ().iter())
-                .map(|((output_value, _), output_typ)| {
-                    let output_obj = output_value.object_id();
-                    let output_reg = code.alloc_register_id(lower_typ(output_typ, output_value));
-                    ctx.add_residence_for_object(output_obj, output_reg, output_value.device());
-                    Ok((output_reg, None))
-                })
-                .collect::<Result<Vec<_>, _>>()?
-        } else {
-            let output_registers = imctx.obj_def.values[&vid]
-                .iter()
-                .zip(v.outputs_inplace(uf_table, exe_device))
-                .zip(v.typ().iter())
-                .map(|((output_value, inplace), output_typ)| {
-                    let output_obj = output_value.object_id();
-                    let output_reg = code.alloc_register_id(lower_typ(output_typ, output_value));
-                    if let Some(input_vid) = inplace {
-                        let index = v.uses().position(|x| x == input_vid).unwrap();
-                        let inplace_reg = input_registers[index];
+    // Allocate outputs
+    // - If the vertex is Entry, only new register is needed
+    // - Otherwise
+    //   - If the output use some input's space, kills the input register in ctx and let the output register inherit its space
+    //   - Otherwise, allocate new space for the output
+    let v = g.vertex(vid);
+    let output_registers: Vec<(RegisterId, Option<RegisterId>)> = if v.node().no_allocate_output() {
+        imctx.obj_def.values[&vid]
+            .iter()
+            .zip(v.outputs_inplace(uf_table, exe_device))
+            .zip(v.typ().iter())
+            .map(|((output_value, _), output_typ)| {
+                let output_obj = output_value.object_id();
+                let output_reg = code.alloc_register_id(lower_typ(output_typ, output_value));
+                ctx.add_residence_for_object(output_obj, output_reg, output_value.device());
+                Ok((output_reg, None))
+            })
+            .collect::<Result<Vec<_>, _>>()?
+    } else {
+        let output_registers = imctx.obj_def.values[&vid]
+            .iter()
+            .zip(v.outputs_inplace(uf_table, exe_device))
+            .zip(v.typ().iter())
+            .map(|((output_value, inplace), output_typ)| {
+                let output_obj = output_value.object_id();
+                let output_reg = code.alloc_register_id(lower_typ(output_typ, output_value));
+                if let Some(input_vid) = inplace {
+                    let index = v.uses().position(|x| x == input_vid).unwrap();
+                    let inplace_reg = input_registers[index];
 
-                        if DEBUG {
-                            println!(
-                                "[MP.plan] {:?} in {:?} replacing {:?} at {:?} is output of {:?}",
-                                output_value, output_reg, inplace_reg, inplace, vid
-                            );
-                        }
-
-                        ctx.add_residence_for_object(output_obj, output_reg, output_value.device());
-
-                        if output_value.device() == DeterminedDevice::Gpu {
-                            if let Some(&addr_id) = ctx.gpu_reg2addr.get(&inplace_reg) {
-                                ctx.set_gpu_addr_id_for_obj(output_obj, addr_id);
-                                ctx.set_gpu_addr_id_for_reg(output_reg, addr_id);
-                            } else {
-                                return Err(Error::VertexInputsAndOutputsNotAccommodated(vid))
-                            }
-                        }
-                        Ok((output_reg, Some(inplace_reg)))
-                    } else {
-                        if DEBUG {
-                            println!(
-                                "[MP.plan] {:?} in {:?} is output of {:?}",
-                                output_value, output_reg, vid
-                            )
-                        }
-
-                        let size = imctx.obj_size(output_obj);
-                        allocate(
-                            output_value.device(),
-                            output_reg,
-                            output_obj,
-                            obj_gpu_next_use
-                                .first_use_of(output_obj)
-                                .unwrap_or(Instant(usize::MAX)),
-                            size,
-                            &mut gpu_allocator,
-                            &mut code,
-                            &mut ctx,
-                            &imctx,
-                        )?;
-                        Ok((output_reg, None))
+                    if DEBUG {
+                        println!(
+                            "[MP.plan] {:?} in {:?} replacing {:?} at {:?} is output of {:?}",
+                            output_value, output_reg, inplace_reg, inplace, vid
+                        );
                     }
-                })
-                .collect::<Result<Vec<_>, _>>()?;
 
-            if !check_values_ready(
-                imctx
-                    .vertex_inputs
-                    .input_of(vid)
-                    .map(|vv| vv.iter())
-                    .flatten()
-                    .filter(|v| !ctx.inplace_obj.contains_key(&v.object_id()))
-                    .chain(imctx.obj_def.values[&vid].iter()),
-                &ctx,
-            ) {
-                return Err(Error::VertexInputsAndOutputsNotAccommodated(vid));
-            }
+                    ctx.add_residence_for_object(output_obj, output_reg, output_value.device());
 
-            output_registers
-        };
+                    if output_value.device() == DeterminedDevice::Gpu {
+                        if let Some(&addr_id) = ctx.gpu_reg2addr.get(&inplace_reg) {
+                            ctx.set_gpu_addr_id_for_obj(output_obj, addr_id);
+                            ctx.set_gpu_addr_id_for_reg(output_reg, addr_id);
+                        } else {
+                            return Err(Error::VertexInputsAndOutputsNotAccommodated(vid));
+                        }
+                    }
+                    Ok((output_reg, Some(inplace_reg)))
+                } else {
+                    if DEBUG {
+                        println!(
+                            "[MP.plan] {:?} in {:?} is output of {:?}",
+                            output_value, output_reg, vid
+                        )
+                    }
 
-        let temp_register_obj = if let Some((temp_space_sizes, temp_space_device)) =
-            cg.temporary_space_needed(vid, &mut libs)
-        {
-            let rs = temp_space_sizes
-                .into_iter()
-                .map(|temp_space_size| {
-                    let temp_register =
-                        code.alloc_register_id(Typ::GpuBuffer(temp_space_size as usize));
-                    let temp_obj = obj_id_allocator.alloc();
+                    let size = imctx.obj_size(output_obj);
                     allocate(
-                        temp_space_device,
-                        temp_register,
-                        temp_obj,
-                        now,
-                        Size::Smithereen(SmithereenSize(temp_space_size)),
-                        &mut gpu_allocator,
-                        &mut code,
-                        &mut ctx,
+                        output_value.device(),
+                        output_reg,
+                        output_obj,
+                        imctx
+                            .obj_gpu_next_use
+                            .first_use_of(output_obj)
+                            .unwrap_or(Instant(usize::MAX)),
+                        size,
+                        gpu_allocator,
+                        code,
+                        ctx,
                         &imctx,
                     )?;
-                    Ok((temp_register, temp_obj, temp_space_device))
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            Some(rs)
-        } else {
-            None
-        };
+                    Ok((output_reg, None))
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()?;
 
-        // Emit vertex
-
-        let uses: Vec<VertexId> = v.uses().collect();
-        let v3 = v.node().relabeled(|input_vid| {
-            uses.iter()
-                .zip(input_registers.iter())
-                .find(|(vid, _)| **vid == input_vid)
-                .map(|(_, &reg)| reg)
-                .unwrap()
-        });
+        if !check_values_ready(
+            imctx
+                .vertex_inputs
+                .input_of(vid)
+                .map(|vv| vv.iter())
+                .flatten()
+                .filter(|v| !ctx.inplace_obj.contains_key(&v.object_id()))
+                .chain(imctx.obj_def.values[&vid].iter()),
+            &ctx,
+        ) {
+            return Err(Error::VertexInputsAndOutputsNotAccommodated(vid));
+        }
 
         output_registers
-            .iter()
-            .zip(v.typ().iter())
-            .for_each(|((output_reg, _), typ)| {
-                register_types.insert(*output_reg, typ.clone());
-            });
+    };
 
-        code.emit(Instruction::new(
-            InstructionNode::Type2 {
-                ids: output_registers.clone(),
-                temp: temp_register_obj
-                    .as_ref()
-                    .map_or_else(Vec::new, |ros| ros.iter().map(|(reg, ..)| *reg).collect()),
-                vertex: v3,
-                vid,
-            },
-            v.src().clone(),
-        ));
+    let temp_register_obj = if let Some((temp_space_sizes, temp_space_device)) =
+        cg.temporary_space_needed(vid, libs)
+    {
+        let rs = temp_space_sizes
+            .into_iter()
+            .map(|temp_space_size| {
+                let temp_register =
+                    code.alloc_register_id(Typ::GpuBuffer(temp_space_size as usize));
+                let temp_obj = obj_id_allocator.alloc();
+                allocate(
+                    temp_space_device,
+                    temp_register,
+                    temp_obj,
+                    now,
+                    Size::Smithereen(SmithereenSize(temp_space_size)),
+                    gpu_allocator,
+                    code,
+                    ctx,
+                    &imctx,
+                )?;
+                Ok((temp_register, temp_obj, temp_space_device))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Some(rs)
+    } else {
+        None
+    };
 
-        // Deallocate temporary space
-        for (_, temp_obj, temp_device) in temp_register_obj.unwrap_or_default().into_iter() {
-            deallocate(
-                temp_device,
-                temp_obj,
-                &mut gpu_allocator,
-                &mut code,
-                &mut ctx,
+    // Emit vertex
+
+    let uses: Vec<VertexId> = v.uses().collect();
+    let v3 = v.node().relabeled(|input_vid| {
+        uses.iter()
+            .zip(input_registers.iter())
+            .find(|(vid, _)| **vid == input_vid)
+            .map(|(_, &reg)| reg)
+            .unwrap()
+    });
+
+    output_registers
+        .iter()
+        .zip(v.typ().iter())
+        .for_each(|((output_reg, _), typ)| {
+            register_types.insert(*output_reg, typ.clone());
+        });
+
+    code.emit(Instruction::new(
+        InstructionNode::Type2 {
+            ids: output_registers.clone(),
+            temp: temp_register_obj
+                .as_ref()
+                .map_or_else(Vec::new, |ros| ros.iter().map(|(reg, ..)| *reg).collect()),
+            vertex: v3,
+            vid,
+        },
+        v.src().clone(),
+    ));
+
+    // Deallocate temporary space
+    for (_, temp_obj, temp_device) in temp_register_obj.unwrap_or_default().into_iter() {
+        deallocate(temp_device, temp_obj, gpu_allocator, code, ctx);
+    }
+
+    // We can't deallocate those objects that dies exactly after return vertex, as they are returned.
+    // Though this doesn't matter as the runtime should exit immediately at seeing a return instruction.
+    if v.node().is_return() {
+        return Ok(true);
+    }
+
+    // Deallocate used tuple register
+    for tuple_reg in tuple_registers.into_iter() {
+        code.emit(Instruction::new_no_src(InstructionNode::StackFree {
+            id: tuple_reg,
+        }));
+    }
+
+    // Deallocate dead register
+    deallocate_dead_objects(
+        imctx.obj_dies_after_reversed.after(vid),
+        gpu_allocator,
+        code,
+        ctx,
+    );
+
+    // Update next_uses on GPU integral allocator
+    for (obj, next_use) in updated_next_uses {
+        let _updated = gpu_allocator.update_next_use(obj, next_use, ctx);
+    }
+    // For inplace outputs of this vertex, update their next use to first use of the new object
+    for output_reg in output_registers
+        .into_iter()
+        .filter_map(|(r, inplace)| inplace.map(|_| r))
+    {
+        let obj = ctx.reg2obj[&output_reg];
+        if let Some(first_use) = imctx.obj_gpu_next_use.first_use_of(obj) {
+            if DEBUG {
+                println!("[MP.plan] Inplace output {:?} has {:?}, next_use updated to its first use at {:?}", output_reg, obj, first_use)
+            }
+            let _updated = gpu_allocator.update_next_use(obj, first_use, ctx);
+        } else {
+            if DEBUG {
+                println!("[MP.plan] Inplace output {:?} has {:?}, no next_use updated since it's never used on GPU", output_reg, obj);
+            }
+        }
+    }
+
+    Ok(false)
+}
+
+pub fn plan<'s, Rt: RuntimeType>(
+    capacity: u64,
+    cg: &Cg<'s, Rt>,
+    g: &SubDigraph<'_, VertexId, super::Vertex<'s, Rt>>,
+    seq: &[VertexId],
+    obj_dies_after: &ObjectsDieAfter,
+    obj_dies_after_reversed: &ObjectsDieAfterReversed,
+    obj_def: &ObjectsDef,
+    obj_gpu_next_use: &ObjectsGpuNextUse,
+    vertex_inputs: &ObjectUse,
+    devices: &BTreeMap<VertexId, Device>,
+    uf_table: &user_function::Table<Rt>,
+    obj_id_allocator: &mut IdAllocator<ObjectId>,
+    mut libs: Libs,
+) -> Result<Chunk<'s, Rt>, Error> {
+    let integral_sizes = collect_integral_sizes(cg, &g, &mut libs);
+
+    if DEBUG {
+        println!("[MP.plan] Integral sizes: {:?}", &integral_sizes);
+    }
+
+    let (ispace, sspace) =
+        divide_integral_smithereens(capacity, integral_sizes.last().unwrap().clone());
+
+    if DEBUG {
+        println!("[MP.plan] Integral space: {:?}", &ispace);
+        println!("[MP.plan] Smithereens space: {:?}", &sspace);
+    }
+
+    let mut gpu_allocator = GpuAllocator {
+        ialloc: integral_allocator::regretting::Allocator::new(ispace, integral_sizes),
+        salloc: smithereens_allocator::Allocator::new(sspace),
+    };
+
+    let mut ctx = Context {
+        gpu_obj2addr: Bijection::new(),
+        gpu_addr_mapping: AddrMapping::new(),
+        gpu_reg2addr: BTreeMap::new(),
+        object_residence: BTreeMap::new(),
+        reg_device: BTreeMap::new(),
+        reg2obj: BTreeMap::new(),
+        inplace_obj: BTreeMap::new(),
+    };
+    let mut register_types = BTreeMap::new();
+    let imctx = ImmutableContext {
+        obj_def,
+        obj_dies_after,
+        obj_dies_after_reversed,
+        obj_gpu_next_use,
+        vertex_inputs,
+    };
+
+    let mut code = Code::new();
+
+    for ((i, &vid), updated_next_uses) in seq
+        .iter()
+        .enumerate()
+        .zip(imctx.obj_gpu_next_use.iter_updates())
+    {
+        if g.vertex(vid).is_virtual() {
+            continue;
+        }
+
+        let now = Instant(i);
+        gpu_allocator.tick(now);
+        let exe_device = devices[&vid];
+
+        if DEBUG {
+            println!(
+                "[MP.plan] Scheduling {:?} on {:?} at {:?}",
+                vid, exe_device, now
             );
         }
 
-        // We can't deallocate those objects that dies exactly after return vertex, as they are returned.
-        // Though this doesn't matter as the runtime should exit immediately at seeing a return instruction.
-        if v.node().is_return() {
-            break;
-        }
-
-        // Deallocate used tuple register
-        for tuple_reg in tuple_registers.into_iter() {
-            code.emit(Instruction::new_no_src(InstructionNode::StackFree {
-                id: tuple_reg,
-            }));
-        }
-
-        // Deallocate dead register
-        deallocate_dead_objects(
-            obj_dies_after_reversed.after(vid),
-            &mut gpu_allocator,
-            &mut code,
+        if plan_vertex(
+            vid,
+            exe_device,
+            now,
+            updated_next_uses,
+            cg,
+            g,
             &mut ctx,
-        );
-
-        // Update next_uses on GPU integral allocator
-        for (obj, next_use) in updated_next_uses {
-            let _updated = gpu_allocator.update_next_use(obj, next_use, &mut ctx);
-        }
-        // For inplace outputs of this vertex, update their next use to first use of the new object
-        for output_reg in output_registers
-            .into_iter()
-            .filter_map(|(r, inplace)| inplace.map(|_| r))
+            &mut register_types,
+            &imctx,
+            &mut code,
+            &mut gpu_allocator,
+            uf_table,
+            obj_id_allocator,
+            &mut libs
+        )
+        .map_err(|e| e.try_with_vid(vid))?
         {
-            let obj = ctx.reg2obj[&output_reg];
-            if let Some(first_use) = obj_gpu_next_use.first_use_of(obj) {
-                if DEBUG {
-                    println!("[MP.plan] Inplace output {:?} has {:?}, next_use updated to its first use at {:?}", output_reg, obj, first_use)
-                }
-                let _updated = gpu_allocator.update_next_use(obj, first_use, &mut ctx);
-            } else {
-                if DEBUG {
-                    println!("[MP.plan] Inplace output {:?} has {:?}, no next_use updated since it's never used on GPU", output_reg, obj);
-                }
-            }
+            break;
         }
     }
 

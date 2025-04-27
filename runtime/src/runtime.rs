@@ -242,11 +242,13 @@ impl<T: RuntimeType> RuntimeInfo<T> {
 
                     let args_mut: Vec<_> = arg_mut_holder
                         .iter_mut()
-                        .map(|guard| guard.as_mut().unwrap())
+                        .zip(arg_mut.iter())
+                        .map(|(guard, r_mut)| guard.as_mut().unwrap_or_else(|| panic!("{:?} is undefined", r_mut)))
                         .collect();
                     let args: Vec<_> = arg_holder
                         .iter()
-                        .map(|guard| guard.as_ref().unwrap())
+                        .zip(arg.iter())
+                        .map(|(guard, r)| guard.as_ref().unwrap_or_else(|| panic!("{:?} is undefined", r)))
                         .collect();
 
                     function_name = Some((*self.funcs)[func_id].meta.name.clone());

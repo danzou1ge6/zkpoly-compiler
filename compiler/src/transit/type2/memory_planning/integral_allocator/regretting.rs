@@ -692,7 +692,7 @@ impl Allocator {
         size: IntegralSize,
         next_use: Instant,
         mapping: &mut impl AddrMappingHandler,
-    ) -> (AddrId, Vec<AddrId>) {
+    ) -> Option<(AddrId, Vec<AddrId>)> {
         let lbs = size.0;
 
         if DEBUG {
@@ -709,6 +709,7 @@ impl Allocator {
                     .filter_map(|(addr, block)| {
                         block.status.try_next_use().map(|nu| (addr, nu))
                     })
+                    .filter(|(_, next_use) |*next_use != self.now)
                     .max_by_key(|(_, next_use)| *next_use)
             })
             .flatten()
@@ -736,20 +737,20 @@ impl Allocator {
                 println!("{:#?}", self)
             }
 
-            return (addr_id, occupied_blocks);
+            return Some((addr_id, occupied_blocks));
         }
 
         // Otherwise, try find a occupied or splitted block of bigger size
         if let Some(parent_lbs) = self.parent_lbs(lbs) {
-            let (addr_id, victims) = self.decide_and_realloc_victim(IntegralSize(parent_lbs), next_use, mapping);
+            let (addr_id, victims) = self.decide_and_realloc_victim(IntegralSize(parent_lbs), next_use, mapping)?;
             let (Addr(parent_addr), _) = mapping.get(addr_id);
 
             let addr = self.subdivide_parent_and_alloc_first(parent_addr, parent_lbs, next_use.0, mapping);
             let addr_id = self.addr_id_of(addr, lbs);
 
-            (addr_id, victims)
+            Some((addr_id, victims))
         } else {
-            panic!("fail to find any victim block: allocator is empty")
+            None
         }
     }
 
@@ -874,7 +875,7 @@ mod test {
                     IntegralSize(log_size),
                     Instant(t + next_use_after_alloc),
                     &mut handler,
-                );
+                ).unwrap_or_else(|| panic!("no valid victim"));
                 let _ = victims.into_iter().map(|v| ejected.insert(v));
                 addr_id
             };
