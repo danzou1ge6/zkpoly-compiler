@@ -489,7 +489,7 @@ where
     C: Clone,
     E: Clone,
 {
-    pub fn relabeled<I2: Default>(
+    pub fn relabeled<I2: Default + Ord + std::fmt::Debug + Clone>(
         &self,
         mut mapping: impl FnMut(I) -> I2,
     ) -> template::VertexNode<I2, arith::ArithGraph<I2, arith::ExprId>, C, E> {
