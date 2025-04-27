@@ -22,7 +22,7 @@ use zkpoly_core::poly::{
 use zkpoly_runtime::args::{RuntimeType, Variable, VariableId};
 use zkpoly_runtime::error::RuntimeError;
 use zkpoly_runtime::functions::{
-    FuncMeta, FunctionId, FunctionTable, KernelType, RegisteredFunction,
+    FuncMeta, FunctionId, FunctionTable, FusedKernelMeta, KernelType, RegisteredFunction
 };
 
 use super::super::template::InstructionNode;
@@ -30,11 +30,11 @@ use super::super::{Chunk, InstructionIndex, VertexNode};
 
 pub fn kernel_type_from_vertex(
     vertex: &VertexNode,
-    fuse_name: Option<&String>,
+    fuse_meta: Option<&FusedKernelMeta>,
 ) -> Option<KernelType> {
     assert!(!vertex.unexpcted_during_kernel_gen());
     match vertex {
-        VertexNode::Arith { .. } => Some(KernelType::FusedArith(fuse_name.unwrap().to_string())),
+        VertexNode::Arith { .. } => Some(KernelType::FusedArith(fuse_meta.unwrap().clone())),
         VertexNode::Ntt { alg, .. } => match alg {
             NttAlgorithm::Standard { .. } => Some(KernelType::NttRecompute),
             NttAlgorithm::Precomputed { .. } => Some(KernelType::NttPrcompute),
@@ -74,7 +74,7 @@ pub fn kernel_type_from_vertex(
 }
 pub fn kernel_type_from_inst(
     inst: &type3::Instruction,
-    fuse_name: Option<&String>,
+    fuse_meta: Option<&FusedKernelMeta>,
 ) -> Option<KernelType> {
     match &inst.node {
         type3::InstructionNode::FillPoly { init, pty, .. } => match (init, pty) {
@@ -82,7 +82,7 @@ pub fn kernel_type_from_inst(
             (PolyInit::Ones, PolyType::Lagrange) => Some(KernelType::NewOneLagrange),
             (PolyInit::Ones, PolyType::Coef) => Some(KernelType::NewOneCoef),
         },
-        type3::InstructionNode::Type2 { vertex, .. } => kernel_type_from_vertex(vertex, fuse_name),
+        type3::InstructionNode::Type2 { vertex, .. } => kernel_type_from_vertex(vertex, fuse_meta),
         _ => None,
     }
 }
@@ -92,24 +92,39 @@ const FUSED_PERFIX: &str = "fused_arith_";
 pub fn gen_fused_kernels<'s, Rt: RuntimeType>(
     program: &Chunk<'s, Rt>,
     reg_id2var_id: &impl Fn(RegisterId) -> VariableId,
-) -> BTreeMap<InstructionIndex, String> {
+) -> BTreeMap<InstructionIndex, FusedKernelMeta> {
     let mut cache = HashMap::new();
     let mut inst_idx2name = BTreeMap::new();
 
     // first pass to generate fused arith kernels
     for (idx, instruct) in program.iter_instructions() {
-        if let InstructionNode::Type2 { vertex, .. } = &instruct.node {
+        if let InstructionNode::Type2 { ids,vertex, .. } = &instruct.node {
             if let VertexNode::Arith { arith, .. } = vertex {
                 let normalized = arith::hash::NormalizedDag::from(arith);
-                let (name, _op, included_indices) = cache.entry(normalized).or_insert_with(|| {
+                let (name, op, included_indices) = cache.entry(normalized).or_insert_with(|| {
                     let arith = arith.relabeled(|r| reg_id2var_id(r));
                     let id: usize = idx.into();
                     let name = format!("{FUSED_PERFIX}{id}");
-                    let op = FusedOp::new(arith, name.clone()); // generate fused kernel
+                    let outputs_i2o = arith
+                        .outputs
+                        .iter()
+                        .copied()
+                        .zip((*ids).clone().into_iter().map(|(ra, rb)| {
+                            // see def in InstructionNode::Type2
+                            if rb.is_some() {
+                                reg_id2var_id(rb.unwrap()) // in-place should reuse the input variable
+                            } else {
+                                reg_id2var_id(ra) // otherwise, create a new variable
+                            }
+                        }))
+                        .collect();
+                    let op = FusedOp::new(arith, name.clone(), outputs_i2o); // generate fused kernel
                     (name, op, vec![])
+                    // let op = FusedOp::new(arith, name.clone()); // generate fused kernel
+                    // (name, op, vec![])
                 });
                 included_indices.push(idx);
-                inst_idx2name.insert(idx, name.clone());
+                inst_idx2name.insert(idx, FusedKernelMeta { name: name.to_string(), num_vars: op.vars.len(), num_mut_vars: op.mut_vars.len() });
             }
         }
     }
@@ -293,8 +308,8 @@ pub fn load_function<Rt: RuntimeType>(
             let scan_mul = PolyScan::new(libs);
             scan_mul.get_fn()
         }
-        KernelType::FusedArith(name) => {
-            let fuse_kernel = FusedKernel::new(libs, name.to_string());
+        KernelType::FusedArith(meta) => {
+            let fuse_kernel = FusedKernel::new(libs, meta.clone());
             fuse_kernel.get_fn()
         }
         KernelType::Interpolate => {

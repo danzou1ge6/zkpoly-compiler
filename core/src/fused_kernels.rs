@@ -1,3 +1,4 @@
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Read, Write};
 use std::{
     any::type_name,
@@ -8,6 +9,7 @@ use std::{
 };
 
 use libloading::Symbol;
+use zkpoly_common::arith::Mutability;
 use zkpoly_common::{
     arith::{Arith, ArithBinOp, ArithGraph, ArithUnrOp, BinOp, FusedType, Operation, SpOp, UnrOp},
     get_project_root::get_project_root,
@@ -22,6 +24,8 @@ use zkpoly_cuda_api::{
     },
     cuda_check,
 };
+use zkpoly_runtime::functions::FusedKernelMeta;
+use zkpoly_runtime::runtime::assert_eq;
 use zkpoly_runtime::runtime::transfer::Transfer;
 use zkpoly_runtime::scalar::{Scalar, ScalarArray};
 use zkpoly_runtime::{
@@ -41,7 +45,7 @@ pub mod scheduler;
 
 pub struct FusedKernel<T: RuntimeType> {
     _marker: PhantomData<T>,
-    pub name: String,
+    pub meta: FusedKernelMeta,
     pub c_func: Symbol<
         'static,
         unsafe extern "C" fn(
@@ -52,6 +56,8 @@ pub struct FusedKernel<T: RuntimeType> {
         ) -> cudaError_t,
     >,
 }
+
+
 
 // all input/output are on cpu
 pub struct PipelinedFusedKernel<T: RuntimeType> {
@@ -64,22 +70,78 @@ pub struct PipelinedFusedKernel<T: RuntimeType> {
 pub struct FusedOp<OuterId, InnerId> {
     graph: ArithGraph<OuterId, InnerId>,
     name: String,
-    vars: Vec<(FusedType, InnerId)>,
-    mut_vars: Vec<(FusedType, InnerId)>,
+    pub vars: Vec<(FusedType, OuterId)>,
+    pub mut_vars: Vec<(FusedType, OuterId)>,
+    outputs_i2o: BTreeMap<InnerId, OuterId>,
 }
 
 const TMP_PREFIX: &str = "tmp";
 const SCALAR_PREFIX: &str = "var";
 const ITER_PREFIX: &str = "iter";
 
+pub fn gen_var_lists<OuterId: Ord + Copy, InnerId: UsizeId>(
+    outputs: impl Iterator<Item = OuterId>,
+    graph: &ArithGraph<OuterId, InnerId>,
+) -> (Vec<(FusedType, OuterId)>, Vec<(FusedType, OuterId)>) {
+    let mut vars = Vec::new();
+    let mut mut_vars = Vec::new();
+    let mut var_set = BTreeSet::new();
+    for inner_id in graph.inputs.iter() {
+        if let Operation::Input {
+            outer_id,
+            typ,
+            mutability,
+        } = &graph.g.vertex(*inner_id).op
+        {
+            if var_set.get(outer_id).is_none() {
+                var_set.insert(*outer_id);
+                let outer_id = (*outer_id).clone();
+                match (typ, mutability) {
+                    (FusedType::Scalar, Mutability::Const) => {
+                        vars.push((FusedType::Scalar, outer_id))
+                    }
+                    (FusedType::Scalar, Mutability::Mut) => {
+                        mut_vars.push((FusedType::Scalar, outer_id))
+                    }
+                    (FusedType::ScalarArray, Mutability::Const) => {
+                        vars.push((FusedType::ScalarArray, outer_id))
+                    }
+                    (FusedType::ScalarArray, Mutability::Mut) => {
+                        mut_vars.push((FusedType::ScalarArray, outer_id))
+                    }
+                }
+            }
+        } else {
+            unreachable!("input should be an Operation::Input");
+        }
+    }
+    for (inner_id, outer_id) in graph.outputs.iter().zip(outputs) {
+        if let Operation::Output { typ, .. } = &graph.g.vertex(*inner_id).op {
+            if var_set.get(&outer_id).is_none() {
+                var_set.insert(outer_id);
+                let outer_id = (outer_id).clone();
+                match typ {
+                    FusedType::Scalar => mut_vars.push((FusedType::Scalar, outer_id)),
+                    FusedType::ScalarArray => mut_vars.push((FusedType::ScalarArray, outer_id)),
+                }
+            }
+        } else {
+            unreachable!("output should be an Operation::Output");
+        }
+    }
+    (vars, mut_vars)
+}
+
 impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
-    pub fn new(graph: ArithGraph<OuterId, InnerId>, name: String) -> Self {
-        let (vars, mut_vars) = graph.gen_var_lists();
+    pub fn new(graph: ArithGraph<OuterId, InnerId>, name: String, outputs_i2o: BTreeMap<InnerId, OuterId>,
+    ) -> Self {
+        let (vars, mut_vars) = gen_var_lists(graph.outputs.iter().map(|i| outputs_i2o[i]), &graph);
         Self {
             graph,
             name,
             vars,
             mut_vars,
+            outputs_i2o,
         }
     }
 
@@ -254,7 +316,7 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                     typ, store_node, ..
                 } => {
                     let src: usize = store_node.clone().into();
-                    let id: usize = head.clone().into();
+                    let id: usize = self.outputs_i2o[&head].clone().into();
                     match typ {
                         FusedType::Scalar => {
                             kernel += &format!("*{SCALAR_PREFIX}{id} = {TMP_PREFIX}{src};\n");
@@ -264,16 +326,17 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                         }
                     }
                 }
-                Operation::Input { typ, .. } => {
+                Operation::Input { outer_id, typ, .. } => {
+                    let id = outer_id.clone().into();
                     let head = head.clone().into();
                     match typ {
                         FusedType::Scalar => {
-                            kernel +=
-                                &format!("auto {TMP_PREFIX}{head} = *{SCALAR_PREFIX}{head};\n");
+                            kernel += &format!("auto {TMP_PREFIX}{head} = *{SCALAR_PREFIX}{id};\n");
+
                         }
                         FusedType::ScalarArray => {
                             kernel +=
-                                &format!("auto {TMP_PREFIX}{head} = {ITER_PREFIX}{head}[idx];\n");
+                            &format!("auto {TMP_PREFIX}{head} = {ITER_PREFIX}{id}[idx];\n");
                         }
                     }
                 }
@@ -439,7 +502,7 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
 }
 
 impl<T: RuntimeType> FusedKernel<T> {
-    pub fn new(libs: &mut Libs, name: String) -> Self {
+    pub fn new(libs: &mut Libs, meta: FusedKernelMeta) -> Self {
         if !libs.contains(LIB_NAME) {
             let field_type = resolve_type(type_name::<T::Field>());
             xmake_config("FUSED_FIELD", field_type);
@@ -447,11 +510,11 @@ impl<T: RuntimeType> FusedKernel<T> {
         }
         let lib = libs.load(LIB_NAME);
         // get the function pointer with the provided name (with null terminator)
-        let c_func = unsafe { lib.get(format!("{}\0", name).as_bytes()) }
+        let c_func = unsafe { lib.get(format!("{}\0", meta.name).as_bytes()) }
             .expect("Failed to load function pointer");
         Self {
             _marker: PhantomData,
-            name,
+            meta,
             c_func,
         }
     }
@@ -460,10 +523,13 @@ impl<T: RuntimeType> FusedKernel<T> {
 impl<T: RuntimeType> RegisteredFunction<T> for FusedKernel<T> {
     fn get_fn(&self) -> Function<T> {
         let c_func = self.c_func.clone();
+        let meta = self.meta.clone();
         let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
                               var: Vec<&Variable<T>>|
               -> Result<(), RuntimeError> {
             let mut len = 0;
+            assert_eq!(meta.num_vars, var.len() - 1);
+            assert_eq!(meta.num_mut_vars, mut_var.len());
             let stream = var[0].unwrap_stream();
             let vars = var
                 .iter()
@@ -531,7 +597,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for FusedKernel<T> {
             Ok(())
         };
         Function {
-            meta: FuncMeta::new(self.name.clone(), KernelType::FusedArith(self.name.clone())),
+            meta: FuncMeta::new(self.meta.name.clone(), KernelType::FusedArith(self.meta.clone())),
             f: FunctionValue::Fn(Box::new(rust_func)),
         }
     }
@@ -540,7 +606,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for FusedKernel<T> {
 impl<T: RuntimeType> PipelinedFusedKernel<T> {
     pub fn new(
         libs: &mut Libs,
-        name: String,
+        meta: FusedKernelMeta,
         len: usize,
         divide_parts: usize,
         num_scalars: usize,
@@ -552,7 +618,7 @@ impl<T: RuntimeType> PipelinedFusedKernel<T> {
             "len must be a multiple of divide_parts"
         );
         Self {
-            kernel: FusedKernel::new(libs, name),
+            kernel: FusedKernel::new(libs, meta),
             divide_parts,
             num_scalars,
             num_mut_scalars,
