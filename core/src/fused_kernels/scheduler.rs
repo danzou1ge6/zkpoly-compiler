@@ -4,7 +4,7 @@ use zkpoly_common::{arith::ArithGraph, heap::UsizeId};
 
 pub fn schedule<OuterId: UsizeId, InnerId: UsizeId + 'static>(
     ag: &ArithGraph<OuterId, InnerId>,
-) -> Vec<InnerId> {
+) -> (Vec<InnerId>, usize) {
     // reference: Optimal and Heuristic Min-Reg Scheduling Algorithms for GPU Programs, Algorithm 2
     // https://arxiv.org/abs/2303.06855
     let succ = ag.g.successors(); // follow the name in the paper
@@ -91,8 +91,25 @@ pub fn schedule<OuterId: UsizeId, InnerId: UsizeId + 'static>(
     );
 
     schedule.reverse();
-    schedule
-        .iter()
-        .map(|id| InnerId::from(*id))
-        .collect::<Vec<_>>()
+
+    // calculate the reg pressure
+    let mut present_reg: usize = 0;
+    let mut max_reg: usize = 0;
+    for id in schedule.iter() {
+        cur_step = cur_step + 1;
+        present_reg += def_sz[*id] as usize;
+        for child_id in ag.g.vertex(InnerId::from(id.clone())).uses() {
+            if live_ts[child_id.into()] <= cur_step.try_into().unwrap() {
+                present_reg -= def_sz[child_id.into()] as usize;
+            }
+        }
+        max_reg = max_reg.max(present_reg);
+    }
+    (
+        schedule
+            .iter()
+            .map(|id| InnerId::from(*id))
+            .collect::<Vec<_>>(),
+        max_reg,
+    )
 }

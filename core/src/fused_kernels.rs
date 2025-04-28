@@ -25,7 +25,6 @@ use zkpoly_cuda_api::{
     cuda_check,
 };
 use zkpoly_runtime::functions::FusedKernelMeta;
-use zkpoly_runtime::runtime::assert_eq;
 use zkpoly_runtime::runtime::transfer::Transfer;
 use zkpoly_runtime::scalar::{Scalar, ScalarArray};
 use zkpoly_runtime::{
@@ -57,8 +56,6 @@ pub struct FusedKernel<T: RuntimeType> {
     >,
 }
 
-
-
 // all input/output are on cpu
 pub struct PipelinedFusedKernel<T: RuntimeType> {
     kernel: FusedKernel<T>,
@@ -73,6 +70,7 @@ pub struct FusedOp<OuterId, InnerId> {
     pub vars: Vec<(FusedType, OuterId)>,
     pub mut_vars: Vec<(FusedType, OuterId)>,
     outputs_i2o: BTreeMap<InnerId, OuterId>,
+    limbs: usize,
 }
 
 const TMP_PREFIX: &str = "tmp";
@@ -133,7 +131,11 @@ pub fn gen_var_lists<OuterId: Ord + Copy, InnerId: UsizeId>(
 }
 
 impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
-    pub fn new(graph: ArithGraph<OuterId, InnerId>, name: String, outputs_i2o: BTreeMap<InnerId, OuterId>,
+    pub fn new(
+        graph: ArithGraph<OuterId, InnerId>,
+        name: String,
+        outputs_i2o: BTreeMap<InnerId, OuterId>,
+        limbs: usize,
     ) -> Self {
         let (vars, mut_vars) = gen_var_lists(graph.outputs.iter().map(|i| outputs_i2o[i]), &graph);
         Self {
@@ -142,6 +144,7 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
             vars,
             mut_vars,
             outputs_i2o,
+            limbs,
         }
     }
 
@@ -256,12 +259,24 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
     fn gen_kernel(&self) -> String {
         let mut kernel = String::new();
 
+        let (schedule, regs) = scheduler::schedule(&self.graph);
+
+        let u32_regs = regs * self.limbs;
+
+        let launch_bounds = if u32_regs < 128 {
+            1024
+        } else if u32_regs < 256 {
+            512
+        } else {
+            256
+        };
+
         // generate kernel namespace
         kernel.push_str("namespace detail {\n");
 
         // generate kernel signature
         kernel.push_str("template <typename Field>\n");
-        kernel.push_str("__global__ void ");
+        kernel += &format!("__launch_bounds__({launch_bounds}) __global__ void ");
         kernel.push_str(&self.name);
         kernel.push_str("(");
 
@@ -306,8 +321,6 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
         kernel += "unsigned long long idx = blockIdx.x * blockDim.x + threadIdx.x;\n";
         kernel += "if (idx >= len) return;\n";
 
-        let schedule = scheduler::schedule(&self.graph);
-
         // topological ordering
         for head in schedule {
             let vertex = self.graph.g.vertex(head.clone());
@@ -332,11 +345,10 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                     match typ {
                         FusedType::Scalar => {
                             kernel += &format!("auto {TMP_PREFIX}{head} = *{SCALAR_PREFIX}{id};\n");
-
                         }
                         FusedType::ScalarArray => {
                             kernel +=
-                            &format!("auto {TMP_PREFIX}{head} = {ITER_PREFIX}{id}[idx];\n");
+                                &format!("auto {TMP_PREFIX}{head} = {ITER_PREFIX}{id}[idx];\n");
                         }
                     }
                 }
@@ -597,7 +609,10 @@ impl<T: RuntimeType> RegisteredFunction<T> for FusedKernel<T> {
             Ok(())
         };
         Function {
-            meta: FuncMeta::new(self.meta.name.clone(), KernelType::FusedArith(self.meta.clone())),
+            meta: FuncMeta::new(
+                self.meta.name.clone(),
+                KernelType::FusedArith(self.meta.clone()),
+            ),
             f: FunctionValue::Fn(Box::new(rust_func)),
         }
     }
@@ -843,8 +858,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
         };
         Function {
             meta: FuncMeta::new(
-                self.kernel.name.clone(),
-                KernelType::FusedArith(self.kernel.name.clone()),
+                self.kernel.meta.name.clone(),
+                KernelType::FusedArith(self.kernel.meta.clone()),
             ),
             f: FunctionValue::Fn(Box::new(rust_func)),
         }

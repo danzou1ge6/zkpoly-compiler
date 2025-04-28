@@ -118,7 +118,8 @@ pub fn gen_fused_kernels<'s, Rt: RuntimeType>(
                             }
                         }))
                         .collect();
-                    let op = FusedOp::new(arith, name.clone(), outputs_i2o); // generate fused kernel
+                    let limbs = size_of::<Rt::Field>() / size_of::<u32>();
+                    let op = FusedOp::new(arith, name.clone(), outputs_i2o, limbs); // generate fused kernel
                     (name, op, vec![])
                     // let op = FusedOp::new(arith, name.clone()); // generate fused kernel
                     // (name, op, vec![])
