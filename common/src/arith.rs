@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, BTreeMap};
 
 use crate::{
     define_usize_id,
@@ -372,22 +372,34 @@ where
         });
         Box::new(results.into_iter())
     }
+    pub fn relabeled<I2: Default + Ord + std::fmt::Debug + Clone>(
 
-    pub fn relabeled<I2: Default>(
         &self,
         mut mapping: impl FnMut(OuterId) -> I2,
     ) -> ArithGraph<I2, ArithIndex> {
-        let heap = self.g.map_by_ref(&mut |_, v| {
+        let mut inner_id_mapping = BTreeMap::new();
+        let mut outer_ids = BTreeMap::new();
+        let heap = self.g.map_by_ref(&mut |inner_id, v| {
             let op = match &v.op {
                 Operation::Input {
                     outer_id,
                     typ,
                     mutability,
-                } => Operation::Input {
-                    outer_id: mapping(*outer_id),
-                    typ: typ.clone(),
-                    mutability: mutability.clone(),
-                },
+                } => {
+                    // manage the dulicate mapped outer id
+                    let new_outer_id = mapping(*outer_id);
+                    if outer_ids.contains_key(&new_outer_id) {
+                        inner_id_mapping.insert(inner_id, *outer_ids.get(&new_outer_id).unwrap());
+                        Operation::Todo // remove the duplicate node
+                    } else {
+                        outer_ids.insert(new_outer_id, inner_id);
+                        Operation::Input {
+                            outer_id: mapping(*outer_id),
+                            typ: typ.clone(),
+                            mutability: mutability.clone(),
+                        }
+                    }
+                }
                 Operation::Arith(arith) => Operation::Arith(arith.clone()),
                 Operation::Output {
                     typ,
@@ -407,9 +419,59 @@ where
             ArithVertex { op }
         });
 
+        let mut inner_mapping = |origin_id| {
+            let new_id = inner_id_mapping.get(&origin_id);
+            if let Some(new_id) = new_id {
+                new_id.clone()
+            } else {
+                origin_id
+            }
+        };
+
+        // relabel the inner id
+        let heap = heap.map_by_ref(&mut |_: ArithIndex, v| {
+            let op = match &v.op {
+                Operation::Arith(arith) => Operation::Arith(arith.relabeled(&mut inner_mapping)),
+                Operation::Output {
+                    outer_id,
+                    typ,
+                    store_node,
+                    in_node,
+                } => Operation::Output {
+                    outer_id: outer_id.clone(),
+                    typ: typ.clone(),
+                    store_node: inner_mapping(*store_node),
+                    in_node: if in_node.is_some() {
+                        Some(inner_mapping(in_node.unwrap()))
+                    } else {
+                        None
+                    },
+                },
+                Operation::Input {
+                    outer_id,
+                    typ,
+                    mutability,
+                } => Operation::Input {
+                    outer_id: outer_id.clone(),
+                    typ: typ.clone(),
+                    mutability: mutability.clone(),
+                },
+                Operation::Todo => Operation::Todo,
+            };
+            ArithVertex { op }
+        });
+
+        let mut new_inputs = Vec::new();
+        for input in self.inputs.iter() {
+            if !inner_id_mapping.contains_key(input) {
+                // this input is not a duplicate
+                new_inputs.push(input.clone());
+            }
+        }
+
         ArithGraph {
             outputs: self.outputs.clone(),
-            inputs: self.inputs.clone(),
+            inputs: new_inputs,
             g: heap,
             poly_repr: self.poly_repr.clone(),
         }
@@ -433,6 +495,24 @@ where
         &'s self,
     ) -> impl Iterator<Item = (ArithIndex, &'s ArithVertex<OuterId, ArithIndex>)> + 's {
         self.g.topology_sort()
+    }
+}
+
+pub fn check_degree_of_todo_vertices<OuterId: UsizeId, InnerId: UsizeId + std::fmt::Debug + 'static>(
+    name: String,
+    ag: &ArithGraph<OuterId, InnerId>,
+) {
+    let out_deg = ag.g.degrees_out();
+    for vid in ag.g.vertices() {
+        let v = ag.g.vertex(vid);
+        match &v.op {
+            Operation::Todo => {
+                if out_deg[vid] != 0 {
+                    panic!("Todo node {:?} in graph {} has non-zero out-degree {}", vid, name, out_deg[vid]);
+                }
+            },
+            _ => {}
+        }
     }
 }
 

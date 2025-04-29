@@ -1,13 +1,15 @@
 use std::io::Write;
 
+use crate::heap::UsizeId;
+
 use super::{Arith, ArithGraph, ExprId, Operation};
 
-pub fn print_subgraph_vertices<I: Copy>(
-    ag: &ArithGraph<I, ExprId>,
+pub fn print_subgraph_vertices<I: Copy, Ii>(
+    ag: &ArithGraph<I, Ii>,
     vertex_name_prefix: &str,
     all_output_id: String,
     writer: &mut impl Write,
-) -> std::io::Result<()> {
+) -> std::io::Result<()> where Ii: UsizeId {
     // Node settings
     writeln!(writer, "    // Node settings")?;
     writeln!(writer, "    node [")?;
@@ -23,7 +25,7 @@ pub fn print_subgraph_vertices<I: Copy>(
         writeln!(
             writer,
             "    {}{} [id = \"v{}{}\", label=\"{}\", style=solid]",
-            vertex_name_prefix, v.0, vertex_name_prefix, v.0, label
+            vertex_name_prefix, v.into(), vertex_name_prefix, v.into(), label
         )?;
     }
 
@@ -37,14 +39,14 @@ pub fn print_subgraph_vertices<I: Copy>(
     Ok(())
 }
 
-pub fn print_subgraph_edges<I: Copy + Eq>(
-    ag: &ArithGraph<I, ExprId>,
+pub fn print_subgraph_edges<I: Copy + Eq, Ii>(
+    ag: &ArithGraph<I, Ii>,
     vertex_name_prefix: &str,
     all_output_id: String,
     vid: impl Fn(I) -> String,
     writer: &mut impl Write,
     edge_tooltips: Option<Vec<(I, String)>>,
-) -> std::io::Result<()> {
+) -> std::io::Result<()> where Ii: UsizeId {
     for v in ag.g.vertices() {
         let op = &ag.g.vertex(v).op;
         // Write internal edges
@@ -52,8 +54,8 @@ pub fn print_subgraph_edges<I: Copy + Eq>(
             writeln!(
                 writer,
                 "  {}{} -> {}{} [class = \"v{}{}-neighbour v{}{}-neighbour\", headlabel=\"{}\", labeldistance=2]",
-                vertex_name_prefix, us.0, vertex_name_prefix, v.0,
-                vertex_name_prefix, us.0, vertex_name_prefix, v.0,
+                vertex_name_prefix, us.into(), vertex_name_prefix, v.into(),
+                vertex_name_prefix, us.into(), vertex_name_prefix, v.into(),
                 label
             )?;
         }
@@ -73,10 +75,10 @@ pub fn print_subgraph_edges<I: Copy + Eq>(
                 "  {} -> {}{} [class = \"v{}-neighbour v{}{}-neighbour\", edgetooltip = \"{}\"]",
                 vid(*outer_id),
                 vertex_name_prefix,
-                v.0,
+                v.into(),
                 vid(*outer_id),
                 vertex_name_prefix,
-                v.0,
+                v.into(),
                 tooltip
             )?;
         }
@@ -86,15 +88,15 @@ pub fn print_subgraph_edges<I: Copy + Eq>(
         writeln!(
             writer,
             "  {}{} -> {} [class = \"v{}{}-neighbour v{}-neighbour\", headlabel=\"{}\", labeldistance=2]",
-            vertex_name_prefix, output.0, all_output_id,
-            vertex_name_prefix, output.0, all_output_id, i
+            vertex_name_prefix, output.into(), all_output_id,
+            vertex_name_prefix, output.into(), all_output_id, i
         )?;
     }
 
     Ok(())
 }
 
-pub(crate) fn format_node_label<I>(op: &Operation<I, ExprId>) -> String {
+pub(crate) fn format_node_label<I, Ii>(op: &Operation<I, Ii>) -> String {
     match op {
         Operation::Arith(Arith::Bin(op, ..)) => {
             format!("{:?}", op)
@@ -116,7 +118,7 @@ pub(crate) fn format_node_label<I>(op: &Operation<I, ExprId>) -> String {
     }
 }
 
-pub(crate) fn labeled_uses<I>(op: &Operation<I, ExprId>) -> Vec<(ExprId, &'static str)> {
+pub(crate) fn labeled_uses<I, Ii: Copy>(op: &Operation<I, Ii>) -> Vec<(Ii, &'static str)> {
     match op {
         Operation::Arith(Arith::Bin(_, lhs, rhs)) => vec![(*lhs, "lhs"), (*rhs, "rhs")],
         Operation::Arith(Arith::Unr(_, expr)) => vec![(*expr, "")],

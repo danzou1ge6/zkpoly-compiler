@@ -9,7 +9,7 @@ use std::{
 };
 
 use libloading::Symbol;
-use zkpoly_common::arith::Mutability;
+use zkpoly_common::arith::{self, Mutability};
 use zkpoly_common::{
     arith::{Arith, ArithBinOp, ArithGraph, ArithUnrOp, BinOp, FusedType, Operation, SpOp, UnrOp},
     get_project_root::get_project_root,
@@ -503,7 +503,9 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                         }
                     }
                 },
-                Operation::Todo => unreachable!("todo can't appear here"),
+                Operation::Todo => {
+                    // doplicated inputs are replaced with Todo nodes
+                }
             }
         }
 

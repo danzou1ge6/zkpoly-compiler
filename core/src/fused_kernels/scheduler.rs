@@ -2,6 +2,26 @@ use std::collections::{BinaryHeap, VecDeque};
 
 use zkpoly_common::{arith::ArithGraph, heap::UsizeId};
 
+
+fn check_seq_is_topology_sort<OuterId: UsizeId, InnerId: UsizeId + 'static>(
+    seq: impl Iterator<Item = InnerId>,
+    ag: &ArithGraph<OuterId, InnerId>,
+) -> bool {
+    let mut deg_in = ag.g.degrees_in_no_multiedge();
+    let successors = ag.g.successors();
+
+    for vid in seq {
+        if deg_in[vid]!= 0 {
+            return false;
+        }
+        for &succ_id in successors[vid].iter() {
+            deg_in[succ_id] -= 1;
+        }
+    }
+
+    true
+}
+
 pub fn schedule<OuterId: UsizeId, InnerId: UsizeId + 'static>(
     ag: &ArithGraph<OuterId, InnerId>,
 ) -> (Vec<InnerId>, usize) {
@@ -105,11 +125,16 @@ pub fn schedule<OuterId: UsizeId, InnerId: UsizeId + 'static>(
         }
         max_reg = max_reg.max(present_reg);
     }
-    (
-        schedule
-            .iter()
-            .map(|id| InnerId::from(*id))
-            .collect::<Vec<_>>(),
-        max_reg,
-    )
+    // check if the schedule is a topological sort
+    let seq = schedule
+        .iter()
+        .map(|id| InnerId::from(*id))
+        .collect::<Vec<_>>();
+
+    if !check_seq_is_topology_sort(seq.iter().copied(), ag) {
+        panic!("The schedule is not a topological sort");
+    }
+
+    (seq, max_reg)
+    // ag.g.topology_sort().map(|(a, _)| a).collect()
 }

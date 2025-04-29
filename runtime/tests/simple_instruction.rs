@@ -168,9 +168,7 @@ fn test_add() {
         instructions,
         0,
         ConstantTable::new(),
-        EntryTable::new(),
         funcs,
-        ThreadPool::new(1),
         events,
         0,
         cpu_alloc,
@@ -179,7 +177,10 @@ fn test_add() {
         libs,
     )
     .with_variables(variable);
-    let (_, info) = runtime.run(zkpoly_runtime::runtime::RuntimeDebug::None);
+    let (_, info) = runtime.run(
+        &mut EntryTable::new(),
+        zkpoly_runtime::runtime::RuntimeDebug::None,
+    );
     let variable = info.variable;
 
     let binding_c = unsafe { &(*variable)[idc] };
@@ -313,9 +314,7 @@ fn test_extend() {
         instructions,
         0,
         ConstantTable::new(),
-        EntryTable::new(),
         funcs,
-        ThreadPool::new(1),
         events,
         0,
         cpu_alloc,
@@ -324,7 +323,10 @@ fn test_extend() {
         libs,
     )
     .with_variables(variable);
-    let (_, info) = runtime.run(zkpoly_runtime::runtime::RuntimeDebug::None);
+    let (_, info) = runtime.run(
+        &mut EntryTable::new(),
+        zkpoly_runtime::runtime::RuntimeDebug::None,
+    );
     let variable = info.variable;
     unsafe {
         let binding_c = &(*variable)[idc];

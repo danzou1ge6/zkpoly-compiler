@@ -105,6 +105,9 @@ pub fn gen_fused_kernels<'s, Rt: RuntimeType>(
                     let arith = arith.relabeled(|r| reg_id2var_id(r));
                     let id: usize = idx.into();
                     let name = format!("{FUSED_PERFIX}{id}");
+
+                    arith::check_degree_of_todo_vertices(name.to_string(), &arith);
+
                     let outputs_i2o = arith
                         .outputs
                         .iter()
