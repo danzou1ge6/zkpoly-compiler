@@ -498,6 +498,24 @@ where
     }
 }
 
+pub fn check_degree_of_todo_vertices<OuterId: UsizeId, InnerId: UsizeId + std::fmt::Debug + 'static>(
+    name: String,
+    ag: &ArithGraph<OuterId, InnerId>,
+) {
+    let out_deg = ag.g.degrees_out();
+    for vid in ag.g.vertices() {
+        let v = ag.g.vertex(vid);
+        match &v.op {
+            Operation::Todo => {
+                if out_deg[vid] != 0 {
+                    panic!("Todo node {:?} in graph {} has non-zero out-degree {}", vid, name, out_deg[vid]);
+                }
+            },
+            _ => {}
+        }
+    }
+}
+
 pub mod hash;
 pub mod pretty_print;
 pub mod visualize;

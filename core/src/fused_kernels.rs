@@ -9,7 +9,7 @@ use std::{
 };
 
 use libloading::Symbol;
-use zkpoly_common::arith::Mutability;
+use zkpoly_common::arith::{self, Mutability};
 use zkpoly_common::{
     arith::{Arith, ArithBinOp, ArithGraph, ArithUnrOp, BinOp, FusedType, Operation, SpOp, UnrOp},
     get_project_root::get_project_root,
@@ -56,8 +56,6 @@ pub struct FusedKernel<T: RuntimeType> {
         ) -> cudaError_t,
     >,
 }
-
-
 
 // all input/output are on cpu
 pub struct PipelinedFusedKernel<T: RuntimeType> {
@@ -132,8 +130,11 @@ pub fn gen_var_lists<OuterId: Ord + Copy, InnerId: UsizeId>(
     (vars, mut_vars)
 }
 
-impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
-    pub fn new(graph: ArithGraph<OuterId, InnerId>, name: String, outputs_i2o: BTreeMap<InnerId, OuterId>,
+impl<OuterId: UsizeId, InnerId: UsizeId + std::fmt::Debug + 'static> FusedOp<OuterId, InnerId> {
+    pub fn new(
+        graph: ArithGraph<OuterId, InnerId>,
+        name: String,
+        outputs_i2o: BTreeMap<InnerId, OuterId>,
     ) -> Self {
         let (vars, mut_vars) = gen_var_lists(graph.outputs.iter().map(|i| outputs_i2o[i]), &graph);
         Self {
@@ -308,6 +309,33 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
 
         let schedule = scheduler::schedule(&self.graph);
 
+        // {
+        //     // Debug with graphviz
+        //     let mut f = fs::File::create(format!("{}.dot", &self.name)).unwrap();
+        //     let writer = &mut f;
+
+        //     writeln!(writer, "digraph ArighGraph {{").unwrap();
+
+        //     arith::pretty_print::print_subgraph_vertices(
+        //         &self.graph,
+        //         "av_",
+        //         "output".to_string(),
+        //         writer,
+        //     )
+        //     .unwrap();
+        //     arith::pretty_print::print_subgraph_edges(
+        //         &self.graph,
+        //         "av_",
+        //         "output".to_string(),
+        //         |i| i.into().to_string(),
+        //         writer,
+        //         None,
+        //     )
+        //     .unwrap();
+
+        //     writeln!(writer, "}} // Seq is {:?}", &schedule).unwrap();
+        // }
+
         // topological ordering
         for head in schedule {
             let vertex = self.graph.g.vertex(head.clone());
@@ -332,11 +360,10 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                     match typ {
                         FusedType::Scalar => {
                             kernel += &format!("auto {TMP_PREFIX}{head} = *{SCALAR_PREFIX}{id};\n");
-
                         }
                         FusedType::ScalarArray => {
                             kernel +=
-                            &format!("auto {TMP_PREFIX}{head} = {ITER_PREFIX}{id}[idx];\n");
+                                &format!("auto {TMP_PREFIX}{head} = {ITER_PREFIX}{id}[idx];\n");
                         }
                     }
                 }
@@ -491,7 +518,9 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                         }
                     }
                 },
-                Operation::Todo => unreachable!("todo can't appear here"),
+                Operation::Todo => {
+                    // doplicated inputs are replaced with Todo nodes
+                }
             }
         }
 
@@ -597,7 +626,10 @@ impl<T: RuntimeType> RegisteredFunction<T> for FusedKernel<T> {
             Ok(())
         };
         Function {
-            meta: FuncMeta::new(self.meta.name.clone(), KernelType::FusedArith(self.meta.clone())),
+            meta: FuncMeta::new(
+                self.meta.name.clone(),
+                KernelType::FusedArith(self.meta.clone()),
+            ),
             f: FunctionValue::Fn(Box::new(rust_func)),
         }
     }
