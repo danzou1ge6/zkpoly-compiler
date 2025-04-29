@@ -30,8 +30,8 @@ impl PinnedMemoryPool {
         // Preallocate memory for the pool, num: number of chunks
         let alloc_ptrs = (0..num)
             .into_iter()
-            .map(|_| unsafe { allocate(self.handle, self.max_log_factor) });
-        alloc_ptrs.for_each(|ptr| unsafe { deallocate(self.handle, ptr) });
+            .map(|_| unsafe { allocate(self.handle, self.max_log_factor) }).collect::<Vec<_>>();
+        alloc_ptrs.into_iter().for_each(|ptr| unsafe { deallocate(self.handle, ptr) });
     }
 
     pub fn free<T: Sized>(&self, ptr: *mut T) {
@@ -90,5 +90,11 @@ mod test {
                 pool.free(slice.as_mut_ptr());
             }
         }
+    }
+
+    #[test]
+    fn test_preallocate() {
+        let pool = PinnedMemoryPool::new(16, std::mem::size_of::<u32>());
+        pool.preallocate(20);
     }
 }
