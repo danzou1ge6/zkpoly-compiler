@@ -9,6 +9,9 @@ use zkpoly_common::{
 };
 use zkpoly_runtime::args::RuntimeType;
 
+use super::type2::memory_planning::MemoryBlock;
+use super::type2::object_analysis::ObjectId;
+
 define_usize_id!(AddrId);
 
 pub type AddrMapping = Heap<AddrId, (Addr, Size)>;
@@ -529,19 +532,73 @@ impl<'s> Instruction<'s> {
             _ => Box::new(std::iter::empty()),
         }
     }
+
+    pub fn mem_reads<'a>(&'a self) -> Box<dyn Iterator<Item = RegisterId> + 'a> {
+        use template::InstructionNode::*;
+
+        match &self.node {
+            Type2 { vertex, .. } => {
+                let mem_writes: Vec<RegisterId> = self.mem_writes().collect();
+                Box::new(vertex.uses().filter(move |x| !mem_writes.contains(x)))
+            }
+            Transfer { from, .. } => Box::new(std::iter::once(*from)),
+            TransferToDefed { from, to, .. } => {
+                Box::new(std::iter::once(*from).chain(std::iter::once(*to)))
+            }
+            _ => Box::new(std::iter::empty()),
+        }
+    }
+
+    pub fn mem_writes<'a>(&'a self) -> Box<dyn Iterator<Item = RegisterId> + 'a> {
+        use template::InstructionNode::*;
+
+        match &self.node {
+            Type2 { ids, .. } => Box::new(ids.iter().filter_map(|(_, x)| x.clone())),
+            _ => Box::new(std::iter::empty()),
+        }
+    }
 }
 define_usize_id!(InstructionIndex);
 
 pub struct RegisterAllocator {
     register_types: Heap<RegisterId, typ::Typ>,
     register_devices: BTreeMap<RegisterId, Device>,
+    register_memory_blocks: BTreeMap<RegisterId, MemoryBlock>,
+    obj_id_allocator: IdAllocator<ObjectId>,
 }
 
 impl RegisterAllocator {
-    pub fn alloc(&mut self, typ: typ::Typ, device: Device) -> RegisterId {
+    fn alloc(&mut self, typ: typ::Typ, device: Device) -> RegisterId {
         let id = self.register_types.push(typ);
         self.register_devices.insert(id, device);
         id
+    }
+
+    pub fn inherit_memory_block(
+        &mut self,
+        typ: typ::Typ,
+        device: Device,
+        memory_from: RegisterId,
+    ) -> RegisterId {
+        let id = self.register_types.push(typ);
+        self.register_devices.insert(id, device);
+
+        let memory_block = self.register_memory_blocks[&memory_from].clone();
+        self.register_memory_blocks.insert(id, memory_block);
+
+        id
+    }
+
+    pub fn inherit(&mut self, r: RegisterId) -> RegisterId {
+        let device = self.device_of(r);
+        let typ = self.typ_of(r);
+        let mb = self.register_memory_blocks[&r].clone();
+
+        let r1 = self.alloc(typ.clone(), device);
+
+        self.register_memory_blocks.insert(r1, mb);
+
+        r1
     }
 
     pub fn device_of(&self, id: RegisterId) -> Device {
@@ -552,10 +609,19 @@ impl RegisterAllocator {
         &self.register_types[id]
     }
 
-    pub fn inherit(&mut self, r: RegisterId) -> RegisterId {
+    pub fn inherit_device_typ_address(&mut self, r: RegisterId) -> RegisterId {
         let device = self.device_of(r);
+        let obj_id = self.obj_id_allocator.alloc();
         let typ = self.typ_of(r);
-        self.alloc(typ.clone(), device)
+        let mb = self.register_memory_blocks[&r]
+            .clone()
+            .with_object_id(obj_id);
+
+        let r1 = self.alloc(typ.clone(), device);
+
+        self.register_memory_blocks.insert(r1, mb);
+
+        r1
     }
 }
 
@@ -566,6 +632,8 @@ pub struct Chunk<'s, Rt: RuntimeType> {
     pub(crate) register_devices: BTreeMap<RegisterId, Device>,
     pub(crate) gpu_addr_mapping: AddrMapping,
     pub(crate) reg_id_allocator: IdAllocator<RegisterId>,
+    pub(crate) reg_memory_blocks: BTreeMap<RegisterId, MemoryBlock>,
+    pub(crate) obj_id_allocator: IdAllocator<ObjectId>,
     pub(crate) libs: Libs,
     pub(crate) _phantom: PhantomData<Rt>,
 }
@@ -670,6 +738,8 @@ impl<'s, Rt: RuntimeType> Chunk<'s, Rt> {
         let regster_types = std::mem::take(&mut self.register_types);
         let ra = RegisterAllocator {
             register_devices: std::mem::take(&mut self.register_devices),
+            register_memory_blocks: std::mem::take(&mut self.reg_memory_blocks),
+            obj_id_allocator: std::mem::take(&mut self.obj_id_allocator),
             register_types: regster_types.to_mutable(reg_id_allocator),
         };
 
@@ -678,7 +748,9 @@ impl<'s, Rt: RuntimeType> Chunk<'s, Rt> {
 
         self2.reg_id_allocator = reg_id_allocator;
         self2.register_types = register_types;
+        self2.reg_memory_blocks = ra.register_memory_blocks;
         self2.register_devices = ra.register_devices;
+        self2.obj_id_allocator = ra.obj_id_allocator;
         self2
     }
 

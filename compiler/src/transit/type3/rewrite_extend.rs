@@ -1,9 +1,12 @@
 use std::collections::BTreeMap;
 
-use zkpoly_common::typ::{PolyMeta, PolyType, Slice};
+use zkpoly_common::{
+    heap::IdAllocator,
+    typ::{PolyMeta, PolyType, Slice},
+};
 use zkpoly_runtime::args::RuntimeType;
 
-use crate::ast::PolyInit;
+use crate::{ast::PolyInit, transit::type2::object_analysis::ObjectId};
 
 use super::{Chunk, Instruction, InstructionNode, VertexNode};
 
@@ -20,7 +23,7 @@ pub fn rewrite<'s, Rt: RuntimeType>(chunk: Chunk<'s, Rt>) -> Chunk<'s, Rt> {
                     ..
                 } => {
                     assert!(ids.len() == 1);
-                    malloc_mapping.insert(ids[0].0, ra.inherit(ids[0].0));
+                    malloc_mapping.insert(ids[0].0, ra.inherit_device_typ_address(ids[0].0));
                 }
                 _ => {}
             }
@@ -64,6 +67,14 @@ pub fn rewrite<'s, Rt: RuntimeType>(chunk: Chunk<'s, Rt>) -> Chunk<'s, Rt> {
         });
 
         // Rewrite Type2 Extend to Type3 FillPoly and Transfer
+        // From:
+        //   r1 <- Extend r0
+        // To:
+        //   t0 <- Malloc deg=n
+        //   t1 <- FillPoly t0
+        //   t2 <- SetPolyMeta deg=n0 t1
+        //   t3 <- Transfer t2,r0
+        //   r1 <- SetPolyMeta deg=n t3
         let mut malloc_mapping = BTreeMap::new();
         let mut degrees = BTreeMap::new();
 
@@ -75,7 +86,7 @@ pub fn rewrite<'s, Rt: RuntimeType>(chunk: Chunk<'s, Rt>) -> Chunk<'s, Rt> {
                     ..
                 } => {
                     assert!(ids.len() == 1);
-                    malloc_mapping.insert(ids[0].0, ra.inherit(ids[0].0));
+                    malloc_mapping.insert(ids[0].0, ra.inherit_device_typ_address(ids[0].0));
                     let (deg, _) = ra.typ_of(*operand).unwrap_poly();
                     degrees.insert(*operand, deg as usize);
                 }
@@ -101,16 +112,24 @@ pub fn rewrite<'s, Rt: RuntimeType>(chunk: Chunk<'s, Rt>) -> Chunk<'s, Rt> {
                     let deg = deg as usize;
                     let r1 = ids[0].0;
                     let t0 = malloc_mapping[&r1];
-                    let t1 = ra.inherit(t0);
+                    let t1 = ra.inherit_device_typ_address(t0);
                     let device = ra.device_of(t1);
-                    let t2 = ra.alloc(
+                    let t2 = ra.inherit_memory_block(
                         super::typ::Typ::ScalarArray {
                             len: deg,
                             meta: PolyMeta::Sliced(Slice::new(0, deg0 as u64)),
                         },
                         device,
+                        t1,
                     );
-                    let t3 = ra.inherit(t0);
+                    let t3 = ra.inherit_memory_block(
+                        super::typ::Typ::ScalarArray {
+                            len: deg,
+                            meta: PolyMeta::Sliced(Slice::new(0, deg0 as u64)),
+                        },
+                        device,
+                        r1,
+                    );
                     let inst = |node| Instruction {
                         node,
                         src: src.clone(),

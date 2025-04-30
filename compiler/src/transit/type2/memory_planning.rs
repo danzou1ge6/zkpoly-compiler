@@ -157,6 +157,28 @@ impl RegisterPlaces {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum MemoryBlock {
+    Gpu(ObjectId, AddrId),
+    Cpu(ObjectId),
+}
+
+impl MemoryBlock {
+    pub fn object_id(&self) -> ObjectId {
+        match self {
+            MemoryBlock::Gpu(obj_id, _) => *obj_id,
+            MemoryBlock::Cpu(obj_id) => *obj_id,
+        }
+    }
+    
+    pub fn with_object_id(&self, obj_id: ObjectId) -> Self {
+        match self {
+            MemoryBlock::Gpu(_, addr_id) => MemoryBlock::Gpu(obj_id, *addr_id),
+            MemoryBlock::Cpu(_) => MemoryBlock::Cpu(obj_id),
+        }
+    }
+}
+
 #[derive(Debug)]
 struct Context {
     gpu_obj2addr: Bijection<ObjectId, AddrId>,
@@ -165,7 +187,7 @@ struct Context {
     object_residence: BTreeMap<ObjectId, RegisterPlaces>,
     /// Tuple registers will not be included
     reg_device: BTreeMap<RegisterId, DeterminedDevice>,
-    reg2obj: BTreeMap<RegisterId, ObjectId>,
+    reg2mb: BTreeMap<RegisterId, MemoryBlock>,
     inplace_obj: BTreeMap<ObjectId, DeviceSpecific<bool>>,
 }
 
@@ -204,7 +226,20 @@ impl Context {
             .get_device_mut(device)
             .insert(reg_id);
         self.reg_device.insert(reg_id, device);
-        self.reg2obj.insert(reg_id, obj_id);
+
+        self.set_reg2obj(reg_id, device, obj_id);
+    }
+
+    pub fn set_reg2obj(&mut self, reg_id: RegisterId, device: DeterminedDevice, obj_id: ObjectId) {
+        let mb = match device {
+            DeterminedDevice::Cpu => MemoryBlock::Cpu(obj_id),
+            DeterminedDevice::Gpu => {
+                MemoryBlock::Gpu(obj_id, *self.gpu_reg2addr.get(&reg_id).unwrap())
+            }
+            DeterminedDevice::Stack => panic!("objects cannot reside on stack"),
+        };
+
+        self.reg2mb.insert(reg_id, mb);
     }
 
     pub fn remove_residence_in_reg_for_object(
@@ -348,6 +383,10 @@ impl Context {
             .unwrap();
         let typ = code.typ_of(reg).normalized();
         typ
+    }
+
+    pub fn reg2obj(&self, reg_id: RegisterId) -> ObjectId {
+        self.reg2mb[&reg_id].object_id()
     }
 }
 
@@ -1167,6 +1206,8 @@ fn ensure_copied(
             &imctx,
             false,
         )?;
+        ctx.set_reg2obj(copied_reg, device, original_obj_id);
+
         code.emit(Instruction::new_no_src(InstructionNode::Transfer {
             id: copied_reg,
             from: transferred_reg,
@@ -1178,6 +1219,7 @@ fn ensure_copied(
             }
             let corrected_reg =
                 emit_correct_type(copied_reg, device, original_obj_id, typ, code, ctx);
+            ctx.set_reg2obj(corrected_reg, device, original_obj_id);
 
             // Throw away the old register
             code.emit(Instruction::new_no_src(InstructionNode::StackFree {
@@ -1317,7 +1359,7 @@ fn plan_vertex<'s, Rt: RuntimeType>(
     gpu_allocator: &mut GpuAllocator,
     uf_table: &user_function::Table<Rt>,
     obj_id_allocator: &mut IdAllocator<ObjectId>,
-    libs: &mut Libs
+    libs: &mut Libs,
 ) -> Result<bool, Error> {
     // Prepare inputs
     // - Move input objects to desired device
@@ -1498,8 +1540,6 @@ fn plan_vertex<'s, Rt: RuntimeType>(
                         );
                     }
 
-                    ctx.add_residence_for_object(output_obj, output_reg, output_value.device());
-
                     if output_value.device() == DeterminedDevice::Gpu {
                         if let Some(&addr_id) = ctx.gpu_reg2addr.get(&inplace_reg) {
                             ctx.set_gpu_addr_id_for_obj(output_obj, addr_id);
@@ -1508,6 +1548,9 @@ fn plan_vertex<'s, Rt: RuntimeType>(
                             return Err(Error::VertexInputsAndOutputsNotAccommodated(vid));
                         }
                     }
+
+                    ctx.add_residence_for_object(output_obj, output_reg, output_value.device());
+
                     Ok((output_reg, Some(inplace_reg)))
                 } else {
                     if DEBUG {
@@ -1553,33 +1596,32 @@ fn plan_vertex<'s, Rt: RuntimeType>(
         output_registers
     };
 
-    let temp_register_obj = if let Some((temp_space_sizes, temp_space_device)) =
-        cg.temporary_space_needed(vid, libs)
-    {
-        let rs = temp_space_sizes
-            .into_iter()
-            .map(|temp_space_size| {
-                let temp_register =
-                    code.alloc_register_id(Typ::GpuBuffer(temp_space_size as usize));
-                let temp_obj = obj_id_allocator.alloc();
-                allocate(
-                    temp_space_device,
-                    temp_register,
-                    temp_obj,
-                    now,
-                    Size::Smithereen(SmithereenSize(temp_space_size)),
-                    gpu_allocator,
-                    code,
-                    ctx,
-                    &imctx,
-                )?;
-                Ok((temp_register, temp_obj, temp_space_device))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        Some(rs)
-    } else {
-        None
-    };
+    let temp_register_obj =
+        if let Some((temp_space_sizes, temp_space_device)) = cg.temporary_space_needed(vid, libs) {
+            let rs = temp_space_sizes
+                .into_iter()
+                .map(|temp_space_size| {
+                    let temp_register =
+                        code.alloc_register_id(Typ::GpuBuffer(temp_space_size as usize));
+                    let temp_obj = obj_id_allocator.alloc();
+                    allocate(
+                        temp_space_device,
+                        temp_register,
+                        temp_obj,
+                        now,
+                        Size::Smithereen(SmithereenSize(temp_space_size)),
+                        gpu_allocator,
+                        code,
+                        ctx,
+                        &imctx,
+                    )?;
+                    Ok((temp_register, temp_obj, temp_space_device))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Some(rs)
+        } else {
+            None
+        };
 
     // Emit vertex
 
@@ -1646,7 +1688,7 @@ fn plan_vertex<'s, Rt: RuntimeType>(
         .into_iter()
         .filter_map(|(r, inplace)| inplace.map(|_| r))
     {
-        let obj = ctx.reg2obj[&output_reg];
+        let obj = ctx.reg2obj(output_reg);
         if let Some(first_use) = imctx.obj_gpu_next_use.first_use_of(obj) {
             if DEBUG {
                 println!("[MP.plan] Inplace output {:?} has {:?}, next_use updated to its first use at {:?}", output_reg, obj, first_use)
@@ -1674,7 +1716,7 @@ pub fn plan<'s, Rt: RuntimeType>(
     vertex_inputs: &ObjectUse,
     devices: &BTreeMap<VertexId, Device>,
     uf_table: &user_function::Table<Rt>,
-    obj_id_allocator: &mut IdAllocator<ObjectId>,
+    mut obj_id_allocator: IdAllocator<ObjectId>,
     mut libs: Libs,
 ) -> Result<Chunk<'s, Rt>, Error> {
     let integral_sizes = collect_integral_sizes(cg, &g, &mut libs);
@@ -1702,7 +1744,7 @@ pub fn plan<'s, Rt: RuntimeType>(
         gpu_reg2addr: BTreeMap::new(),
         object_residence: BTreeMap::new(),
         reg_device: BTreeMap::new(),
-        reg2obj: BTreeMap::new(),
+        reg2mb: BTreeMap::new(),
         inplace_obj: BTreeMap::new(),
     };
     let mut register_types = BTreeMap::new();
@@ -1749,8 +1791,8 @@ pub fn plan<'s, Rt: RuntimeType>(
             &mut code,
             &mut gpu_allocator,
             uf_table,
-            obj_id_allocator,
-            &mut libs
+            &mut obj_id_allocator,
+            &mut libs,
         )
         .map_err(|e| e.try_with_vid(vid))?
         {
@@ -1766,6 +1808,8 @@ pub fn plan<'s, Rt: RuntimeType>(
         register_devices: ctx.reg_device,
         gpu_addr_mapping: ctx.gpu_addr_mapping,
         reg_id_allocator,
+        reg_memory_blocks: ctx.reg2mb,
+        obj_id_allocator,
         libs,
         _phantom: PhantomData,
     })

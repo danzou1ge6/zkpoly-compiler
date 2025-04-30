@@ -38,7 +38,7 @@ macro_rules! define_usize_id {
     };
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct IdAllocator<I>(usize, PhantomData<I>);
 
 impl<I: UsizeId> IdAllocator<I> {

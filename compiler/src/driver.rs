@@ -770,7 +770,7 @@ pub fn type2_to_inst<Rt: RuntimeType>(
                 &vertex_inputs,
                 &devices,
                 &t2uf_tab,
-                &mut obj_id_allocator,
+                obj_id_allocator,
                 libs,
             )
             .expect("memory plan failed"))
