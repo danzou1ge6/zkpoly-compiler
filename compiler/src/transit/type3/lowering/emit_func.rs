@@ -235,6 +235,19 @@ pub fn emit_func<'s, Rt: RuntimeType>(
             }
             _ => unreachable!(),
         },
+        VertexNode::PolyPermute(input, table, _) => {
+            let input = reg_id2var_id(*input);
+            let table = reg_id2var_id(*table);
+            let temp_buffer = reg_id2var_id(temp[0]);
+            let output_input = reg_id2var_id(outputs[0]);
+            let output_table = reg_id2var_id(outputs[1]);
+            let stream = stream.unwrap();
+            emit(Instruction::FuncCall {
+                func_id: f_id,
+                arg_mut: vec![output_input, output_table, temp_buffer],
+                arg: vec![input, table, stream],
+            })
+        }
         _ => panic!("Unsupported vertex node at {:?}", t3idx),
     }
 }

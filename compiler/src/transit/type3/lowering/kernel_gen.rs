@@ -50,6 +50,7 @@ pub fn kernel_type_from_vertex(
             &crate::transit::HashTyp::WriteProof => Some(KernelType::HashTranscriptWrite),
             &crate::transit::HashTyp::NoWriteProof => Some(KernelType::HashTranscript),
         },
+        VertexNode::PolyPermute(_, _, _) => Some(KernelType::PolyPermute),
         VertexNode::SqueezeScalar(_) => Some(KernelType::SqueezeScalar),
         VertexNode::UserFunction(id, _) => Some(KernelType::UserFunction(*id)),
         VertexNode::DistributePowers { .. } => Some(KernelType::DistributePowers),
