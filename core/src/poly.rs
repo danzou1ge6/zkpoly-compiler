@@ -150,6 +150,23 @@ pub struct PolyInvert<T: RuntimeType> {
     >,
 }
 
+pub struct PolyPermute<T: RuntimeType> {
+    _marker: PhantomData<T>,
+    c_func: Symbol<
+        'static,
+        unsafe extern "C" fn(
+            temp_buffer: *mut c_void,
+            buffer_size: *mut c_ulong,
+            usable: c_ulong,
+            input: ConstPolyPtr,
+            table: ConstPolyPtr,
+            res_input: PolyPtr,
+            res_table: PolyPtr,
+            stream: cudaStream_t,
+        ) -> cudaError_t,
+    >,
+}
+
 pub struct ScalarInv<T: RuntimeType> {
     _marker: PhantomData<T>,
     c_func: Symbol<
@@ -202,6 +219,67 @@ impl_poly_new!(PolyAdd, "poly_add");
 impl_poly_new!(PolySub, "poly_sub");
 impl_poly_new!(PolyMul, "poly_mul");
 impl_poly_new!(ScalarInv, "inv_scalar");
+impl_poly_new!(PolyPermute, "permute");
+
+impl<T: RuntimeType> RegisteredFunction<T> for PolyPermute<T> {
+    fn get_fn(&self) -> Function<T> {
+        let c_func = self.c_func.clone();
+        let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
+                              var: Vec<&Variable<T>>|
+              -> Result<(), RuntimeError> {
+            assert_eq!(mut_var.len(), 3);
+            assert_eq!(var.len(), 3);
+            let [res_input_var, res_table_var, temp_buf_var] = &mut mut_var[..] else {
+                panic!("Expected 3 elements in mut_var");
+            };
+            let res_input = res_input_var.unwrap_scalar_array_mut();
+            let res_table = res_table_var.unwrap_scalar_array_mut();
+            let temp_buf = temp_buf_var.unwrap_gpu_buffer_mut();
+
+            let input = var[0].unwrap_scalar_array();
+            let table = var[1].unwrap_scalar_array();
+            let stream = var[2].unwrap_stream();
+
+            unsafe {
+                cuda_check!(cudaSetDevice(stream.get_device()));
+                cuda_check!(c_func(
+                    temp_buf.ptr as *mut c_void,
+                    null_mut(),
+                    res_input.len() as u64,
+                    ConstPolyPtr::from(input),
+                    ConstPolyPtr::from(table),
+                    PolyPtr::from(res_input),
+                    PolyPtr::from(res_table),
+                    stream.raw(),
+                ));
+            }
+            Ok(())
+        };
+        Function {
+            meta: FuncMeta::new("poly_permute".to_string(), KernelType::PolyPermute),
+            f: FunctionValue::Fn(Box::new(rust_func)),
+        }
+    }
+}
+
+impl<T: RuntimeType> PolyPermute<T> {
+    pub fn get_buffer_size(&self, usable_len: usize) -> usize {
+        let mut buf_size: usize = 0;
+        unsafe {
+            cuda_check!((self.c_func)(
+                std::ptr::null_mut(),
+                &mut buf_size as *mut usize as *mut c_ulong,
+                usable_len as c_ulong,
+                ConstPolyPtr::null(usable_len),
+                ConstPolyPtr::null(usable_len),
+                PolyPtr::null(usable_len),
+                PolyPtr::null(usable_len),
+                null_mut(),
+            ));
+        }
+        buf_size
+    }
+}
 
 impl<T: RuntimeType> ScalarPow<T> {
     pub fn new(libs: &mut Libs, exp: u64) -> Self {

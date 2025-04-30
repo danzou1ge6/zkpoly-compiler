@@ -167,6 +167,7 @@ pub mod template {
         },
         /// Returns (transcript, scalar)
         SqueezeScalar(I),
+        PolyPermute(I, I, usize),
         TupleGet(I, usize),
         ArrayGet(I, usize),
         UserFunction(E, Vec<I>),
@@ -247,6 +248,7 @@ pub mod template {
                 IndexPoly(x, _) => Box::new([x].into_iter()),
                 AssertEq(x, y, _msg) => Box::new([x, y].into_iter()),
                 Print(x, _) => Box::new([x].into_iter()),
+                PolyPermute(input, table, _) => Box::new([input, table].into_iter()),
                 _ => Box::new(std::iter::empty()),
             }
         }
@@ -286,6 +288,7 @@ pub mod template {
                 IndexPoly(x, _) => Box::new([*x].into_iter()),
                 AssertEq(x, y, _msg) => Box::new([*x, *y].into_iter()),
                 Print(x, _) => Box::new([*x].into_iter()),
+                PolyPermute(input, table, _) => Box::new([*input, *table].into_iter()),
                 _ => Box::new(std::iter::empty()),
             }
         }
@@ -309,6 +312,7 @@ pub mod template {
                 BatchedInvert(_) => Device::Gpu,
                 ScanMul { .. } => Device::Gpu,
                 DistributePowers { .. } => Device::Gpu,
+                PolyPermute(_, _, _) => Device::Gpu,
                 SingleArith(arith) => {
                     match arith {
                         zkpoly_common::arith::Arith::Bin(..) => Device::Gpu, // for add/sub with different len
@@ -504,6 +508,7 @@ where
                 arith: arith.relabeled(mapping),
                 chunking: *chunking,
             },
+            PolyPermute(input, table, len) => PolyPermute(mapping(*input), mapping(*table), *len),
             Entry(idx) => Entry(*idx),
             Return(x) => Return(mapping(*x)),
             Ntt { alg, s, to, from } => Ntt {
@@ -578,6 +583,7 @@ where
             Constant(..) => Cpu,
             Extend(..) => on_device(device),
             SingleArith(..) => Gpu,
+            PolyPermute(..) => Gpu,
             Arith { chunking, .. } => {
                 if let Some(..) = chunking {
                     CoProcess
@@ -659,6 +665,10 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
                 let (_, len) = self.g.vertex(*poly).typ().unwrap_poly();
                 Some((temporary_space::poly_eval::<Rt>(*len as usize, libs), Gpu))
             }
+            PolyPermute(_, _, usable) => Some((
+                temporary_space::poly_permute::<Rt>(*usable as usize, libs),
+                Gpu,
+            )),
             BatchedInvert(poly) => {
                 let (_, len) = self.g.vertex(*poly).typ().unwrap_poly();
                 Some((temporary_space::poly_invert::<Rt>(*len as usize, libs), Gpu))

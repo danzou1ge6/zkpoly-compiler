@@ -1,7 +1,7 @@
 use zkpoly_common::{load_dynamic::Libs, msm_config::MsmConfig};
 use zkpoly_core::{
     msm::MSM,
-    poly::{KateDivision, PolyEval, PolyInvert, PolyScan},
+    poly::{KateDivision, PolyEval, PolyInvert, PolyPermute, PolyScan},
 };
 use zkpoly_runtime::args::RuntimeType;
 
@@ -10,6 +10,11 @@ pub fn msm<Rt: RuntimeType>(msm_config: &MsmConfig, len: usize, libs: &mut Libs)
     let msm_impl = MSM::<Rt>::new(libs, msm_config.clone());
     assert_eq!(msm_config.cards.len(), 1);
     vec![msm_impl.get_buffer_size(len)[0] as u64] // we don't support multi-card yet
+}
+
+pub fn poly_permute<Rt: RuntimeType>(len: usize, libs: &mut Libs) -> Vec<u64> {
+    let poly_permute_impl = PolyPermute::<Rt>::new(libs);
+    vec![poly_permute_impl.get_buffer_size(len) as u64]
 }
 
 pub fn poly_eval<Rt: RuntimeType>(len: usize, libs: &mut Libs) -> Vec<u64> {

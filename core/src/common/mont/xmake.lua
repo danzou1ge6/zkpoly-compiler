@@ -15,3 +15,10 @@ target("bench-mont")
     add_options("-lineinfo")
     add_options("--expt-relaxed-constexpr")
     add_files("tests/bench.cu")
+
+target("test_num_to_tuple")
+    set_languages("c++17")
+    if is_mode("debug") then
+        set_symbols("debug")
+    end
+    add_files("tests/to_tuple.cu")

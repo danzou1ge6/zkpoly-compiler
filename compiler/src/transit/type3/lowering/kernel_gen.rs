@@ -16,8 +16,7 @@ use zkpoly_core::fused_kernels::{FusedKernel, FusedOp};
 use zkpoly_core::msm::MSM;
 use zkpoly_core::ntt::{DistributePowers, RecomputeNtt, SsipNtt};
 use zkpoly_core::poly::{
-    KateDivision, PolyAdd, PolyEval, PolyInvert, PolyOneCoef, PolyOneLagrange, PolyScan, PolySub,
-    PolyZero, ScalarInv, ScalarPow,
+    KateDivision, PolyAdd, PolyEval, PolyInvert, PolyOneCoef, PolyOneLagrange, PolyPermute, PolyScan, PolySub, PolyZero, ScalarInv, ScalarPow
 };
 use zkpoly_runtime::args::{RuntimeType, Variable, VariableId};
 use zkpoly_runtime::error::RuntimeError;
@@ -284,6 +283,10 @@ pub fn load_function<Rt: RuntimeType>(
     uf_table: &mut Heap<UserFunctionId, Option<type2::user_function::Function<Rt>>>,
 ) -> zkpoly_runtime::functions::Function<Rt> {
     match &kernel_type {
+        KernelType::PolyPermute => {
+            let poly_permute = PolyPermute::new(libs);
+            poly_permute.get_fn()
+        }
         KernelType::NttPrcompute => {
             let precompute_ntt = SsipNtt::new(libs);
             precompute_ntt.get_fn()

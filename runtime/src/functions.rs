@@ -62,6 +62,7 @@ pub enum KernelType {
     BatchedInvert,
     KateDivision,
     EvaluatePoly,
+    PolyPermute,
     ScanMul,
     FusedArith(FusedKernelMeta),
     Interpolate,

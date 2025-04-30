@@ -646,6 +646,30 @@ namespace mont
     __device__ __host__ __forceinline__
     Number() {}
 
+    // 辅助模板，用于将 Number 结构体转换为 tuple<&u32, &u32, ...>
+    template <std::size_t... Indices>
+    auto __device__ __host__ __forceinline__  to_tuple_impl(::cuda::std::index_sequence<Indices...>) {
+        // 使用 std::make_tuple 将数组中的每个元素转换为 tuple
+        return ::cuda::std::make_tuple((::cuda::std::ref(limbs[LIMBS - 1 - Indices]))...); // tuple里第一个是最高位，因此要反转
+    }
+
+    // 用于用户调用的主要转换函数
+    auto __device__ __host__ __forceinline__ to_tuple() {
+        return to_tuple_impl(::cuda::std::make_index_sequence<LIMBS>{});
+    }
+
+    bool __device__ __host__ __forceinline__ operator < (const Number &rhs) const &
+    {
+      for (int i = LIMBS - 1; i >= 0; i--)
+      {
+        if (limbs[i] < rhs.limbs[i])
+          return true;
+        if (limbs[i] > rhs.limbs[i])
+          return false;
+      }
+      return false;
+    }
+
     // Constructor: `Number x = {0, 1, 2, 3, 4, 5, 6, 7}` in little endian
     constexpr __forceinline__ Number(const std::initializer_list<uint32_t> &values) : limbs{}
     {

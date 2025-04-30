@@ -44,6 +44,11 @@ pub enum ErrorNode<Rt: RuntimeType> {
         len: u64,
     },
     AssertDifferentTypes(type2::Typ<Rt>, type2::Typ<Rt>),
+    PolyPermuteInconsistentDegrees(u64, u64),
+    PolyPermuteInputLengthLessThanUsableRows {
+        from: u64,
+        to: u64,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -463,6 +468,24 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
                 src_typ
             }
             Print(x, _) => self.infer(cg, *x)?,
+            PolyPermute(input, table, usable_rows) => {
+                let ideg = self.try_unwrap_poly_typ(cg, *input, PolyType::Lagrange, &err)?;
+                let tdeg = self.try_unwrap_poly_typ(cg, *table, PolyType::Lagrange, &err)?;
+
+                if ideg != tdeg {
+                    return Err(err(ErrorNode::PolyPermuteInconsistentDegrees(
+                        ideg, tdeg,
+                    )));
+                }
+                if ideg < *usable_rows as u64 {
+                    return Err(err(ErrorNode::PolyPermuteInputLengthLessThanUsableRows {
+                        from: ideg,
+                        to: *usable_rows as u64,
+                    }));
+                }
+
+                type2::Typ::Tuple(vec![type2::Typ::lagrange(*usable_rows as u64), type2::Typ::lagrange(*usable_rows as u64)])
+            }
         };
         if let Some(annotated_typ) = v.typ() {
             if !annotated_typ.compatible_with_type2(&typ) {

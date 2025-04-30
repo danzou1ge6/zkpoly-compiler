@@ -24,3 +24,5 @@ extern "C" cudaError_t batched_invert(void *temp_buffer, unsigned long *buffer_s
 extern "C" cudaError_t inv_scalar(unsigned int* target, cudaStream_t stream);
 
 extern "C" cudaError_t scalar_pow(unsigned int* target, unsigned long long exp, cudaStream_t stream);
+
+extern "C" cudaError_t permute(void *temp_buffer, unsigned long *buffer_size, unsigned long usable, ConstPolyPtr input, ConstPolyPtr table, PolyPtr res_input, PolyPtr res_table, cudaStream_t stream);
