@@ -12,6 +12,7 @@ enum Id {
 struct Input {
     typ: FusedType,
     mutability: Mutability,
+    duplicat: i32,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -35,22 +36,43 @@ pub struct NormalizedDag {
 
 impl<Oid, Aid> From<&ArithGraph<Oid, Aid>> for NormalizedDag
 where
+    Oid: UsizeId + Ord,
     Aid: UsizeId + 'static,
 {
     fn from(ag: &ArithGraph<Oid, Aid>) -> Self {
+        let mut input_used = BTreeMap::new();
         let inputs = ag
             .inputs
             .iter()
-            .map(|i| match &ag.g.vertex(*i).op {
+            .enumerate()
+            .map(|(id, i)| match &ag.g.vertex(*i).op {
                 Operation::Input {
-                    typ, mutability, ..
-                } => (
-                    *i,
-                    Input {
-                        typ: typ.clone(),
-                        mutability: *mutability,
-                    },
-                ),
+                    typ,
+                    mutability,
+                    outer_id,
+                } => {
+                    if input_used.contains_key(outer_id) {
+                        let duplicate = input_used[outer_id];
+                        (
+                            *i,
+                            Input {
+                                typ: typ.clone(),
+                                mutability: *mutability,
+                                duplicat: duplicate as i32,
+                            },
+                        )
+                    } else {
+                        input_used.insert(*outer_id, id);
+                        (
+                            *i,
+                            Input {
+                                typ: typ.clone(),
+                                mutability: *mutability,
+                                duplicat: -1,
+                            },
+                        )
+                    }
+                }
                 _ => panic!("expect Operation::Input here"),
             })
             .collect::<Vec<_>>();

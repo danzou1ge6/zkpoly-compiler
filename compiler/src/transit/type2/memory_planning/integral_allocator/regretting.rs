@@ -2,7 +2,7 @@ use super::{Addr, AddrId, AddrMappingHandler, Instant, IntegralSize, Size};
 use std::collections::{BTreeMap, BTreeSet};
 use zkpoly_common::mm_heap::MmHeap;
 
-static DEBUG: bool = true;
+static DEBUG: bool = false;
 
 #[derive(Clone, Debug)]
 pub struct Transfer {
@@ -621,7 +621,8 @@ impl Allocator {
             assert!(transfers.len() == 0);
 
             let (Addr(parent_addr), _) = mapping.get(parent_addr);
-            let addr = self.subdivide_parent_and_alloc_first(parent_addr, parent_lbs, next_use, mapping);
+            let addr =
+                self.subdivide_parent_and_alloc_first(parent_addr, parent_lbs, next_use, mapping);
             let addr_id = self.addr_id_of(addr, lbs);
 
             return Some((vec![], addr_id));
@@ -706,10 +707,8 @@ impl Allocator {
             .map(|blocks| {
                 blocks
                     .iter()
-                    .filter_map(|(addr, block)| {
-                        block.status.try_next_use().map(|nu| (addr, nu))
-                    })
-                    .filter(|(_, next_use) |*next_use != self.now)
+                    .filter_map(|(addr, block)| block.status.try_next_use().map(|nu| (addr, nu)))
+                    .filter(|(_, next_use)| *next_use != self.now)
                     .max_by_key(|(_, next_use)| *next_use)
             })
             .flatten()
@@ -742,10 +741,12 @@ impl Allocator {
 
         // Otherwise, try find a occupied or splitted block of bigger size
         if let Some(parent_lbs) = self.parent_lbs(lbs) {
-            let (addr_id, victims) = self.decide_and_realloc_victim(IntegralSize(parent_lbs), next_use, mapping)?;
+            let (addr_id, victims) =
+                self.decide_and_realloc_victim(IntegralSize(parent_lbs), next_use, mapping)?;
             let (Addr(parent_addr), _) = mapping.get(addr_id);
 
-            let addr = self.subdivide_parent_and_alloc_first(parent_addr, parent_lbs, next_use.0, mapping);
+            let addr =
+                self.subdivide_parent_and_alloc_first(parent_addr, parent_lbs, next_use.0, mapping);
             let addr_id = self.addr_id_of(addr, lbs);
 
             Some((addr_id, victims))
@@ -871,11 +872,13 @@ mod test {
             ) {
                 addr_id
             } else {
-                let (addr_id, victims) = allocator.decide_and_realloc_victim(
-                    IntegralSize(log_size),
-                    Instant(t + next_use_after_alloc),
-                    &mut handler,
-                ).unwrap_or_else(|| panic!("no valid victim"));
+                let (addr_id, victims) = allocator
+                    .decide_and_realloc_victim(
+                        IntegralSize(log_size),
+                        Instant(t + next_use_after_alloc),
+                        &mut handler,
+                    )
+                    .unwrap_or_else(|| panic!("no valid victim"));
                 let _ = victims.into_iter().map(|v| ejected.insert(v));
                 addr_id
             };

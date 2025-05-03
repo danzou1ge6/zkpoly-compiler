@@ -1,4 +1,4 @@
-static DEBUG: bool = true;
+static DEBUG: bool = false;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -170,7 +170,7 @@ impl MemoryBlock {
             MemoryBlock::Cpu(obj_id) => *obj_id,
         }
     }
-    
+
     pub fn with_object_id(&self, obj_id: ObjectId) -> Self {
         match self {
             MemoryBlock::Gpu(_, addr_id) => MemoryBlock::Gpu(obj_id, *addr_id),
