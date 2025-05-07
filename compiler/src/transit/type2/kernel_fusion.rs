@@ -328,7 +328,11 @@ pub fn reorder_input_outputs<Rt: RuntimeType>(
     *old_output_types = output_types;
 }
 
-pub fn fuse_arith<'s, Rt: RuntimeType>(mut cg: Cg<'s, Rt>) -> Cg<'s, Rt> {
+fn div_ceil(a: u64, b: u64) -> u64 {
+    (a + b - 1) / b
+}
+
+pub fn fuse_arith<'s, Rt: RuntimeType>(mut cg: Cg<'s, Rt>, gpu_mem_limit: u64) -> Cg<'s, Rt> {
     let mut succ: Heap<VertexId, BTreeSet<VertexId>> = cg.g.successors();
     let mut fused = vec![0; cg.g.order()];
     let order = cg.g.vertices().collect::<Vec<_>>();
@@ -391,18 +395,14 @@ pub fn fuse_arith<'s, Rt: RuntimeType>(mut cg: Cg<'s, Rt>) -> Cg<'s, Rt> {
                 })
                 .unwrap_or(PolyType::Coef);
 
-            // change input mutability
-            // let mut mut_inputs = ag.change_mutability(&succ, output_polys).into_iter();
-
             // add output nodes
             for (out_arith, (fuse_type, outer_id)) in ag.outputs.iter_mut().zip(output_outer_info) {
-                let in_node = vec![];
                 *out_arith = ag.g.add_vertex(ArithVertex {
                     op: Operation::Output {
                         outer_id: outer_id,
                         typ: fuse_type,
                         store_node: *out_arith,
-                        in_node: in_node,
+                        in_node: Vec::new(),
                     },
                 });
             }
@@ -413,10 +413,34 @@ pub fn fuse_arith<'s, Rt: RuntimeType>(mut cg: Cg<'s, Rt>) -> Cg<'s, Rt> {
             assert_eq!(output_types.len(), ag.outputs.len());
             let typ = super::typ::template::Typ::Tuple(output_types.clone());
 
+            let poly_deg = output_types.iter().fold(0, |acc, t| match t {
+                type2::Typ::Poly((_, deg)) => {
+                    assert!(acc == 0 || acc == *deg);
+                    *deg
+                }
+                type2::Typ::Scalar => acc,
+                _ => panic!("outputs other than polynomials and scalars are not expected"),
+            });
+
+            let ag_space = ag.space_needed(
+                poly_deg * std::mem::size_of::<Rt::Field>() as u64,
+                std::mem::size_of::<Rt::Field>() as u64,
+            );
+            let chunking = if ag_space < gpu_mem_limit / 2 {
+                None
+            } else {
+                let mut chunking = 4;
+                while div_ceil(ag_space, chunking) * 3 > gpu_mem_limit {
+                    chunking *= 2;
+                }
+                assert!(poly_deg % chunking == 0);
+                Some(chunking)
+            };
+
             let node_id = cg.g.add_vertex(Vertex::new(
                 VertexNode::Arith {
                     arith: ag,
-                    chunking: None,
+                    chunking,
                 },
                 typ,
                 SourceInfo::new(src_info.clone(), Some("fused_arith".to_string())),

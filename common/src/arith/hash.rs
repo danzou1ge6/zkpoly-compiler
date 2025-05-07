@@ -116,7 +116,10 @@ where
                         ..
                     } => {
                         let store_node = id_mapping[&store_node];
-                        let in_node = in_node.iter().map(|in_node: &Aid| id_mapping[&in_node]).collect();
+                        let in_node = in_node
+                            .into_iter()
+                            .map(|in_node| id_mapping[&in_node])
+                            .collect();
                         Tail::Output(Output {
                             typ: typ.clone(),
                             store_node,

@@ -93,7 +93,12 @@ impl MultithreadChunk {
     }
 
     pub fn append_at(&mut self, t3idx: super::InstructionIndex, tail: Instruction) {
-        self.instructions[self.t3idx2id[&t3idx]].tail.push(tail);
+        self.instructions[*self
+            .t3idx2id
+            .get(&t3idx)
+            .unwrap_or_else(|| panic!("instruction for type3 {:?} not found", t3idx))]
+        .tail
+        .push(tail);
     }
 
     pub fn new_auxilary_thread(&mut self) -> ThreadId {

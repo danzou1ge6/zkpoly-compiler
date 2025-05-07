@@ -267,11 +267,8 @@ pub(crate) fn format_node_label<'s, Vid: UsizeId + Debug>(
                 String::from("Arith")
             }
         }
-        PolyPermute(input, table, usable_len) => {
-            format!(
-                "PolyPermute(input {:?}, table {:?}, usable_len {:?})",
-                input, table, usable_len
-            )
+        PolyPermute(_input, _table, usable_len) => {
+            format!("PolyPermute({})", usable_len)
         }
         Entry(id) => format!("Entry({:?})", id),
         Return(_) => String::from("Return"),

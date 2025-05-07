@@ -138,7 +138,7 @@ where
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Hash, Eq, PartialOrd, Ord)]
 pub enum FusedType {
     Scalar,
     ScalarArray,
@@ -181,6 +181,55 @@ impl<OuterId, ArithIndex> Operation<OuterId, ArithIndex> {
             _ => panic!("Vertex is not an input"),
         }
     }
+
+    pub fn unwrap_input_typ(&self) -> FusedType {
+        match self {
+            Self::Input { typ, .. } => typ.clone(),
+            _ => panic!("Vertex is not an input"),
+        }
+    }
+
+    pub fn unwrap_input_mut(&mut self) -> (&mut OuterId, &mut FusedType, &mut Mutability) {
+        match self {
+            Self::Input {
+                outer_id,
+                typ,
+                mutability,
+            } => (outer_id, typ, mutability),
+            _ => panic!("Vertex is not an input"),
+        }
+    }
+
+    pub fn unwrap_output(&self) -> (&OuterId, &FusedType, &ArithIndex, &[ArithIndex]) {
+        match self {
+            Operation::Output {
+                outer_id,
+                typ,
+                store_node,
+                in_node,
+            } => (outer_id, typ, store_node, in_node),
+            _ => panic!("Vertex is not an output"),
+        }
+    }
+
+    pub fn unwrap_output_mut(
+        &mut self,
+    ) -> (
+        &mut OuterId,
+        &mut FusedType,
+        &mut ArithIndex,
+        &mut Vec<ArithIndex>,
+    ) {
+        match self {
+            Operation::Output {
+                outer_id,
+                typ,
+                store_node,
+                in_node,
+            } => (outer_id, typ, store_node, in_node),
+            _ => panic!("Vertex is not an output"),
+        }
+    }
 }
 
 impl<OuterId, ArithIndex> ArithVertex<OuterId, ArithIndex>
@@ -213,9 +262,7 @@ where
             } => {
                 let store = store_node as *mut ArithIndex;
                 let mut result = Vec::new();
-                for in_id in in_node.iter_mut() {
-                    result.push(in_id);
-                }
+                result.extend(in_node.iter_mut());
                 // SAFETY: store_node is a unique mutable reference
                 unsafe { result.push(&mut *store) };
                 Box::new(result.into_iter())
@@ -298,6 +345,25 @@ where
             }
         }
         (vars, mut_vars)
+    }
+
+    pub fn space_needed(&self, poly_space: u64, scalar_space: u64) -> u64 {
+        let space_for_ft = |t| match t {
+            FusedType::Scalar => scalar_space,
+            FusedType::ScalarArray => poly_space,
+        };
+        self.inputs
+            .iter()
+            .map(|i| space_for_ft(self.g.vertex(*i).op.unwrap_input_typ()))
+            .chain(self.outputs.iter().filter_map(|i| {
+                let (_, ft, _, in_node) = self.g.vertex(*i).op.unwrap_output();
+                if !in_node.is_empty() {
+                    None
+                } else {
+                    Some(space_for_ft(*ft))
+                }
+            }))
+            .sum()
     }
 
     pub fn uses<'s>(&'s self) -> impl Iterator<Item = OuterId> + 's {

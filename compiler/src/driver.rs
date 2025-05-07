@@ -651,7 +651,12 @@ pub fn type2_to_inst<Rt: RuntimeType>(
     // - Arithmetic Kernel Fusion
     let t2cg = options.log_suround(
         "Fusing arithmetic kernels",
-        || Ok(type2::kernel_fusion::fuse_arith(t2cg)),
+        || {
+            Ok(type2::kernel_fusion::fuse_arith(
+                t2cg,
+                hardware_info.gpu_memory_limit,
+            ))
+        },
         "Done.",
     )?;
 
@@ -765,8 +770,12 @@ pub fn type2_to_inst<Rt: RuntimeType>(
         "Analyzing next uses of objects on GPU",
         || {
             let obj_used_by = type2::object_analysis::analyze_used_by(&seq, &vertex_inputs);
-            let obj_gpu_next_use =
-                type2::object_analysis::analyze_gpu_next_use(&g, &seq, &vertex_inputs, &obj_used_by);
+            let obj_gpu_next_use = type2::object_analysis::analyze_gpu_next_use(
+                &g,
+                &seq,
+                &vertex_inputs,
+                &obj_used_by,
+            );
 
             Ok((obj_used_by, obj_gpu_next_use))
         },
