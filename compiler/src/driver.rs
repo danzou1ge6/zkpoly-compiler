@@ -44,6 +44,7 @@ pub struct DebugOptions {
     debug_multithread_instructions: bool,
     debug_instructions: bool,
     debug_cse: bool,
+    debug_arith_decide_mutable: bool,
     type2_visualizer: Type2DebugVisualizer,
     log: bool,
 }
@@ -64,6 +65,7 @@ impl DebugOptions {
             debug_obj_def_use: true,
             debug_obj_liveness: true,
             debug_cse: true,
+            debug_arith_decide_mutable: true,
             debug_obj_gpu_next_use: true,
             debug_fresh_type3: true,
             debug_extend_rewriting: true,
@@ -87,6 +89,7 @@ impl DebugOptions {
             debug_precompute: false,
             debug_manage_invers: false,
             debug_kernel_fusion: false,
+            debug_arith_decide_mutable: false,
             debug_graph_scheduling: false,
             debug_obj_def_use: false,
             debug_obj_liveness: false,
@@ -789,7 +792,31 @@ pub fn type2_to_inst<Rt: RuntimeType>(
         write!(f, "{:?}\n", &obj_gpu_next_use).unwrap();
     }
 
+    // - Decide inplace inputs of arithmetic subgraphs
+    let t2cg = options.log_suround(
+        "Deciding inplace inputs",
+        || {
+            Ok(type2::arith_decide_mutable::decide_mutable(
+                t2cg,
+                &vertex_inputs,
+                &obj_dies_after,
+            ))
+        },
+        "Done",
+    )?;
+
+    if options.debug_arith_decide_mutable {
+        let fpath = options.debug_dir.join("type2_arith_decide_mutable.dot");
+        ctx.add(debug_type2(
+            fpath,
+            &t2cg.g,
+            t2cg.output,
+            options.type2_visualizer,
+        ));
+    }
+
     // To Type3 through Memory Planning
+    let g = SubDigraph::new(&t2cg.g, t2cg.g.connected_component(t2cg.output));
     let t3chunk = options.log_suround(
         "Planning memory",
         || {

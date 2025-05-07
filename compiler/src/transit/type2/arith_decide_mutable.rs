@@ -4,7 +4,7 @@ use crate::transit::{
     type2::{object_analysis::AtModifier, Cg, VertexNode},
     type3::Device,
 };
-use zkpoly_common::arith::Mutability;
+use zkpoly_common::arith::{FusedType, Mutability};
 use zkpoly_runtime::args::RuntimeType;
 
 use super::object_analysis::{ObjectUse, ObjectsDieAfter, VertexValue};
@@ -31,13 +31,16 @@ pub fn decide_mutable<'s, Rt: RuntimeType>(
 
             for output_eid in arith.outputs.iter().collect::<Vec<_>>().into_iter() {
                 let (_, ft, _, _) = arith.g.vertex(*output_eid).op.unwrap_output();
+                if *ft != FusedType::ScalarArray {
+                    continue;
+                }
 
                 // Find inputs that can be usesd inplace for the output vertex, which satisfies
                 // - Input has the same FusedType
                 // - Input dies after this vertex
                 let mut inplace_candidates = arith.inputs.iter().filter(|&&input_eid| {
                     let input = arith.g.vertex(input_eid);
-                    input.op.unwrap_input_typ() == *ft
+                    input.op.unwrap_input_typ() == FusedType::ScalarArray
                         && obj_die_after
                             .get_device(device)
                             .get(&inputs_values[&input_eid].object_id())
