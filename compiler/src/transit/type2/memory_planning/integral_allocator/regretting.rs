@@ -125,7 +125,17 @@ impl<'a> std::fmt::Debug for BlocksDebugger<'a> {
         ) -> std::fmt::Result {
             let block = &a.blocks[&lbs][&addr];
             match &block.status {
-                BlockStatus::Free(..) => {}
+                BlockStatus::Free(last_die_at) => {
+                    // write!(
+                    //     f,
+                    //     "{}({}, {}, {}): Free({})\n",
+                    //     " ".repeat(depth * 2),
+                    //     lbs,
+                    //     addr,
+                    //     usize::from(block.addr),
+                    //     last_die_at
+                    // )?;
+                }
                 BlockStatus::Occupied(lve_at, next_use) => write!(
                     f,
                     "{}({}, {}, {}): Occupied({},{})\n",
@@ -356,9 +366,6 @@ impl Allocator {
     }
 
     fn insert_block(&mut self, addr: u64, lbs: u32, block: Block) {
-        if let Some(next_use) = block.status.try_next_use() {
-            self.update_next_use_in_parent(addr, lbs, next_use);
-        }
         self.blocks.get_mut(&lbs).unwrap().insert(addr, block);
     }
 
@@ -417,60 +424,68 @@ impl Allocator {
         }
         // Reassign addresses of blocks
         reassign_dest2src.iter().for_each(|(dest, src)| {
-            let src_block = self
-                .blocks
-                .get_mut(&child_lbs)
-                .unwrap()
-                .remove(src)
-                .unwrap();
             let dest_block = self
                 .blocks
                 .get_mut(&child_lbs)
                 .unwrap()
                 .remove(dest)
                 .unwrap();
-            mapping.update(
-                src_block.addr,
-                Addr(*dest),
-                Size::Integral(IntegralSize(child_lbs)),
-            );
+
             mapping.update(
                 dest_block.addr,
                 Addr(*src),
                 Size::Integral(IntegralSize(child_lbs)),
             );
-            self.insert_block(*dest, child_lbs, src_block);
+
+            // Dest must be free, so resetting src's children's addr_id mapping is enough
+            self.reallocate_children_recursively(
+                *src,
+                child_lbs,
+                *dest,
+                mapping,
+                &mut |_, _| (),
+                false,
+            );
+
             self.insert_block(*src, child_lbs, dest_block);
+
+            if DEBUG {
+                println!("Reassigned ({}, {}) to {}", child_lbs, src, dest);
+            }
         });
 
         // Transfer blocks
+        let mut transfers = Vec::new();
+
         transfer_dest2src.iter().for_each(|(dest, src)| {
-            let mut src_block = self
-                .blocks
-                .get_mut(&child_lbs)
-                .unwrap()
-                .remove(src)
-                .unwrap();
             let mut dest_block = self
                 .blocks
                 .get_mut(&child_lbs)
                 .unwrap()
                 .remove(dest)
                 .unwrap();
-            std::mem::swap(&mut src_block.addr, &mut dest_block.addr);
+
             // The block "swapped" here died after last instant, as the transfer should be executed before `now`
             dest_block.status = BlockStatus::Free(self.now - 1);
-            self.insert_block(*dest, child_lbs, src_block);
-            self.insert_block(*src, child_lbs, dest_block);
-        });
 
-        let transfers = transfer_dest2src
-            .into_iter()
-            .map(|(dest, src)| Transfer {
-                from: self.addr_id_of(src, child_lbs),
-                to: self.addr_id_of(dest, child_lbs),
-            })
-            .collect();
+            dest_block.addr = self.blocks[&child_lbs][src].addr;
+
+            // Dest must be free, so assigning each children of src new addr_id is enough
+            self.reallocate_children_recursively(
+                *src,
+                child_lbs,
+                *dest,
+                mapping,
+                &mut |from, to| transfers.push(Transfer { from, to }),
+                true,
+            );
+
+            self.insert_block(*src, child_lbs, dest_block);
+
+            if DEBUG {
+                println!("Transferred ({}, {}) to {}", child_lbs, src, dest);
+            }
+        });
 
         for child_addr in self.child_addrs(addr, lbs).unwrap() {
             self.blocks.get_mut(&child_lbs).unwrap().remove(&child_addr);
@@ -507,7 +522,12 @@ impl Allocator {
                 return None;
             }
             // Take the block with the least non-free children to try emptying its children
-            if let Some((addr, _)) = n_nonfree_blocks.iter().min_by_key(|(_, n)| *n).cloned() {
+            if let Some((addr, _)) = n_nonfree_blocks
+                .iter()
+                .filter(|(addr, _)| self.blocks[&lbs][addr].status.next_use() > self.now)
+                .min_by_key(|(_, n)| *n)
+                .cloned()
+            {
                 if let Some(transfers) = self
                     .plan_relocation_of_children::<ALLOW_TRANSFER>(addr, lbs, child_lbs, mapping)
                 {
@@ -662,6 +682,64 @@ impl Allocator {
             println!("{:#?}", self);
         }
         r
+    }
+
+    fn reallocate_children_recursively(
+        &mut self,
+        addr: u64,
+        lbs: u32,
+        new_addr: u64,
+        mapping: &mut impl AddrMappingHandler,
+        append: &mut impl FnMut(AddrId, AddrId),
+        new_addr_id: bool,
+    ) {
+        let (descend, nu) = {
+            let mut block = self.blocks.get_mut(&lbs).unwrap().remove(&addr).unwrap();
+
+            if new_addr_id {
+                let new = Self::new_addr_id(new_addr, lbs, mapping);
+                if let BlockStatus::Occupied(..) = &block.status {
+                    append(block.addr, new);
+                }
+                block.addr = new;
+            } else {
+                mapping.update(
+                    block.addr,
+                    Addr(new_addr),
+                    Size::Integral(IntegralSize(lbs)),
+                );
+            }
+
+            let descend = matches!(&block.status, BlockStatus::Splitted(..));
+            let nu = block.status.try_next_use();
+
+            if let BlockStatus::Splitted(_, cnu) = &mut block.status {
+                *cnu = MmHeap::new();
+            }
+
+            self.blocks.entry(lbs).or_default().insert(new_addr, block);
+
+            (descend, nu)
+        };
+
+        if descend {
+            let child_lbs = self.child_lbs(lbs).unwrap();
+            for child_addr in self.child_addrs(addr, lbs).unwrap() {
+                let child_new_addr = new_addr + (child_addr - addr);
+                self.reallocate_children_recursively(
+                    child_addr,
+                    child_lbs,
+                    child_new_addr,
+                    mapping,
+                    append,
+                    new_addr_id,
+                );
+            }
+        }
+
+        if let Some(nu) = nu {
+            self.update_next_use_in_parent(new_addr, lbs, nu);
+        }
     }
 
     fn gather_and_remove_occupied_child_blocks(

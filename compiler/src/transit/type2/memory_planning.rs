@@ -21,7 +21,7 @@ use super::{
         typ::Typ, Addr, AddrId, AddrMapping, Device as DeterminedDevice, Instruction,
         InstructionNode, IntegralSize, RegisterId, Size, SmithereenSize,
     },
-    object_analysis::AtModifier,
+    object_analysis::{AtModifier, VertexValue},
     user_function,
 };
 
@@ -154,6 +154,14 @@ impl RegisterPlaces {
             })
             .next()
             .map(|(it, d)| (it.collect::<Vec<_>>(), d))
+    }
+}
+
+impl std::ops::AddAssign<RegisterPlaces> for RegisterPlaces {
+    fn add_assign(&mut self, rhs: RegisterPlaces) {
+        for d in DeterminedDevice::iter() {
+            self.get_device_mut(d).extend(rhs.get_device(d).iter());
+        }
     }
 }
 
@@ -535,6 +543,7 @@ fn allocate_gpu_integral(
                 id: reg_to,
                 addr: t.to,
             }));
+            ctx.set_gpu_addr_id_for_reg(reg_to, t.to);
 
             code.emit(Instruction::new_no_src(InstructionNode::Transfer {
                 id: reg_to,
@@ -978,6 +987,44 @@ fn attempt_on_device(
     }
 }
 
+fn register_for_object(
+    device: DeterminedDevice,
+    obj_id: ObjectId,
+    typ: Typ,
+    code: &mut Code,
+    ctx: &mut Context,
+) -> Option<RegisterId> {
+    let candidate_registers = ctx.object_residence[&obj_id]
+        .get_device(device)
+        .iter()
+        .cloned()
+        .collect::<Vec<_>>();
+    if !candidate_registers.is_empty() {
+        if DEBUG {
+            println!(
+                "[MP.register_for_object] Found candidate registers {:?} with {:?} for {:?} on {:?}",
+                &candidate_registers, typ.clone(), obj_id, device
+            );
+        }
+
+        Some(ensure_same_type(
+            obj_id,
+            typ,
+            candidate_registers.into_iter(),
+            code,
+            ctx,
+        ))
+    } else {
+        if DEBUG {
+            println!(
+                "[MP.register_for_object] {:?} with {:?} not found on {:?}",
+                obj_id, typ, device
+            );
+        }
+        None
+    }
+}
+
 // Return a register that is ensured to point to `obj_id` on `device`, with type `typ`.
 fn ensure_on_device(
     device: DeterminedDevice,
@@ -1161,6 +1208,7 @@ fn ensure_copied(
     vid: VertexId,
     typ: Typ,
     original_obj_id: ObjectId,
+    new_obj_id: ObjectId,
     now: Instant,
     gpu_allocator: &mut GpuAllocator,
     code: &mut Code,
@@ -1197,16 +1245,15 @@ fn ensure_copied(
         allocate_(
             device,
             copied_reg,
-            original_obj_id, // this will be not be tracked for GPU allocations
+            new_obj_id,
             now,
             size,
             gpu_allocator,
             code,
             ctx,
             &imctx,
-            false,
+            true,
         )?;
-        ctx.set_reg2obj(copied_reg, device, original_obj_id);
 
         code.emit(Instruction::new_no_src(InstructionNode::Transfer {
             id: copied_reg,
@@ -1219,7 +1266,9 @@ fn ensure_copied(
             }
             let corrected_reg =
                 emit_correct_type(copied_reg, device, original_obj_id, typ, code, ctx);
-            ctx.set_reg2obj(corrected_reg, device, original_obj_id);
+
+            ctx.add_residence_for_object(new_obj_id, corrected_reg, device);
+            ctx.remove_residence_in_reg_for_object(new_obj_id, device, copied_reg);
 
             // Throw away the old register
             code.emit(Instruction::new_no_src(InstructionNode::StackFree {
@@ -1234,6 +1283,7 @@ fn ensure_copied(
                     original_obj_id, transferred_reg, copied_reg, copied_typ
                 );
             }
+
             copied_reg
         }
     } else {
@@ -1256,6 +1306,8 @@ fn ensure_copied(
         }
 
         ctx.remove_residence_in_reg_for_object(original_obj_id, device, on_device_reg);
+        ctx.add_residence_for_object(new_obj_id, on_device_reg, device);
+
         ctx.mark_space_inplace(original_obj_id, device);
 
         on_device_reg
@@ -1373,127 +1425,145 @@ fn plan_vertex<'s, Rt: RuntimeType>(
         .outputs_inplace(uf_table, exe_device)
         .collect();
     let mut tuple_registers = Vec::new();
-    let input_registers: Vec<RegisterId> =
-        cg.g.vertex(vid)
-            .uses()
-            .zip(imctx.vertex_inputs.input_of(vid))
-            .map(|(input_vid, input_vv)| {
-                if mutable_uses.contains(&input_vid) && outputs_inplace.contains(&Some(input_vid)) {
-                    // This input's space is used inplace by an output
-                    let input_value = match input_vv {
-                        object_analysis::VertexValue::Single(input_value) => input_value.clone(),
-                        object_analysis::VertexValue::Tuple(..) => {
-                            panic!("an inplace input must not be a tuple")
-                        }
-                    };
 
-                    if DEBUG {
-                        println!("[MP.plan] {:?} is inplace input of {:?}", input_value, vid);
+    let v = g.vertex(vid);
+
+    let input_values: Vec<(VertexValue, Vec<Typ>)> = v
+        .uses()
+        .zip(imctx.vertex_inputs.input_of(vid))
+        .map(|(input_vid, input_vv)| {
+            if mutable_uses.contains(&input_vid) && outputs_inplace.contains(&Some(input_vid)) {
+                let input_value = match input_vv {
+                    VertexValue::Single(input_value) => input_value.clone(),
+                    VertexValue::Tuple(..) => {
+                        panic!("an inplace input must not be a tuple")
                     }
+                };
 
-                    ensure_copied(
-                        input_value.device(),
-                        vid,
-                        lower_typ(g.vertex(input_vid).typ(), &input_value),
-                        input_value.object_id(),
-                        now,
-                        gpu_allocator,
-                        code,
-                        ctx,
-                        &imctx,
-                    )
-                } else if mutable_uses.contains(&input_vid) {
-                    let input_value = match input_vv {
-                        object_analysis::VertexValue::Single(input_value) => input_value.clone(),
-                        object_analysis::VertexValue::Tuple(..) => {
-                            panic!("an mutable input must not be a tuple")
-                        }
-                    };
-                    // This input is mutated
-                    let copied_reg = ensure_copied(
-                        input_value.device(),
-                        vid,
-                        lower_typ(g.vertex(input_vid).typ(), &input_value),
-                        input_value.object_id(),
-                        now,
-                        gpu_allocator,
-                        code,
-                        ctx,
-                        &imctx,
-                    )?;
-                    ctx.remove_residence_in_reg_for_object(
-                        input_value.object_id(),
-                        input_value.device(),
-                        copied_reg,
-                    );
-                    ctx.add_residence_for_object(
-                        obj_id_allocator.alloc(),
-                        copied_reg,
-                        input_value.device(),
-                    );
-                    Ok(copied_reg)
-                } else if !mutable_uses.contains(&input_vid)
-                    && !outputs_inplace.contains(&Some(input_vid))
-                {
-                    // The input is not mutated
-                    match input_vv {
-                        object_analysis::VertexValue::Single(input_value) => {
-                            if DEBUG {
-                                println!(
-                                    "[MP.plan] {:?} is an immutable input of {:?}",
-                                    input_value, vid
-                                );
-                            }
-                            ensure_on_device(
-                                input_value.device(),
-                                input_value.object_id(),
-                                lower_typ(g.vertex(input_vid).typ(), &input_value),
-                                now,
-                                gpu_allocator,
-                                code,
-                                ctx,
-                                &imctx,
-                            )
-                        }
-                        object_analysis::VertexValue::Tuple(input_values) => {
-                            if DEBUG {
-                                println!(
-                                    "[MP.plan] {:?} are immutable inputs of {:?}",
-                                    input_values, vid
-                                );
-                            }
+                let tmp_obj_id = obj_id_allocator.alloc();
 
-                            let elements = input_values
-                                .iter()
-                                .zip(g.vertex(input_vid).typ().iter())
-                                .map(|(input_value, input_typ)| {
-                                    ensure_on_device(
-                                        input_value.device(),
-                                        input_value.object_id(),
-                                        lower_typ(input_typ, input_value),
-                                        now,
-                                        gpu_allocator,
-                                        code,
-                                        ctx,
-                                        &imctx,
-                                    )
-                                })
-                                .collect::<Result<Vec<_>, _>>()?;
-                            let tuple_reg = code.alloc_register_id(Typ::Tuple);
-                            ctx.reg_device.insert(tuple_reg, DeterminedDevice::Stack);
-                            code.emit(Instruction::new_no_src(InstructionNode::Tuple {
-                                id: tuple_reg,
-                                oprands: elements,
-                            }));
-                            tuple_registers.push(tuple_reg);
-                            Ok(tuple_reg)
-                        }
-                    }
-                } else {
-                    panic!("an inplace output must use an mutable input")
+                if DEBUG {
+                    println!(
+                        "[MP.plan] {:?} is inplace input of {:?}, assigning temporary {:?}",
+                        input_value, vid, tmp_obj_id
+                    );
                 }
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+
+                let typ = lower_typ(g.vertex(input_vid).typ(), &input_value);
+
+                let _ = ensure_copied(
+                    input_value.device(),
+                    vid,
+                    typ.clone(),
+                    input_value.object_id(),
+                    tmp_obj_id,
+                    now,
+                    gpu_allocator,
+                    code,
+                    ctx,
+                    &imctx,
+                )?;
+
+                Ok((
+                    VertexValue::Single(input_value.with_object_id(tmp_obj_id)),
+                    vec![typ],
+                ))
+            } else if mutable_uses.contains(&input_vid) {
+                let input_value = match input_vv {
+                    object_analysis::VertexValue::Single(input_value) => input_value.clone(),
+                    object_analysis::VertexValue::Tuple(..) => {
+                        panic!("an mutable input must not be a tuple")
+                    }
+                };
+
+                let tmp_obj_id = obj_id_allocator.alloc();
+
+                let typ = lower_typ(g.vertex(input_vid).typ(), &input_value);
+
+                // This input is mutated
+                let copied_reg = ensure_copied(
+                    input_value.device(),
+                    vid,
+                    typ.clone(),
+                    input_value.object_id(),
+                    tmp_obj_id,
+                    now,
+                    gpu_allocator,
+                    code,
+                    ctx,
+                    &imctx,
+                )?;
+                ctx.remove_residence_in_reg_for_object(
+                    input_value.object_id(),
+                    input_value.device(),
+                    copied_reg,
+                );
+                ctx.add_residence_for_object(
+                    obj_id_allocator.alloc(),
+                    copied_reg,
+                    input_value.device(),
+                );
+
+                Ok((
+                    VertexValue::Single(input_value.with_object_id(tmp_obj_id)),
+                    vec![typ],
+                ))
+            } else {
+                // The input is not mutated
+                match input_vv {
+                    object_analysis::VertexValue::Single(input_value) => {
+                        if DEBUG {
+                            println!(
+                                "[MP.plan] {:?} is an immutable input of {:?}",
+                                input_value, vid
+                            );
+                        }
+                        let typ = lower_typ(g.vertex(input_vid).typ(), &input_value);
+
+                        let _ = ensure_on_device(
+                            input_value.device(),
+                            input_value.object_id(),
+                            typ.clone(),
+                            now,
+                            gpu_allocator,
+                            code,
+                            ctx,
+                            &imctx,
+                        );
+                        Ok((VertexValue::Single(input_value.clone()), vec![typ]))
+                    }
+                    object_analysis::VertexValue::Tuple(input_values) => {
+                        if DEBUG {
+                            println!(
+                                "[MP.plan] {:?} are immutable inputs of {:?}",
+                                input_values, vid
+                            );
+                        }
+
+                        let typs = input_values
+                            .iter()
+                            .zip(g.vertex(input_vid).typ().iter())
+                            .map(|(input_value, input_typ)| {
+                                let typ = lower_typ(input_typ, input_value);
+                                ensure_on_device(
+                                    input_value.device(),
+                                    input_value.object_id(),
+                                    typ.clone(),
+                                    now,
+                                    gpu_allocator,
+                                    code,
+                                    ctx,
+                                    &imctx,
+                                )?;
+                                Ok(typ)
+                            })
+                            .collect::<Result<Vec<_>, _>>()?;
+                        Ok((VertexValue::Tuple(input_values.clone()), typs))
+                    }
+                }
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()?;
 
     // Some objects die before the vertex is executed
     deallocate_dead_objects(
@@ -1508,7 +1578,123 @@ fn plan_vertex<'s, Rt: RuntimeType>(
     // - Otherwise
     //   - If the output use some input's space, kills the input register in ctx and let the output register inherit its space
     //   - Otherwise, allocate new space for the output
-    let v = g.vertex(vid);
+    if !v.node().no_allocate_output() {
+        imctx.obj_def.values[&vid]
+            .iter()
+            .zip(outputs_inplace.iter())
+            .zip(v.typ().iter())
+            .map(|((output_value, output_inplace), output_typ)| {
+                let output_obj = output_value.object_id();
+                let output_reg = code.alloc_register_id(lower_typ(output_typ, output_value));
+
+                if output_inplace.is_none() {
+                    if DEBUG {
+                        println!(
+                            "[MP.plan] {:?} in {:?} is output of {:?}",
+                            output_value, output_reg, vid
+                        )
+                    }
+
+                    let size = imctx.obj_size(output_obj);
+                    allocate(
+                        output_value.device(),
+                        output_reg,
+                        output_obj,
+                        imctx
+                            .obj_gpu_next_use
+                            .first_use_of(output_obj)
+                            .unwrap_or(Instant(usize::MAX)),
+                        size,
+                        gpu_allocator,
+                        code,
+                        ctx,
+                        &imctx,
+                    )?;
+                }
+
+                Ok(())
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+    }
+
+    // Allocate temporary space
+    // This is last step of allocation, so we can use the assigned register directly, without worrying that
+    // the underlying object is moved elsewhere
+    let temp_register_obj =
+        if let Some((temp_space_sizes, temp_space_device)) = cg.temporary_space_needed(vid, libs) {
+            let rs = temp_space_sizes
+                .into_iter()
+                .map(|temp_space_size| {
+                    let temp_register =
+                        code.alloc_register_id(Typ::GpuBuffer(temp_space_size as usize));
+                    let temp_obj = obj_id_allocator.alloc();
+                    allocate(
+                        temp_space_device,
+                        temp_register,
+                        temp_obj,
+                        now,
+                        Size::Smithereen(SmithereenSize(temp_space_size)),
+                        gpu_allocator,
+                        code,
+                        ctx,
+                        &imctx,
+                    )?;
+                    Ok((temp_register, temp_obj, temp_space_device))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Some(rs)
+        } else {
+            None
+        };
+
+    // Get registers for input values
+    let input_registers = input_values
+        .iter()
+        .map(|(input_vv, input_typs)| match input_vv {
+            VertexValue::Single(input_value) => {
+                let r = register_for_object(
+                    input_value.device(),
+                    input_value.object_id(),
+                    input_typs[0].clone(),
+                    code,
+                    ctx,
+                )
+                .ok_or_else(|| Error::VertexInputsAndOutputsNotAccommodated(vid))?;
+                Ok(r)
+            }
+            VertexValue::Tuple(input_values) => {
+                let rs = input_values
+                    .iter()
+                    .zip(input_typs.iter())
+                    .map(|(input_value, input_typ)| {
+                        let r = register_for_object(
+                            input_value.device(),
+                            input_value.object_id(),
+                            input_typ.clone(),
+                            code,
+                            ctx,
+                        )
+                        .ok_or_else(|| Error::VertexInputsAndOutputsNotAccommodated(vid))?;
+                        Ok(r)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                let tuple_reg = code.alloc_register_id(Typ::Tuple);
+                ctx.reg_device.insert(tuple_reg, DeterminedDevice::Stack);
+                code.emit(Instruction::new_no_src(InstructionNode::Tuple {
+                    id: tuple_reg,
+                    oprands: rs,
+                }));
+                tuple_registers.push(tuple_reg);
+                Ok(tuple_reg)
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    // Get registers for output values
+    // - If the output need no allocation, just assign a register for it
+    // - Otherwise, for each output of the vertex, first assign new register, then
+    //   - If it is inplace, inherit space from curresponding input
+    //   - Otherwise, get a register for the object
     let output_registers: Vec<(RegisterId, Option<RegisterId>)> = if v.node().no_allocate_output() {
         imctx.obj_def.values[&vid]
             .iter()
@@ -1522,7 +1708,7 @@ fn plan_vertex<'s, Rt: RuntimeType>(
             })
             .collect::<Result<Vec<_>, _>>()?
     } else {
-        let output_registers = imctx.obj_def.values[&vid]
+        imctx.obj_def.values[&vid]
             .iter()
             .zip(v.outputs_inplace(uf_table, exe_device))
             .zip(v.typ().iter())
@@ -1560,68 +1746,19 @@ fn plan_vertex<'s, Rt: RuntimeType>(
                         )
                     }
 
-                    let size = imctx.obj_size(output_obj);
-                    allocate(
+                    let output_reg = register_for_object(
                         output_value.device(),
-                        output_reg,
                         output_obj,
-                        imctx
-                            .obj_gpu_next_use
-                            .first_use_of(output_obj)
-                            .unwrap_or(Instant(usize::MAX)),
-                        size,
-                        gpu_allocator,
+                        lower_typ(output_typ, output_value),
                         code,
                         ctx,
-                        &imctx,
-                    )?;
+                    )
+                    .ok_or_else(|| Error::VertexInputsAndOutputsNotAccommodated(vid))?;
                     Ok((output_reg, None))
                 }
             })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        if !check_values_ready(
-            imctx
-                .vertex_inputs
-                .input_of(vid)
-                .map(|vv| vv.iter())
-                .flatten()
-                .filter(|v| !ctx.inplace_obj.contains_key(&v.object_id()))
-                .chain(imctx.obj_def.values[&vid].iter()),
-            &ctx,
-        ) {
-            return Err(Error::VertexInputsAndOutputsNotAccommodated(vid));
-        }
-
-        output_registers
+            .collect::<Result<Vec<_>, _>>()?
     };
-
-    let temp_register_obj =
-        if let Some((temp_space_sizes, temp_space_device)) = cg.temporary_space_needed(vid, libs) {
-            let rs = temp_space_sizes
-                .into_iter()
-                .map(|temp_space_size| {
-                    let temp_register =
-                        code.alloc_register_id(Typ::GpuBuffer(temp_space_size as usize));
-                    let temp_obj = obj_id_allocator.alloc();
-                    allocate(
-                        temp_space_device,
-                        temp_register,
-                        temp_obj,
-                        now,
-                        Size::Smithereen(SmithereenSize(temp_space_size)),
-                        gpu_allocator,
-                        code,
-                        ctx,
-                        &imctx,
-                    )?;
-                    Ok((temp_register, temp_obj, temp_space_device))
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            Some(rs)
-        } else {
-            None
-        };
 
     // Emit vertex
 

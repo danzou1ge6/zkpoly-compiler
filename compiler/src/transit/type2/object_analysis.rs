@@ -70,6 +70,12 @@ impl Value {
         }
     }
 
+    pub fn with_object_id(&self, object_id: ObjectId) -> Self {
+        let mut this = self.clone();
+        this.object_id = object_id;
+        this
+    }
+
     pub fn with_device(&self, device: Device) -> Self {
         Value {
             node: self.node.clone(),
@@ -900,4 +906,3 @@ pub fn analyze_gpu_next_use<'s, Rt: RuntimeType>(
         first_use_at,
     }
 }
-
