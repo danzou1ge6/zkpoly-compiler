@@ -5,6 +5,7 @@ use super::{Stream, StreamSpecific, Track};
 use zkpoly_common::arith::{self, ArithUnrOp, BinOp, UnrOp};
 use zkpoly_core::fused_kernels::gen_var_lists;
 use zkpoly_runtime::args::RuntimeType;
+use zkpoly_runtime::functions::FusedKernelMeta;
 use zkpoly_runtime::{args::VariableId, functions::FunctionId, instructions::Instruction};
 
 pub fn emit_func<'s, Rt: RuntimeType>(
@@ -15,23 +16,31 @@ pub fn emit_func<'s, Rt: RuntimeType>(
     vertex: &VertexNode, // vertex node to generate kernel for
     reg_id2var_id: &impl Fn(RegisterId) -> VariableId, // function to get variable id from register id
     stream2variable_id: &StreamSpecific<VariableId>,
-    f_id: FunctionId,
+    f_info: (FunctionId, Option<FusedKernelMeta>),
     t3chunk: &crate::transit::type3::Chunk<'s, Rt>,
     emit: &mut impl FnMut(Instruction), // function to emit instruction
 ) {
+    let (f_id, fused_meta) = f_info;
     let stream = Stream::of_track(track).map(|t| stream2variable_id.get(t).clone());
     match vertex {
-        VertexNode::Arith { arith, .. } => {
+        VertexNode::Arith { arith, chunking } => {
             let (var, var_mut) = gen_var_lists(outputs.iter().copied(), arith);
-            let mut arg = vec![stream.unwrap()];
-            for (_, id) in var.iter() {
-                arg.push(reg_id2var_id(*id));
+            if chunking.is_none() {
+                let mut arg = vec![stream.unwrap()];
+                for (_, id) in var.iter() {
+                    arg.push(reg_id2var_id(*id));
+                }
+                let arg_mut = var_mut
+                    .iter()
+                    .map(|(_, id)| reg_id2var_id(*id))
+                    .collect::<Vec<_>>();
+                generate_arith(arg, arg_mut, f_id, emit);
+            } else {
+                // after removing the rotate(0), we will work on this again
+                let fused_meta = fused_meta.unwrap();
+                let pipelined_meta = fused_meta.pipelined_meta.unwrap();
+                todo!("Chunking arith is not supported yet");
             }
-            let arg_mut = var_mut
-                .iter()
-                .map(|(_, id)| reg_id2var_id(*id))
-                .collect::<Vec<_>>();
-            generate_arith(arg, arg_mut, f_id, emit);
         }
         VertexNode::Ntt {
             s,

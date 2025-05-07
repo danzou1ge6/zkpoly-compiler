@@ -1,5 +1,3 @@
-use crate::transit::Locations;
-
 use super::*;
 use std::{fmt::Debug, io::Write};
 use zkpoly_common::{arith::ExprId, digraph::internal::Digraph};
@@ -88,11 +86,14 @@ pub fn write_graph_with_seq<'s, Ty: Debug>(
 }
 
 pub(crate) fn format_source_info<'s>(src: &SourceInfo<'s>) -> String {
-    let loc = match &src.location {
-        Locations::Multi(locs) => &locs[0],
-        Locations::Single(loc) => loc,
-    };
-    format!("{}:{}:{}", loc.file(), loc.line(), loc.column())
+    let mut src_string = String::new();
+    if let Some(name) = &src.name {
+        src_string.push_str(&format!("{} ", name));
+    }
+    for loc in src.location.iter() {
+        src_string.push_str(&format!("{}:{}:{}", loc.file(), loc.line(), loc.column()));
+    }
+    src_string
 }
 
 /// Write the computation graph in DOT format
@@ -376,8 +377,6 @@ pub fn get_node_color<I, A, C, E>(node: &template::VertexNode<I, A, C, E>) -> &'
 mod tests {
     use std::panic::Location;
 
-    use crate::transit::Locations;
-
     use super::*;
     use zkpoly_common::{arith::ArithGraph, typ::PolyType};
     use zkpoly_runtime::transcript::Challenge255;
@@ -406,7 +405,7 @@ mod tests {
         let v1 = g.add_vertex(Vertex::new(
             VertexNode::NewPoly(64, PolyInit::Ones, PolyType::Coef),
             Typ::Poly((PolyType::Coef, 64)),
-            SourceInfo::new(Locations::Single(*Location::caller()), None),
+            SourceInfo::new(vec![*Location::caller()], None),
         ));
 
         let v2 = g.add_vertex(Vertex::new(
@@ -417,7 +416,7 @@ mod tests {
                 alg: NttAlgorithm::Undecieded,
             },
             Typ::Poly((PolyType::Lagrange, 64)),
-            SourceInfo::new(Locations::Single(*Location::caller()), None),
+            SourceInfo::new(vec![*Location::caller()], None),
         ));
 
         let cg: transit::Cg<

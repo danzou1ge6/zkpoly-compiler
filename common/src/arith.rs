@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use crate::{
     define_usize_id,
@@ -8,7 +8,7 @@ use crate::{
 };
 
 /// Scalar-Polynomial operator
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum SpOp {
     Add,
     Sub,
@@ -51,7 +51,7 @@ impl SpOp {
 mod op_template {
     /// Binary operator.
     /// [`P`]: polynomial-Polynomial opertor
-    #[derive(Debug, Clone, Hash, PartialEq, Eq)]
+    #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
     pub enum BinOp<Pp, Ss, Sp> {
         Pp(Pp),
         Ss(Ss),
@@ -60,14 +60,14 @@ mod op_template {
 
     /// Unary operator.
     /// [`Po`]: polynomial unary operator
-    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
     pub enum UnrOp<Po, So> {
         P(Po),
         S(So),
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ArithBinOp {
     Add,
     Sub,
@@ -84,7 +84,7 @@ impl ArithBinOp {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ArithUnrOp {
     Neg,
     Inv,
@@ -106,7 +106,7 @@ pub type UnrOp = op_template::UnrOp<ArithUnrOp, ArithUnrOp>;
 define_usize_id!(ExprId);
 
 /// Kind-specific data of expressions.
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Arith<Index> {
     Bin(BinOp, Index, Index),
     Unr(UnrOp, Index),
@@ -144,7 +144,7 @@ pub enum FusedType {
     ScalarArray,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
 pub enum Operation<OuterId, ArithIndex> {
     Arith(Arith<ArithIndex>),
     Input {
@@ -156,14 +156,14 @@ pub enum Operation<OuterId, ArithIndex> {
         outer_id: OuterId,
         typ: FusedType,
         store_node: ArithIndex,
-        in_node: Option<ArithIndex>,
+        in_node: Vec<ArithIndex>,
     },
     Todo,
     // 0 is the output index, 1 is the index of the data to be stored
     // 2: the output's outer index is the same as some inputs' outer index
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ArithVertex<OuterId, ArithIndex> {
     pub op: Operation<OuterId, ArithIndex>,
 }
@@ -195,10 +195,7 @@ where
                 in_node,
                 ..
             } => {
-                let mut src = Vec::new();
-                if in_node.is_some() {
-                    src.push(in_node.unwrap());
-                }
+                let mut src = in_node.clone();
                 src.push(*store_node);
                 Box::new(src.into_iter())
             }
@@ -216,7 +213,7 @@ where
             } => {
                 let store = store_node as *mut ArithIndex;
                 let mut result = Vec::new();
-                if let Some(in_id) = in_node {
+                for in_id in in_node.iter_mut() {
                     result.push(in_id);
                 }
                 // SAFETY: store_node is a unique mutable reference
@@ -235,7 +232,7 @@ pub enum Mutability {
 }
 
 // DAG for arithmetic expressions.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ArithGraph<OuterId, ArithIndex> {
     pub outputs: Vec<ArithIndex>, // output ids
     pub inputs: Vec<ArithIndex>,  // input ids
@@ -348,9 +345,9 @@ where
             .outputs
             .iter()
             .map(|output_id| {
-                if let Operation::Output { in_node, .. } = self.g.vertex(*output_id).op {
-                    if let Some(in_id) = in_node {
-                        Some(*self.g.vertex(in_id).op.unwrap_input_outerid())
+                if let Operation::Output { in_node, .. } = &self.g.vertex(*output_id).op {
+                    if in_node.len() > 0 {
+                        Some(*self.g.vertex(in_node[0].clone()).op.unwrap_input_outerid())
                     } else {
                         None
                     }

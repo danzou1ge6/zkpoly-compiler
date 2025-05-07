@@ -2,7 +2,7 @@ use std::collections::{BTreeSet, VecDeque};
 
 use crate::heap::{Heap, UsizeId};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Digraph<I, V>(pub Heap<I, V>);
 
 impl<I, V> Digraph<I, V> {

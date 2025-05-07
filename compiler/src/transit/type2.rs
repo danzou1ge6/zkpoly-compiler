@@ -26,7 +26,7 @@ zkpoly_common::define_usize_id!(VertexId);
 
 pub type Arith = arith::ArithGraph<VertexId, arith::ExprId>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum NttAlgorithm<I> {
     Precomputed(I),
     Standard { pq: I, omega: I },
@@ -122,7 +122,7 @@ pub mod template {
 
     use super::{arith, transit, Device, NttAlgorithm, PolyInit, PolyType};
 
-    #[derive(Debug, Clone)]
+    #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
     pub enum VertexNode<I, A, C, E> {
         NewPoly(u64, PolyInit, PolyType),
         Constant(C),
@@ -692,6 +692,7 @@ pub struct Program<'s, Rt: RuntimeType> {
     pub(crate) memory_pool: PinnedMemoryPool,
 }
 
+pub mod common_subexpression_elimination;
 pub mod decide_device;
 pub mod graph_scheduling;
 pub mod intt_mending;

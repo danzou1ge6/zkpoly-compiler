@@ -43,6 +43,7 @@ pub struct DebugOptions {
     debug_track_splitting: bool,
     debug_multithread_instructions: bool,
     debug_instructions: bool,
+    debug_cse: bool,
     type2_visualizer: Type2DebugVisualizer,
     log: bool,
 }
@@ -62,6 +63,7 @@ impl DebugOptions {
             debug_graph_scheduling: true,
             debug_obj_def_use: true,
             debug_obj_liveness: true,
+            debug_cse: true,
             debug_obj_gpu_next_use: true,
             debug_fresh_type3: true,
             debug_extend_rewriting: true,
@@ -79,6 +81,7 @@ impl DebugOptions {
             debug_dir,
             debug_user_function_table: true,
             debug_fresh_type2: false,
+            debug_cse: false,
             debug_intt_mending: false,
             debug_type_inference: false,
             debug_precompute: false,
@@ -525,15 +528,13 @@ pub fn type2_to_inst<Rt: RuntimeType>(
         memory_pool: mut allocator,
     } = t2prog;
 
-    let output_vid = t2cg.output;
-
     let mut libs = Libs::new();
 
     if options.debug_type_inference {
         ctx.add(debug_type2(
             options.debug_dir.join("type2_type_inference.dot"),
             &t2cg.g,
-            output_vid,
+            t2cg.output,
             options.type2_visualizer,
         ));
     }
@@ -549,7 +550,7 @@ pub fn type2_to_inst<Rt: RuntimeType>(
     if !check_type2_dag(
         options.debug_dir.join("type2_intt_mending.dot"),
         &t2cg.g,
-        output_vid,
+        t2cg.output,
         options.type2_visualizer,
     ) {
         panic!("graph is not a DAG after INTT Mending");
@@ -559,7 +560,7 @@ pub fn type2_to_inst<Rt: RuntimeType>(
         ctx.add(debug_type2(
             options.debug_dir.join("type2_intt_mending.dot"),
             &t2cg.g,
-            output_vid,
+            t2cg.output,
             options.type2_visualizer,
         ));
     }
@@ -582,7 +583,7 @@ pub fn type2_to_inst<Rt: RuntimeType>(
     if !check_type2_dag(
         options.debug_dir.join("type2_precompute.dot"),
         &t2cg.g,
-        output_vid,
+        t2cg.output,
         options.type2_visualizer,
     ) {
         panic!("graph is not a DAG after Precomputing");
@@ -592,7 +593,7 @@ pub fn type2_to_inst<Rt: RuntimeType>(
         ctx.add(debug_type2(
             options.debug_dir.join("type2_precompute.dot"),
             &t2cg.g,
-            output_vid,
+            t2cg.output,
             options.type2_visualizer,
         ));
     }
@@ -607,7 +608,7 @@ pub fn type2_to_inst<Rt: RuntimeType>(
     if !check_type2_dag(
         options.debug_dir.join("type2_manage_invers.dot"),
         &t2cg.g,
-        output_vid,
+        t2cg.output,
         options.type2_visualizer,
     ) {
         panic!("graph is not a DAG after Managing Inversions");
@@ -617,7 +618,32 @@ pub fn type2_to_inst<Rt: RuntimeType>(
         ctx.add(debug_type2(
             options.debug_dir.join("type2_manage_invers.dot"),
             &t2cg.g,
-            output_vid,
+            t2cg.output,
+            options.type2_visualizer,
+        ));
+    }
+
+    // - Common Subexpression Elimination
+    let t2cg = options.log_suround(
+        "Eliminating common subexpressions",
+        || Ok(type2::common_subexpression_elimination::cse(t2cg)),
+        "Done.",
+    )?;
+
+    if !check_type2_dag(
+        options.debug_dir.join("type2_cse.dot"),
+        &t2cg.g,
+        t2cg.output,
+        options.type2_visualizer,
+    ) {
+        panic!("graph is not a DAG after CSE");
+    }
+
+    if options.debug_cse {
+        ctx.add(debug_type2(
+            options.debug_dir.join("type2_cse.dot"),
+            &t2cg.g,
+            t2cg.output,
             options.type2_visualizer,
         ));
     }
@@ -632,7 +658,7 @@ pub fn type2_to_inst<Rt: RuntimeType>(
     if !check_type2_dag(
         options.debug_dir.join("type2_kernel_fusion.dot"),
         &t2cg.g,
-        output_vid,
+        t2cg.output,
         options.type2_visualizer,
     ) {
         panic!("graph is not a DAG after Arithmetic Kernel Fusion");
@@ -642,7 +668,7 @@ pub fn type2_to_inst<Rt: RuntimeType>(
         ctx.add(debug_type2(
             options.debug_dir.join("type2_kernel_fusion.dot"),
             &t2cg.g,
-            output_vid,
+            t2cg.output,
             options.type2_visualizer,
         ));
     }
@@ -664,7 +690,7 @@ pub fn type2_to_inst<Rt: RuntimeType>(
         ));
     }
 
-    let g = SubDigraph::new(&t2cg.g, t2cg.g.connected_component(output_vid));
+    let g = SubDigraph::new(&t2cg.g, t2cg.g.connected_component(t2cg.output));
 
     // - Decide Device
     let devices = options.log_suround(

@@ -471,7 +471,7 @@ fn lower_instruction<'s, Rt: RuntimeType>(
             len: *len as usize,
         }),
         super::InstructionNode::FillPoly { id, operand, .. } => {
-            let f_id = generated_functions.at(t3idx);
+            let (f_id, _) = generated_functions.at(t3idx);
             let device = t3chunk.register_devices[operand];
             let dst = reg_id2var_id(*operand);
             if device == super::Device::Cpu {

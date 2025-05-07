@@ -12,7 +12,7 @@ use zkpoly_common::typ::PolyType;
 use zkpoly_core::cpu_kernels::{
     AssmblePoly, HashTranscript, HashTranscriptWrite, InterpolateKernel, SqueezeScalar,
 };
-use zkpoly_core::fused_kernels::{FusedKernel, FusedOp};
+use zkpoly_core::fused_kernels::{FusedKernel, FusedOp, PipelinedFusedKernel};
 use zkpoly_core::msm::MSM;
 use zkpoly_core::ntt::{DistributePowers, RecomputeNtt, SsipNtt};
 use zkpoly_core::poly::{
@@ -21,7 +21,7 @@ use zkpoly_core::poly::{
 use zkpoly_runtime::args::{RuntimeType, Variable, VariableId};
 use zkpoly_runtime::error::RuntimeError;
 use zkpoly_runtime::functions::{
-    FuncMeta, FunctionId, FunctionTable, FusedKernelMeta, KernelType, RegisteredFunction
+    FuncMeta, FunctionId, FunctionTable, FusedKernelMeta, KernelType, PipelinedMeta, RegisteredFunction
 };
 
 use super::super::template::InstructionNode;
@@ -94,12 +94,12 @@ pub fn gen_fused_kernels<'s, Rt: RuntimeType>(
     reg_id2var_id: &impl Fn(RegisterId) -> VariableId,
 ) -> BTreeMap<InstructionIndex, FusedKernelMeta> {
     let mut cache = HashMap::new();
-    let mut inst_idx2name = BTreeMap::new();
+    let mut inst_idx2fused_meta = BTreeMap::new();
 
     // first pass to generate fused arith kernels
     for (idx, instruct) in program.iter_instructions() {
         if let InstructionNode::Type2 { ids,vertex, .. } = &instruct.node {
-            if let VertexNode::Arith { arith, .. } = vertex {
+            if let VertexNode::Arith { arith, chunking } = vertex {
                 let normalized = arith::hash::NormalizedDag::from(arith);
                 let (name, op, included_indices) = cache.entry(normalized).or_insert_with(|| {
                     let arith = arith.relabeled(|r| reg_id2var_id(r));
@@ -128,7 +128,19 @@ pub fn gen_fused_kernels<'s, Rt: RuntimeType>(
                     // (name, op, vec![])
                 });
                 included_indices.push(idx);
-                inst_idx2name.insert(idx, FusedKernelMeta { name: name.to_string(), num_vars: op.vars.len(), num_mut_vars: op.mut_vars.len() });
+                let pipelined_meta = if let Some(chunking) = chunking {
+                    let divide_parts = chunking.clone();
+                    assert!(divide_parts > 3);
+                    let (num_scalars, num_mut_scalars) = op.num_scalars();
+                    Some(PipelinedMeta {
+                        divide_parts: divide_parts as usize,
+                        num_scalars,
+                        num_mut_scalars,
+                    })
+                } else {
+                    None
+                };
+                inst_idx2fused_meta.insert(idx, FusedKernelMeta { name: name.to_string(), num_vars: op.vars.len(), num_mut_vars: op.mut_vars.len(), pipelined_meta: pipelined_meta });
             }
         }
     }
@@ -143,19 +155,27 @@ pub fn gen_fused_kernels<'s, Rt: RuntimeType>(
         op.gen(anno);
     });
 
-    inst_idx2name
+    inst_idx2fused_meta
 }
 
 pub struct GeneratedFunctions {
     inst2fid: BTreeMap<InstructionIndex, FunctionId>,
+    inst_idx2fused_meta: BTreeMap<InstructionIndex, FusedKernelMeta>,
 }
 
 impl GeneratedFunctions {
-    pub fn at(&self, idx: InstructionIndex) -> FunctionId {
-        self.inst2fid
+    pub fn at(&self, idx: InstructionIndex) -> (FunctionId, Option<FusedKernelMeta>) {
+        let fid = self.inst2fid
             .get(&idx)
             .unwrap_or_else(|| panic!("error at {:?}", idx))
-            .clone()
+            .clone();
+        let fused_meta_ref = self.inst_idx2fused_meta.get(&idx);
+        let fused_meta = if fused_meta_ref.is_some() {
+            Some(fused_meta_ref.unwrap().clone())
+        } else {
+            None
+        };
+        (fid, fused_meta)
     }
 }
 
@@ -251,14 +271,14 @@ pub fn get_function_id<'s, Rt: RuntimeType>(
     reg_id2var_id: &impl Fn(RegisterId) -> VariableId,
     libs: &mut Libs,
 ) -> GeneratedFunctions {
-    let inst_idx2fused_name = gen_fused_kernels(program, reg_id2var_id);
+    let inst_idx2fused_meta = gen_fused_kernels(program, reg_id2var_id);
     let mut uf_table: Heap<UserFunctionId, _> = user_ftable.map(&mut (|_, f| Some(f)));
 
     let mut inst2func = BTreeMap::new();
     let mut kernel2func: BTreeMap<KernelType, FunctionId> = BTreeMap::new();
     for (id, instruct) in program.iter_instructions() {
-        let fuse_name = inst_idx2fused_name.get(&id);
-        let kernel_type = kernel_type_from_inst(instruct, fuse_name);
+        let fuse_meta = inst_idx2fused_meta.get(&id);
+        let kernel_type = kernel_type_from_inst(instruct, fuse_meta);
         if kernel_type.is_none() {
             continue;
         }
@@ -275,6 +295,7 @@ pub fn get_function_id<'s, Rt: RuntimeType>(
 
     GeneratedFunctions {
         inst2fid: inst2func,
+        inst_idx2fused_meta,
     }
 }
 
@@ -317,8 +338,11 @@ pub fn load_function<Rt: RuntimeType>(
             scan_mul.get_fn()
         }
         KernelType::FusedArith(meta) => {
-            let fuse_kernel = FusedKernel::new(libs, meta.clone());
-            fuse_kernel.get_fn()
+            if meta.pipelined_meta.is_some() {
+                PipelinedFusedKernel::new(libs, meta.clone()).get_fn()
+            } else {
+                FusedKernel::new(libs, meta.clone()).get_fn()
+            }
         }
         KernelType::Interpolate => {
             let interpolate = InterpolateKernel::new();

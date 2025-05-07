@@ -1,9 +1,9 @@
 //! Used for expressiong graph structures while avoiding grumblings of the borrow checker
 
-use std::marker::PhantomData;
+use std::{fmt::Debug, marker::PhantomData};
 
 pub trait UsizeId:
-    From<usize> + Into<usize> + Eq + PartialOrd + Ord + std::hash::Hash + Copy + Default
+    From<usize> + Into<usize> + Eq + PartialOrd + Ord + std::hash::Hash + Copy + Default + Debug
 {
 }
 
@@ -64,7 +64,7 @@ impl<I: UsizeId> IdAllocator<I> {
     }
 }
 
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Heap<I, T>(pub Vec<T>, PhantomData<I>);
 
 impl<I, T> std::fmt::Debug for Heap<I, T>

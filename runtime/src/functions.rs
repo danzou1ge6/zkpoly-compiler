@@ -52,6 +52,14 @@ pub struct FusedKernelMeta {
     pub name: String,
     pub num_vars: usize,
     pub num_mut_vars: usize,
+    pub pipelined_meta: Option<PipelinedMeta>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, PartialOrd, Eq, Ord)]
+pub struct PipelinedMeta {
+    pub divide_parts: usize, // how many parts to divide the poly into, must > 3 and later calls must have len which is a multiple of this
+    pub num_scalars: usize,
+    pub num_mut_scalars: usize,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]

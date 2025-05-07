@@ -9,7 +9,7 @@ use std::{
 };
 
 use libloading::Symbol;
-use zkpoly_common::arith::{self, Mutability};
+use zkpoly_common::arith::Mutability;
 use zkpoly_common::{
     arith::{Arith, ArithBinOp, ArithGraph, ArithUnrOp, BinOp, FusedType, Operation, SpOp, UnrOp},
     get_project_root::get_project_root,
@@ -17,7 +17,7 @@ use zkpoly_common::{
     load_dynamic::Libs,
     typ::PolyType,
 };
-use zkpoly_cuda_api::stream::CudaEvent;
+use zkpoly_cuda_api::stream::{CudaEvent, CudaStream};
 use zkpoly_cuda_api::{
     bindings::{
         cudaError_cudaSuccess, cudaError_t, cudaGetErrorString, cudaSetDevice, cudaStream_t,
@@ -59,9 +59,6 @@ pub struct FusedKernel<T: RuntimeType> {
 // all input/output are on cpu
 pub struct PipelinedFusedKernel<T: RuntimeType> {
     kernel: FusedKernel<T>,
-    divide_parts: usize, // how many parts to divide the poly into, must > 3 and later calls must have len which is a multiple of this
-    num_scalars: usize,
-    num_mut_scalars: usize,
 }
 
 pub struct FusedOp<OuterId, InnerId> {
@@ -131,6 +128,22 @@ pub fn gen_var_lists<OuterId: Ord + Copy, InnerId: UsizeId>(
 }
 
 impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
+    pub fn num_scalars(&self) -> (usize, usize) {
+        let mut num_scalars = 0;
+        let mut num_mut_scalars = 0;
+        for (typ, _) in self.vars.iter() {
+            if *typ == FusedType::Scalar {
+                num_scalars += 1;
+            }
+        }
+        for (typ, _) in self.mut_vars.iter() {
+            if *typ == FusedType::Scalar {
+                num_mut_scalars += 1;
+            }
+        }
+        (num_scalars, num_mut_scalars)
+    }
+
     pub fn new(
         graph: ArithGraph<OuterId, InnerId>,
         name: String,
@@ -536,6 +549,7 @@ impl<T: RuntimeType> FusedKernel<T> {
 
 impl<T: RuntimeType> RegisteredFunction<T> for FusedKernel<T> {
     fn get_fn(&self) -> Function<T> {
+        assert!(self.meta.pipelined_meta.is_none());
         let c_func = self.c_func.clone();
         let meta = self.meta.clone();
         let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
@@ -621,24 +635,12 @@ impl<T: RuntimeType> RegisteredFunction<T> for FusedKernel<T> {
 }
 
 impl<T: RuntimeType> PipelinedFusedKernel<T> {
-    pub fn new(
-        libs: &mut Libs,
-        meta: FusedKernelMeta,
-        len: usize,
-        divide_parts: usize,
-        num_scalars: usize,
-        num_mut_scalars: usize,
-    ) -> Self {
-        assert!(divide_parts > 3, "divide_parts must be greater than 3");
-        assert!(
-            len % divide_parts == 0,
-            "len must be a multiple of divide_parts"
-        );
+    pub fn new(libs: &mut Libs, meta: FusedKernelMeta) -> Self {
+        assert!(meta.pipelined_meta.is_some());
+        let pipelined_meta = meta.pipelined_meta.clone().unwrap();
+        assert!(pipelined_meta.divide_parts > 3);
         Self {
             kernel: FusedKernel::new(libs, meta),
-            divide_parts,
-            num_scalars,
-            num_mut_scalars,
         }
     }
 }
@@ -646,17 +648,20 @@ impl<T: RuntimeType> PipelinedFusedKernel<T> {
 impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
     fn get_fn(&self) -> Function<T> {
         let c_func = self.kernel.c_func.clone();
-        let num_scalars = self.num_scalars;
-        let num_mut_scalars = self.num_mut_scalars;
-        let divide_parts = self.divide_parts;
+        let pipelined_meta = self.kernel.meta.pipelined_meta.clone().unwrap();
+        let num_scalars = pipelined_meta.num_scalars;
+        let num_mut_scalars = pipelined_meta.num_mut_scalars;
+        let divide_parts = pipelined_meta.divide_parts;
+        let vars = self.kernel.meta.num_vars;
+        let mut_vars = self.kernel.meta.num_mut_vars;
         /*
         args:
         assume there are n mut polys, m polys, p mut scalars, q scalrs to compute the fused kernel
         mut_var will have 4n + 2p elements, the first p are mut scalars, next n are the mut polys,
-        then next p is gpu buffer,
+        then next p is gpu buffer for mut scalars,
         the next 3n are the gpu polys (triple buffer, one load, one compute, one store)
-        var will have 3m + 3 + 2q elements, the first 3 are streams(load, compute, store),
-        the next q are scalars, next m are polys, next q are scalar buffers, the next 2m are the gpu polys (double buffer, one load, one compute)
+        var will have 3m + 2q elements
+        the first q are scalars, next m are polys, next q are scalar buffers, the next 2m are the gpu polys (double buffer, one load, one compute)
          */
         let rust_func = move |mut_var: Vec<&mut Variable<T>>,
                               var: Vec<&Variable<T>>|
@@ -666,24 +671,27 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
 
             let num_mut_poly = (mut_var.len() - 2 * num_mut_scalars) / 4;
             let num_mut_var = num_mut_poly + num_mut_scalars;
+            assert_eq!(num_mut_var, mut_vars);
             let num_poly = (var.len() - 3 - 2 * num_scalars) / 3;
             let num_var = num_poly + num_scalars;
+            assert_eq!(num_var, vars);
 
             // get the length
             let len = if num_mut_poly > 0 {
                 mut_var[num_mut_scalars].unwrap_scalar_array().len()
             } else if num_poly > 0 {
-                var[3 + num_scalars].unwrap_scalar_array().len()
+                var[num_scalars].unwrap_scalar_array().len()
             } else {
                 1
             };
 
+            assert!(len % divide_parts == 0);
             let chunk_len = len / divide_parts;
 
             // get streams
-            let h2d_stream = var[0].unwrap_stream();
-            let compute_stream = var[1].unwrap_stream();
-            let d2h_stream = var[2].unwrap_stream();
+            let ref h2d_stream = CudaStream::new(0); // TODO: select the device
+            let ref compute_stream = CudaStream::new(0); // TODO: select the device
+            let ref d2h_stream = CudaStream::new(0); // TODO: select the device
 
             // get scalars
             let mut mut_scalars = Vec::new();
@@ -692,20 +700,20 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
             }
             let mut scalars = Vec::new();
             for i in 0..num_scalars {
-                scalars.push(var[i + 3].unwrap_scalar().clone());
+                scalars.push(var[i].unwrap_scalar().clone());
             }
 
             // get scalar buffers
             let mut mut_gpu_scalars = Vec::new();
             for i in 0..num_mut_scalars {
-                let buffer = mut_var[i + num_mut_scalars].unwrap_gpu_buffer();
+                let buffer = mut_var[i + num_mut_var].unwrap_gpu_buffer();
                 let gpu_scalar =
                     Scalar::new_gpu(buffer.ptr as *mut T::Field, buffer.device.unwrap_gpu());
                 mut_gpu_scalars.push(gpu_scalar);
             }
             let mut gpu_scalars = Vec::new();
             for i in 0..num_scalars {
-                let buffer = var[i + 3 + num_scalars].unwrap_gpu_buffer();
+                let buffer = var[i + num_var].unwrap_gpu_buffer();
                 let gpu_scalar =
                     Scalar::new_gpu(buffer.ptr as *mut T::Field, buffer.device.unwrap_gpu());
                 gpu_scalars.push(gpu_scalar);
@@ -730,7 +738,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
             }
             let mut polys = Vec::new();
             for i in 0..num_poly {
-                polys.push(var[i + 3 + num_scalars].unwrap_scalar_array().clone());
+                polys.push(var[i + num_scalars].unwrap_scalar_array().clone());
                 assert!(
                     polys[i].slice_info.is_none(),
                     "pipelined fused kernel doesn't support slice"
@@ -749,7 +757,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                 }
             }
             let mut gpu_polys = vec![Vec::new(); 2];
-            let base_index = 3 + num_var + num_scalars;
+            let base_index = num_var + num_scalars;
             for i in 0..num_var {
                 for j in 0..2 {
                     let buffer = var[i + base_index + j * num_poly].unwrap_gpu_buffer();

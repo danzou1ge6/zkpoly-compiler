@@ -197,7 +197,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
                 });
 
                 vid2arith.insert(vid, my_arith);
-                src_info.push(v.src().unwrap_location_single().clone());
+                src_info.extend(&v.src().location);
                 match arith {
                     Arith::Bin(_, lhs, rhs) => {
                         self.fuse_bwd(
@@ -392,14 +392,11 @@ pub fn fuse_arith<'s, Rt: RuntimeType>(mut cg: Cg<'s, Rt>) -> Cg<'s, Rt> {
                 .unwrap_or(PolyType::Coef);
 
             // change input mutability
-            let mut mut_inputs = ag.change_mutability(&succ, output_polys).into_iter();
+            // let mut mut_inputs = ag.change_mutability(&succ, output_polys).into_iter();
 
             // add output nodes
             for (out_arith, (fuse_type, outer_id)) in ag.outputs.iter_mut().zip(output_outer_info) {
-                let mut in_node = None;
-                if fuse_type == FusedType::ScalarArray {
-                    in_node = mut_inputs.next();
-                }
+                let in_node = vec![];
                 *out_arith = ag.g.add_vertex(ArithVertex {
                     op: Operation::Output {
                         outer_id: outer_id,
@@ -422,10 +419,7 @@ pub fn fuse_arith<'s, Rt: RuntimeType>(mut cg: Cg<'s, Rt>) -> Cg<'s, Rt> {
                     chunking: None,
                 },
                 typ,
-                SourceInfo::new(
-                    crate::transit::Locations::Multi(src_info.clone()),
-                    Some("fused_arith".to_string()),
-                ),
+                SourceInfo::new(src_info.clone(), Some("fused_arith".to_string())),
             ));
 
             // add tuple get to unzip the result
@@ -434,10 +428,7 @@ pub fn fuse_arith<'s, Rt: RuntimeType>(mut cg: Cg<'s, Rt>) -> Cg<'s, Rt> {
                 let get = cg.g.add_vertex(Vertex::new(
                     VertexNode::TupleGet(node_id, id),
                     typ.clone(),
-                    SourceInfo::new(
-                        crate::transit::Locations::Multi(src_info.clone()),
-                        Some("fused_arith_tuple_get".to_string()),
-                    ),
+                    SourceInfo::new(src_info.clone(), Some("fused_arith_tuple_get".to_string())),
                 ));
                 output_get.push(get);
             }

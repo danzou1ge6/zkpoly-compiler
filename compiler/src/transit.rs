@@ -8,39 +8,26 @@ use crate::ast;
 
 #[derive(Debug, Clone)]
 pub struct SourceInfo<'s> {
-    location: Locations<'s>,
+    location: Vec<Location<'s>>,
     name: Option<String>,
 }
 
 impl<'s> SourceInfo<'s> {
-    pub fn unwrap_location_single(&self) -> &Location<'s> {
-        match &self.location {
-            Locations::Single(loc) => loc,
-            Locations::Multi(_) => panic!("unwrap_location_single: expected single location"),
-        }
-    }
-
-    pub fn new(location: Locations<'s>, name: Option<String>) -> Self {
+    pub fn new(location: Vec<Location<'s>>, name: Option<String>) -> Self {
         Self { location, name }
     }
-}
-
-#[derive(Debug, Clone)]
-pub enum Locations<'s> {
-    Single(Location<'s>),
-    Multi(Vec<Location<'s>>),
 }
 
 impl From<ast::SourceInfo> for SourceInfo<'_> {
     fn from(value: ast::SourceInfo) -> Self {
         Self {
-            location: Locations::Single(value.loc),
+            location: vec![value.loc],
             name: value.name,
         }
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PolyInit {
     Zeros,
     Ones,
@@ -55,7 +42,7 @@ pub struct Cg<I, V> {
     pub(crate) g: Digraph<I, V>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum HashTyp {
     WriteProof,
     NoWriteProof,
