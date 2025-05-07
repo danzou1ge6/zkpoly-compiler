@@ -1305,6 +1305,13 @@ fn ensure_copied(
             );
         }
 
+        // while let Some(r) = ctx.pop_residence_of_object(original_obj_id, device) {
+        //     if r != on_device_reg {
+        //         code.emit(Instruction::new_no_src(InstructionNode::StackFree {
+        //             id: r,
+        //         }))
+        //     }
+        // }
         ctx.remove_residence_in_reg_for_object(original_obj_id, device, on_device_reg);
         ctx.add_residence_for_object(new_obj_id, on_device_reg, device);
 

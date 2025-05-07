@@ -138,7 +138,7 @@ where
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Hash, Eq, PartialOrd, Ord)]
 pub enum FusedType {
     Scalar,
     ScalarArray,
@@ -179,6 +179,25 @@ impl<OuterId, ArithIndex> Operation<OuterId, ArithIndex> {
         match self {
             Self::Input { outer_id, .. } => outer_id,
             _ => panic!("Vertex is not an input"),
+        }
+    }
+
+    pub fn unwrap_input_typ(&self) -> FusedType {
+        match self {
+            Self::Input { typ, .. } => typ.clone(),
+            _ => panic!("Vertex is not an input"),
+        }
+    }
+
+    pub fn unwrap_output(&self) -> (&OuterId, &FusedType, &ArithIndex, &Option<ArithIndex>) {
+        match self {
+            Operation::Output {
+                outer_id,
+                typ,
+                store_node,
+                in_node,
+            } => (outer_id, typ, store_node, in_node),
+            _ => panic!("Vertex is not an output"),
         }
     }
 }
@@ -301,6 +320,25 @@ where
             }
         }
         (vars, mut_vars)
+    }
+
+    pub fn space_needed(&self, poly_space: u64, scalar_space: u64) -> u64 {
+        let space_for_ft = |t| match t {
+            FusedType::Scalar => scalar_space,
+            FusedType::ScalarArray => poly_space,
+        };
+        self.inputs
+            .iter()
+            .map(|i| space_for_ft(self.g.vertex(*i).op.unwrap_input_typ()))
+            .chain(self.outputs.iter().filter_map(|i| {
+                let (_, ft, _, in_node) = self.g.vertex(*i).op.unwrap_output();
+                if in_node.is_some() {
+                    None
+                } else {
+                    Some(space_for_ft(*ft))
+                }
+            }))
+            .sum()
     }
 
     pub fn uses<'s>(&'s self) -> impl Iterator<Item = OuterId> + 's {

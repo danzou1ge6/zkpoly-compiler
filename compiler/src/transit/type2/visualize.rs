@@ -103,6 +103,7 @@ pub fn write_graph_with_optional_seq<'s, Ty: Debug>(
     // Write nodes
     for (i, vid) in seq.clone().enumerate() {
         let vertex = g.vertex(vid);
+        let mut label = format!("{}: ", usize::from(vid)) + &format_node_label(vertex.node());
 
         if let template::VertexNode::Arith { arith, .. } = vertex.node() {
             let subgraph_vertices = arith::visualize::subgraph_vertices(
@@ -112,7 +113,7 @@ pub fn write_graph_with_optional_seq<'s, Ty: Debug>(
                 &mut builder,
             );
 
-            let mut label = format!("{}: ArithGraph", vid.0,);
+            let mut label = format!("{}: {}", vid.0, label);
 
             if print_seq {
                 label.push_str(&format!("({})", i));
@@ -137,7 +138,6 @@ pub fn write_graph_with_optional_seq<'s, Ty: Debug>(
             continue;
         }
 
-        let mut label = format!("{}: ", usize::from(vid)) + &format_node_label(vertex.node());
 
         if print_seq {
             label.push_str(&format!("({})", i));
