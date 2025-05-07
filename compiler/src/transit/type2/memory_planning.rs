@@ -1432,6 +1432,7 @@ fn plan_vertex<'s, Rt: RuntimeType>(
         .outputs_inplace(uf_table, exe_device)
         .collect();
     let mut tuple_registers = Vec::new();
+    let mut mutable_object2temp: BTreeMap<ObjectId, (ObjectId, Typ)> = BTreeMap::new();
 
     let v = g.vertex(vid);
 
@@ -1447,29 +1448,46 @@ fn plan_vertex<'s, Rt: RuntimeType>(
                     }
                 };
 
-                let tmp_obj_id = obj_id_allocator.alloc();
+                let (tmp_obj_id, typ) = if let Some((tmp_obj_id, typ)) =
+                    mutable_object2temp.get(&input_value.object_id()) {
+ 
+                    if DEBUG {
+                        println!(
+                            "[MP.plan] {:?} is inplace input of {:?}, using already assigned temporary {:?}",
+                            input_value, vid, tmp_obj_id
+                        );
+                    }
 
-                if DEBUG {
-                    println!(
-                        "[MP.plan] {:?} is inplace input of {:?}, assigning temporary {:?}",
-                        input_value, vid, tmp_obj_id
-                    );
-                }
+                    (*tmp_obj_id, typ.clone())
+                } else {
+                    let tmp_obj_id = obj_id_allocator.alloc();
 
-                let typ = lower_typ(g.vertex(input_vid).typ(), &input_value);
+                    if DEBUG {
+                        println!(
+                            "[MP.plan] {:?} is inplace input of {:?}, assigning temporary {:?}",
+                            input_value, vid, tmp_obj_id
+                        );
+                    }
 
-                let _ = ensure_copied(
-                    input_value.device(),
-                    vid,
-                    typ.clone(),
-                    input_value.object_id(),
-                    tmp_obj_id,
-                    now,
-                    gpu_allocator,
-                    code,
-                    ctx,
-                    &imctx,
-                )?;
+                    let typ = lower_typ(g.vertex(input_vid).typ(), &input_value);
+
+                    let _ = ensure_copied(
+                        input_value.device(),
+                        vid,
+                        typ.clone(),
+                        input_value.object_id(),
+                        tmp_obj_id,
+                        now,
+                        gpu_allocator,
+                        code,
+                        ctx,
+                        &imctx,
+                    )?;
+
+                    mutable_object2temp.insert(input_value.object_id(), (tmp_obj_id, typ.clone()));
+
+                    (tmp_obj_id, typ)
+                };
 
                 Ok((
                     VertexValue::Single(input_value.with_object_id(tmp_obj_id)),

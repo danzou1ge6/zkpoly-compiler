@@ -156,7 +156,7 @@ pub enum Operation<OuterId, ArithIndex> {
         outer_id: OuterId,
         typ: FusedType,
         store_node: ArithIndex,
-        in_node: Option<ArithIndex>,
+        in_node: Vec<ArithIndex>,
     },
     Todo,
     // 0 is the output index, 1 is the index of the data to be stored
@@ -189,7 +189,37 @@ impl<OuterId, ArithIndex> Operation<OuterId, ArithIndex> {
         }
     }
 
-    pub fn unwrap_output(&self) -> (&OuterId, &FusedType, &ArithIndex, &Option<ArithIndex>) {
+    pub fn unwrap_input_mut(&mut self) -> (&mut OuterId, &mut FusedType, &mut Mutability) {
+        match self {
+            Self::Input {
+                outer_id,
+                typ,
+                mutability,
+            } => (outer_id, typ, mutability),
+            _ => panic!("Vertex is not an input"),
+        }
+    }
+
+    pub fn unwrap_output(&self) -> (&OuterId, &FusedType, &ArithIndex, &[ArithIndex]) {
+        match self {
+            Operation::Output {
+                outer_id,
+                typ,
+                store_node,
+                in_node,
+            } => (outer_id, typ, store_node, in_node),
+            _ => panic!("Vertex is not an output"),
+        }
+    }
+
+    pub fn unwrap_output_mut(
+        &mut self,
+    ) -> (
+        &mut OuterId,
+        &mut FusedType,
+        &mut ArithIndex,
+        &mut Vec<ArithIndex>,
+    ) {
         match self {
             Operation::Output {
                 outer_id,
@@ -215,8 +245,8 @@ where
                 ..
             } => {
                 let mut src = Vec::new();
-                if in_node.is_some() {
-                    src.push(in_node.unwrap());
+                if !in_node.is_empty() {
+                    src.extend_from_slice(in_node);
                 }
                 src.push(*store_node);
                 Box::new(src.into_iter())
@@ -235,9 +265,7 @@ where
             } => {
                 let store = store_node as *mut ArithIndex;
                 let mut result = Vec::new();
-                if let Some(in_id) = in_node {
-                    result.push(in_id);
-                }
+                result.extend(in_node.iter_mut());
                 // SAFETY: store_node is a unique mutable reference
                 unsafe { result.push(&mut *store) };
                 Box::new(result.into_iter())
@@ -332,7 +360,7 @@ where
             .map(|i| space_for_ft(self.g.vertex(*i).op.unwrap_input_typ()))
             .chain(self.outputs.iter().filter_map(|i| {
                 let (_, ft, _, in_node) = self.g.vertex(*i).op.unwrap_output();
-                if in_node.is_some() {
+                if !in_node.is_empty() {
                     None
                 } else {
                     Some(space_for_ft(*ft))
@@ -386,9 +414,9 @@ where
             .outputs
             .iter()
             .map(|output_id| {
-                if let Operation::Output { in_node, .. } = self.g.vertex(*output_id).op {
-                    if let Some(in_id) = in_node {
-                        Some(*self.g.vertex(in_id).op.unwrap_input_outerid())
+                if let Operation::Output { in_node, .. } = &self.g.vertex(*output_id).op {
+                    if let Some(in_id) = in_node.first() {
+                        Some(*self.g.vertex(in_id.clone()).op.unwrap_input_outerid())
                     } else {
                         None
                     }

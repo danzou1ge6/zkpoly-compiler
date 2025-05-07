@@ -19,7 +19,7 @@ struct Input {
 struct Output {
     typ: FusedType,
     store_node: Id,
-    in_node: Option<Id>,
+    in_node: Vec<Id>,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -116,7 +116,10 @@ where
                         ..
                     } => {
                         let store_node = id_mapping[&store_node];
-                        let in_node = in_node.map(|in_node| id_mapping[&in_node]);
+                        let in_node = in_node
+                            .into_iter()
+                            .map(|in_node| id_mapping[&in_node])
+                            .collect();
                         Tail::Output(Output {
                             typ: typ.clone(),
                             store_node,

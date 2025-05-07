@@ -395,21 +395,14 @@ pub fn fuse_arith<'s, Rt: RuntimeType>(mut cg: Cg<'s, Rt>, gpu_mem_limit: u64) -
                 })
                 .unwrap_or(PolyType::Coef);
 
-            // change input mutability
-            let mut mut_inputs = ag.change_mutability(&succ, output_polys).into_iter();
-
             // add output nodes
             for (out_arith, (fuse_type, outer_id)) in ag.outputs.iter_mut().zip(output_outer_info) {
-                let mut in_node = None;
-                if fuse_type == FusedType::ScalarArray {
-                    in_node = mut_inputs.next();
-                }
                 *out_arith = ag.g.add_vertex(ArithVertex {
                     op: Operation::Output {
                         outer_id: outer_id,
                         typ: fuse_type,
                         store_node: *out_arith,
-                        in_node: in_node,
+                        in_node: Vec::new(),
                     },
                 });
             }
