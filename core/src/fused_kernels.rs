@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::c_void;
 use std::io::{Read, Write};
 use std::{
     any::type_name,
@@ -51,6 +52,7 @@ pub struct FusedKernel<T: RuntimeType> {
             vars: *const ConstPolyPtr,
             mut_vars: *const PolyPtr,
             len: c_ulonglong,
+            d_arg_buf: *mut c_void,
             stream: cudaStream_t,
         ) -> cudaError_t,
     >,
@@ -64,68 +66,68 @@ pub struct PipelinedFusedKernel<T: RuntimeType> {
 pub struct FusedOp<OuterId, InnerId> {
     graph: ArithGraph<OuterId, InnerId>,
     name: String,
-    pub vars: Vec<(FusedType, OuterId)>,
-    pub mut_vars: Vec<(FusedType, OuterId)>,
-    outputs_i2o: BTreeMap<InnerId, OuterId>,
+    pub vars: Vec<(FusedType, InnerId)>,
+    pub mut_vars: Vec<(FusedType, InnerId)>,
+    // outputs_i2o: BTreeMap<InnerId, OuterId>,
     limbs: usize,
 }
 
 const TMP_PREFIX: &str = "tmp";
-const SCALAR_PREFIX: &str = "var";
-const ITER_PREFIX: &str = "iter";
+// const SCALAR_PREFIX: &str = "var";
+// const ITER_PREFIX: &str = "iter";
 
-pub fn gen_var_lists<OuterId: Ord + Copy, InnerId: UsizeId>(
-    outputs: impl Iterator<Item = OuterId>,
-    graph: &ArithGraph<OuterId, InnerId>,
-) -> (Vec<(FusedType, OuterId)>, Vec<(FusedType, OuterId)>) {
-    let mut vars = Vec::new();
-    let mut mut_vars = Vec::new();
-    let mut var_set = BTreeSet::new();
-    for inner_id in graph.inputs.iter() {
-        if let Operation::Input {
-            outer_id,
-            typ,
-            mutability,
-        } = &graph.g.vertex(*inner_id).op
-        {
-            if var_set.get(outer_id).is_none() {
-                var_set.insert(*outer_id);
-                let outer_id = (*outer_id).clone();
-                match (typ, mutability) {
-                    (FusedType::Scalar, Mutability::Const) => {
-                        vars.push((FusedType::Scalar, outer_id))
-                    }
-                    (FusedType::Scalar, Mutability::Mut) => {
-                        mut_vars.push((FusedType::Scalar, outer_id))
-                    }
-                    (FusedType::ScalarArray, Mutability::Const) => {
-                        vars.push((FusedType::ScalarArray, outer_id))
-                    }
-                    (FusedType::ScalarArray, Mutability::Mut) => {
-                        mut_vars.push((FusedType::ScalarArray, outer_id))
-                    }
-                }
-            }
-        } else {
-            unreachable!("input should be an Operation::Input");
-        }
-    }
-    for (inner_id, outer_id) in graph.outputs.iter().zip(outputs) {
-        if let Operation::Output { typ, .. } = &graph.g.vertex(*inner_id).op {
-            if var_set.get(&outer_id).is_none() {
-                var_set.insert(outer_id);
-                let outer_id = (outer_id).clone();
-                match typ {
-                    FusedType::Scalar => mut_vars.push((FusedType::Scalar, outer_id)),
-                    FusedType::ScalarArray => mut_vars.push((FusedType::ScalarArray, outer_id)),
-                }
-            }
-        } else {
-            unreachable!("output should be an Operation::Output");
-        }
-    }
-    (vars, mut_vars)
-}
+// pub fn gen_var_lists<OuterId: Ord + Copy, InnerId: UsizeId>(
+//     outputs: impl Iterator<Item = OuterId>,
+//     graph: &ArithGraph<OuterId, InnerId>,
+// ) -> (Vec<(FusedType, OuterId)>, Vec<(FusedType, OuterId)>) {
+//     let mut vars = Vec::new();
+//     let mut mut_vars = Vec::new();
+//     let mut var_set = BTreeSet::new();
+//     for inner_id in graph.inputs.iter() {
+//         if let Operation::Input {
+//             outer_id,
+//             typ,
+//             mutability,
+//         } = &graph.g.vertex(*inner_id).op
+//         {
+//             if var_set.get(outer_id).is_none() {
+//                 var_set.insert(*outer_id);
+//                 let outer_id = (*outer_id).clone();
+//                 match (typ, mutability) {
+//                     (FusedType::Scalar, Mutability::Const) => {
+//                         vars.push((FusedType::Scalar, outer_id))
+//                     }
+//                     (FusedType::Scalar, Mutability::Mut) => {
+//                         mut_vars.push((FusedType::Scalar, outer_id))
+//                     }
+//                     (FusedType::ScalarArray, Mutability::Const) => {
+//                         vars.push((FusedType::ScalarArray, outer_id))
+//                     }
+//                     (FusedType::ScalarArray, Mutability::Mut) => {
+//                         mut_vars.push((FusedType::ScalarArray, outer_id))
+//                     }
+//                 }
+//             }
+//         } else {
+//             unreachable!("input should be an Operation::Input");
+//         }
+//     }
+//     for (inner_id, outer_id) in graph.outputs.iter().zip(outputs) {
+//         if let Operation::Output { typ, .. } = &graph.g.vertex(*inner_id).op {
+//             if var_set.get(&outer_id).is_none() {
+//                 var_set.insert(outer_id);
+//                 let outer_id = (outer_id).clone();
+//                 match typ {
+//                     FusedType::Scalar => mut_vars.push((FusedType::Scalar, outer_id)),
+//                     FusedType::ScalarArray => mut_vars.push((FusedType::ScalarArray, outer_id)),
+//                 }
+//             }
+//         } else {
+//             unreachable!("output should be an Operation::Output");
+//         }
+//     }
+//     (vars, mut_vars)
+// }
 
 impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
     pub fn num_scalars(&self) -> (usize, usize) {
@@ -147,16 +149,16 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
     pub fn new(
         graph: ArithGraph<OuterId, InnerId>,
         name: String,
-        outputs_i2o: BTreeMap<InnerId, OuterId>,
+        // outputs_i2o: BTreeMap<InnerId, OuterId>,
         limbs: usize,
     ) -> Self {
-        let (vars, mut_vars) = gen_var_lists(graph.outputs.iter().map(|i| outputs_i2o[i]), &graph);
+        let (vars, mut_vars) = graph.gen_var_lists();
         Self {
             graph,
             name,
             vars,
             mut_vars,
-            outputs_i2o,
+            // outputs_i2o,
             limbs,
         }
     }
@@ -193,6 +195,7 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
         let mut header = String::new();
         header.push_str("#include \"../../common/mont/src/field_impls.cuh\"\n");
         header.push_str("#include \"../../common/iter/src/iter.cuh\"\n");
+        header.push_str("#include \"../../common/error/src/check.cuh\"\n");
         header.push_str("#include <cuda_runtime.h>\n");
         header.push_str("using iter::SliceIterator;\n");
         header.push_str("using mont::u32;\n");
@@ -207,63 +210,72 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
         wrapper.push_str("extern \"C\" cudaError_t ");
         wrapper.push_str(&self.name);
         wrapper.push_str(
-            "(ConstPolyPtr const* vars, PolyPtr const* mut_vars, unsigned long long len, cudaStream_t stream) {\n",
+            "(ConstPolyPtr const* vars, PolyPtr const* mut_vars, unsigned long long len, void* d_arg_buf, cudaStream_t stream) {\n",
         );
 
-        for (i, (typ, id)) in self.vars.iter().enumerate() {
-            let id: usize = id.clone().into();
-            match typ {
-                FusedType::ScalarArray => {
-                    let iter = format!(
-                        "auto {ITER_PREFIX}{id} = make_slice_iter<FUSED_FIELD>(vars[{i}]);\n"
-                    );
-                    wrapper.push_str(&iter);
-                }
-                FusedType::Scalar => {
-                    let scalar = format!("auto {SCALAR_PREFIX}{id} = reinterpret_cast<const FUSED_FIELD*>(vars[{i}].ptr);\n");
-                    wrapper.push_str(&scalar);
-                }
-            }
-        }
-        for (i, (typ, id)) in self.mut_vars.iter().enumerate() {
-            let id: usize = id.clone().into();
-            match typ {
-                FusedType::ScalarArray => {
-                    let iter = format!(
-                        "auto {ITER_PREFIX}{id} = make_slice_iter<FUSED_FIELD>(mut_vars[{i}]);\n"
-                    );
-                    wrapper.push_str(&iter);
-                }
-                FusedType::Scalar => {
-                    let scalar = format!(
-                        "auto {SCALAR_PREFIX}{id} = reinterpret_cast<FUSED_FIELD*>(mut_vars[{i}].ptr);\n"
-                    );
-                    wrapper.push_str(&scalar);
-                }
-            }
-        }
+        // copy the arguments to the device
+        wrapper.push_str("auto d_vars = reinterpret_cast<ConstPolyPtr*>(d_arg_buf);\n");
+        wrapper += &format!(
+            "auto d_mut_vars = reinterpret_cast<PolyPtr*>(d_arg_buf) + {};\n",
+            self.vars.len()
+        );
+        wrapper += &format!("CUDA_CHECK(cudaMemcpyAsync(d_vars, vars, sizeof(ConstPolyPtr) * {}, cudaMemcpyHostToDevice, stream));\n", self.vars.len());
+        wrapper += &format!("CUDA_CHECK(cudaMemcpyAsync(d_mut_vars, mut_vars, sizeof(PolyPtr) * {}, cudaMemcpyHostToDevice, stream));\n", self.mut_vars.len());
+
+        // for (i, (typ, id)) in self.vars.iter().enumerate() {
+        //     let id: usize = id.clone().into();
+        //     match typ {
+        //         FusedType::ScalarArray => {
+        //             let iter = format!(
+        //                 "auto {ITER_PREFIX}{id} = make_slice_iter<FUSED_FIELD>(vars[{i}]);\n"
+        //             );
+        //             wrapper.push_str(&iter);
+        //         }
+        //         FusedType::Scalar => {
+        //             let scalar = format!("auto {SCALAR_PREFIX}{id} = reinterpret_cast<const FUSED_FIELD*>(vars[{i}].ptr);\n");
+        //             wrapper.push_str(&scalar);
+        //         }
+        //     }
+        // }
+        // for (i, (typ, id)) in self.mut_vars.iter().enumerate() {
+        //     let id: usize = id.clone().into();
+        //     match typ {
+        //         FusedType::ScalarArray => {
+        //             let iter = format!(
+        //                 "auto {ITER_PREFIX}{id} = make_slice_iter<FUSED_FIELD>(mut_vars[{i}]);\n"
+        //             );
+        //             wrapper.push_str(&iter);
+        //         }
+        //         FusedType::Scalar => {
+        //             let scalar = format!(
+        //                 "auto {SCALAR_PREFIX}{id} = reinterpret_cast<FUSED_FIELD*>(mut_vars[{i}].ptr);\n"
+        //             );
+        //             wrapper.push_str(&scalar);
+        //         }
+        //     }
+        // }
         wrapper.push_str("uint block_size = 256;\n");
         wrapper.push_str("uint grid_size = (len + block_size - 1) / block_size;\n");
         wrapper.push_str("detail::");
         wrapper.push_str(&self.name);
         wrapper.push_str("<FUSED_FIELD>");
-        wrapper.push_str(" <<< grid_size, block_size, 0, stream >>> (\n");
-        for (typ, id) in self.vars.iter().chain(self.mut_vars.iter()) {
-            let id = id.clone().into();
-            match typ {
-                FusedType::ScalarArray => {
-                    wrapper.push_str(ITER_PREFIX);
-                    wrapper.push_str(&id.to_string());
-                    wrapper.push_str(", ");
-                }
-                FusedType::Scalar => {
-                    wrapper.push_str(SCALAR_PREFIX);
-                    wrapper.push_str(&id.to_string());
-                    wrapper.push_str(", ");
-                }
-            }
-        }
-        wrapper.push_str("len);\n");
+        wrapper.push_str(" <<< grid_size, block_size, 0, stream >>> (d_vars, d_mut_vars, len);\n");
+        // for (typ, id) in self.vars.iter().chain(self.mut_vars.iter()) {
+        //     let id = id.clone().into();
+        //     match typ {
+        //         FusedType::ScalarArray => {
+        //             wrapper.push_str(ITER_PREFIX);
+        //             wrapper.push_str(&id.to_string());
+        //             wrapper.push_str(", ");
+        //         }
+        //         FusedType::Scalar => {
+        //             wrapper.push_str(SCALAR_PREFIX);
+        //             wrapper.push_str(&id.to_string());
+        //             wrapper.push_str(", ");
+        //         }
+        //     }
+        // }
+        // wrapper.push_str("len);\n");
         wrapper.push_str("return cudaGetLastError();\n");
         wrapper.push_str("}\n");
         wrapper
@@ -291,48 +303,70 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
         kernel.push_str("template <typename Field>\n");
         kernel += &format!("__launch_bounds__({launch_bounds}) __global__ void ");
         kernel.push_str(&self.name);
-        kernel.push_str("(");
+        kernel.push_str(
+            "(ConstPolyPtr const* vars, PolyPtr const* mut_vars, unsigned long long len) {\n",
+        );
 
-        // generate kernel arguments
-        for (typ, id) in self.vars.iter() {
-            let id: usize = id.clone().into();
-            match typ {
-                FusedType::Scalar => {
-                    kernel.push_str("const Field* ");
-                    kernel.push_str(SCALAR_PREFIX);
-                    kernel.push_str(&id.to_string());
-                    kernel.push_str(", ");
-                }
-                FusedType::ScalarArray => {
-                    kernel.push_str("SliceIterator<const Field> ");
-                    kernel.push_str(ITER_PREFIX);
-                    kernel.push_str(&id.to_string());
-                    kernel.push_str(", ");
-                }
-            }
-        }
+        // // generate kernel arguments
+        // for (typ, id) in self.vars.iter() {
+        //     let id: usize = id.clone().into();
+        //     match typ {
+        //         FusedType::Scalar => {
+        //             kernel.push_str("const Field* ");
+        //             kernel.push_str(SCALAR_PREFIX);
+        //             kernel.push_str(&id.to_string());
+        //             kernel.push_str(", ");
+        //         }
+        //         FusedType::ScalarArray => {
+        //             kernel.push_str("SliceIterator<const Field> ");
+        //             kernel.push_str(ITER_PREFIX);
+        //             kernel.push_str(&id.to_string());
+        //             kernel.push_str(", ");
+        //         }
+        //     }
+        // }
 
-        for (typ, id) in self.mut_vars.iter() {
-            let id: usize = id.clone().into();
-            match typ {
-                FusedType::Scalar => {
-                    kernel.push_str("Field* ");
-                    kernel.push_str(SCALAR_PREFIX);
-                    kernel.push_str(&id.to_string());
-                    kernel.push_str(", ");
-                }
-                FusedType::ScalarArray => {
-                    kernel.push_str("SliceIterator<Field> ");
-                    kernel.push_str(ITER_PREFIX);
-                    kernel.push_str(&id.to_string());
-                    kernel.push_str(", ");
-                }
-            }
-        }
+        // for (typ, id) in self.mut_vars.iter() {
+        //     let id: usize = id.clone().into();
+        //     match typ {
+        //         FusedType::Scalar => {
+        //             kernel.push_str("Field* ");
+        //             kernel.push_str(SCALAR_PREFIX);
+        //             kernel.push_str(&id.to_string());
+        //             kernel.push_str(", ");
+        //         }
+        //         FusedType::ScalarArray => {
+        //             kernel.push_str("SliceIterator<Field> ");
+        //             kernel.push_str(ITER_PREFIX);
+        //             kernel.push_str(&id.to_string());
+        //             kernel.push_str(", ");
+        //         }
+        //     }
+        // }
 
-        kernel += "unsigned long long len) {\n";
+        // kernel += "unsigned long long len) {\n";
         kernel += "unsigned long long idx = blockIdx.x * blockDim.x + threadIdx.x;\n";
         kernel += "if (idx >= len) return;\n";
+
+        // prepare the mapping from the input/output to the kernel arguments
+        let var_mapping = self
+            .vars
+            .iter()
+            .enumerate()
+            .map(|(i, (_, id))| {
+                let id: usize = id.clone().into();
+                (id, i)
+            })
+            .collect::<BTreeMap<_, _>>();
+        let mut_var_mapping = self
+            .mut_vars
+            .iter()
+            .enumerate()
+            .map(|(i, (_, id))| {
+                let id: usize = id.clone().into();
+                (id, i)
+            })
+            .collect::<BTreeMap<_, _>>();
 
         // topological ordering
         for head in schedule {
@@ -342,26 +376,31 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                     typ, store_node, ..
                 } => {
                     let src: usize = store_node.clone().into();
-                    let id: usize = self.outputs_i2o[&head].clone().into();
+                    let id: usize = head.clone().into(); // self.outputs_i2o[&head].clone().into();
                     match typ {
                         FusedType::Scalar => {
-                            kernel += &format!("*{SCALAR_PREFIX}{id} = {TMP_PREFIX}{src};\n");
+                            kernel += &format!("*reinterpret_cast<FUSED_FIELD*>(mut_vars[{}].ptr) = {TMP_PREFIX}{src};\n", mut_var_mapping[&id]);
                         }
                         FusedType::ScalarArray => {
-                            kernel += &format!("{ITER_PREFIX}{id}[idx] = {TMP_PREFIX}{src};\n");
+                            kernel += &format!("make_slice_iter<FUSED_FIELD>(mut_vars[{}])[idx] = {TMP_PREFIX}{src};\n", mut_var_mapping[&id]);
                         }
                     }
                 }
-                Operation::Input { outer_id, typ, .. } => {
-                    let id = outer_id.clone().into();
+                Operation::Input { typ, .. } => {
+                    let id = head.clone().into();// outer_id.clone().into();
                     let head = head.clone().into();
+                    let (map_id, mutability) = if var_mapping.contains_key(&id) {
+                        (var_mapping[&id], "vars")
+                    } else {
+                        (mut_var_mapping[&id], "mut_vars")
+                    };
                     match typ {
                         FusedType::Scalar => {
-                            kernel += &format!("auto {TMP_PREFIX}{head} = *{SCALAR_PREFIX}{id};\n");
+                            kernel += &format!("auto {TMP_PREFIX}{head} = *reinterpret_cast<const FUSED_FIELD*>({}[{}].ptr);\n", mutability, map_id);
                         }
                         FusedType::ScalarArray => {
                             kernel +=
-                                &format!("auto {TMP_PREFIX}{head} = {ITER_PREFIX}{id}[idx];\n");
+                                &format!("auto {TMP_PREFIX}{head} = make_slice_iter<FUSED_FIELD>({}[{}])[idx];\n", mutability, map_id);
                         }
                     }
                 }
@@ -440,10 +479,10 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                                 SpOp::Sub => {
                                     let stmt = match self.graph.poly_repr {
                                         PolyType::Coef => {
-                                            format!("auto {TMP_PREFIX}{head} = idx == 0 ? {TMP_PREFIX}{lhs} - {TMP_PREFIX}{rhs} : {TMP_PREFIX}{rhs}.neg();")
+                                            format!("auto {TMP_PREFIX}{head} = idx == 0 ? {TMP_PREFIX}{lhs} - {TMP_PREFIX}{rhs} : {TMP_PREFIX}{rhs}.neg();\n")
                                         }
                                         PolyType::Lagrange => {
-                                            format!("auto {TMP_PREFIX}{head} = {TMP_PREFIX}{lhs} - {TMP_PREFIX}{rhs};")
+                                            format!("auto {TMP_PREFIX}{head} = {TMP_PREFIX}{lhs} - {TMP_PREFIX}{rhs};\n")
                                         }
                                     };
                                     kernel += &stmt;
@@ -451,10 +490,10 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                                 SpOp::SubBy => {
                                     let stmt = match self.graph.poly_repr {
                                         PolyType::Coef => {
-                                            format!("auto {TMP_PREFIX}{head} = idx == 0 ? {TMP_PREFIX}{rhs} - {TMP_PREFIX}{lhs} : {TMP_PREFIX}{rhs};")
+                                            format!("auto {TMP_PREFIX}{head} = idx == 0 ? {TMP_PREFIX}{rhs} - {TMP_PREFIX}{lhs} : {TMP_PREFIX}{rhs};\n")
                                         }
                                         PolyType::Lagrange => {
-                                            format!("auto {TMP_PREFIX}{head} = {TMP_PREFIX}{rhs} - {TMP_PREFIX}{lhs};")
+                                            format!("auto {TMP_PREFIX}{head} = {TMP_PREFIX}{rhs} - {TMP_PREFIX}{lhs};\n")
                                         }
                                     };
                                     kernel += &stmt;
@@ -468,16 +507,16 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                                 SpOp::Div => {
                                     eprintln!("Warning: division is very expensive, consider inverse first");
                                     kernel += &format!(
-                                                    "auto {TMP_PREFIX}{} = {TMP_PREFIX}{} * {TMP_PREFIX}{}.invert();\n",
-                                                    head, lhs, rhs
-                                                );
+                                        "auto {TMP_PREFIX}{} = {TMP_PREFIX}{} * {TMP_PREFIX}{}.invert();\n",
+                                        head, lhs, rhs
+                                    );
                                 }
                                 SpOp::DivBy => {
                                     eprintln!("Warning: division is very expensive, consider inverse first");
                                     kernel += &format!(
-                                                    "auto {TMP_PREFIX}{} = {TMP_PREFIX}{} * {TMP_PREFIX}{}.invert();\n",
-                                                    head, rhs, lhs
-                                                );
+                                        "auto {TMP_PREFIX}{} = {TMP_PREFIX}{} * {TMP_PREFIX}{}.invert();\n",
+                                        head, rhs, lhs
+                                    );
                                 }
                             },
                         }
@@ -516,9 +555,7 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                         }
                     }
                 },
-                Operation::Todo => {
-                    // doplicated inputs are replaced with Todo nodes
-                }
+                Operation::Todo => unreachable!("todo should be handled earlier"),
             }
         }
 
@@ -557,8 +594,10 @@ impl<T: RuntimeType> RegisteredFunction<T> for FusedKernel<T> {
               -> Result<(), RuntimeError> {
             let mut len = 0;
             assert_eq!(meta.num_vars, var.len() - 1);
-            assert_eq!(meta.num_mut_vars, mut_var.len());
+            assert_eq!(meta.num_mut_vars, mut_var.len() - 1);
             let stream = var[0].unwrap_stream();
+            let (arg_buffer, mut_vars) = mut_var.split_at_mut(1);
+            let arg_buffer = arg_buffer[0].unwrap_gpu_buffer_mut();
             let vars = var
                 .iter()
                 .skip(1)
@@ -586,7 +625,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for FusedKernel<T> {
                     _ => unreachable!("Only scalars and scalar arrays are supported"),
                 })
                 .collect::<Vec<_>>();
-            let mut_vars = mut_var
+            let mut_vars = mut_vars
                 .iter_mut()
                 .map(|v| match v {
                     Variable::ScalarArray(poly) => {
@@ -619,6 +658,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for FusedKernel<T> {
                     vars.as_ptr(),
                     mut_vars.as_ptr(),
                     len.try_into().unwrap(),
+                    arg_buffer.ptr as *mut c_void,
                     stream.raw()
                 ));
             }
@@ -832,15 +872,16 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                     vars.push(ConstPolyPtr::from(poly))
                 }
 
-                unsafe {
-                    cuda_check!(cudaSetDevice(compute_stream.get_device()));
-                    cuda_check!((c_func)(
-                        vars.as_ptr(),
-                        mut_vars.as_ptr(),
-                        chunk_len.try_into().unwrap(),
-                        compute_stream.raw()
-                    ));
-                }
+                todo!("call the kernel");
+                // unsafe {
+                //     cuda_check!(cudaSetDevice(compute_stream.get_device()));
+                //     cuda_check!((c_func)(
+                //         vars.as_ptr(),
+                //         mut_vars.as_ptr(),
+                //         chunk_len.try_into().unwrap(),
+                //         compute_stream.raw()
+                //     ));
+                // }
 
                 compute_complete[buffer_id].record(compute_stream);
                 mut_compute_complete[mut_buffer_id].record(compute_stream);

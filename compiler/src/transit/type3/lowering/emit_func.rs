@@ -2,8 +2,7 @@ use crate::transit::type3::{Device, InstructionIndex};
 
 use super::super::{RegisterId, VertexNode};
 use super::{Stream, StreamSpecific, Track};
-use zkpoly_common::arith::{self, ArithUnrOp, BinOp, UnrOp};
-use zkpoly_core::fused_kernels::gen_var_lists;
+use zkpoly_common::arith::{self, ArithUnrOp, BinOp, Operation, UnrOp};
 use zkpoly_runtime::args::RuntimeType;
 use zkpoly_runtime::functions::FusedKernelMeta;
 use zkpoly_runtime::{args::VariableId, functions::FunctionId, instructions::Instruction};
@@ -24,21 +23,31 @@ pub fn emit_func<'s, Rt: RuntimeType>(
     let stream = Stream::of_track(track).map(|t| stream2variable_id.get(t).clone());
     match vertex {
         VertexNode::Arith { arith, chunking } => {
-            let (var, var_mut) = gen_var_lists(outputs.iter().copied(), arith);
             if chunking.is_none() {
                 let mut arg = vec![stream.unwrap()];
-                for (_, id) in var.iter() {
-                    arg.push(reg_id2var_id(*id));
+                let mut arg_mut = vec![reg_id2var_id(temp[0])];
+
+                // outputs
+                arg_mut.extend(outputs.iter().map(|id| reg_id2var_id(*id)));
+
+                let inplace_inputs = arith.get_inplace_inputs();
+                // inputs
+                for inner_id in arith.inputs.iter() {
+                    if let Operation::Input { outer_id, .. } = &arith.g.vertex(*inner_id).op {
+                        if inplace_inputs.contains(inner_id) {
+                            continue;
+                        }
+                        arg.push(reg_id2var_id(*outer_id));
+                    } else {
+                        unreachable!("Expected input operation");
+                    }
                 }
-                let arg_mut = var_mut
-                    .iter()
-                    .map(|(_, id)| reg_id2var_id(*id))
-                    .collect::<Vec<_>>();
+
                 generate_arith(arg, arg_mut, f_id, emit);
             } else {
-                // after removing the rotate(0), we will work on this again
-                let fused_meta = fused_meta.unwrap();
-                let pipelined_meta = fused_meta.pipelined_meta.unwrap();
+                // // after removing the rotate(0), we will work on this again
+                // let fused_meta = fused_meta.unwrap();
+                // let pipelined_meta = fused_meta.pipelined_meta.unwrap();
                 todo!("Chunking arith is not supported yet");
             }
         }

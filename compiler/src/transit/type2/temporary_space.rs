@@ -1,9 +1,11 @@
 use zkpoly_common::{load_dynamic::Libs, msm_config::MsmConfig};
 use zkpoly_core::{
     msm::MSM,
-    poly::{KateDivision, PolyEval, PolyInvert, PolyPermute, PolyScan},
+    poly::{KateDivision, PolyEval, PolyInvert, PolyPermute, PolyScan}, poly_ptr::PolyPtr,
 };
 use zkpoly_runtime::args::RuntimeType;
+
+use super::Arith;
 
 // msm can work on several cards, so its return type is Vec<usize>
 pub fn msm<Rt: RuntimeType>(msm_config: &MsmConfig, len: usize, libs: &mut Libs) -> Vec<u64> {
@@ -40,4 +42,13 @@ pub fn poly_scan<Rt: RuntimeType>(len: usize, libs: &mut Libs) -> Vec<u64> {
 pub fn poly_invert<Rt: RuntimeType>(len: usize, libs: &mut Libs) -> Vec<u64> {
     let poly_invert_impl = PolyInvert::<Rt>::new(libs);
     vec![poly_invert_impl.get_buffer_size(len) as u64]
+}
+
+pub fn arith(arith: &Arith, chunking: Option<u64>) -> Vec<u64> {
+    if chunking.is_none() {
+        let (vars, mut_vars) = arith.gen_var_lists();
+        vec![((vars.len() + mut_vars.len()) * size_of::<PolyPtr>()) as u64]
+    } else {
+        todo!()
+    }
 }

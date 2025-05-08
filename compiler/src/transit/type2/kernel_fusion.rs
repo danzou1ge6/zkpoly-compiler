@@ -24,14 +24,14 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
         fused: &Vec<usize>,
         to: &Vec<bool>,
         from: &Vec<bool>,
-        size_limit: Option<usize>,
-        cur_size: Option<usize>,
+        // size_limit: Option<usize>,
+        // cur_size: Option<usize>,
     ) -> bool {
-        if size_limit.is_some() && cur_size.is_some() {
-            if cur_size.unwrap() >= size_limit.unwrap() {
-                return false;
-            }
-        }
+        // if size_limit.is_some() && cur_size.is_some() {
+        //     if cur_size.unwrap() >= size_limit.unwrap() {
+        //         return false;
+        //     }
+        // }
         let v = self.g.vertex(vid);
         let vid_usize: usize = vid.into();
         if fused[vid_usize] != 0 || to[vid_usize] || from[vid_usize] {
@@ -84,7 +84,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
         output_v: &mut Vec<Vec<(VertexId, VertexId)>>,
         src_info: &mut Vec<Location<'s>>,
         fuse_id: usize,
-        size_limit: usize,
+        // size_limit: usize,
     ) {
         if fused[usize::from(vid)] == fuse_id || vid2arith.contains_key(&vid) {
             return; // is in the current fusion
@@ -94,11 +94,11 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
             fused,
             to,
             from,
-            Some(size_limit),
-            Some(vid2arith.len()),
+            // Some(size_limit),
+            // Some(vid2arith.len()),
         ) {
             self.fuse_it(
-                vid, fused, to, from, vid2arith, succ, ag, output_v, src_info, fuse_id, size_limit,
+                vid, fused, to, from, vid2arith, succ, ag, output_v, src_info, fuse_id,// size_limit,
             );
         } else {
             let vid_arith = ag.g.add_vertex(ArithVertex {
@@ -130,7 +130,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
         if to[vid_usize] {
             return;
         }
-        let can_fuse = self.can_fuse(vid, fused, to, from, None, None);
+        let can_fuse = self.can_fuse(vid, fused, to, from);// , None, None);
         if start_mark {
             to[vid_usize] = true
         }
@@ -157,7 +157,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
         if from[vid_usize] {
             return;
         }
-        let can_fuse = self.can_fuse(vid, fused, to, from, None, None);
+        let can_fuse = self.can_fuse(vid, fused, to, from);// , None, None);
         if start_mark {
             from[vid_usize] = true;
         }
@@ -182,7 +182,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
         output_v: &mut Vec<Vec<(VertexId, VertexId)>>, // output_v[rank in outputs]: vec[(targetid, old_src_id)]
         src_info: &mut Vec<Location<'s>>,
         fuse_id: usize,
-        size_limit: usize,
+        // size_limit: usize,
     ) {
         let v = self.g.vertex(vid);
         match v.node() {
@@ -202,17 +202,17 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
                     Arith::Bin(_, lhs, rhs) => {
                         self.fuse_bwd(
                             *lhs, fused, to, from, vid2arith, succ, ag, output_v, src_info,
-                            fuse_id, size_limit,
+                            fuse_id, // size_limit,
                         );
                         self.fuse_bwd(
                             *rhs, fused, to, from, vid2arith, succ, ag, output_v, src_info,
-                            fuse_id, size_limit,
+                            fuse_id, // size_limit,
                         );
                     }
                     Arith::Unr(_, src) => {
                         self.fuse_bwd(
                             *src, fused, to, from, vid2arith, succ, ag, output_v, src_info,
-                            fuse_id, size_limit,
+                            fuse_id, // size_limit,
                         );
                     }
                 };
@@ -231,12 +231,12 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
                         fused,
                         to,
                         from,
-                        Some(size_limit),
-                        Some(vid2arith.len()),
+                        // Some(size_limit),
+                        // Some(vid2arith.len()),
                     ) {
                         self.fuse_it(
                             *node, fused, to, from, vid2arith, succ, ag, output_v, src_info,
-                            fuse_id, size_limit,
+                            fuse_id//, size_limit,
                         );
                     } else {
                         if output_rank.is_none() {
@@ -328,8 +328,8 @@ pub fn reorder_input_outputs<Rt: RuntimeType>(
     *old_output_types = output_types;
 }
 
-fn div_ceil(a: u64, b: u64) -> u64 {
-    (a + b - 1) / b
+fn div_ceil(a: usize, b: u64) -> u64 {
+    (a as u64 + b - 1) / b
 }
 
 pub fn fuse_arith<'s, Rt: RuntimeType>(mut cg: Cg<'s, Rt>, gpu_mem_limit: u64) -> Cg<'s, Rt> {
@@ -340,13 +340,14 @@ pub fn fuse_arith<'s, Rt: RuntimeType>(mut cg: Cg<'s, Rt>, gpu_mem_limit: u64) -
     let mut from = vec![false; cg.g.order()]; // vertexs the current fused kernel relies on
     let mut fuse_id = 1;
     for id in order {
-        if cg.can_fuse(id, &mut fused, &mut to, &mut from, None, None) {
+        if cg.can_fuse(id, &mut fused, &mut to, &mut from) { //, None, None) {
             let mut vid2arith = BTreeMap::new();
             let mut ag = ArithGraph {
                 inputs: Vec::new(),
                 outputs: Vec::new(),
                 g: Digraph::new(),
                 poly_repr: PolyType::Coef, // revised later
+                poly_degree: None, // revised later
             };
             let mut output_v = Vec::new();
             let mut src_info = Vec::new();
@@ -361,7 +362,7 @@ pub fn fuse_arith<'s, Rt: RuntimeType>(mut cg: Cg<'s, Rt>, gpu_mem_limit: u64) -
                 &mut output_v,
                 &mut src_info,
                 fuse_id,
-                1500,
+                // 1500,
             );
 
             let mut output_polys = 0;
@@ -413,27 +414,24 @@ pub fn fuse_arith<'s, Rt: RuntimeType>(mut cg: Cg<'s, Rt>, gpu_mem_limit: u64) -
             assert_eq!(output_types.len(), ag.outputs.len());
             let typ = super::typ::template::Typ::Tuple(output_types.clone());
 
-            let poly_deg = output_types.iter().fold(0, |acc, t| match t {
+            ag.poly_degree = Some(output_types.iter().fold(0, |acc, t| match t {
                 type2::Typ::Poly((_, deg)) => {
-                    assert!(acc == 0 || acc == *deg);
-                    *deg
+                    assert!(acc == 0 || acc == *deg as usize);
+                    *deg as usize
                 }
                 type2::Typ::Scalar => acc,
                 _ => panic!("outputs other than polynomials and scalars are not expected"),
-            });
+            }));
 
-            let ag_space = ag.space_needed(
-                poly_deg * std::mem::size_of::<Rt::Field>() as u64,
-                std::mem::size_of::<Rt::Field>() as u64,
-            );
-            let chunking = if ag_space < gpu_mem_limit / 2 {
+            let ag_space = ag.space_needed::<Rt::Field>();
+            let chunking = if ag_space < (gpu_mem_limit / 2) as usize {
                 None
             } else {
                 let mut chunking = 4;
                 while div_ceil(ag_space, chunking) * 3 > gpu_mem_limit {
                     chunking *= 2;
                 }
-                assert!(poly_deg % chunking == 0);
+                assert!(ag.poly_degree.unwrap() as u64 % chunking == 0);
                 Some(chunking)
             };
 

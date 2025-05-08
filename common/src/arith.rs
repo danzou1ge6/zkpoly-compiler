@@ -285,6 +285,7 @@ pub struct ArithGraph<OuterId, ArithIndex> {
     pub inputs: Vec<ArithIndex>,  // input ids
     pub g: Digraph<ArithIndex, ArithVertex<OuterId, ArithIndex>>,
     pub poly_repr: PolyType,
+    pub poly_degree: Option<usize>,
 }
 
 impl<OuterId, ArithIndex> ArithGraph<OuterId, ArithIndex>
@@ -327,16 +328,24 @@ where
     ArithIndex: UsizeId,
     OuterId: Copy,
 {
+    pub fn get_inplace_inputs(&self) -> BTreeSet<ArithIndex> {
+        // collect the inputs that are also outputs
+        let mut inplace_inputs = BTreeSet::new();
+        for inner_id in self.outputs.iter() {
+            if let Operation::Output { in_node, .. } = &self.g.vertex(*inner_id).op {
+                if in_node.len() > 0 {
+                    inplace_inputs.insert(in_node[0]);
+                }
+            } else {
+                unreachable!("output should be an Operation::Output");
+            }
+        }
+        inplace_inputs
+    }
+
     pub fn gen_var_lists(&self) -> (Vec<(FusedType, ArithIndex)>, Vec<(FusedType, ArithIndex)>) {
         let mut vars = Vec::new();
         let mut mut_vars = Vec::new();
-        for inner_id in self.inputs.iter() {
-            if let Operation::Input { typ, .. } = &self.g.vertex(*inner_id).op {
-                vars.push((typ.clone(), *inner_id));
-            } else {
-                unreachable!("input should be an Operation::Input");
-            }
-        }
         for inner_id in self.outputs.iter() {
             if let Operation::Output { typ, .. } = &self.g.vertex(*inner_id).op {
                 mut_vars.push((typ.clone(), *inner_id));
@@ -344,10 +353,27 @@ where
                 unreachable!("output should be an Operation::Output");
             }
         }
+
+        let inplace_inputs = self.get_inplace_inputs();
+
+        for inner_id in self.inputs.iter() {
+            if let Operation::Input { typ, .. } = &self.g.vertex(*inner_id).op {
+                // skip the inputs that are also outputs
+                if inplace_inputs.contains(inner_id) {
+                    continue;
+                }
+                vars.push((typ.clone(), *inner_id));
+            } else {
+                unreachable!("input should be an Operation::Input");
+            }
+        }
+
         (vars, mut_vars)
     }
 
-    pub fn space_needed(&self, poly_space: u64, scalar_space: u64) -> u64 {
+    pub fn space_needed<T: Sized>(&self) -> usize {
+        let poly_space = self.poly_degree.unwrap() * size_of::<T>();
+        let scalar_space = size_of::<T>();
         let space_for_ft = |t| match t {
             FusedType::Scalar => scalar_space,
             FusedType::ScalarArray => poly_space,
@@ -435,21 +461,27 @@ where
         });
         Box::new(results.into_iter())
     }
-    pub fn relabeled<I2: Default>(
+    pub fn relabeled<I2: Default + Ord>(
         &self,
         mut mapping: impl FnMut(OuterId) -> I2,
     ) -> ArithGraph<I2, ArithIndex> {
+        let mut used_outer_ids = BTreeSet::new(); // as we have done CSE, outer ids should be unique
         let heap = self.g.map_by_ref(&mut |_, v| {
             let op = match &v.op {
                 Operation::Input {
                     outer_id,
                     typ,
                     mutability,
-                } => Operation::Input {
-                    outer_id: mapping(*outer_id),
-                    typ: typ.clone(),
-                    mutability: mutability.clone(),
-                },
+                } => {
+                    let new_outer_id = mapping(*outer_id);
+                    assert!(!used_outer_ids.contains(&new_outer_id));
+                    used_outer_ids.insert(new_outer_id);
+                    Operation::Input {
+                        outer_id: mapping(*outer_id),
+                        typ: typ.clone(),
+                        mutability: mutability.clone(),
+                    }
+                }
                 Operation::Arith(arith) => Operation::Arith(arith.clone()),
                 Operation::Output {
                     typ,
@@ -474,6 +506,7 @@ where
             inputs: self.inputs.clone(),
             g: heap,
             poly_repr: self.poly_repr.clone(),
+            poly_degree: self.poly_degree,
         }
     }
 }

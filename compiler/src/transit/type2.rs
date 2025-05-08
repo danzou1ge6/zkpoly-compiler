@@ -633,7 +633,9 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
             Extend(..) => None,
             ScalarInvert { .. } => None,
             SingleArith(..) => None,
-            Arith { .. } => None,
+            Arith { arith, chunking } => {
+                Some((temporary_space::arith(arith, chunking.clone()), Gpu))
+            }
             NewPoly(..) => None,
             Constant(..) => None,
             Return(..) => None,
@@ -692,6 +694,7 @@ pub struct Program<'s, Rt: RuntimeType> {
     pub(crate) memory_pool: PinnedMemoryPool,
 }
 
+pub mod arith_decide_mutable;
 pub mod common_subexpression_elimination;
 pub mod decide_device;
 pub mod graph_scheduling;
@@ -706,4 +709,3 @@ pub mod temporary_space;
 pub mod typ;
 pub mod user_function;
 pub mod visualize;
-pub mod arith_decide_mutable;

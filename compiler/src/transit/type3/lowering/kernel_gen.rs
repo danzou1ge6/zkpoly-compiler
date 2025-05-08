@@ -108,21 +108,21 @@ pub fn gen_fused_kernels<'s, Rt: RuntimeType>(
 
                     arith::check_degree_of_todo_vertices(name.to_string(), &arith);
 
-                    let outputs_i2o = arith
-                        .outputs
-                        .iter()
-                        .copied()
-                        .zip((*ids).clone().into_iter().map(|(ra, rb)| {
-                            // see def in InstructionNode::Type2
-                            if rb.is_some() {
-                                reg_id2var_id(rb.unwrap()) // in-place should reuse the input variable
-                            } else {
-                                reg_id2var_id(ra) // otherwise, create a new variable
-                            }
-                        }))
-                        .collect();
+                    // let outputs_i2o = arith
+                    //     .outputs
+                    //     .iter()
+                    //     .copied()
+                    //     .zip((*ids).clone().into_iter().map(|(ra, rb)| {
+                    //         // see def in InstructionNode::Type2
+                    //         if rb.is_some() {
+                    //             reg_id2var_id(rb.unwrap()) // in-place should reuse the input variable
+                    //         } else {
+                    //             reg_id2var_id(ra) // otherwise, create a new variable
+                    //         }
+                    //     }))
+                    //     .collect();
                     let limbs = size_of::<Rt::Field>() / size_of::<u32>();
-                    let op = FusedOp::new(arith, name.clone(), outputs_i2o, limbs); // generate fused kernel
+                    let op = FusedOp::new(arith, name.clone(), limbs); // generate fused kernel
                     (name, op, vec![])
                     // let op = FusedOp::new(arith, name.clone()); // generate fused kernel
                     // (name, op, vec![])
