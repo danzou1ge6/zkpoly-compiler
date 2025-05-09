@@ -358,15 +358,31 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                 (id, i)
             })
             .collect::<BTreeMap<_, _>>();
-        let mut_var_mapping = self
-            .mut_vars
-            .iter()
-            .enumerate()
-            .map(|(i, (_, id))| {
-                let id: usize = id.clone().into();
-                (id, i)
-            })
-            .collect::<BTreeMap<_, _>>();
+        let mut_var_mapping = {
+            let mut x = self
+                .mut_vars
+                .iter()
+                .enumerate()
+                .map(|(i, (_, id))| {
+                    let id: usize = id.clone().into();
+                    (id, i)
+                })
+                .collect::<BTreeMap<_, _>>();
+
+            self.graph.outputs.iter().for_each(|oi| {
+                let (_, _, _, in_nodes) = self.graph.g.vertex(*oi).op.unwrap_output();
+                for in_node in in_nodes {
+                    if self.graph.g.vertex(*in_node).op.unwrap_input_mutability() == Mutability::Mut
+                    {
+                        let in_node_usize: usize = in_node.clone().into();
+                        let oi_usize: usize = oi.clone().into();
+                        x.insert(in_node_usize, x[&oi_usize]);
+                    }
+                }
+            });
+
+            x
+        };
 
         // topological ordering
         for head in schedule {
@@ -387,12 +403,14 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                     }
                 }
                 Operation::Input { typ, .. } => {
-                    let id = head.clone().into();// outer_id.clone().into();
+                    let id = head.clone().into(); // outer_id.clone().into();
                     let head = head.clone().into();
                     let (map_id, mutability) = if var_mapping.contains_key(&id) {
                         (var_mapping[&id], "vars")
-                    } else {
+                    } else if mut_var_mapping.contains_key(&id) {
                         (mut_var_mapping[&id], "mut_vars")
+                    } else {
+                        panic!("at arith graph {}, inputs = {:?}\n, outputs = {:?}\n, vars = {:?}\n, mut_vars = {:?}\n, not found for {:?}", &self.name, &self.graph.inputs, &self.graph.outputs, &self.vars, &self.mut_vars, &id)
                     };
                     match typ {
                         FusedType::Scalar => {

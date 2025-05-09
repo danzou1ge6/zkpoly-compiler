@@ -132,6 +132,14 @@ impl VertexValue {
         }
     }
 
+    pub fn try_unwrap_single(&self) -> Option<&Value> {
+        use VertexValue::*;
+        match self {
+            Single(s) => Some(s),
+            _ => None,
+        }
+    }
+
     pub fn unwrap_single(&self) -> &Value {
         use VertexValue::*;
         match self {

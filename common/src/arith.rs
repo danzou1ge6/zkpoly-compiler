@@ -189,6 +189,13 @@ impl<OuterId, ArithIndex> Operation<OuterId, ArithIndex> {
         }
     }
 
+    pub fn unwrap_input_mutability(&self) -> Mutability {
+        match self {
+            Self::Input { mutability, .. } => mutability.clone(),
+            _ => panic!("Vertex is not an input"),
+        }
+    }
+
     pub fn unwrap_input_mut(&mut self) -> (&mut OuterId, &mut FusedType, &mut Mutability) {
         match self {
             Self::Input {
@@ -333,8 +340,11 @@ where
         let mut inplace_inputs = BTreeSet::new();
         for inner_id in self.outputs.iter() {
             if let Operation::Output { in_node, .. } = &self.g.vertex(*inner_id).op {
-                if in_node.len() > 0 {
-                    inplace_inputs.insert(in_node[0]);
+                for in_id in in_node {
+                    let m = self.g.vertex(*in_id).op.unwrap_input_mutability();
+                    if m == Mutability::Mut {
+                        inplace_inputs.insert(*in_id);
+                    }
                 }
             } else {
                 unreachable!("output should be an Operation::Output");
@@ -461,7 +471,7 @@ where
         });
         Box::new(results.into_iter())
     }
-    pub fn relabeled<I2: Default + Ord>(
+    pub fn relabeled<I2: Default + Ord + std::fmt::Debug>(
         &self,
         mut mapping: impl FnMut(OuterId) -> I2,
     ) -> ArithGraph<I2, ArithIndex> {
@@ -474,7 +484,9 @@ where
                     mutability,
                 } => {
                     let new_outer_id = mapping(*outer_id);
-                    assert!(!used_outer_ids.contains(&new_outer_id));
+                    if used_outer_ids.contains(&new_outer_id) {
+                        panic!("duplicated outer id {:?}", new_outer_id)
+                    }
                     used_outer_ids.insert(new_outer_id);
                     Operation::Input {
                         outer_id: mapping(*outer_id),

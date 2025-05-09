@@ -113,8 +113,6 @@ pub fn write_graph_with_optional_seq<'s, Ty: Debug>(
                 &mut builder,
             );
 
-            let mut label = format!("{}: {}", vid.0, label);
-
             if print_seq {
                 label.push_str(&format!("({})", i));
             }
