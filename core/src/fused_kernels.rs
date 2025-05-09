@@ -10,6 +10,7 @@ use std::{
 };
 
 use libloading::Symbol;
+use zkpoly_common::arith::Mutability;
 use zkpoly_common::{
     arith::{Arith, ArithBinOp, ArithGraph, ArithUnrOp, BinOp, FusedType, Operation, SpOp, UnrOp},
     get_project_root::get_project_root,
@@ -236,7 +237,8 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
         // generate the kernel signatures
         for id in 0..(self.partition.len() - 1) {
             header.push_str(&format!(
-                "template <typename Field>\n__device__ void {}_{SUB_FUNC_NAME}{id}", self.name
+                "template <typename Field>\n__device__ void {}_{SUB_FUNC_NAME}{id}",
+                self.name
             ));
             header.push_str(&self.gen_device_func_args(id, "Field"));
             header.push_str(";\n\n");
@@ -291,7 +293,10 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                 }
             }
 
-            wrapper += &format!("{TABS}{}_{SUB_FUNC_NAME}{id}<Field>(\n{TABS}{TABS}vars, mut_vars, idx", self.name);
+            wrapper += &format!(
+                "{TABS}{}_{SUB_FUNC_NAME}{id}<Field>(\n{TABS}{TABS}vars, mut_vars, idx",
+                self.name
+            );
             // inputs
             for input_id in self.inputs[id].iter() {
                 let input_id: usize = input_id.clone().into();
@@ -348,15 +353,31 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                 (id, i)
             })
             .collect::<BTreeMap<_, _>>();
-        let mut_var_mapping = self
-            .mut_vars
-            .iter()
-            .enumerate()
-            .map(|(i, (_, id))| {
-                let id: usize = id.clone().into();
-                (id, i)
-            })
-            .collect::<BTreeMap<_, _>>();
+        let mut_var_mapping = {
+            let mut x = self
+                .mut_vars
+                .iter()
+                .enumerate()
+                .map(|(i, (_, id))| {
+                    let id: usize = id.clone().into();
+                    (id, i)
+                })
+                .collect::<BTreeMap<_, _>>();
+
+            self.graph.outputs.iter().for_each(|oi| {
+                let (_, _, _, in_nodes) = self.graph.g.vertex(*oi).op.unwrap_output();
+                for in_node in in_nodes {
+                    if self.graph.g.vertex(*in_node).op.unwrap_input_mutability() == Mutability::Mut
+                    {
+                        let in_node_usize: usize = in_node.clone().into();
+                        let oi_usize: usize = oi.clone().into();
+                        x.insert(in_node_usize, x[&oi_usize]);
+                    }
+                }
+            });
+
+            x
+        };
 
         for id in 0..(self.partition.len() - 1) {
             let mut kernel = String::new();
@@ -365,7 +386,8 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
 
             // generate the kernel signature
             kernel.push_str(&format!(
-                "template <typename Field>\n__device__ void {}_{SUB_FUNC_NAME}{id}", self.name
+                "template <typename Field>\n__device__ void {}_{SUB_FUNC_NAME}{id}",
+                self.name
             ));
             kernel.push_str(&self.gen_device_func_args(id, "Field"));
             kernel.push_str(" {\n");
@@ -421,29 +443,41 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                             let rhs: usize = rhs.clone().into();
                             match op {
                                 BinOp::Pp(op) => match op {
-                                    ArithBinOp::Add => kernel += &format!(
+                                    ArithBinOp::Add => {
+                                        kernel += &format!(
                                         "{store_target} = {TMP_PREFIX}{lhs} + {TMP_PREFIX}{rhs};\n"
-                                    ),
-                                    ArithBinOp::Sub => kernel += &format!(
+                                    )
+                                    }
+                                    ArithBinOp::Sub => {
+                                        kernel += &format!(
                                         "{store_target} = {TMP_PREFIX}{lhs} - {TMP_PREFIX}{rhs};\n"
-                                    ),
-                                    ArithBinOp::Mul => kernel += &format!(
+                                    )
+                                    }
+                                    ArithBinOp::Mul => {
+                                        kernel += &format!(
                                         "{store_target} = {TMP_PREFIX}{lhs} * {TMP_PREFIX}{rhs};\n"
-                                    ),
+                                    )
+                                    }
                                     ArithBinOp::Div => {
                                         unreachable!("division should be handled in batched invert")
                                     }
                                 },
                                 BinOp::Ss(op) => match op {
-                                    ArithBinOp::Add => kernel += &format!(
+                                    ArithBinOp::Add => {
+                                        kernel += &format!(
                                         "{store_target} = {TMP_PREFIX}{lhs} + {TMP_PREFIX}{rhs};\n"
-                                    ),
-                                    ArithBinOp::Sub => kernel += &format!(
+                                    )
+                                    }
+                                    ArithBinOp::Sub => {
+                                        kernel += &format!(
                                         "{store_target} = {TMP_PREFIX}{lhs} - {TMP_PREFIX}{rhs};\n"
-                                    ),
-                                    ArithBinOp::Mul => kernel += &format!(
+                                    )
+                                    }
+                                    ArithBinOp::Mul => {
+                                        kernel += &format!(
                                         "{store_target} = {TMP_PREFIX}{lhs} * {TMP_PREFIX}{rhs};\n"
-                                    ),
+                                    )
+                                    }
                                     ArithBinOp::Div => {
                                         unreachable!("division should be handled in scalar invert")
                                     }
@@ -531,7 +565,10 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
             kernel.push_str("}\n");
 
             // explicitly instantiate the template
-            kernel += &format!("template __device__ void {}_{SUB_FUNC_NAME}{id}<{FIELD_NAME}>", self.name);
+            kernel += &format!(
+                "template __device__ void {}_{SUB_FUNC_NAME}{id}<{FIELD_NAME}>",
+                self.name
+            );
             kernel.push_str(&self.gen_device_func_args(id, FIELD_NAME));
             kernel.push_str(";\n");
 
