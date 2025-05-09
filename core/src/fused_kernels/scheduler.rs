@@ -24,7 +24,7 @@ fn check_seq_is_topology_sort<OuterId: UsizeId, InnerId: UsizeId + 'static>(
 
 pub fn schedule<OuterId: UsizeId, InnerId: UsizeId + 'static>(
     ag: &ArithGraph<OuterId, InnerId>,
-) -> (Vec<InnerId>, usize) {
+) -> (Vec<InnerId>, Vec<i32>, usize) {
     // reference: Optimal and Heuristic Min-Reg Scheduling Algorithms for GPU Programs, Algorithm 2
     // https://arxiv.org/abs/2303.06855
     let succ = ag.g.successors(); // follow the name in the paper
@@ -48,7 +48,7 @@ pub fn schedule<OuterId: UsizeId, InnerId: UsizeId + 'static>(
             let child_id: usize = child_id.clone().into();
             cur_max_rp = max_rp[child_id].max(cur_max_rp + def_sz[child_id]);
         }
-        max_rp[vid.into()] = cur_max_rp;
+        max_rp[vid.into()] = cur_max_rp / succ[vid].len().max(1) as i32; // the max_rp is divided by the number of uses
     }
 
     let mut cur_step = ag.g.order(); // start from the output i.e. the last step
@@ -68,6 +68,7 @@ pub fn schedule<OuterId: UsizeId, InnerId: UsizeId + 'static>(
         let (_, cur_id) = q.pop().unwrap();
         w.push_back(cur_id);
         while !w.is_empty() {
+            cur_step = cur_step - 1; // not to sub at last step, so we sub at the beginning of the loop
             let cur_id = w.pop_front().unwrap();
             schedule.push(cur_id.clone());
             for source_id in ag.g.vertex(InnerId::from(cur_id)).uses() {
@@ -100,7 +101,6 @@ pub fn schedule<OuterId: UsizeId, InnerId: UsizeId + 'static>(
                     pushed[pred_id.clone().into()] = true;
                 }
             }
-            cur_step = cur_step - 1;
         }
     }
 
@@ -116,7 +116,6 @@ pub fn schedule<OuterId: UsizeId, InnerId: UsizeId + 'static>(
     let mut present_reg: usize = 0;
     let mut max_reg: usize = 0;
     for id in schedule.iter() {
-        cur_step = cur_step + 1;
         present_reg += def_sz[*id] as usize;
         for child_id in ag.g.vertex(InnerId::from(id.clone())).uses() {
             if live_ts[child_id.into()] <= cur_step.try_into().unwrap() {
@@ -124,7 +123,9 @@ pub fn schedule<OuterId: UsizeId, InnerId: UsizeId + 'static>(
             }
         }
         max_reg = max_reg.max(present_reg);
+        cur_step = cur_step + 1;
     }
+
     // check if the schedule is a topological sort
     let seq = schedule
         .iter()
@@ -135,6 +136,6 @@ pub fn schedule<OuterId: UsizeId, InnerId: UsizeId + 'static>(
         panic!("The schedule is not a topological sort");
     }
 
-    (seq, max_reg)
+    (seq, live_ts, max_reg)
     // ag.g.topology_sort().map(|(a, _)| a).collect()
 }

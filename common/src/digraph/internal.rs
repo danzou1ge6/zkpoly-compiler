@@ -230,6 +230,15 @@ where
         }
         deg
     }
+    pub fn degrees_out_no_multiedge(&self) -> Heap<I, usize> {
+        let mut deg = Heap::repeat(0, self.order());
+        for v in self.0.iter() {
+            for succ in v.predecessors().collect::<BTreeSet<_>>() {
+                deg[succ] += 1;
+            }
+        }
+        deg
+    }
 
     pub fn successors(&self) -> Heap<I, BTreeSet<I>> {
         let mut succ = Heap::repeat(BTreeSet::new(), self.order());
