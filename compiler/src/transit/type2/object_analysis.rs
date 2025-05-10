@@ -512,6 +512,10 @@ impl ObjectUse {
         self.inputs.get(&vid).unwrap().iter()
     }
 
+    pub fn try_input_of(&self, vid: VertexId) -> Option<impl Iterator<Item = &VertexValue>> {
+        self.inputs.get(&vid).map(|vv| vv.iter())
+    }
+
     pub fn input_values_of(&self, vid: VertexId) -> impl Iterator<Item = &Value> {
         self.input_of(vid).flat_map(|vv| vv.iter())
     }

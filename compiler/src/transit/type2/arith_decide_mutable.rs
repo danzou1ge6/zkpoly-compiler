@@ -6,19 +6,28 @@ use crate::transit::{
 };
 use zkpoly_common::{
     arith::{ArithGraph, FusedType, Mutability, Operation},
-    heap::UsizeId,
+    heap::{Heap, UsizeId},
 };
 use zkpoly_runtime::args::RuntimeType;
 
-use super::object_analysis::{ObjectUse, ObjectsDieAfter, VertexValue};
+use super::{
+    object_analysis::{ObjectUse, ObjectsDieAfter, VertexValue},
+    VertexId,
+};
 
 pub fn decide_mutable<'s, Rt: RuntimeType>(
     mut cg: Cg<'s, Rt>,
     vertex_inputs: &ObjectUse,
     obj_die_after: &ObjectsDieAfter,
 ) -> Cg<'s, Rt> {
-    return cg;
-    for vid in cg.g.vertices().collect::<Vec<_>>().into_iter() {
+    let connected_component = cg.g.connected_component(cg.output);
+
+    for vid in
+        cg.g.vertices()
+            .collect::<Vec<_>>()
+            .into_iter()
+            .filter(|vid| connected_component[*vid])
+    {
         if let VertexNode::Arith { arith, chunking } = cg.g.vertex_mut(vid).node_mut() {
             let device = if chunking.is_some() {
                 Device::Cpu
@@ -26,12 +35,15 @@ pub fn decide_mutable<'s, Rt: RuntimeType>(
                 Device::Gpu
             };
 
-            let inputs_values = arith
-                .inputs
-                .iter()
-                .zip(vertex_inputs.input_of(vid))
-                .map(|(input_eid, vv)| (*input_eid, vv.unwrap_single().clone()))
-                .collect::<BTreeMap<_, _>>();
+            let inputs_values =
+                arith
+                    .inputs
+                    .iter()
+                    .zip(vertex_inputs.try_input_of(vid).unwrap_or_else(|| {
+                        panic!("input of {:?} not found in object analysis", vid)
+                    }))
+                    .map(|(input_eid, vv)| (*input_eid, vv.unwrap_single().clone()))
+                    .collect::<BTreeMap<_, _>>();
 
             let mut mutated_inputs = BTreeSet::new();
 
@@ -47,7 +59,7 @@ pub fn decide_mutable<'s, Rt: RuntimeType>(
                 // - Input dies after this vertex
                 let mut inplace_candidates = arith.inputs.iter().filter(|&&input_eid| {
                     let input = arith.g.vertex(input_eid);
-                        !mutated_inputs.contains(&input_eid)
+                    !mutated_inputs.contains(&input_eid)
                         && input.op.unwrap_input_typ() == FusedType::ScalarArray
                         && obj_die_after
                             .get_device(device)
