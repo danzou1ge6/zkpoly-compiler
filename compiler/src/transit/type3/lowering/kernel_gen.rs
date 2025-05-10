@@ -16,12 +16,14 @@ use zkpoly_core::fused_kernels::{FusedKernel, FusedOp, PipelinedFusedKernel};
 use zkpoly_core::msm::MSM;
 use zkpoly_core::ntt::{DistributePowers, RecomputeNtt, SsipNtt};
 use zkpoly_core::poly::{
-    KateDivision, PolyAdd, PolyEval, PolyInvert, PolyOneCoef, PolyOneLagrange, PolyPermute, PolyScan, PolySub, PolyZero, ScalarInv, ScalarPow
+    KateDivision, PolyAdd, PolyEval, PolyInvert, PolyOneCoef, PolyOneLagrange, PolyPermute,
+    PolyScan, PolySub, PolyZero, ScalarInv, ScalarPow,
 };
 use zkpoly_runtime::args::{RuntimeType, Variable, VariableId};
 use zkpoly_runtime::error::RuntimeError;
 use zkpoly_runtime::functions::{
-    FuncMeta, FunctionId, FunctionTable, FusedKernelMeta, KernelType, PipelinedMeta, RegisteredFunction
+    FuncMeta, FunctionId, FunctionTable, FusedKernelMeta, KernelType, PipelinedMeta,
+    RegisteredFunction,
 };
 
 use super::super::template::InstructionNode;
@@ -98,7 +100,7 @@ pub fn gen_fused_kernels<'s, Rt: RuntimeType>(
 
     // first pass to generate fused arith kernels
     for (idx, instruct) in program.iter_instructions() {
-        if let InstructionNode::Type2 { ids,vertex, .. } = &instruct.node {
+        if let InstructionNode::Type2 { vertex, .. } = &instruct.node {
             if let VertexNode::Arith { arith, chunking } = vertex {
                 let normalized = arith::hash::NormalizedDag::from(arith);
                 let (name, op, included_indices) = cache.entry(normalized).or_insert_with(|| {
@@ -108,24 +110,9 @@ pub fn gen_fused_kernels<'s, Rt: RuntimeType>(
 
                     arith::check_degree_of_todo_vertices(name.to_string(), &arith);
 
-                    // let outputs_i2o = arith
-                    //     .outputs
-                    //     .iter()
-                    //     .copied()
-                    //     .zip((*ids).clone().into_iter().map(|(ra, rb)| {
-                    //         // see def in InstructionNode::Type2
-                    //         if rb.is_some() {
-                    //             reg_id2var_id(rb.unwrap()) // in-place should reuse the input variable
-                    //         } else {
-                    //             reg_id2var_id(ra) // otherwise, create a new variable
-                    //         }
-                    //     }))
-                    //     .collect();
                     let limbs = size_of::<Rt::Field>() / size_of::<u32>();
                     let op = FusedOp::new(arith, name.clone(), limbs); // generate fused kernel
                     (name, op, vec![])
-                    // let op = FusedOp::new(arith, name.clone()); // generate fused kernel
-                    // (name, op, vec![])
                 });
                 included_indices.push(idx);
                 let pipelined_meta = if let Some(chunking) = chunking {
@@ -140,7 +127,15 @@ pub fn gen_fused_kernels<'s, Rt: RuntimeType>(
                 } else {
                     None
                 };
-                inst_idx2fused_meta.insert(idx, FusedKernelMeta { name: name.to_string(), num_vars: op.vars.len(), num_mut_vars: op.mut_vars.len(), pipelined_meta: pipelined_meta });
+                inst_idx2fused_meta.insert(
+                    idx,
+                    FusedKernelMeta {
+                        name: name.to_string(),
+                        num_vars: op.vars.len(),
+                        num_mut_vars: op.mut_vars.len(),
+                        pipelined_meta: pipelined_meta,
+                    },
+                );
             }
         }
     }
@@ -165,7 +160,8 @@ pub struct GeneratedFunctions {
 
 impl GeneratedFunctions {
     pub fn at(&self, idx: InstructionIndex) -> (FunctionId, Option<FusedKernelMeta>) {
-        let fid = self.inst2fid
+        let fid = self
+            .inst2fid
             .get(&idx)
             .unwrap_or_else(|| panic!("error at {:?}", idx))
             .clone();
