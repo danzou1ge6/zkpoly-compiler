@@ -1,11 +1,8 @@
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    panic::Location,
-};
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::transit::{type2, SourceInfo};
 
-use super::{Cg, Typ, Vertex, VertexId, VertexNode};
+use super::{Cg, Vertex, VertexId, VertexNode};
 use zkpoly_common::{
     arith::{
         self, Arith, ArithGraph, ArithUnrOp, ArithVertex, ExprId, FusedType, Mutability, Operation,
@@ -24,14 +21,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
         fused: &Vec<usize>,
         to: &Vec<bool>,
         from: &Vec<bool>,
-        // size_limit: Option<usize>,
-        // cur_size: Option<usize>,
     ) -> bool {
-        // if size_limit.is_some() && cur_size.is_some() {
-        //     if cur_size.unwrap() >= size_limit.unwrap() {
-        //         return false;
-        //     }
-        // }
         let v = self.g.vertex(vid);
         let vid_usize: usize = vid.into();
         if fused[vid_usize] != 0 || to[vid_usize] || from[vid_usize] {
@@ -79,26 +69,17 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
         to: &mut Vec<bool>,
         from: &mut Vec<bool>,
         vid2arith: &mut BTreeMap<VertexId, ExprId>,
+        arith2vid: &mut BTreeMap<ExprId, VertexId>,
         succ: &Heap<VertexId, BTreeSet<VertexId>>,
         ag: &mut ArithGraph<VertexId, ExprId>,
-        output_v: &mut Vec<Vec<(VertexId, VertexId)>>,
-        src_info: &mut Vec<Location<'s>>,
         fuse_id: usize,
-        // size_limit: usize,
     ) {
         if fused[usize::from(vid)] == fuse_id || vid2arith.contains_key(&vid) {
             return; // is in the current fusion
         }
-        if self.can_fuse(
-            vid,
-            fused,
-            to,
-            from,
-            // Some(size_limit),
-            // Some(vid2arith.len()),
-        ) {
+        if self.can_fuse(vid, fused, to, from) {
             self.fuse_it(
-                vid, fused, to, from, vid2arith, succ, ag, output_v, src_info, fuse_id,// size_limit,
+                vid, fused, to, from, vid2arith, arith2vid, succ, ag, fuse_id,
             );
         } else {
             let vid_arith = ag.g.add_vertex(ArithVertex {
@@ -111,6 +92,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
                 },
             });
             vid2arith.insert(vid, vid_arith);
+            arith2vid.insert(vid_arith, vid);
             ag.inputs.push(vid_arith);
         }
     }
@@ -130,7 +112,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
         if to[vid_usize] {
             return;
         }
-        let can_fuse = self.can_fuse(vid, fused, to, from);// , None, None);
+        let can_fuse = self.can_fuse(vid, fused, to, from); // , None, None);
         if start_mark {
             to[vid_usize] = true
         }
@@ -157,7 +139,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
         if from[vid_usize] {
             return;
         }
-        let can_fuse = self.can_fuse(vid, fused, to, from);// , None, None);
+        let can_fuse = self.can_fuse(vid, fused, to, from); // , None, None);
         if start_mark {
             from[vid_usize] = true;
         }
@@ -177,12 +159,10 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
         to: &mut Vec<bool>,
         from: &mut Vec<bool>,
         vid2arith: &mut BTreeMap<VertexId, ExprId>,
+        arith2vid: &mut BTreeMap<ExprId, VertexId>,
         succ: &Heap<VertexId, BTreeSet<VertexId>>,
         ag: &mut ArithGraph<VertexId, ExprId>,
-        output_v: &mut Vec<Vec<(VertexId, VertexId)>>, // output_v[rank in outputs]: vec[(targetid, old_src_id)]
-        src_info: &mut Vec<Location<'s>>,
         fuse_id: usize,
-        // size_limit: usize,
     ) {
         let v = self.g.vertex(vid);
         match v.node() {
@@ -197,22 +177,20 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
                 });
 
                 vid2arith.insert(vid, my_arith);
-                src_info.extend(&v.src().location);
+                arith2vid.insert(my_arith, vid);
+
                 match arith {
                     Arith::Bin(_, lhs, rhs) => {
                         self.fuse_bwd(
-                            *lhs, fused, to, from, vid2arith, succ, ag, output_v, src_info,
-                            fuse_id, // size_limit,
+                            *lhs, fused, to, from, vid2arith, arith2vid, succ, ag, fuse_id,
                         );
                         self.fuse_bwd(
-                            *rhs, fused, to, from, vid2arith, succ, ag, output_v, src_info,
-                            fuse_id, // size_limit,
+                            *rhs, fused, to, from, vid2arith, arith2vid, succ, ag, fuse_id,
                         );
                     }
                     Arith::Unr(_, src) => {
                         self.fuse_bwd(
-                            *src, fused, to, from, vid2arith, succ, ag, output_v, src_info,
-                            fuse_id, // size_limit,
+                            *src, fused, to, from, vid2arith, arith2vid, succ, ag, fuse_id,
                         );
                     }
                 };
@@ -221,287 +199,299 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
                         arith.relabeled(&mut |vid| vid2arith.get(&vid).unwrap().clone()),
                     ),
                 };
-                let mut output_rank = None;
+
+                let mut is_output = false;
                 for node in succ[vid].iter() {
                     if fused[usize::from(*node)] == fuse_id {
                         continue; // is in the current fusion
                     }
-                    if self.can_fuse(
-                        *node,
-                        fused,
-                        to,
-                        from,
-                        // Some(size_limit),
-                        // Some(vid2arith.len()),
-                    ) {
+                    if self.can_fuse(*node, fused, to, from) {
                         self.fuse_it(
-                            *node, fused, to, from, vid2arith, succ, ag, output_v, src_info,
-                            fuse_id//, size_limit,
+                            *node, fused, to, from, vid2arith, arith2vid, succ, ag, fuse_id,
                         );
                     } else {
-                        if output_rank.is_none() {
-                            output_rank = Some(output_v.len());
-                            output_v.push(Vec::new());
-                            ag.outputs.push(my_arith); // will be converted to output nodes
-                        };
-                        output_v[output_rank.unwrap()].push((*node, vid));
+                        is_output = true;
                     }
+                }
+                if is_output {
+                    let output_arith = ag.g.add_vertex(ArithVertex {
+                        op: Operation::Output {
+                            outer_id: vid,
+                            typ: self.get_fuse_type(vid),
+                            store_node: my_arith,
+                            in_node: vec![],
+                        },
+                    });
+                    ag.outputs.push(output_arith);
+                    arith2vid.insert(output_arith, vid);
                 }
             }
             _ => panic!("can only fuse single arith"),
         }
     }
+
+    pub fn split(
+        &self,
+        ag: &ArithGraph<VertexId, ExprId>,
+        arith2vid: BTreeMap<ExprId, VertexId>,
+        size_limit: usize,
+    ) -> (
+        Vec<ArithGraph<VertexId, ExprId>>,
+        Vec<BTreeMap<ExprId, VertexId>>,
+    ) {
+        if ag.g.order() <= size_limit {
+            return (vec![ag.clone()], vec![arith2vid]);
+        }
+        let (schedule, live_ts, _) = ag.schedule();
+        let partition = ag.partition(&schedule, size_limit);
+        let mut new_ariths = Vec::new();
+        let mut new_arith2vids = Vec::new();
+
+        let need_store = ag.outputs.iter().map(|vid| {
+            let v = ag.g.vertex(*vid);
+            if let Operation::Output { store_node, .. } = v.op {
+                store_node
+            } else {
+                panic!("output node should be store node");
+            }
+        }).collect::<BTreeSet<_>>(); // mark the nodes that need to be stored
+        // input nodes can be inferred from the arith graph
+
+        for i in 0..(partition.len() - 1) {
+            let start = partition[i];
+            let end = partition[i + 1];
+            let mut old_aid2new_aid: BTreeMap<ExprId, ExprId> = BTreeMap::new();
+            let mut new_arith2vid = BTreeMap::new();
+            let mut new_ag = ArithGraph {
+                outputs: Vec::new(),
+                inputs: Vec::new(),
+                g: Digraph::new(),
+                poly_repr: ag.poly_repr.clone(), // should be none, so we can use the same
+                poly_degree: ag.poly_degree,     // should be none, so we can use the same
+            };
+            for j in start..end {
+                let vid = schedule[j];
+                let v = ag.g.vertex(vid);
+
+                // only tackle arith nodes
+                if let Operation::Arith(arith) = &v.op {
+                    // check inputs
+                    for in_id in v.uses() {
+                        if !old_aid2new_aid.contains_key(&in_id) {
+                            // this is an input
+                            let outer_id = arith2vid.get(&in_id).unwrap().clone();
+                            let typ = self.get_fuse_type(outer_id);
+                            let new_in_id = new_ag.g.add_vertex(ArithVertex {
+                                op: Operation::Input {
+                                    outer_id,
+                                    typ,
+                                    mutability: Mutability::Const,
+                                },
+                            });
+                            new_ag.inputs.push(new_in_id);
+                            new_arith2vid.insert(new_in_id, outer_id);
+                            old_aid2new_aid.insert(in_id, new_in_id);
+                        }
+                    }
+
+                    // insert the arith node
+                    let new_arith = new_ag.g.add_vertex(ArithVertex {
+                        op: Operation::Arith(arith.relabeled(&mut |vid| {
+                            old_aid2new_aid.get(&vid).unwrap().clone()
+                        })),
+                    });
+                    old_aid2new_aid.insert(vid, new_arith);
+                    new_arith2vid.insert(new_arith, arith2vid.get(&vid).unwrap().clone());
+
+                    let live_ts_vid: usize = vid.into();
+                    // check outputs
+                    if live_ts[live_ts_vid] as usize >= end || need_store.contains(&vid) {
+                        // this is an output
+                        let outer_id = arith2vid.get(&vid).unwrap().clone();
+                        let typ = self.get_fuse_type(outer_id);
+                        let new_out_id = new_ag.g.add_vertex(ArithVertex {
+                            op: Operation::Output {
+                                outer_id,
+                                typ,
+                                store_node: new_arith,
+                                in_node: vec![],
+                            },
+                        });
+                        new_ag.outputs.push(new_out_id);
+                        new_arith2vid.insert(new_out_id, outer_id);
+                    }
+                }
+            }
+            new_ariths.push(new_ag);
+            new_arith2vids.push(new_arith2vid);
+        }
+        (new_ariths, new_arith2vids)
+    }
 }
 
-pub fn reorder_input_outputs<Rt: RuntimeType>(
-    ag: &mut ArithGraph<VertexId, ExprId>,
-    old_outputs_v: &mut Vec<Vec<(VertexId, VertexId)>>,
-    old_output_types: &mut Vec<Typ<Rt>>,
-) {
-    // reorder into scalars  polys order
-    let mut inputs = Vec::new();
-    let mut outputs = Vec::new();
-    let mut outputs_v = Vec::new();
-    let mut output_types = Vec::new();
-
-    // first push all scalars
-    for id in ag.inputs.iter() {
-        let v = ag.g.vertex(*id);
-        if let Operation::Input { typ, .. } = &v.op {
-            if typ == &FusedType::Scalar {
-                inputs.push(*id);
-            }
-        } else {
-            panic!("arith vertex in the inputs table should be inputs")
+fn get_poly_degree<Rt: RuntimeType>(output_types: &Vec<super::Typ<Rt>>) -> usize {
+    output_types.iter().fold(0, |acc, t| match t {
+        super::Typ::Poly((_, deg)) => {
+            assert!(acc == 0 || acc == *deg as usize);
+            *deg as usize
         }
-    }
-    for ((id, output_v), old_output_type) in ag
-        .outputs
+        super::Typ::Scalar => acc,
+        _ => panic!("outputs other than polynomials and scalars are not expected"),
+    })
+}
+
+fn get_poly_repr<Rt: RuntimeType>(output_types: &Vec<super::Typ<Rt>>) -> PolyType {
+    // get the polynomial representation
+    output_types
         .iter()
-        .zip(old_outputs_v.iter())
-        .zip(old_output_types.iter())
-    {
-        let v = ag.g.vertex(*id);
-        if let Operation::Output { typ, .. } = &v.op {
-            if typ == &FusedType::Scalar {
-                outputs.push(*id);
-                outputs_v.push(output_v.clone());
-                output_types.push(old_output_type.clone());
+        .fold(None, |acc, t| {
+            if let type2::Typ::Poly((t_repr, _)) = t {
+                if let Some(acc_repr) = acc {
+                    if &acc_repr != t_repr {
+                        panic!("outputs have different polynomial representation");
+                    }
+                }
+                Some(t_repr.clone())
+            } else {
+                acc
             }
-        } else {
-            panic!("arith vertex in the outputs table should be outputs")
-        }
-    }
-
-    // then push all polys
-    for id in ag.inputs.iter() {
-        let v = ag.g.vertex(*id);
-        if let Operation::Input { typ, .. } = &v.op {
-            if typ == &FusedType::ScalarArray {
-                inputs.push(*id);
-            }
-        } else {
-            panic!("arith vertex in the inputs table should be inputs")
-        }
-    }
-    for ((id, output_v), old_output_type) in ag
-        .outputs
-        .iter()
-        .zip(old_outputs_v.iter())
-        .zip(old_output_types.iter())
-    {
-        let v = ag.g.vertex(*id);
-        if let Operation::Output { typ, .. } = &v.op {
-            if typ == &FusedType::ScalarArray {
-                outputs.push(*id);
-                outputs_v.push(output_v.clone());
-                output_types.push(old_output_type.clone());
-            }
-        } else {
-            panic!("arith vertex in the outputs table should be outputs")
-        }
-    }
-
-    ag.inputs = inputs;
-    ag.outputs = outputs;
-    *old_outputs_v = outputs_v;
-    *old_output_types = output_types;
+        })
+        .unwrap_or(PolyType::Coef)
 }
 
-fn div_ceil(a: usize, b: u64) -> u64 {
-    (a as u64 + b - 1) / b
-}
-
-pub fn fuse_arith<'s, Rt: RuntimeType>(mut cg: Cg<'s, Rt>, gpu_mem_limit: u64) -> Cg<'s, Rt> {
-    let mut succ: Heap<VertexId, BTreeSet<VertexId>> = cg.g.successors();
+pub fn fuse_arith<'s, Rt: RuntimeType>(cg: Cg<'s, Rt>, gpu_mem_limit: u64) -> Cg<'s, Rt> {
+    let succ: Heap<VertexId, BTreeSet<VertexId>> = cg.g.successors();
     let mut fused = vec![0; cg.g.order()];
-    let order = cg.g.vertices().collect::<Vec<_>>();
+    let order = cg.g.topology_sort().map(|(vid, _)| vid).collect::<Vec<_>>();
     let mut to = vec![false; cg.g.order()]; // vertexs rely on the current fused kernel
     let mut from = vec![false; cg.g.order()]; // vertexs the current fused kernel relies on
     let mut fuse_id = 1;
+
+    let mut new_graph = Digraph::new();
+    let mut old_id2new_id: BTreeMap<VertexId, VertexId> = BTreeMap::new();
+    let mut tuple_gets = BTreeSet::new(); // tuple_gets are new added vertices, we don't need to relabel them
+
     for id in order {
-        if cg.can_fuse(id, &mut fused, &mut to, &mut from) { //, None, None) {
+        if cg.can_fuse(id, &fused, &to, &from) {
             let mut vid2arith = BTreeMap::new();
+            let mut arith2vid = BTreeMap::new();
             let mut ag = ArithGraph {
                 inputs: Vec::new(),
                 outputs: Vec::new(),
                 g: Digraph::new(),
                 poly_repr: PolyType::Coef, // revised later
-                poly_degree: None, // revised later
+                poly_degree: None,         // revised later
             };
-            let mut output_v = Vec::new();
-            let mut src_info = Vec::new();
+
             cg.fuse_it(
                 id,
                 &mut fused,
                 &mut to,
                 &mut from,
                 &mut vid2arith,
+                &mut arith2vid,
                 &succ,
                 &mut ag,
-                &mut output_v,
-                &mut src_info,
                 fuse_id,
-                // 1500,
             );
 
-            let mut output_polys = 0;
-            let (mut output_types, output_outer_info) = output_v
-                .iter()
-                .map(|output_i /*(targetid, old_src_id)*/| {
-                    let old_src = output_i[0].1;
-                    let old = cg.g.vertex(old_src);
-                    let fused_type = cg.get_fuse_type(old_src);
-                    if fused_type == FusedType::ScalarArray {
-                        output_polys += 1
-                    }
-                    (old.typ().clone(), (fused_type, old_src))
-                })
-                .collect::<(Vec<_>, Vec<_>)>();
+            // now we get a fused arith graph, we need to cut it into smaller ones
+            // otherwise, the local memory usage will be too large
+            // 10GB for 60k vertices with estimated reg usage 4000 on A100
+            // 1GB for 5k vertices with estimated reg usage 1000 on A100
 
-            // correct the polynomial representation
-            ag.poly_repr = output_types
-                .iter()
-                .fold(None, |acc, t| {
-                    if let type2::Typ::Poly((t_repr, _)) = t {
-                        if let Some(acc_repr) = acc {
-                            if &acc_repr != t_repr {
-                                panic!("outputs have different polynomial representation");
+            let (ags, arith2vids) = cg.split(&ag, arith2vid, 8192); // 8192 is a magic number for largest arith graph, can be tuned
+
+            // now we have a vector of arith graphs, we need to add them to the new graph
+            for (mut ag, arith2vid) in ags.into_iter().zip(arith2vids.iter()) {
+                // reorder inputs and outputs
+                ag.reorder_input_outputs();
+
+                // collect the output types
+                let output_types = ag
+                    .outputs
+                    .iter()
+                    .map(|output_id| {
+                        let vid = arith2vid.get(output_id).unwrap();
+                        let v = cg.g.vertex(*vid);
+                        v.typ().clone()
+                    })
+                    .collect::<Vec<_>>();
+
+                // fused arith type
+                let typ = super::typ::template::Typ::Tuple(output_types.clone());
+
+                // collect all the src infos
+                let src_locations =
+                    ag.g.vertices()
+                        .into_iter()
+                        .filter(&mut |arith_id: &ExprId| {
+                            let arith = ag.g.vertex(*arith_id);
+                            if let Operation::Arith(_) = arith.op {
+                                true
+                            } else {
+                                false
                             }
-                        }
-                        Some(t_repr.clone())
-                    } else {
-                        acc
-                    }
-                })
-                .unwrap_or(PolyType::Coef);
+                        }) // src info only for arith
+                        .flat_map(|arith_id| {
+                            let vid = arith2vid.get(&arith_id).unwrap();
+                            cg.g.vertex(*vid).src().location.clone()
+                        })
+                        .collect::<Vec<_>>();
 
-            // add output nodes
-            for (out_arith, (fuse_type, outer_id)) in ag.outputs.iter_mut().zip(output_outer_info) {
-                *out_arith = ag.g.add_vertex(ArithVertex {
-                    op: Operation::Output {
-                        outer_id: outer_id,
-                        typ: fuse_type,
-                        store_node: *out_arith,
-                        in_node: Vec::new(),
-                    },
-                });
-            }
+                let src_info = SourceInfo::new(src_locations, Some("fused_arith".to_string()));
 
-            // reorder inputs and outputs
-            reorder_input_outputs(&mut ag, &mut output_v, &mut output_types);
+                // decide the chunking
+                ag.poly_degree = Some(get_poly_degree(&output_types));
+                let chunking = ag.decide_chunking::<Rt::Field>(gpu_mem_limit);
 
-            assert_eq!(output_types.len(), ag.outputs.len());
-            let typ = super::typ::template::Typ::Tuple(output_types.clone());
+                // decide the polynomial representation
+                ag.poly_repr = get_poly_repr(&output_types);
 
-            ag.poly_degree = Some(output_types.iter().fold(0, |acc, t| match t {
-                type2::Typ::Poly((_, deg)) => {
-                    assert!(acc == 0 || acc == *deg as usize);
-                    *deg as usize
-                }
-                type2::Typ::Scalar => acc,
-                _ => panic!("outputs other than polynomials and scalars are not expected"),
-            }));
-
-            let ag_space = ag.space_needed::<Rt::Field>();
-            let chunking = if ag_space < (gpu_mem_limit / 2) as usize {
-                None
-            } else {
-                let mut chunking = 4;
-                while div_ceil(ag_space, chunking) * 3 > gpu_mem_limit {
-                    chunking *= 2;
-                }
-                assert!(ag.poly_degree.unwrap() as u64 % chunking == 0);
-                Some(chunking)
-            };
-
-            let node_id = cg.g.add_vertex(Vertex::new(
-                VertexNode::Arith {
-                    arith: ag,
+                let arith_node = VertexNode::Arith {
+                    arith: ag.clone(),
                     chunking,
-                },
-                typ,
-                SourceInfo::new(src_info.clone(), Some("fused_arith".to_string())),
-            ));
+                };
 
-            // add tuple get to unzip the result
-            let mut output_get = Vec::new();
-            for (id, typ) in output_types.iter().enumerate() {
-                let get = cg.g.add_vertex(Vertex::new(
-                    VertexNode::TupleGet(node_id, id),
-                    typ.clone(),
-                    SourceInfo::new(src_info.clone(), Some("fused_arith_tuple_get".to_string())),
-                ));
-                output_get.push(get);
-            }
+                // add the arith graph to the new graph
+                let node_id = new_graph.add_vertex(Vertex::new(arith_node, typ, src_info));
 
-            // modify the consumers to depend on tuple get
-            for i in 0..output_v.len() {
-                let new_src = output_get[i];
-                for (target, old_src) in output_v[i].iter() {
-                    for src in cg.g.vertex_mut(*target).uses_mut() {
-                        if *src == *old_src {
-                            *src = new_src;
-                        }
-                    }
+                // add tuple get to unzip the result
+                for ((id, typ), arithid) in output_types.iter().enumerate().zip(ag.outputs.iter()) {
+                    let get = new_graph.add_vertex(Vertex::new(
+                        VertexNode::TupleGet(node_id, id),
+                        typ.clone(),
+                        SourceInfo::new(Vec::new(), Some("fused_arith_tuple_get".to_string())),
+                    ));
+                    let old_id = arith2vid.get(arithid).unwrap().clone();
+                    old_id2new_id.insert(old_id, get);
+                    tuple_gets.insert(get);
                 }
             }
+
             // reconstruct succ and clear to and from
             fuse_id += 1;
             to = vec![false; cg.g.order()];
             from = vec![false; cg.g.order()];
-            fused.resize(cg.g.order(), 0);
-            succ = cg.g.successors().map(&mut |_, v| {
-                v.into_iter()
-                    .filter(|suc_id| fused[usize::from(*suc_id)] == 0)
-                    .collect()
-            });
-
-            // // some check for succ and pred
-            // for (vid, succs) in succ.iter().enumerate() {
-            //     if fused[vid] != 0 {
-            //         continue;
-            //     }
-            //     for suc in succs {
-            //         if fused[usize::from(*suc)] != 0 {
-            //             panic!("shouldn't have suc to be a fused point");
-            //         }
-            //     }
-            // }
-
-            // for vid in cg.g.vertices() {
-            //     let vid_usize = usize::from(vid);
-            //     if fused[vid_usize] != 0 {
-            //         continue;
-            //     }
-            //     for pre in cg.g.vertex(vid).uses() {
-            //         let pre_usize = usize::from(pre);
-            //         if fused[pre_usize] != 0 {
-            //             panic!("shouldn't have pre to be a fused point");
-            //         }
-            //     }
-            // }
+        } else if fused[usize::from(id)] == 0 {
+            // not fused yet and not fusable
+            let new_vid = new_graph.add_vertex(cg.g.vertex(id).clone());
+            old_id2new_id.insert(id, new_vid);
         }
     }
-    cg
+    // now we need to relabel the graph
+    for vid in new_graph.vertices() {
+        if tuple_gets.contains(&vid) {
+            continue;
+        }
+        let v = new_graph.vertex(vid).clone();
+        let new_node = v
+            .node()
+            .relabeled(&mut |vid| old_id2new_id.get(&vid).unwrap().clone());
+        *new_graph.vertex_mut(vid).node_mut() = new_node;
+    }
+    Cg {
+        g: new_graph,
+        output: old_id2new_id.get(&cg.output).unwrap().clone(),
+    }
 }

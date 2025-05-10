@@ -17,6 +17,7 @@ pub fn decide_mutable<'s, Rt: RuntimeType>(
     vertex_inputs: &ObjectUse,
     obj_die_after: &ObjectsDieAfter,
 ) -> Cg<'s, Rt> {
+    return cg;
     for vid in cg.g.vertices().collect::<Vec<_>>().into_iter() {
         if let VertexNode::Arith { arith, chunking } = cg.g.vertex_mut(vid).node_mut() {
             let device = if chunking.is_some() {

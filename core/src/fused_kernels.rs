@@ -41,9 +41,6 @@ use crate::{
 
 static LIB_NAME: &str = "libfused_kernels.so";
 
-pub mod partition;
-pub mod scheduler;
-
 pub struct FusedKernel<T: RuntimeType> {
     _marker: PhantomData<T>,
     pub meta: FusedKernelMeta,
@@ -103,8 +100,8 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
 
     pub fn new(graph: ArithGraph<OuterId, InnerId>, name: String, limbs: usize) -> Self {
         let (vars, mut_vars) = graph.gen_var_lists();
-        let (schedule, live_ts, regs) = scheduler::schedule(&graph);
-        let partition = partition::partition(&graph, &schedule, 1024);
+        let (schedule, live_ts, regs) = graph.schedule();
+        let partition = graph.partition(&schedule, 1024); // magic number for compile time
 
         // now we have to generate the inputs and outputs for each partition
         let mut inputs = vec![BTreeSet::new(); partition.len()];

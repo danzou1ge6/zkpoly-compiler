@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
     define_usize_id,
@@ -297,44 +297,80 @@ pub struct ArithGraph<OuterId, ArithIndex> {
 
 impl<OuterId, ArithIndex> ArithGraph<OuterId, ArithIndex>
 where
-    ArithIndex: UsizeId + 'static,
-    OuterId: UsizeId,
+    ArithIndex: UsizeId,
+    OuterId: Copy,
 {
-    pub fn change_mutability(
-        &mut self,
-        succ: &Heap<OuterId, BTreeSet<OuterId>>,
-        poly_limit: usize,
-    ) -> Vec<ArithIndex> {
-        // change mutability of poly, scalars must be immutable
-        let succ_arith = self.g.successors();
-        let mut mutable_inputs = Vec::new();
+    pub fn decide_chunking<T: Sized>(&mut self, gpu_mem_limit: u64) -> Option<u64> {
+        let ag_space = self.space_needed::<T>();
+        if ag_space < (gpu_mem_limit / 2) as usize {
+            None
+        } else {
+            let mut chunking = 4;
+
+            // helper func
+            let div_ceil = |a: usize, b: u64| (a as u64 + b - 1) / b;
+
+            while div_ceil(ag_space, chunking) * 3 > gpu_mem_limit {
+                chunking *= 2;
+            }
+            assert!(self.poly_degree.unwrap() as u64 % chunking == 0);
+            Some(chunking)
+        }
+    }
+
+    pub fn reorder_input_outputs(&mut self) {
+        // reorder into scalars  polys order
+        let mut inputs = Vec::new();
+        let mut outputs = Vec::new();
+
+        // first push all scalars
         for id in self.inputs.iter() {
-            let v = self.g.vertex_mut(*id);
-            if let Operation::Input {
-                outer_id,
-                typ,
-                mutability,
-            } = &mut v.op
-            {
-                if succ_arith[*id].len() == succ[*outer_id].len() {
-                    if *typ == FusedType::ScalarArray && mutable_inputs.len() < poly_limit {
-                        mutable_inputs.push(*id);
-                        *mutability = Mutability::Mut;
-                    }
+            let v = self.g.vertex(*id);
+            if let Operation::Input { typ, .. } = &v.op {
+                if typ == &FusedType::Scalar {
+                    inputs.push(*id);
                 }
             } else {
                 panic!("arith vertex in the inputs table should be inputs")
             }
         }
-        mutable_inputs
-    }
-}
+        for id in self.outputs.iter() {
+            let v = self.g.vertex(*id);
+            if let Operation::Output { typ, .. } = &v.op {
+                if typ == &FusedType::Scalar {
+                    outputs.push(*id);
+                }
+            } else {
+                panic!("arith vertex in the outputs table should be outputs")
+            }
+        }
 
-impl<OuterId, ArithIndex> ArithGraph<OuterId, ArithIndex>
-where
-    ArithIndex: UsizeId,
-    OuterId: Copy,
-{
+        // then push all polys
+        for id in self.inputs.iter() {
+            let v = self.g.vertex(*id);
+            if let Operation::Input { typ, .. } = &v.op {
+                if typ == &FusedType::ScalarArray {
+                    inputs.push(*id);
+                }
+            } else {
+                panic!("arith vertex in the inputs table should be inputs")
+            }
+        }
+        for id in self.outputs.iter() {
+            let v = self.g.vertex(*id);
+            if let Operation::Output { typ, .. } = &v.op {
+                if typ == &FusedType::ScalarArray {
+                    outputs.push(*id);
+                }
+            } else {
+                panic!("arith vertex in the outputs table should be outputs")
+            }
+        }
+
+        self.inputs = inputs;
+        self.outputs = outputs;
+    }
+
     pub fn get_inplace_inputs(&self) -> BTreeSet<ArithIndex> {
         // collect the inputs that are also outputs
         let mut inplace_inputs = BTreeSet::new();
@@ -568,5 +604,7 @@ pub fn check_degree_of_todo_vertices<
 }
 
 pub mod hash;
+pub mod partition;
 pub mod pretty_print;
+pub mod scheduler;
 pub mod visualize;
