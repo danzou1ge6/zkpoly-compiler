@@ -126,7 +126,7 @@ impl Ctx {
                     let cost = successors[vid]
                         .iter()
                         .filter(|&&succ| connected[succ])
-                        .map(|&succ| acc[&succ])
+                        .map(|&succ| cg.g.vertex(succ).typ().size().total() as i64)
                         .sum::<i64>();
                     let gain = cg.g.vertex(vid).typ().size().total();
                     let score = gain as i64 - cost as i64;
