@@ -45,10 +45,66 @@ pub fn emit_func<'s, Rt: RuntimeType>(
 
                 generate_arith(arg, arg_mut, f_id, emit);
             } else {
-                // // after removing the rotate(0), we will work on this again
-                // let fused_meta = fused_meta.unwrap();
-                // let pipelined_meta = fused_meta.pipelined_meta.unwrap();
-                todo!("Chunking arith is not supported yet");
+                let fused_meta = fused_meta.unwrap();
+                let pipelined_meta = fused_meta.pipelined_meta.unwrap();
+
+                let num_scalars = pipelined_meta.num_scalars;
+                let num_polys = fused_meta.num_vars - num_scalars;
+                let num_scalars_mut = pipelined_meta.num_mut_scalars;
+                let num_polys_mut = fused_meta.num_mut_vars - num_scalars_mut;
+
+                // check temp buffer num
+                assert_eq!(temp.len(), 1 + num_scalars_mut + num_scalars + 2 * num_polys + 3 * num_polys_mut);
+
+                // check output num
+                assert_eq!(outputs.len(), fused_meta.num_mut_vars);
+
+                let mut arg = Vec::new();
+                let mut arg_mut = Vec::new();
+
+                // arg buffer
+                arg_mut.push(reg_id2var_id(temp[0]));
+
+                // outputs
+                arg_mut.extend(outputs.iter().map(|id| reg_id2var_id(*id)));
+
+                let inplace_inputs = arith.get_inplace_inputs();
+                // inputs
+                for inner_id in arith.inputs.iter() {
+                    if let Operation::Input { outer_id, .. } = &arith.g.vertex(*inner_id).op {
+                        if inplace_inputs.contains(inner_id) {
+                            continue;
+                        }
+                        arg.push(reg_id2var_id(*outer_id));
+                    } else {
+                        unreachable!("Expected input operation");
+                    }
+                }
+
+                // temp buffer for scalars
+                for i in 0..num_scalars {
+                    arg.push(reg_id2var_id(temp[1 + i]));
+                }
+
+                // temp buffer for polys
+                for i in 0..2 * num_polys {
+                    arg.push(reg_id2var_id(temp[1 + num_scalars + i]));
+                }
+
+                // temp buffer for mut scalars
+                for i in 0..num_scalars_mut {
+                    arg_mut.push(reg_id2var_id(temp[1 + num_scalars + 2 * num_polys + i]));
+                }
+                // temp buffer for mut polys
+                for i in 0..3 * num_polys_mut {
+                    arg_mut.push(reg_id2var_id(temp[1 + num_scalars + 2 * num_polys + num_scalars_mut + i]));
+                }
+
+                emit(Instruction::FuncCall {
+                    func_id: f_id,
+                    arg_mut,
+                    arg,
+                });
             }
         }
         VertexNode::Ntt {

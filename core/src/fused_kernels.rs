@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::ffi::c_void;
 use std::io::{Read, Write};
+use std::ptr::null_mut;
 use std::{
     any::type_name,
     borrow::Borrow,
@@ -50,7 +50,6 @@ pub struct FusedKernel<T: RuntimeType> {
             vars: *const ConstPolyPtr,
             mut_vars: *const PolyPtr,
             len: c_ulonglong,
-            d_arg_buf: *mut c_void,
             stream: cudaStream_t,
         ) -> cudaError_t,
     >,
@@ -313,24 +312,15 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
         wrapper.push_str("extern \"C\" cudaError_t ");
         wrapper.push_str(&self.name);
         wrapper.push_str(
-            "(ConstPolyPtr const* vars, PolyPtr const* mut_vars, unsigned long long len, void* d_arg_buf, cudaStream_t stream) {\n",
+            "(ConstPolyPtr const* vars, PolyPtr const* mut_vars, unsigned long long len, cudaStream_t stream) {\n",
         );
-
-        // copy the arguments to the device
-        wrapper.push_str("auto d_vars = reinterpret_cast<ConstPolyPtr*>(d_arg_buf);\n");
-        wrapper += &format!(
-            "auto d_mut_vars = reinterpret_cast<PolyPtr*>(d_arg_buf) + {};\n",
-            self.vars.len()
-        );
-        wrapper += &format!("CUDA_CHECK(cudaMemcpyAsync(d_vars, vars, sizeof(ConstPolyPtr) * {}, cudaMemcpyHostToDevice, stream));\n", self.vars.len());
-        wrapper += &format!("CUDA_CHECK(cudaMemcpyAsync(d_mut_vars, mut_vars, sizeof(PolyPtr) * {}, cudaMemcpyHostToDevice, stream));\n", self.mut_vars.len());
 
         wrapper.push_str("uint block_size = 256;\n");
         wrapper.push_str("uint grid_size = (len + block_size - 1) / block_size;\n");
         wrapper.push_str("detail::");
         wrapper.push_str(&self.name);
         wrapper.push_str(&format!("<{FIELD_NAME}>"));
-        wrapper.push_str(" <<< grid_size, block_size, 0, stream >>> (d_vars, d_mut_vars, len);\n");
+        wrapper.push_str(" <<< grid_size, block_size, 0, stream >>> (vars, mut_vars, len);\n");
 
         wrapper.push_str("return cudaGetLastError();\n");
         wrapper.push_str("}\n");
@@ -663,13 +653,20 @@ impl<T: RuntimeType> RegisteredFunction<T> for FusedKernel<T> {
                 })
                 .collect::<Vec<_>>();
             assert!(len > 0);
+            // copy the arguments to the device
             unsafe {
+                let d_vars: *mut ConstPolyPtr = arg_buffer.ptr as *mut ConstPolyPtr;
+                let d_mut_vars: *mut PolyPtr = (arg_buffer.ptr as *mut PolyPtr).add(meta.num_vars);
+
+                // do the transfer
                 cuda_check!(cudaSetDevice(stream.get_device()));
+                stream.memcpy_h2d(d_vars, vars.as_ptr(), meta.num_vars);
+                stream.memcpy_h2d(d_mut_vars, mut_vars.as_ptr(), meta.num_mut_vars);
+
                 cuda_check!((c_func)(
-                    vars.as_ptr(),
-                    mut_vars.as_ptr(),
+                    d_vars,
+                    d_mut_vars,
                     len.try_into().unwrap(),
-                    arg_buffer.ptr as *mut c_void,
                     stream.raw()
                 ));
             }
@@ -703,8 +700,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
         let num_scalars = pipelined_meta.num_scalars;
         let num_mut_scalars = pipelined_meta.num_mut_scalars;
         let divide_parts = pipelined_meta.divide_parts;
-        let vars = self.kernel.meta.num_vars;
-        let mut_vars = self.kernel.meta.num_mut_vars;
+        let num_of_vars = self.kernel.meta.num_vars;
+        let num_of_mut_vars = self.kernel.meta.num_mut_vars;
         /*
         args:
         assume there are n mut polys, m polys, p mut scalars, q scalrs to compute the fused kernel
@@ -714,18 +711,22 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
         var will have 3m + 2q elements
         the first q are scalars, next m are polys, next q are scalar buffers, the next 2m are the gpu polys (double buffer, one load, one compute)
          */
-        let rust_func = move |mut_var: Vec<&mut Variable<T>>,
+        let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
                               var: Vec<&Variable<T>>|
               -> Result<(), RuntimeError> {
+
+            // the first of mut_var is the buffer for the arguments
+            let (arg_buffer, mut_var) = mut_var.split_at_mut(1);
+            let arg_buffer = arg_buffer[0].unwrap_gpu_buffer_mut();
             assert!((mut_var.len() - 2 * num_mut_scalars) % 4 == 0);
             assert!((var.len() - 2 * num_scalars) % 3 == 0);
 
             let num_mut_poly = (mut_var.len() - 2 * num_mut_scalars) / 4;
             let num_mut_var = num_mut_poly + num_mut_scalars;
-            assert_eq!(num_mut_var, mut_vars);
+            assert_eq!(num_mut_var, num_of_mut_vars);
             let num_poly = (var.len() - 3 - 2 * num_scalars) / 3;
             let num_var = num_poly + num_scalars;
-            assert_eq!(num_var, vars);
+            assert_eq!(num_var, num_of_vars);
 
             // get the length
             let len = if num_mut_poly > 0 {
@@ -818,6 +819,62 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                 }
             }
 
+            // prepare the args
+            let mut mut_vars = [Vec::new(), Vec::new(), Vec::new()];
+            for mut_buffer_id in 0..3 {
+            for scalar in mut_gpu_scalars.iter() {
+                mut_vars[mut_buffer_id].push(PolyPtr {
+                    ptr: scalar.value as *mut c_uint,
+                    len: 1,
+                    rotate: 0,
+                    offset: 0,
+                    whole_len: 1,
+                })
+            }
+            for poly in mut_gpu_polys[mut_buffer_id].iter_mut() {
+                mut_vars[mut_buffer_id].push(PolyPtr::from(poly))
+            }}
+            let mut vars = [Vec::new(), Vec::new()];
+            for buffer_id in 0..2 {
+            for scalar in gpu_scalars.iter() {
+                vars[buffer_id].push(ConstPolyPtr {
+                    ptr: scalar.value as *mut c_uint,
+                    len: 1,
+                    rotate: 0,
+                    offset: 0,
+                    whole_len: 1,
+                })
+            }
+            for poly in gpu_polys[buffer_id].iter() {
+                vars[buffer_id].push(ConstPolyPtr::from(poly))
+            }}
+
+            // transfer args to gpu
+            let mut d_vars = [null_mut(); 2];
+            let mut d_mut_vars = [null_mut(); 3];
+            unsafe {
+                d_vars[0] = arg_buffer.ptr as *mut ConstPolyPtr;
+                d_vars[1] = (d_vars[0] as *mut ConstPolyPtr).add(num_of_vars);
+                d_mut_vars[0] = (d_vars[1] as *mut PolyPtr).add(num_of_vars);
+                d_mut_vars[1] = (d_mut_vars[0] as *mut PolyPtr).add(num_of_mut_vars);
+                d_mut_vars[2] = (d_mut_vars[1] as *mut PolyPtr).add(num_of_mut_vars);
+            }
+
+            for buffer_id in 0..2 {
+                h2d_stream.memcpy_h2d(
+                    d_vars[buffer_id],
+                    vars[buffer_id].as_ptr(),
+                    num_of_vars,
+                );
+            }
+            for mut_buffer_id in 0..3 {
+                h2d_stream.memcpy_h2d(
+                    d_mut_vars[mut_buffer_id],
+                    mut_vars[mut_buffer_id].as_ptr(),
+                    num_of_mut_vars,
+                );
+            }
+
             // create events
             let mut_h2d_complete = [CudaEvent::new(), CudaEvent::new(), CudaEvent::new()];
             let mut_compute_complete = [CudaEvent::new(), CudaEvent::new(), CudaEvent::new()];
@@ -856,43 +913,16 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                 compute_stream.wait(&h2d_complete[buffer_id]);
 
                 // compute
-                let mut mut_vars = Vec::new();
-                for scalar in mut_gpu_scalars.iter() {
-                    mut_vars.push(PolyPtr {
-                        ptr: scalar.value as *mut c_uint,
-                        len: 1,
-                        rotate: 0,
-                        offset: 0,
-                        whole_len: 1,
-                    })
-                }
-                for poly in mut_gpu_polys[mut_buffer_id].iter_mut() {
-                    mut_vars.push(PolyPtr::from(poly))
-                }
-                let mut vars = Vec::new();
-                for scalar in gpu_scalars.iter() {
-                    vars.push(ConstPolyPtr {
-                        ptr: scalar.value as *mut c_uint,
-                        len: 1,
-                        rotate: 0,
-                        offset: 0,
-                        whole_len: 1,
-                    })
-                }
-                for poly in gpu_polys[buffer_id].iter() {
-                    vars.push(ConstPolyPtr::from(poly))
-                }
 
-                todo!("call the kernel");
-                // unsafe {
-                //     cuda_check!(cudaSetDevice(compute_stream.get_device()));
-                //     cuda_check!((c_func)(
-                //         vars.as_ptr(),
-                //         mut_vars.as_ptr(),
-                //         chunk_len.try_into().unwrap(),
-                //         compute_stream.raw()
-                //     ));
-                // }
+                unsafe {
+                    cuda_check!(cudaSetDevice(compute_stream.get_device()));
+                    cuda_check!((c_func)(
+                        d_vars[buffer_id],
+                        d_mut_vars[mut_buffer_id],
+                        chunk_len.try_into().unwrap(),
+                        compute_stream.raw()
+                    ));
+                }
 
                 compute_complete[buffer_id].record(compute_stream);
                 mut_compute_complete[mut_buffer_id].record(compute_stream);

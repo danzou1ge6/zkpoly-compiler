@@ -322,8 +322,10 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
                     }
                 }
             }
-            new_ariths.push(new_ag);
-            new_arith2vids.push(new_arith2vid);
+            if new_ag.g.order() > 0 {
+                new_ariths.push(new_ag);
+                new_arith2vids.push(new_arith2vid);
+            }
         }
         (new_ariths, new_arith2vids)
     }

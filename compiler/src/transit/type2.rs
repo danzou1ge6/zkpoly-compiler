@@ -634,7 +634,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
             ScalarInvert { .. } => None,
             SingleArith(..) => None,
             Arith { arith, chunking } => {
-                Some((temporary_space::arith(arith, chunking.clone()), Gpu))
+                Some((temporary_space::arith::<Rt>(arith, chunking.clone()), Gpu))
             }
             NewPoly(..) => None,
             Constant(..) => None,

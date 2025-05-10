@@ -1,7 +1,8 @@
-use zkpoly_common::{load_dynamic::Libs, msm_config::MsmConfig};
+use zkpoly_common::{arith::FusedType, load_dynamic::Libs, msm_config::MsmConfig};
 use zkpoly_core::{
     msm::MSM,
-    poly::{KateDivision, PolyEval, PolyInvert, PolyPermute, PolyScan}, poly_ptr::PolyPtr,
+    poly::{KateDivision, PolyEval, PolyInvert, PolyPermute, PolyScan},
+    poly_ptr::PolyPtr,
 };
 use zkpoly_runtime::args::RuntimeType;
 
@@ -44,11 +45,42 @@ pub fn poly_invert<Rt: RuntimeType>(len: usize, libs: &mut Libs) -> Vec<u64> {
     vec![poly_invert_impl.get_buffer_size(len) as u64]
 }
 
-pub fn arith(arith: &Arith, chunking: Option<u64>) -> Vec<u64> {
+pub fn arith<Rt: RuntimeType>(arith: &Arith, chunking: Option<u64>) -> Vec<u64> {
     if chunking.is_none() {
         let (vars, mut_vars) = arith.gen_var_lists();
         vec![((vars.len() + mut_vars.len()) * size_of::<PolyPtr>()) as u64]
     } else {
-        todo!()
+        let mut temp_sizes = Vec::new();
+        let poly_degree = arith.poly_degree.unwrap();
+        let poly_chunk_size = poly_degree / chunking.unwrap() as usize * size_of::<Rt::Field>();
+        let (vars, mut_vars) = arith.gen_var_lists();
+        // place for arguments
+        let arg_size = (2 * vars.len() + 3 * mut_vars.len()) * size_of::<PolyPtr>();
+        temp_sizes.push(arg_size as u64);
+
+        // place for chunking
+        let (vars, mut_vars) = arith.gen_var_lists();
+
+        for (typ, _) in vars.iter() {
+            if typ == &FusedType::Scalar {
+                temp_sizes.push(size_of::<Rt::Field>() as u64);
+            } else {
+                // double buffer
+                temp_sizes.push(poly_chunk_size as u64);
+                temp_sizes.push(poly_chunk_size as u64);
+            }
+        }
+
+        for (typ, _) in mut_vars.iter() {
+            if typ == &FusedType::Scalar {
+                temp_sizes.push(size_of::<Rt::Field>() as u64);
+            } else {
+                // triple buffer
+                temp_sizes.push(poly_chunk_size as u64);
+                temp_sizes.push(poly_chunk_size as u64);
+                temp_sizes.push(poly_chunk_size as u64);
+            }
+        }
+        temp_sizes
     }
 }
