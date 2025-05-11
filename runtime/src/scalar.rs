@@ -286,7 +286,9 @@ impl<F: Field> ScalarArray<F> {
     pub fn slice(&self, start: usize, end: usize) -> Self {
         assert!(start <= end);
         assert!(end <= self.len);
-        assert!(self.slice_info.is_none(), "slice can't be sliced again");
+        if let Some(si) = &self.slice_info {
+            panic!("this is already a slice {:?}, can't be sliced again", si)
+        }
         let rotate = self.get_rotation();
         let actual_pos = (self.len + start - rotate) % self.len;
         Self {

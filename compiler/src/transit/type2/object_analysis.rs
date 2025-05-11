@@ -426,6 +426,42 @@ pub fn analyze_def<'s, Rt: RuntimeType>(
                 let pred_value = values[a].clone();
                 values.insert(vid, pred_value.with_device(Device::Cpu));
             }
+            Arith { arith, .. } => match v.typ() {
+                Typ::Tuple(elements) => {
+                    let elems = elements
+                        .iter()
+                        .zip(arith.outputs_inplace())
+                        .map(|(elem_typ, output_inplace)| {
+                            if let Some(inplace_vid) = output_inplace {
+                                let value = values[&inplace_vid]
+                                    .unwrap_single()
+                                    .with_object_id(object_id_allocator.alloc())
+                                    .with_device(decide_device(devices(vid), elem_typ));
+                                sizes.insert(value.object_id(), elem_typ.size().unwrap_single());
+
+                                value
+                            } else {
+                                let value = Value::new(
+                                    &mut object_id_allocator,
+                                    elem_typ,
+                                    decide_device(devices(vid), elem_typ),
+                                );
+                                sizes.insert(value.object_id(), elem_typ.size().unwrap_single());
+
+                                value
+                            }
+                        })
+                        .collect();
+                    let vv = VertexValue::Tuple(elems);
+
+                    for obj_id in vv.object_ids() {
+                        defs.insert(obj_id, vid);
+                    }
+
+                    values.insert(vid, vv);
+                }
+                _ => panic!("arith subgraph output must be a tuple"),
+            },
             otherwise => {
                 assert!(!otherwise.is_virtual());
 
@@ -596,6 +632,24 @@ pub fn plan_vertex_inputs<'s, Rt: RuntimeType>(
                             },
                             device: Device::Gpu,
                             object_id: cloned_obj_id,
+                        })
+                    }
+                    ValueNode::Poly { rotation, deg } if *rotation != 0 => {
+                        let cloned_oj_id = add_cloned_slice(
+                            defs,
+                            obj_id,
+                            PolyMeta::Rotated(*rotation),
+                            *deg,
+                            obj_id_allocator,
+                        );
+
+                        Some(Value {
+                            node: ValueNode::Poly {
+                                rotation: 0,
+                                deg: *deg,
+                            },
+                            device: Device::Gpu,
+                            object_id: cloned_oj_id,
                         })
                     }
                     _ => None,
