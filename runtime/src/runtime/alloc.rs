@@ -20,7 +20,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         device: DeviceType,
         typ: Typ,
         offset: Option<usize>,
-        mem_allocator: &Option<&mut PinnedMemoryPool>,
+        mem_allocator: &mut Option<&mut PinnedMemoryPool>,
         gpu_allocator: &Option<&mut Vec<CudaAllocator>>,
     ) -> Variable<T> {
         match typ {
@@ -28,7 +28,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                 let poly = match device {
                     DeviceType::CPU => ScalarArray::<T::Field>::new(
                         len as usize,
-                        mem_allocator.as_ref().unwrap().allocate(len as usize),
+                        mem_allocator.as_mut().unwrap().allocate(len as usize),
                         device.clone(),
                     ),
                     DeviceType::GPU { device_id } => ScalarArray::<T::Field>::new(
@@ -45,7 +45,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                 let point_base = match device {
                     DeviceType::CPU => PointArray::<T::PointAffine>::new(
                         len as usize,
-                        mem_allocator.as_ref().unwrap().allocate(len as usize),
+                        mem_allocator.as_mut().unwrap().allocate(len as usize),
                         device.clone(),
                     ),
                     DeviceType::GPU { device_id } => PointArray::<T::PointAffine>::new(
@@ -99,18 +99,18 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         &self,
         var: &mut Variable<T>,
         var_id: VariableId,
-        mem_allocator: &Option<&mut PinnedMemoryPool>,
+        mem_allocator: &mut Option<&mut PinnedMemoryPool>,
     ) {
         match var {
             Variable::ScalarArray(poly) => match poly.device {
                 DeviceType::CPU => {
-                    mem_allocator.as_ref().unwrap().free(poly.values);
+                    mem_allocator.as_mut().unwrap().free(poly.values);
                 }
                 _ => {}
             },
             Variable::PointArray(point_base) => match point_base.device {
                 DeviceType::CPU => {
-                    mem_allocator.as_ref().unwrap().free(point_base.values);
+                    mem_allocator.as_mut().unwrap().free(point_base.values);
                 }
                 _ => {}
             },

@@ -157,7 +157,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
     pub unsafe fn run(
         &self,
         instructions: Vec<Instruction>,
-        mem_allocator: Option<&mut PinnedMemoryPool>,
+        mut mem_allocator: Option<&mut PinnedMemoryPool>,
         gpu_allocator: Option<&mut Vec<CudaAllocator>>,
         epilogue: Option<Sender<i32>>,
         _thread_id: usize,
@@ -197,14 +197,14 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     let guard = &mut (*self.variable)[id];
                     assert!(guard.is_none());
                     *guard =
-                        Some(self.allocate(device, typ, offset, &mem_allocator, &gpu_allocator));
+                        Some(self.allocate(device, typ, offset, &mut mem_allocator, &gpu_allocator));
                 }
                 Instruction::Deallocate { id } => {
                     // only main thread can deallocate memory
                     assert!(self.main_thread);
                     let guard = &mut (*self.variable)[id];
                     if let Some(var) = guard.as_mut() {
-                        self.deallocate(var, id, &mem_allocator);
+                        self.deallocate(var, id, &mut mem_allocator);
                         *guard = None;
                     } else {
                         panic!("deallocate a non-existing variable");

@@ -38,7 +38,7 @@ fn test_binary(
         } => func,
         _ => panic!("expected Fn"),
     };
-    let cpu_pool = PinnedMemoryPool::new(K, size_of::<MyField>());
+    let mut cpu_pool = PinnedMemoryPool::new(K, size_of::<MyField>());
     let stream = Variable::Stream(CudaStream::new(0));
     let len = 1 << K;
     let mut a = ScalarArray::new(len, cpu_pool.allocate(len), DeviceType::CPU);
@@ -130,7 +130,7 @@ fn test_eval() {
         } => func,
         _ => unreachable!(),
     };
-    let cpu_pool = PinnedMemoryPool::new(K, size_of::<MyField>());
+    let mut cpu_pool = PinnedMemoryPool::new(K, size_of::<MyField>());
     let stream = Variable::Stream(CudaStream::new(0));
     let mut poly = ScalarArray::new(len, cpu_pool.allocate(len), DeviceType::CPU);
     let mut x = Scalar::new_cpu();
@@ -194,7 +194,7 @@ fn test_kate() {
         } => func,
         _ => unreachable!(),
     };
-    let cpu_pool = PinnedMemoryPool::new(K, size_of::<MyField>());
+    let mut cpu_pool = PinnedMemoryPool::new(K, size_of::<MyField>());
     let stream = Variable::Stream(CudaStream::new(0));
     let mut poly = ScalarArray::new(len, cpu_pool.allocate(len), DeviceType::CPU);
     let mut b = Scalar::new_cpu();
@@ -264,7 +264,7 @@ fn test_zero_one() {
         } => func,
         _ => unreachable!(),
     };
-    let cpu_pool = PinnedMemoryPool::new(K, size_of::<MyField>());
+    let mut cpu_pool = PinnedMemoryPool::new(K, size_of::<MyField>());
     let stream = Variable::Stream(CudaStream::new(0));
     let mut poly = Variable::ScalarArray(ScalarArray::new(
         len,
@@ -368,7 +368,7 @@ fn test_scan() {
         } => func,
         _ => unreachable!(),
     };
-    let cpu_pool = PinnedMemoryPool::new(K, size_of::<MyField>());
+    let mut cpu_pool = PinnedMemoryPool::new(K, size_of::<MyField>());
     let stream = Variable::Stream(CudaStream::new(0));
     let mut poly = ScalarArray::new(len, cpu_pool.allocate(len), DeviceType::CPU);
     let mut x0 = Scalar::new_cpu();
@@ -446,7 +446,7 @@ fn test_invert() {
         } => func,
         _ => unreachable!(),
     };
-    let cpu_pool = PinnedMemoryPool::new(K, size_of::<MyField>());
+    let mut cpu_pool = PinnedMemoryPool::new(K, size_of::<MyField>());
     let stream = Variable::Stream(CudaStream::new(0));
     let mut poly = ScalarArray::new(len, cpu_pool.allocate(len), DeviceType::CPU);
     let mut res = ScalarArray::new(len, cpu_pool.allocate(len), DeviceType::CPU);
@@ -614,7 +614,7 @@ fn test_poly_permute() {
         _ => unreachable!(),
     };
 
-    let cpu_pool = PinnedMemoryPool::new(k, size_of::<MyField>());
+    let mut cpu_pool = PinnedMemoryPool::new(k, size_of::<MyField>());
     let stream = Variable::Stream(CudaStream::new(0));
     let mut rng = XorShiftRng::from_seed([0; 16]);
 

@@ -4,9 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-
-[build-dependencies]
-bindgen = "0.70"
+zkpoly_cuda_api = { path = "../cuda_api" }
 
 [dev-dependencies]
 rand = "0.8"

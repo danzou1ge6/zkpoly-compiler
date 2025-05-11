@@ -13,7 +13,7 @@ type TestField = bn256::Fr;
 fn create_cpu_array<const N: usize>(
     values: [TestField; N],
 ) -> (ScalarArray<TestField>, PinnedMemoryPool) {
-    let pool = PinnedMemoryPool::new(10, size_of::<TestField>()); // 足够大的池
+    let mut pool = PinnedMemoryPool::new(10, size_of::<TestField>()); // 足够大的池
     let ptr = pool.allocate(N);
     unsafe {
         copy_nonoverlapping(values.as_ptr(), ptr, N);
@@ -123,7 +123,7 @@ fn test_cpu_to_cpu_transfer() {
         TestField::from(6),
         TestField::from(7),
     ];
-    let (src, pool) = create_cpu_array(values);
+    let (src, mut pool) = create_cpu_array(values);
 
     // 测试连续内存传输
     let ptr = pool.allocate(8);
@@ -174,7 +174,7 @@ fn test_gpu_transfers() {
     <ScalarArray<TestField> as Transfer>::cpu2gpu(&slice, &mut gpu_slice, &stream);
 
     // 验证切片传输
-    let verify_pool = PinnedMemoryPool::new(10, size_of::<TestField>());
+    let mut verify_pool = PinnedMemoryPool::new(10, size_of::<TestField>());
     let mut verify_array = ScalarArray::new(4, verify_pool.allocate(4), DeviceType::CPU);
     <ScalarArray<TestField> as Transfer>::gpu2cpu(&gpu_slice, &mut verify_array, &stream);
     stream.sync();
@@ -266,7 +266,7 @@ fn test_gpu_slice_memory_safety() {
             device_id: stream.get_device(),
         },
     );
-    let verify_pool = PinnedMemoryPool::new(10, size_of::<TestField>());
+    let mut verify_pool = PinnedMemoryPool::new(10, size_of::<TestField>());
     let mut verify_array = ScalarArray::new(4, verify_pool.allocate(4), DeviceType::CPU);
     <ScalarArray<TestField> as Transfer>::gpu2gpu(&slice, &mut gpu_slice, &stream);
     <ScalarArray<TestField> as Transfer>::gpu2cpu(&gpu_slice, &mut verify_array, &stream);

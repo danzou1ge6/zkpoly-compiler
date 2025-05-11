@@ -206,7 +206,7 @@ impl<F: Field> ScalarArray<F> {
         }
     }
 
-    pub fn alloc_cpu(len: usize, allocator: &PinnedMemoryPool) -> Self {
+    pub fn alloc_cpu(len: usize, allocator: &mut PinnedMemoryPool) -> Self {
         let ptr = allocator.allocate(len);
         Self {
             values: ptr,
