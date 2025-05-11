@@ -1,5 +1,4 @@
 use halo2curves::bn256;
-use threadpool::ThreadPool;
 use zkpoly_common::load_dynamic::Libs;
 use zkpoly_common::typ::Typ;
 use zkpoly_core::poly::{PolyAdd, PolyZero};
@@ -35,7 +34,7 @@ fn test_add() {
     let k = 20;
     let len = 1 << k;
 
-    let compiler_alloc = PinnedMemoryPool::new(k, size_of::<MyField>());
+    let mut compiler_alloc = PinnedMemoryPool::new(k, size_of::<MyField>());
     let mut a_in = Variable::ScalarArray(ScalarArray::new(
         len,
         compiler_alloc.allocate(len),
@@ -213,7 +212,7 @@ fn test_extend() {
     let len = 1 << k;
     let half_len = len / 2;
 
-    let compiler_alloc = PinnedMemoryPool::new(k, size_of::<MyField>());
+    let mut compiler_alloc = PinnedMemoryPool::new(k, size_of::<MyField>());
     let cpu_alloc = PinnedMemoryPool::new(k, size_of::<MyField>());
     let gpu_alloc = CudaAllocator::new(0, 2usize.pow(20));
 

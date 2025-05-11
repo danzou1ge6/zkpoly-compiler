@@ -34,7 +34,7 @@ fn test_ssip_ntt() {
     };
 
     let precompute_fn = precompute.get_fn();
-    let cpu_alloc = PinnedMemoryPool::new(MAX_K, size_of::<MyField>());
+    let mut cpu_alloc = PinnedMemoryPool::new(MAX_K, size_of::<MyField>());
     let stream = Variable::<MyRuntimeType>::Stream(CudaStream::new(0));
 
     for k in 1..=MAX_K {
@@ -145,7 +145,7 @@ fn test_recompute_ntt() {
     };
 
     let precompute_fn = precompute.get_fn();
-    let cpu_alloc = PinnedMemoryPool::new(MAX_K, size_of::<MyField>());
+    let mut cpu_alloc = PinnedMemoryPool::new(MAX_K, size_of::<MyField>());
     let stream = Variable::<MyRuntimeType>::Stream(CudaStream::new(0));
 
     for k in 1..=MAX_K {
@@ -252,7 +252,7 @@ fn test_distribute_zeta() {
     };
 
     let precompute_fn = precompute.get_fn();
-    let cpu_alloc = PinnedMemoryPool::new(MAX_K + 2, size_of::<MyField>());
+    let mut cpu_alloc = PinnedMemoryPool::new(MAX_K + 2, size_of::<MyField>());
     let stream = Variable::<MyRuntimeType>::Stream(CudaStream::new(0));
 
     for k in 10..=MAX_K {
