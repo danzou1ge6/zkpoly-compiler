@@ -163,6 +163,28 @@ pub enum AtModifier {
     After,
 }
 
+impl std::cmp::PartialOrd for AtModifier {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        match (self, other) {
+            (Self::Before, Self::Before) => Some(std::cmp::Ordering::Equal),
+            (Self::Before, Self::After) => Some(std::cmp::Ordering::Less),
+            (Self::After, Self::Before) => Some(std::cmp::Ordering::Greater),
+            (Self::After, Self::After) => Some(std::cmp::Ordering::Equal),
+        }
+    }
+}
+
+impl std::cmp::Ord for AtModifier {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        match (self, other) {
+            (Self::Before, Self::Before) => std::cmp::Ordering::Equal,
+            (Self::Before, Self::After) => std::cmp::Ordering::Less,
+            (Self::After, Self::Before) => std::cmp::Ordering::Greater,
+            (Self::After, Self::After) => std::cmp::Ordering::Equal,
+        }
+    }
+}
+
 /// After which type2 vertex executes the object dies.
 /// If an object is not used by any vertex on that device, the correspounding map will not contain the object.
 pub type ObjectsDieAfter = DeviceSpecific<BTreeMap<ObjectId, (VertexId, AtModifier)>>;
@@ -737,6 +759,8 @@ pub fn analyze_die_after<'s, Rt: RuntimeType>(
     vertex_inputs: &ObjectUse,
 ) -> ObjectsDieAfter {
     let mut die_after = ObjectsDieAfter::empty();
+    let mut cpu_keep_alive = BTreeMap::new();
+
     let mut use_at = |obj_id: ObjectId, vid: VertexId, dev: Device| {
         let def_at_device = def_at_device(def, uses, obj_id);
 
@@ -746,7 +770,10 @@ pub fn analyze_die_after<'s, Rt: RuntimeType>(
             // We force that the object lives after current task.
             // But the object may also be ejected from GPU, so it's liveness on CPU should also be
             // enforced.
-            (Gpu, Gpu) => vec![(Gpu, AtModifier::After), (Cpu, AtModifier::Before)],
+            (Gpu, Gpu) => {
+                cpu_keep_alive.insert(obj_id, vid);
+                vec![(Gpu, AtModifier::After)]
+            }
             // The object is defined on GPU, and it's used by some CPU task now.
             // - If the object has been used on CPU, it should has already been on CPU,
             //   so we only enforce liveness on CPU,
@@ -799,6 +826,24 @@ pub fn analyze_die_after<'s, Rt: RuntimeType>(
 
     for obj_id in def.immortal_on_cpu.iter().cloned() {
         let _ = die_after.get_device_mut(Device::Cpu).remove(&obj_id);
+    }
+
+    let seq_of_vertex = seq
+        .iter()
+        .enumerate()
+        .map(|(i, vid)| (*vid, i))
+        .collect::<BTreeMap<_, _>>();
+
+    for (oid, vid) in cpu_keep_alive.into_iter() {
+        die_after
+            .get_device_mut(Device::Cpu)
+            .entry(oid)
+            .and_modify(|t| {
+                *t = std::cmp::max_by_key(*t, (vid, AtModifier::Before), |(vid, am)| {
+                    (seq_of_vertex[vid], *am)
+                })
+            })
+            .or_insert((vid, AtModifier::Before));
     }
 
     die_after
