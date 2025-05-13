@@ -51,4 +51,8 @@ impl<Rt: RuntimeType> Artifect<Rt> {
             self.chunk.libs,
         )
     }
+
+    pub fn allocator(&mut self) -> &mut PinnedMemoryPool {
+        &mut self.allocator
+    }
 }
