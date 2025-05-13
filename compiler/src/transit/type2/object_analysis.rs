@@ -654,7 +654,7 @@ pub fn plan_vertex_inputs<'s, Rt: RuntimeType>(
                                 rotation: 0,
                                 deg: slice.len(),
                             },
-                            device: Device::Gpu,
+                            device: value.device(),
                             object_id: cloned_obj_id,
                         })
                     }
@@ -672,7 +672,7 @@ pub fn plan_vertex_inputs<'s, Rt: RuntimeType>(
                                 rotation: 0,
                                 deg: *deg,
                             },
-                            device: Device::Gpu,
+                            device: value.device(),
                             object_id: cloned_oj_id,
                         })
                     }

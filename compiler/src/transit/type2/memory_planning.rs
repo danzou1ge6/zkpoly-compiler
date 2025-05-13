@@ -1,4 +1,4 @@
-static DEBUG: bool = false;
+static DEBUG: bool = true;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -701,43 +701,51 @@ impl GpuAllocator {
     }
 
     pub fn deallocate(&mut self, obj_id: ObjectId, code: &mut Code, ctx: &mut Context) {
-        let reg_id = ctx
+        if let Some(reg_id) = ctx
             .pop_residence_of_object(obj_id, DeterminedDevice::Gpu)
-            .unwrap();
-        let addr = ctx.gpu_obj2addr.get_forward(&obj_id).cloned().unwrap_or_else(|| panic!("no GPU addr recorded for {:?}", obj_id));
+        {
+            let addr: AddrId = ctx.gpu_obj2addr.get_forward(&obj_id).cloned().unwrap_or_else(|| panic!("no GPU addr recorded for {:?}", obj_id));
 
-        let (_, size) = ctx.gpu_addr_mapping[addr];
-        match size {
-            Size::Integral(..) => self.ialloc.deallocate(
-                addr,
-                &mut GpuAddrMappingHandler::new(&mut ctx.gpu_addr_mapping, self.ioffset()),
-            ),
-            Size::Smithereen(..) => self.salloc.deallocate(
-                addr,
-                &mut GpuAddrMappingHandler::new(&mut ctx.gpu_addr_mapping, self.soffset()),
-            ),
-        }
+            let (_, size) = ctx.gpu_addr_mapping[addr];
+            match size {
+                Size::Integral(..) => self.ialloc.deallocate(
+                    addr,
+                    &mut GpuAddrMappingHandler::new(&mut ctx.gpu_addr_mapping, self.ioffset()),
+                ),
+                Size::Smithereen(..) => self.salloc.deallocate(
+                    addr,
+                    &mut GpuAddrMappingHandler::new(&mut ctx.gpu_addr_mapping, self.soffset()),
+                ),
+            }
 
-        code.emit(Instruction::new_no_src(InstructionNode::GpuFree {
-            id: reg_id,
-        }));
-
-        while let Some(reg_id) = ctx.pop_residence_of_object(obj_id, DeterminedDevice::Gpu) {
-            code.emit(Instruction::new_no_src(InstructionNode::StackFree {
+            code.emit(Instruction::new_no_src(InstructionNode::GpuFree {
                 id: reg_id,
-            }))
-        }
+            }));
 
-        ctx.remove_residence_for_object(obj_id, DeterminedDevice::Gpu);
+            while let Some(reg_id) = ctx.pop_residence_of_object(obj_id, DeterminedDevice::Gpu) {
+                code.emit(Instruction::new_no_src(InstructionNode::StackFree {
+                    id: reg_id,
+                }))
+            }
 
-        if DEBUG {
-            println!(
-                "[MP.gpu_alloc] Deallocated GPU space for {:?} at {:?}({:?}) in {:?}",
-                obj_id,
-                addr,
-                unoffset_addr_id(addr, self.ioffset(), ctx),
-                reg_id
-            );
+            ctx.remove_residence_for_object(obj_id, DeterminedDevice::Gpu);
+
+            if DEBUG {
+                println!(
+                    "[MP.gpu_alloc] Deallocated GPU space for {:?} at {:?}({:?}) in {:?}",
+                    obj_id,
+                    addr,
+                    unoffset_addr_id(addr, self.ioffset(), ctx),
+                    reg_id
+                );
+            }
+        } else {
+            if DEBUG {
+                println!(
+                    "[MP.gpu_alloc] Deallocating GPU space for {:?}, but the object is not on GPU, skipping",
+                    obj_id
+                );
+            }
         }
     }
 
