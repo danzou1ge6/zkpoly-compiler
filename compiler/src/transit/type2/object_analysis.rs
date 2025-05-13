@@ -10,7 +10,7 @@ use crate::transit::{
     type3::{typ::Slice as SliceRange, Device, DeviceSpecific, Size, SmithereenSize},
 };
 
-use super::{Typ, VertexId};
+use super::{Typ, VertexId, VertexNode};
 
 define_usize_id!(ObjectId);
 
@@ -628,11 +628,14 @@ pub fn plan_vertex_inputs<'s, Rt: RuntimeType>(
     }
 
     // - SlicedPoly not allowed on GPU
-    for vid in g.vertices() {
-        if devices(vid) != type2::Device::Gpu {
-            continue;
-        }
-
+    // - SlicedPoly not allowed in chunked arithmetic kernels
+    for vid in g.vertices().filter(|&vid| {
+        devices(vid) == type2::Device::Gpu
+            || match g.vertex(vid).node() {
+                VertexNode::Arith { chunking, .. } => chunking.is_some(),
+                _ => false,
+            }
+    }) {
         inputs.get_mut(&vid).unwrap().iter_mut().for_each(|vv| {
             vv.iter_mut().for_each(|value| {
                 let obj_id = value.object_id();
