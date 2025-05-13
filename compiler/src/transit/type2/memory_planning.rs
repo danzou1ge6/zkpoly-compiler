@@ -323,7 +323,6 @@ impl Context {
                 "[MP.ctx] {:?} now stores in {:?}({:?})",
                 obj_id, addr_id, self.gpu_addr_mapping[addr_id]
             );
-            println!("{:?}", &self.gpu_obj2addr);
         }
     }
 

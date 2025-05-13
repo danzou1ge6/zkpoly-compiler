@@ -778,7 +778,7 @@ pub fn type2_to_inst<Rt: RuntimeType>(
         || {
             Ok(type2::arith_decide_mutable::decide_mutable(
                 t2cg,
-                &vertex_inputs,
+                &obj_def,
                 &obj_dies_after,
             ))
         },

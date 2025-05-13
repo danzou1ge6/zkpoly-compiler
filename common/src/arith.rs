@@ -156,7 +156,7 @@ pub enum Operation<OuterId, ArithIndex> {
         outer_id: OuterId,
         typ: FusedType,
         store_node: ArithIndex,
-        in_node: Vec<ArithIndex>,
+        in_node: Option<ArithIndex>,
     },
     Todo,
     // 0 is the output index, 1 is the index of the data to be stored
@@ -207,7 +207,7 @@ impl<OuterId, ArithIndex> Operation<OuterId, ArithIndex> {
         }
     }
 
-    pub fn unwrap_output(&self) -> (&OuterId, &FusedType, &ArithIndex, &[ArithIndex]) {
+    pub fn unwrap_output(&self) -> (&OuterId, &FusedType, &ArithIndex, &Option<ArithIndex>) {
         match self {
             Operation::Output {
                 outer_id,
@@ -225,7 +225,7 @@ impl<OuterId, ArithIndex> Operation<OuterId, ArithIndex> {
         &mut OuterId,
         &mut FusedType,
         &mut ArithIndex,
-        &mut Vec<ArithIndex>,
+        &mut Option<ArithIndex>,
     ) {
         match self {
             Operation::Output {
@@ -251,9 +251,8 @@ where
                 in_node,
                 ..
             } => {
-                let mut src = in_node.clone();
-                src.push(*store_node);
-                Box::new(src.into_iter())
+                let src = in_node.clone();
+                Box::new(src.into_iter().chain(std::iter::once(*store_node)))
             }
             _ => Box::new(std::iter::empty()),
         }
@@ -429,7 +428,7 @@ where
             .map(|i| space_for_ft(self.g.vertex(*i).op.unwrap_input_typ()))
             .chain(self.outputs.iter().filter_map(|i| {
                 let (_, ft, _, in_node) = self.g.vertex(*i).op.unwrap_output();
-                if !in_node.is_empty() {
+                if in_node.is_some() {
                     None
                 } else {
                     Some(space_for_ft(*ft))
@@ -484,11 +483,7 @@ where
             .iter()
             .map(|output_id| {
                 if let Operation::Output { in_node, .. } = &self.g.vertex(*output_id).op {
-                    if in_node.len() > 0 {
-                        Some(*self.g.vertex(in_node[0].clone()).op.unwrap_input_outerid())
-                    } else {
-                        None
-                    }
+                    in_node.map(|in_id| *self.g.vertex(in_id).op.unwrap_input_outerid())
                 } else {
                     panic!("output nodes should have op Output")
                 }

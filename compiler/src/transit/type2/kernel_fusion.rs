@@ -219,7 +219,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
                             outer_id: vid,
                             typ: self.get_fuse_type(vid),
                             store_node: my_arith,
-                            in_node: vec![],
+                            in_node: None,
                         },
                     });
                     ag.outputs.push(output_arith);
@@ -314,7 +314,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
                                 outer_id,
                                 typ,
                                 store_node: new_arith,
-                                in_node: vec![],
+                                in_node: None,
                             },
                         });
                         new_ag.outputs.push(new_out_id);

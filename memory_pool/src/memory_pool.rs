@@ -92,6 +92,8 @@ pub struct MemoryPool {
     // swap_manager: Option<SwapManager>,
 }
 
+unsafe impl Send for MemoryPool {}
+
 impl MemoryPool {
     pub fn new(max_log_factor: u32, base_size: usize) -> Self {
         let num_layers = (max_log_factor + 1) as usize;
