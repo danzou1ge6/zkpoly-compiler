@@ -18,7 +18,7 @@ use zkpoly_common::{
     load_dynamic::Libs,
     typ::PolyType,
 };
-use zkpoly_cuda_api::stream::{CudaEvent, CudaStream};
+use zkpoly_cuda_api::stream::{CudaEventRaw, CudaStream};
 use zkpoly_cuda_api::{
     bindings::{
         cudaError_cudaSuccess, cudaError_t, cudaGetErrorString, cudaSetDevice, cudaStream_t,
@@ -696,6 +696,7 @@ impl<T: RuntimeType> PipelinedFusedKernel<T> {
 impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
     fn get_fn(&self) -> Function<T> {
         let c_func = self.kernel.c_func.clone();
+        let meta = self.kernel.meta.clone();
         let pipelined_meta = self.kernel.meta.pipelined_meta.clone().unwrap();
         let num_scalars = pipelined_meta.num_scalars;
         let num_mut_scalars = pipelined_meta.num_mut_scalars;
@@ -714,7 +715,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
         let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
                               var: Vec<&Variable<T>>|
               -> Result<(), RuntimeError> {
-
+            println!("pipelined fused kernel {}", meta.name);
             // the first of mut_var is the buffer for the arguments
             let (arg_buffer, mut_var) = mut_var.split_at_mut(1);
             let arg_buffer = arg_buffer[0].unwrap_gpu_buffer_mut();
@@ -724,7 +725,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
             let num_mut_poly = (mut_var.len() - 2 * num_mut_scalars) / 4;
             let num_mut_var = num_mut_poly + num_mut_scalars;
             assert_eq!(num_mut_var, num_of_mut_vars);
-            let num_poly = (var.len() - 3 - 2 * num_scalars) / 3;
+            let num_poly = (var.len() - 2 * num_scalars) / 3;
             let num_var = num_poly + num_scalars;
             assert_eq!(num_var, num_of_vars);
 
@@ -738,7 +739,6 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
             };
 
             assert!(len % divide_parts == 0);
-            let chunk_len = len / divide_parts;
 
             // get streams
             let ref h2d_stream = CudaStream::new(0); // TODO: select the device
@@ -797,6 +797,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                 );
             }
 
+            let chunk_len = len / divide_parts;
+
             // get poly buffers
             let mut mut_gpu_polys = vec![Vec::new(); 3];
             let base_index = num_mut_var + num_mut_scalars;
@@ -804,17 +806,17 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                 for j in 0..3 {
                     let buffer = mut_var[i + base_index + j * num_mut_poly].unwrap_gpu_buffer();
                     let gpu_poly =
-                        ScalarArray::new(len, buffer.ptr as *mut T::Field, buffer.device.clone());
+                        ScalarArray::new(chunk_len, buffer.ptr as *mut T::Field, buffer.device.clone());
                     mut_gpu_polys[j].push(gpu_poly);
                 }
             }
             let mut gpu_polys = vec![Vec::new(); 2];
             let base_index = num_var + num_scalars;
-            for i in 0..num_var {
+            for i in 0..num_poly {
                 for j in 0..2 {
                     let buffer = var[i + base_index + j * num_poly].unwrap_gpu_buffer();
                     let gpu_poly =
-                        ScalarArray::new(len, buffer.ptr as *mut T::Field, buffer.device.clone());
+                        ScalarArray::new(chunk_len, buffer.ptr as *mut T::Field, buffer.device.clone());
                     gpu_polys[j].push(gpu_poly);
                 }
             }
@@ -876,23 +878,32 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
             }
 
             // create events
-            let mut_h2d_complete = [CudaEvent::new(), CudaEvent::new(), CudaEvent::new()];
-            let mut_compute_complete = [CudaEvent::new(), CudaEvent::new(), CudaEvent::new()];
-            let mut_d2h_complete = [CudaEvent::new(), CudaEvent::new(), CudaEvent::new()];
+            let mut_h2d_complete = [CudaEventRaw::new(), CudaEventRaw::new(), CudaEventRaw::new()];
+            let mut_compute_complete = [CudaEventRaw::new(), CudaEventRaw::new(), CudaEventRaw::new()];
+            let mut_d2h_complete = [CudaEventRaw::new(), CudaEventRaw::new(), CudaEventRaw::new()];
 
-            let h2d_complete = [CudaEvent::new(), CudaEvent::new()];
-            let compute_complete = vec![CudaEvent::new(), CudaEvent::new()];
+            let h2d_complete = [CudaEventRaw::new(), CudaEventRaw::new()];
+            let compute_complete = [CudaEventRaw::new(), CudaEventRaw::new()];
+
+            println!("events created");
 
             let mut mut_buffer_id = 0;
             let mut buffer_id = 0;
 
+            println!("start computing");
+
             // start computing
             for chunk_id in 0..divide_parts {
+
+                println!("chunk_id: {}", chunk_id);
+                println!("waiting for event mut_h2d_complete[{}]", mut_buffer_id);
                 // load mutable data to gpu
-                h2d_stream.wait(&mut_d2h_complete[mut_buffer_id]);
+                h2d_stream.wait_raw(&mut_d2h_complete[mut_buffer_id]);
 
                 let compute_start = chunk_id * chunk_len;
                 let compute_end = (chunk_id + 1) * chunk_len;
+                
+                println!("starting to transfer data to gpu {}:{}", compute_start, compute_end);
                 // mut polys
                 for i in 0..num_mut_poly {
                     let mut_poly = mut_polys[i].slice(compute_start, compute_end);
@@ -900,7 +911,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                 }
                 mut_h2d_complete[mut_buffer_id].record(h2d_stream);
 
-                h2d_stream.wait(&compute_complete[buffer_id]);
+                println!("waiting for event compute_complete[{}]", buffer_id);
+                h2d_stream.wait_raw(&compute_complete[buffer_id]);
                 // polys
                 for i in 0..num_poly {
                     let poly = polys[i].slice(compute_start, compute_end);
@@ -908,9 +920,10 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                 }
                 h2d_complete[buffer_id].record(h2d_stream);
 
+                println!("waiting for transfer to finish");
                 // wait for the previous transfer to finish
-                compute_stream.wait(&mut_h2d_complete[mut_buffer_id]);
-                compute_stream.wait(&h2d_complete[buffer_id]);
+                compute_stream.wait_raw(&mut_h2d_complete[mut_buffer_id]);
+                compute_stream.wait_raw(&h2d_complete[buffer_id]);
 
                 // compute
 
@@ -928,11 +941,14 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                 mut_compute_complete[mut_buffer_id].record(compute_stream);
 
                 // wait for the previous compute to finish
-                d2h_stream.wait(&mut_compute_complete[mut_buffer_id]);
+                d2h_stream.wait_raw(&mut_compute_complete[mut_buffer_id]);
 
+                println!("transferring data back to cpu");
                 // transfer back mutable data
                 for i in 0..num_mut_poly {
                     let mut mut_poly = mut_polys[i].slice(compute_start, compute_end);
+                    println!("mut_poly: {}", mut_poly.len());
+                    println!("mut_gpu_polys[{}][{}]: {:?}", mut_buffer_id, i, mut_gpu_polys[mut_buffer_id][i].len());
                     mut_gpu_polys[mut_buffer_id][i].gpu2cpu(&mut mut_poly, d2h_stream);
                 }
                 mut_d2h_complete[mut_buffer_id].record(d2h_stream);

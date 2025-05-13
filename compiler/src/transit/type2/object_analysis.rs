@@ -628,60 +628,60 @@ pub fn plan_vertex_inputs<'s, Rt: RuntimeType>(
     }
 
     // - SlicedPoly not allowed on GPU
-    for vid in g.vertices() {
-        if devices(vid) != type2::Device::Gpu {
-            continue;
-        }
+    // for vid in g.vertices() {
+    //     if devices(vid) != type2::Device::Gpu {
+    //         continue;
+    //     }
 
-        inputs.get_mut(&vid).unwrap().iter_mut().for_each(|vv| {
-            vv.iter_mut().for_each(|value| {
-                let obj_id = value.object_id();
+    //     inputs.get_mut(&vid).unwrap().iter_mut().for_each(|vv| {
+    //         vv.iter_mut().for_each(|value| {
+    //             let obj_id = value.object_id();
 
-                let new_value = match value.node() {
-                    ValueNode::SlicedPoly { slice, deg } => {
-                        let cloned_obj_id = add_cloned_slice(
-                            defs,
-                            obj_id,
-                            PolyMeta::Sliced(*slice),
-                            *deg,
-                            obj_id_allocator,
-                        );
+    //             let new_value = match value.node() {
+    //                 ValueNode::SlicedPoly { slice, deg } => {
+    //                     let cloned_obj_id = add_cloned_slice(
+    //                         defs,
+    //                         obj_id,
+    //                         PolyMeta::Sliced(*slice),
+    //                         *deg,
+    //                         obj_id_allocator,
+    //                     );
 
-                        Some(Value {
-                            node: ValueNode::Poly {
-                                rotation: 0,
-                                deg: slice.len(),
-                            },
-                            device: Device::Gpu,
-                            object_id: cloned_obj_id,
-                        })
-                    }
-                    ValueNode::Poly { rotation, deg } if *rotation != 0 => {
-                        let cloned_oj_id = add_cloned_slice(
-                            defs,
-                            obj_id,
-                            PolyMeta::Rotated(*rotation),
-                            *deg,
-                            obj_id_allocator,
-                        );
+    //                     Some(Value {
+    //                         node: ValueNode::Poly {
+    //                             rotation: 0,
+    //                             deg: slice.len(),
+    //                         },
+    //                         device: Device::Gpu,
+    //                         object_id: cloned_obj_id,
+    //                     })
+    //                 }
+    //                 ValueNode::Poly { rotation, deg } if *rotation != 0 => {
+    //                     let cloned_oj_id = add_cloned_slice(
+    //                         defs,
+    //                         obj_id,
+    //                         PolyMeta::Rotated(*rotation),
+    //                         *deg,
+    //                         obj_id_allocator,
+    //                     );
 
-                        Some(Value {
-                            node: ValueNode::Poly {
-                                rotation: 0,
-                                deg: *deg,
-                            },
-                            device: Device::Gpu,
-                            object_id: cloned_oj_id,
-                        })
-                    }
-                    _ => None,
-                };
-                if let Some(new_value) = new_value {
-                    *value = new_value;
-                }
-            });
-        });
-    }
+    //                     Some(Value {
+    //                         node: ValueNode::Poly {
+    //                             rotation: 0,
+    //                             deg: *deg,
+    //                         },
+    //                         device: Device::Gpu,
+    //                         object_id: cloned_oj_id,
+    //                     })
+    //                 }
+    //                 _ => None,
+    //             };
+    //             if let Some(new_value) = new_value {
+    //                 *value = new_value;
+    //             }
+    //         });
+    //     });
+    // }
 
     // - Input polynomials of MSM cannot be rotated or sliced
     for vid in g.vertices() {

@@ -67,6 +67,54 @@ impl Drop for CudaEvent {
     }
 }
 
+pub struct CudaEventRaw {
+    event: cudaEvent_t,
+}
+
+impl CudaEventRaw {
+    pub fn new() -> Self {
+        let mut event: cudaEvent_t = std::ptr::null_mut();
+        unsafe {
+            cuda_check!(cudaEventCreateWithFlags(&mut event, cudaEventBlockingSync));
+        }
+        Self {
+            event,
+        }
+    }
+
+    pub fn record(&self, stream: &CudaStream) {
+        unsafe {
+            cuda_check!(cudaEventRecord(self.event, stream.raw()));
+        }
+    }
+
+    pub fn sync(&self) {
+        unsafe {
+            cuda_check!(cudaEventSynchronize(self.event));
+        }
+    }
+
+    pub fn as_ptr(&self) -> cudaEvent_t {
+        self.event
+    }
+
+    pub fn elapsed(&self, other: &CudaEvent) -> f32 {
+        let mut elapsed: f32 = 0.0;
+        unsafe {
+            cuda_check!(cudaEventElapsedTime(&mut elapsed, self.event, other.event));
+        }
+        elapsed
+    }
+}
+
+impl Drop for CudaEventRaw {
+    fn drop(&mut self) {
+        unsafe {
+            cuda_check!(cudaEventDestroy(self.event));
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct CudaStream {
     stream: cudaStream_t,
@@ -125,6 +173,16 @@ impl CudaStream {
 
     pub fn wait(&self, event: &CudaEvent) {
         event.wait_ready();
+        unsafe {
+            cuda_check!(cudaStreamWaitEvent(
+                self.stream,
+                event.as_ptr(),
+                cudaEventWaitDefault
+            ));
+        }
+    }
+
+    pub fn wait_raw(&self, event: &CudaEventRaw) {
         unsafe {
             cuda_check!(cudaStreamWaitEvent(
                 self.stream,
