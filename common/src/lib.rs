@@ -1,3 +1,4 @@
+pub mod segment_tree;
 pub mod arith;
 pub mod bijection;
 pub mod cpu_event;
