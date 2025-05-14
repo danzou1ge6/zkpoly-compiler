@@ -234,6 +234,10 @@ impl<Rt: RuntimeType> ProcessedType2<Rt> {
             write!(f, "{:?}\n", &obj_gpu_next_use).unwrap();
         }
 
+        if hardware_info.gpu_smithereen_space > hardware_info.gpu_memory_limit {
+            panic!("you cannot have a smithereen space larger than the gpu memory limit");
+        }
+
         // To Type3 through Memory Planning
         let g = SubDigraph::new(&t2cg.g, t2cg.g.connected_component(t2cg.output));
         let t3chunk = options.log_suround(
@@ -241,6 +245,7 @@ impl<Rt: RuntimeType> ProcessedType2<Rt> {
             || {
                 Ok(type2::memory_planning::plan(
                     hardware_info.gpu_memory_limit,
+                    hardware_info.gpu_smithereen_space,
                     &t2cg,
                     &g,
                     &seq,

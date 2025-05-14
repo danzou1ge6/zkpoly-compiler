@@ -1884,6 +1884,7 @@ fn plan_vertex<'s, Rt: RuntimeType>(
 
 pub fn plan<'s, Rt: RuntimeType>(
     capacity: u64,
+    smithereens_space: u64,
     cg: &Cg<'s, Rt>,
     g: &SubDigraph<'_, VertexId, super::Vertex<'s, Rt>>,
     seq: &[VertexId],
@@ -1903,8 +1904,7 @@ pub fn plan<'s, Rt: RuntimeType>(
         println!("[MP.plan] Integral sizes: {:?}", &integral_sizes);
     }
 
-    let (ispace, sspace) =
-        divide_integral_smithereens(capacity, integral_sizes.last().unwrap().clone());
+    let (ispace, sspace) = (capacity - smithereens_space, smithereens_space);
 
     if DEBUG {
         println!("[MP.plan] Integral space: {:?}", &ispace);
