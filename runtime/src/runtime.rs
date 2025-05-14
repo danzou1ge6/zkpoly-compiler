@@ -22,7 +22,7 @@ use crate::{
 };
 
 use zkpoly_cuda_api::{
-    bindings::{cudaDeviceSynchronize, cudaError_cudaSuccess, cudaGetErrorString},
+    bindings::cudaDeviceSynchronize,
     cuda_check,
     mem::CudaAllocator,
 };
@@ -158,7 +158,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         &self,
         instructions: Vec<Instruction>,
         mut mem_allocator: Option<&mut PinnedMemoryPool>,
-        gpu_allocator: Option<&mut Vec<CudaAllocator>>,
+        mut gpu_allocator: Option<&mut Vec<CudaAllocator>>,
         epilogue: Option<Sender<i32>>,
         _thread_id: usize,
         global_mutex: Arc<Mutex<()>>,
@@ -197,14 +197,14 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     let guard = &mut (*self.variable)[id];
                     assert!(guard.is_none());
                     *guard =
-                        Some(self.allocate(device, typ, offset, &mut mem_allocator, &gpu_allocator));
+                        Some(self.allocate(device, typ, offset, &mut mem_allocator, &mut gpu_allocator));
                 }
                 Instruction::Deallocate { id } => {
                     // only main thread can deallocate memory
                     assert!(self.main_thread);
                     let guard = &mut (*self.variable)[id];
                     if let Some(var) = guard.as_mut() {
-                        self.deallocate(var, id, &mut mem_allocator);
+                        self.deallocate(var, id, &mut mem_allocator, &mut gpu_allocator);
                         *guard = None;
                     } else {
                         panic!("deallocate a non-existing variable");

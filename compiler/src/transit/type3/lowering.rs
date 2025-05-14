@@ -422,7 +422,7 @@ fn lower_instruction<'s, Rt: RuntimeType>(
                 offset: Some(physical_addr as usize),
             });
         }
-        super::InstructionNode::GpuFree { .. } => {}
+        super::InstructionNode::GpuFree { id } => {emit(Instruction::Deallocate { id: reg_id2var_id(*id) })},
         super::InstructionNode::CpuMalloc { id, .. } => {
             let var_id = reg_id2var_id(*id);
 
