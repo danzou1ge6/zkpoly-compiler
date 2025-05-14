@@ -161,7 +161,7 @@ fn test_add() {
     instructions.push(Instruction::Deallocate { id: stream_id });
 
     let cpu_alloc = PinnedMemoryPool::new(k, size_of::<MyField>());
-    let gpu_alloc = CudaAllocator::new(0, len * size_of::<MyField>() * 3);
+    let gpu_alloc = CudaAllocator::new(0, len * size_of::<MyField>() * 3, true);
 
     let mut runtime = Runtime::new(
         instructions,
@@ -214,7 +214,7 @@ fn test_extend() {
 
     let mut compiler_alloc = PinnedMemoryPool::new(k, size_of::<MyField>());
     let cpu_alloc = PinnedMemoryPool::new(k, size_of::<MyField>());
-    let gpu_alloc = CudaAllocator::new(0, 2usize.pow(20));
+    let gpu_alloc = CudaAllocator::new(0, 2usize.pow(20), true);
 
     let mut a_in = Variable::ScalarArray(ScalarArray::new(
         half_len,
