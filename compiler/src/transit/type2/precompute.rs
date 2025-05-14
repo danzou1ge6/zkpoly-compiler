@@ -88,7 +88,7 @@ pub fn precompute<'s, Rt: RuntimeType>(
                                 VertexNode::Constant(c_id),
                                 Typ::Poly((PolyType::Coef, len / 2)),
                                 SourceInfo::new(
-                                    vec![*Location::caller()],
+                                    vec![Location::caller().clone().into()],
                                     Some("load precomputed twiddle factors".to_string()),
                                 ),
                             ));
@@ -118,7 +118,7 @@ pub fn precompute<'s, Rt: RuntimeType>(
                                 VertexNode::Constant(pq_cid),
                                 Typ::Poly((PolyType::Coef, recompute_pq_len as u64)),
                                 SourceInfo::new(
-                                    vec![*Location::caller()],
+                                    vec![Location::caller().clone().into()],
                                     Some("load precomputed twiddle factors".to_string()),
                                 ),
                             ));
@@ -126,7 +126,7 @@ pub fn precompute<'s, Rt: RuntimeType>(
                                 VertexNode::Constant(omegas_cid),
                                 Typ::Poly((PolyType::Coef, recompute_omega_len as u64)),
                                 SourceInfo::new(
-                                    vec![*Location::caller()],
+                                    vec![Location::caller().clone().into()],
                                     Some("load precomputed twiddle factors".to_string()),
                                 ),
                             ));

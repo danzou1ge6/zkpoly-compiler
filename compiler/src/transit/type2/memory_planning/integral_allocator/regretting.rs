@@ -2,7 +2,7 @@ use super::{Addr, AddrId, AddrMappingHandler, Instant, IntegralSize, Size};
 use std::collections::{BTreeMap, BTreeSet};
 use zkpoly_common::mm_heap::MmHeap;
 
-static DEBUG: bool = false;
+static DEBUG: bool = true;
 
 #[derive(Clone, Debug)]
 pub struct Transfer {

@@ -1,15 +1,82 @@
 //! Common data structures for Transit IR's
 
-use std::panic::Location;
+use std::collections::BTreeSet;
 
 use zkpoly_common::digraph::internal::Digraph;
 
 use crate::ast;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Location<'s> {
+    pub file: &'s str,
+    pub line: u32,
+    pub column: u32,
+}
+
+impl From<std::panic::Location<'static>> for Location<'static> {
+    fn from(value: std::panic::Location<'static>) -> Self {
+        Self {
+            file: unsafe {
+                // SAFETY: s is actually a static string
+                let s = value.file().as_ptr();
+                let bytes = std::slice::from_raw_parts(s, value.file().len());
+                std::str::from_utf8(bytes).unwrap()
+            },
+            line: value.line(),
+            column: value.column(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct SourceInfo<'s> {
     location: Vec<Location<'s>>,
     name: Option<String>,
+}
+
+mod source_info_deserilize {
+    use super::SourceInfo;
+
+    struct Visitor;
+
+    impl<'de> serde::de::Visitor<'de> for Visitor {
+        type Value = SourceInfo<'de>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a SourceInfo")
+        }
+
+        fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+        where
+            A: serde::de::MapAccess<'de>,
+        {
+            let mut name = None;
+            let mut location = Vec::new();
+
+            while let Some(key) = map.next_key()? {
+                match key {
+                    "location" => {
+                        location = map.next_value()?;
+                    }
+                    "name" => {
+                        name = map.next_value()?;
+                    }
+                    _ => {}
+                }
+            }
+
+            Ok(SourceInfo { location, name })
+        }
+    }
+
+    impl<'de> serde::Deserialize<'de> for SourceInfo<'de> {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            deserializer.deserialize_map(Visitor)
+        }
+    }
 }
 
 impl<'s> SourceInfo<'s> {
@@ -21,13 +88,13 @@ impl<'s> SourceInfo<'s> {
 impl From<ast::SourceInfo> for SourceInfo<'_> {
     fn from(value: ast::SourceInfo) -> Self {
         Self {
-            location: vec![value.loc],
+            location: vec![value.loc.into()],
             name: value.name,
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Deserialize, serde::Serialize)]
 pub enum PolyInit {
     Zeros,
     Ones,
@@ -36,19 +103,21 @@ pub enum PolyInit {
 /// Computation Graph of a Transit IR function.
 /// [`V`]: vertex
 /// [`I`]: vertex ID
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Cg<I, V> {
     pub(crate) output: I,
     pub(crate) g: Digraph<I, V>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub enum HashTyp {
     WriteProof,
     NoWriteProof,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Vertex<N, T, S>(N, T, S);
 
 impl<N, T, S> Vertex<N, T, S> {

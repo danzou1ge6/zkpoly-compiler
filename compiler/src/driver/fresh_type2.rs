@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::io::{Read, Write};
 use zkpoly_common::load_dynamic::Libs;
 use zkpoly_memory_pool::PinnedMemoryPool;
 use zkpoly_runtime::args::{self, RuntimeType};
@@ -9,17 +9,17 @@ use super::{
     PanicJoinHandler,
 };
 
-pub struct FreshType2<Rt: RuntimeType> {
-    prog: type2::Program<'static, Rt>,
+pub struct FreshType2<'s, Rt: RuntimeType> {
+    prog: type2::Program<'s, Rt>,
 }
 
-impl<Rt: RuntimeType> FreshType2<Rt> {
+impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
     pub fn from_ast(
         ast: impl ast::TypeEraseable<Rt>,
         options: &DebugOptions,
         allocator: PinnedMemoryPool,
         ctx: &PanicJoinHandler,
-    ) -> Result<Self, Error<'static, Rt>> {
+    ) -> Result<Self, Error<'s, Rt>> {
         let (ast_cg, output_vid) = options.log_suround(
             "Lowering AST to Type2...",
             || Ok(ast::lowering::Cg::new(ast, allocator)),
@@ -76,7 +76,7 @@ impl<Rt: RuntimeType> FreshType2<Rt> {
         options: &DebugOptions,
         hardware_info: &HardwareInfo,
         ctx: &PanicJoinHandler,
-    ) -> Result<ProcessedType2<Rt>, Error<'static, Rt>> {
+    ) -> Result<ProcessedType2<'s, Rt>, Error<'static, Rt>> {
         let type2::Program {
             cg: t2cg,
             consant_table: mut t2const_tab,
@@ -265,12 +265,44 @@ impl<Rt: RuntimeType> FreshType2<Rt> {
         })
     }
 
+    pub fn load_processed_type2<'de>(
+        self,
+        str_buf: &'de mut String,
+        dir: impl AsRef<std::path::Path>,
+    ) -> std::io::Result<ProcessedType2<'de, Rt>>
+    where
+        Rt: serde::Serialize + serde::Deserialize<'de>,
+    {
+        let mut cg_f = std::fs::File::open(dir.as_ref().join("cg.json"))?;
+        cg_f.read_to_string(str_buf)?;
+        let cg: type2::Cg<'de, Rt> = serde_json::from_str(str_buf)?;
+
+        let mut ct_header_f = std::fs::File::open(dir.as_ref().join("constants-manifest.json"))?;
+        let ct_header: args::serialization::Header = serde_json::from_reader(&mut ct_header_f)?;
+
+        let mut rt_const_tab = type3::lowering::lower_constants(self.prog.consant_table);
+
+        let mut ct_f = std::fs::File::open(dir.as_ref().join("constants.bin"))?;
+        let mut allocator = self.prog.memory_pool;
+        ct_header.load_constant_table(&mut rt_const_tab, &mut ct_f, &mut allocator)?;
+
+        let const_tab = type3::lowering::upper_constants(rt_const_tab);
+
+        Ok(ProcessedType2 {
+            cg,
+            constant_table: const_tab,
+            uf_table: self.prog.user_function_table,
+            libs: Libs::new(),
+            allocator,
+        })
+    }
+
     pub fn to_artifect(
         self,
         options: &DebugOptions,
         hardware_info: &HardwareInfo,
         ctx: &PanicJoinHandler,
-    ) -> Result<Artifect<Rt>, Error<'static, Rt>> {
+    ) -> Result<Artifect<Rt>, Error<'s, Rt>> {
         self.apply_passes(options, hardware_info, ctx)?
             .to_type3(options, hardware_info, ctx)?
             .apply_passes(options)?

@@ -1,29 +1,31 @@
+use crate::transit::type3;
+
 use super::fresh_type3::FreshType3;
 use std::io::Write;
 use zkpoly_common::load_dynamic::Libs;
 use zkpoly_memory_pool::PinnedMemoryPool;
-use zkpoly_runtime::args::RuntimeType;
+use zkpoly_runtime::args::{self, RuntimeType};
 
 use super::{
     ast, check_type2_dag, debug_partial_typed_type2, debug_type2, debug_type2_def_use,
     debug_type2_with_seq, type2, DebugOptions, Error, HardwareInfo, PanicJoinHandler, SubDigraph,
 };
 
-pub struct ProcessedType2<Rt: RuntimeType> {
-    pub(super) cg: type2::Cg<'static, Rt>,
+pub struct ProcessedType2<'s, Rt: RuntimeType> {
+    pub(super) cg: type2::Cg<'s, Rt>,
     pub(super) constant_table: type2::ConstantTable<Rt>,
     pub(super) uf_table: type2::user_function::Table<Rt>,
     pub(super) libs: Libs,
     pub(super) allocator: PinnedMemoryPool,
 }
 
-impl<Rt: RuntimeType> ProcessedType2<Rt> {
+impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
     pub fn to_type3(
         self,
         options: &DebugOptions,
         hardware_info: &HardwareInfo,
         ctx: &PanicJoinHandler,
-    ) -> Result<FreshType3<Rt>, Error<'static, Rt>> {
+    ) -> Result<FreshType3<'s, Rt>, Error<'static, Rt>> {
         let Self {
             cg: t2cg,
             constant_table: t2const_tab,
@@ -218,6 +220,7 @@ impl<Rt: RuntimeType> ProcessedType2<Rt> {
                 let obj_gpu_next_use = type2::object_analysis::analyze_gpu_next_use(
                     &g,
                     &seq,
+                    &obj_def,
                     &vertex_inputs,
                     &obj_used_by,
                 );
@@ -270,5 +273,26 @@ impl<Rt: RuntimeType> ProcessedType2<Rt> {
             constant_table: t2const_tab,
             allocator,
         })
+    }
+
+    pub fn dump(self, dir: impl AsRef<std::path::Path>) -> std::io::Result<()>
+    where
+        Rt: for<'de> serde::Deserialize<'de> + serde::Serialize,
+    {
+        std::fs::create_dir_all(dir.as_ref())?;
+
+        let mut cg_f = std::fs::File::create(dir.as_ref().join("cg.json"))?;
+        serde_json::to_writer_pretty(&mut cg_f, &self.cg)?;
+
+        let rt_ct_tab = type3::lowering::lower_constants(self.constant_table);
+
+        let mut ct_header_f = std::fs::File::create(dir.as_ref().join("constants-manifest.json"))?;
+        let ct_header = args::serialization::Header::build(&rt_ct_tab);
+        serde_json::to_writer_pretty(&mut ct_header_f, &ct_header)?;
+
+        let mut ct_f = std::fs::File::create(dir.as_ref().join("constants.bin"))?;
+        ct_header.dump_entries_data(&rt_ct_tab, &mut ct_f)?;
+
+        Ok(())
     }
 }

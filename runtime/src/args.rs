@@ -26,7 +26,9 @@ pub fn add_entry<T: RuntimeType>(t: &mut EntryTable<T>, var: Variable<T>) {
     t.push(var);
 }
 
-pub trait RuntimeType: 'static + Clone + Send + Sync + Debug {
+pub trait RuntimeType:
+    'static + Clone + Send + Sync + Debug
+{
     type PointAffine: CurveAffine<ScalarExt = Self::Field>;
     type Field: PrimeField
         + Into<<Self::PointAffine as CurveAffine>::ScalarExt>

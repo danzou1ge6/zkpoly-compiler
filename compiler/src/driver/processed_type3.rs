@@ -10,19 +10,19 @@ use super::{
     HardwareInfo, PanicJoinHandler, SubDigraph,
 };
 
-pub struct ProcessedType3<Rt: RuntimeType> {
-    pub(super) chunk: type3::Chunk<'static, Rt>,
+pub struct ProcessedType3<'s, Rt: RuntimeType> {
+    pub(super) chunk: type3::Chunk<'s, Rt>,
     pub(super) uf_table: type2::user_function::Table<Rt>,
     pub(super) constant_table: type2::ConstantTable<Rt>,
     pub(super) allocator: PinnedMemoryPool,
 }
 
-impl<Rt: RuntimeType> ProcessedType3<Rt> {
+impl<'s, Rt: RuntimeType> ProcessedType3<'s, Rt> {
     pub fn to_artifect(
         self,
         options: &DebugOptions,
-        ctx: &PanicJoinHandler,
-    ) -> Result<Artifect<Rt>, Error<'static, Rt>> {
+        _ctx: &PanicJoinHandler,
+    ) -> Result<Artifect<Rt>, Error<'s, Rt>> {
         let Self {
             chunk: t3chunk,
             uf_table: t2uf_tab,

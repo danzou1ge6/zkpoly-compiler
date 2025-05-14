@@ -50,6 +50,7 @@ pub struct Runtime<T: RuntimeType> {
 pub enum RuntimeDebug {
     RecordTime,
     BenchKernel,
+    DebugInstruction,
     None,
 }
 
@@ -85,11 +86,9 @@ impl<T: RuntimeType> Runtime<T> {
     }
 
     pub fn reset(&mut self) {
-        self.events.0.par_iter_mut().for_each(|event| {
-            match event {
-                Event::GpuEvent(e) => e.reset(),
-                Event::ThreadEvent(e) => e.reset(),
-            }
+        self.events.0.par_iter_mut().for_each(|event| match event {
+            Event::GpuEvent(e) => e.reset(),
+            Event::ThreadEvent(e) => e.reset(),
         });
         for (i, var) in self.variable.0.iter_mut().enumerate() {
             // if let Some(_) = var {
@@ -99,7 +98,11 @@ impl<T: RuntimeType> Runtime<T> {
         }
     }
 
-    pub fn run(&mut self, input_table: &mut EntryTable<T>, debug_opt: RuntimeDebug) -> (Option<Variable<T>>, RuntimeInfo<T>) {
+    pub fn run(
+        &mut self,
+        input_table: &mut EntryTable<T>,
+        debug_opt: RuntimeDebug,
+    ) -> (Option<Variable<T>>, RuntimeInfo<T>) {
         let bench_start = if RuntimeDebug::RecordTime == debug_opt {
             Some(Instant::now())
         } else {
@@ -110,6 +113,7 @@ impl<T: RuntimeType> Runtime<T> {
         } else {
             None
         };
+        let debug_instruction = RuntimeDebug::DebugInstruction == debug_opt;
         let info = RuntimeInfo {
             variable: &mut self.variable as *mut VariableTable<T>,
             constant: &self.constant as *const ConstantTable<T>,
@@ -121,6 +125,7 @@ impl<T: RuntimeType> Runtime<T> {
             main_thread: true,
             bench_start,
             executed_kernels,
+            debug_instruction,
         };
         let r = unsafe {
             info.run(
@@ -148,6 +153,7 @@ pub struct RuntimeInfo<T: RuntimeType> {
     pub main_thread: bool,
     pub bench_start: Option<Instant>,
     pub executed_kernels: Option<Arc<Mutex<BTreeSet<FuncMeta>>>>,
+    debug_instruction: bool,
 }
 
 unsafe impl<T: RuntimeType> Send for RuntimeInfo<T> {}
@@ -184,6 +190,11 @@ impl<T: RuntimeType> RuntimeInfo<T> {
             } else {
                 (None, None)
             };
+
+            if self.debug_instruction {
+                println!("{:?}", &instruction);
+            }
+
             let mut function_name = None;
             match instruction {
                 Instruction::Allocate {
@@ -196,8 +207,13 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     assert!(self.main_thread);
                     let guard = &mut (*self.variable)[id];
                     assert!(guard.is_none());
-                    *guard =
-                        Some(self.allocate(device, typ, offset, &mut mem_allocator, &gpu_allocator));
+                    *guard = Some(self.allocate(
+                        device,
+                        typ,
+                        offset,
+                        &mut mem_allocator,
+                        &gpu_allocator,
+                    ));
                 }
                 Instruction::Deallocate { id } => {
                     // only main thread can deallocate memory
@@ -239,12 +255,20 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     let args_mut: Vec<_> = arg_mut_holder
                         .iter_mut()
                         .zip(arg_mut.iter())
-                        .map(|(guard, r_mut)| guard.as_mut().unwrap_or_else(|| panic!("{:?} is undefined", r_mut)))
+                        .map(|(guard, r_mut)| {
+                            guard
+                                .as_mut()
+                                .unwrap_or_else(|| panic!("{:?} is undefined", r_mut))
+                        })
                         .collect();
                     let args: Vec<_> = arg_holder
                         .iter()
                         .zip(arg.iter())
-                        .map(|(guard, r)| guard.as_ref().unwrap_or_else(|| panic!("{:?} is undefined", r)))
+                        .map(|(guard, r)| {
+                            guard
+                                .as_ref()
+                                .unwrap_or_else(|| panic!("{:?} is undefined", r))
+                        })
                         .collect();
 
                     function_name = Some((*self.funcs)[func_id].meta.name.clone());

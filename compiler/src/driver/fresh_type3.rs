@@ -9,18 +9,18 @@ use super::{
     type2, DebugOptions, Error, HardwareInfo, PanicJoinHandler,
 };
 
-pub struct FreshType3<Rt: RuntimeType> {
-    pub(super) chunk: type3::Chunk<'static, Rt>,
+pub struct FreshType3<'s, Rt: RuntimeType> {
+    pub(super) chunk: type3::Chunk<'s, Rt>,
     pub(super) uf_table: type2::user_function::Table<Rt>,
     pub(super) constant_table: type2::ConstantTable<Rt>,
     pub(super) allocator: PinnedMemoryPool,
 }
 
-impl<Rt: RuntimeType> FreshType3<Rt> {
-    pub fn apply_passes(
+impl<'s, Rt: RuntimeType> FreshType3<'s, Rt> {
+    pub fn apply_passes<'a>(
         self,
-        options: &DebugOptions,
-    ) -> Result<ProcessedType3<Rt>, Error<'static, Rt>> {
+        options: &'a DebugOptions,
+    ) -> Result<ProcessedType3<'s, Rt>, Error<'s, Rt>> {
         // - Extend Rewritting
         let t3chunk = options.log_suround(
             "Rewritting Extend and NewPoly",

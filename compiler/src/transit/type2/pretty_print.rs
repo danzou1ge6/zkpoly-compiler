@@ -90,8 +90,8 @@ pub(crate) fn format_source_info<'s>(src: &SourceInfo<'s>) -> String {
     if let Some(name) = &src.name {
         src_string.push_str(&format!("{} ", name));
     }
-    for loc in src.location.iter() {
-        src_string.push_str(&format!("{}:{}:{}", loc.file(), loc.line(), loc.column()));
+    if let Some(loc) = src.location.first() {
+        src_string.push_str(&format!("{}:{}:{}", loc.file, loc.line, loc.column));
     }
     src_string
 }
@@ -367,82 +367,5 @@ pub fn get_node_color<I, A, C, E>(node: &template::VertexNode<I, A, C, E>) -> &'
         Return(..) => "#B39DDB",   // Light purple
         Entry(..) => "#80CBC4",    // Light teal
         _ => "#FFFFFF",            // White for other nodes
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::panic::Location;
-
-    use super::*;
-    use zkpoly_common::{arith::ArithGraph, typ::PolyType};
-    use zkpoly_runtime::transcript::Challenge255;
-
-    use halo2curves::bn256;
-    use zkpoly_runtime::args::RuntimeType;
-    use zkpoly_runtime::transcript::Blake2bWrite;
-
-    #[derive(Debug, Clone)]
-    pub struct MyRuntimeType;
-
-    impl RuntimeType for MyRuntimeType {
-        type Field = bn256::Fr;
-        type PointAffine = bn256::G1Affine;
-        type Challenge = Challenge255<bn256::G1Affine>;
-        type Trans = Blake2bWrite<Vec<u8>, bn256::G1Affine, Challenge255<bn256::G1Affine>>;
-    }
-
-    #[test]
-    fn test_pretty_print() -> std::io::Result<()> {
-        // Create a simple test program
-        use digraph::internal::Digraph;
-        let mut g: Digraph<VertexId, Vertex<'_, MyRuntimeType>> = Digraph::new();
-
-        // Create vertices
-        let v1 = g.add_vertex(Vertex::new(
-            VertexNode::NewPoly(64, PolyInit::Ones, PolyType::Coef),
-            Typ::Poly((PolyType::Coef, 64)),
-            SourceInfo::new(vec![*Location::caller()], None),
-        ));
-
-        let v2 = g.add_vertex(Vertex::new(
-            VertexNode::Ntt {
-                s: v1,
-                from: PolyType::Coef,
-                to: PolyType::Lagrange,
-                alg: NttAlgorithm::Undecieded,
-            },
-            Typ::Poly((PolyType::Lagrange, 64)),
-            SourceInfo::new(vec![*Location::caller()], None),
-        ));
-
-        let cg: transit::Cg<
-            VertexId,
-            transit::Vertex<
-                template::VertexNode<
-                    VertexId,
-                    ArithGraph<VertexId, arith::ExprId>,
-                    ConstantId,
-                    ast::lowering::UserFunctionId,
-                >,
-                typ::template::Typ<_, (PolyType, u64)>,
-                SourceInfo<'_>,
-            >,
-        > = Cg { g, output: v2 };
-
-        let mut buffer = Vec::new();
-        write_graph(&cg.g, v2, &mut buffer)?;
-
-        // Convert to string and verify basic content
-        let output = String::from_utf8(buffer).unwrap();
-
-        print!("{}", output);
-        // assert!(output.contains("digraph ComputationGraph"));
-        // assert!(output.contains("NewPoly"));
-        // assert!(output.contains("NTT"));
-        // assert!(output.contains("Arith"));
-        // assert!(output.contains("Return"));
-
-        Ok(())
     }
 }

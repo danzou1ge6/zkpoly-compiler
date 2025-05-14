@@ -829,6 +829,16 @@ pub fn lower_constants<Rt: RuntimeType>(
     })
 }
 
+pub fn upper_constants<Rt: RuntimeType>(
+    const_table: ConstantTable<Rt>,
+) -> type2::ConstantTable<Rt> {
+    const_table.map(&mut |_, c| type2::Constant {
+        name: Some(c.name),
+        value: c.value,
+        typ: c.typ,
+    })
+}
+
 pub fn lower<'s, Rt: RuntimeType>(
     mut mt_chunk: MultithreadChunk,
     f_table: FunctionTable<Rt>,

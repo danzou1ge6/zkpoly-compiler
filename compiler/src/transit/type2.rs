@@ -21,12 +21,13 @@ pub use zkpoly_common::typ::PolyType;
 use zkpoly_memory_pool::PinnedMemoryPool;
 pub use zkpoly_runtime::args::{RuntimeType, Variable};
 pub use zkpoly_runtime::error::RuntimeError;
+use serde::{Deserialize, Serialize};
 
 zkpoly_common::define_usize_id!(VertexId);
 
 pub type Arith = arith::ArithGraph<VertexId, arith::ExprId>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub enum NttAlgorithm<I> {
     Precomputed(I),
     Standard { pq: I, omega: I },
@@ -122,7 +123,7 @@ pub mod template {
 
     use super::{arith, transit, Device, NttAlgorithm, PolyInit, PolyType};
 
-    #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
+    #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, serde::Serialize, serde::Deserialize)]
     pub enum VertexNode<I, A, C, E> {
         NewPoly(u64, PolyInit, PolyType),
         Constant(C),

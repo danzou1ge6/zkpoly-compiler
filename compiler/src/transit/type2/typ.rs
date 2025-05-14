@@ -3,12 +3,13 @@ use zkpoly_common::typ::PolyType;
 use zkpoly_runtime::args::RuntimeType;
 
 pub mod template {
+    use zkpoly_common::typ::AnyTypeId;
     use zkpoly_runtime::args::Variable;
 
     use super::RuntimeType;
     use std::{any, fmt::Debug, marker::PhantomData};
 
-    #[derive(Debug, Clone)]
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
     pub enum Typ<Rt: RuntimeType, P> {
         Poly(P),
         PointBase { log_n: u32 },
@@ -17,7 +18,7 @@ pub mod template {
         Point,
         Tuple(Vec<Typ<Rt, P>>),
         Array(Box<Typ<Rt, P>>, usize),
-        Any(any::TypeId, usize),
+        Any(AnyTypeId, usize),
         _Phantom(PhantomData<Rt>),
     }
 
