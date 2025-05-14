@@ -1,4 +1,4 @@
-static DEBUG: bool = true;
+static DEBUG: bool = false;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -1860,23 +1860,6 @@ fn plan_vertex<'s, Rt: RuntimeType>(
     // Update next_uses on GPU integral allocator
     for (obj, next_use) in updated_next_uses {
         let _updated = gpu_allocator.update_next_use(obj, next_use, ctx);
-    }
-    // For inplace outputs of this vertex, update their next use to first use of the new object
-    for output_reg in output_registers
-        .into_iter()
-        .filter_map(|(r, inplace)| inplace.map(|_| r))
-    {
-        let obj = ctx.reg2obj(output_reg);
-        if let Some(first_use) = imctx.obj_gpu_next_use.first_use_of(obj) {
-            if DEBUG {
-                println!("[MP.plan] Inplace output {:?} has {:?}, next_use updated to its first use at {:?}", output_reg, obj, first_use)
-            }
-            let _updated = gpu_allocator.update_next_use(obj, first_use, ctx);
-        } else {
-            if DEBUG {
-                println!("[MP.plan] Inplace output {:?} has {:?}, no next_use updated since it's never used on GPU", output_reg, obj);
-            }
-        }
     }
 
     Ok(false)

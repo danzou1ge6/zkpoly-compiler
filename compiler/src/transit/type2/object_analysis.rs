@@ -946,6 +946,7 @@ impl ObjectsGpuNextUse {
 pub fn analyze_gpu_next_use<'s, Rt: RuntimeType>(
     g: &SubDigraph<'_, VertexId, type2::Vertex<'s, Rt>>,
     seq: &[VertexId],
+    obj_def: &ObjectsDef,
     vertex_inputs: &ObjectUse,
     used_by: &ObjectsUsedBy,
 ) -> ObjectsGpuNextUse {
@@ -964,9 +965,12 @@ pub fn analyze_gpu_next_use<'s, Rt: RuntimeType>(
         .used_by
         .iter()
         .map(|(oid, vids)| {
-            let seq = vids
-                .iter()
-                .filter_map(|UsedByEntry { vid, dev }| {
+            let seq = obj_def
+                .defs
+                .get(oid)
+                .map(|vid| seq_num[vid])
+                .into_iter()
+                .chain(vids.iter().filter_map(|UsedByEntry { vid, dev }| {
                     if g.vertex(*vid).node().is_virtual() {
                         None
                     } else if *dev == Device::Gpu {
@@ -978,7 +982,7 @@ pub fn analyze_gpu_next_use<'s, Rt: RuntimeType>(
                             None
                         }
                     }
-                })
+                }))
                 .collect();
             (*oid, seq)
         })
