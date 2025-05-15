@@ -65,6 +65,7 @@ pub struct Instant(pub(super) usize);
 
 mod integral_allocator;
 mod smithereens_allocator;
+mod page_allocator;
 
 trait AddrMappingHandler {
     fn add(&mut self, addr: Addr, size: Size) -> AddrId;
