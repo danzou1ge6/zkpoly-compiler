@@ -1,4 +1,4 @@
-static DEBUG: bool = false;
+static DEBUG: bool = true;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -430,29 +430,6 @@ fn move_victims(victims: &[AddrId], code: &mut Code, ctx: &mut Context, imctx: &
             println!("[MP.move_victims] Eject victim {:?} at {:?}({:?} to CPU", obj_id, victim, ctx.gpu_addr_mapping[victim]);
         }
 
-
-        // If obj_id is already on CPU, or if obj_id is sliced from some sliced_obj on CPU, we don't need to transfer anything.
-        // The latter case is because that sliced_obj dies after obj_id in object analysis.
-        if ctx.is_obj_alive_on(obj_id, DeterminedDevice::Cpu) {
-            if DEBUG {
-                println!("[MP.move_victims] Victim {:?} is already on CPU", obj_id);
-            }
-            ctx.remove_residence_for_object(obj_id, DeterminedDevice::Gpu);
-            return;
-        }
-        if let Some((sliced_obj, _)) = imctx.vertex_inputs.cloned_slice_from(obj_id) {
-            if ctx.is_obj_alive_on(sliced_obj, DeterminedDevice::Cpu) {
-                if DEBUG {
-                    println!(
-                        "[MP.move_victims] Victim {:?} is sliced from {:?} which is already on CPU",
-                        obj_id, sliced_obj
-                    );
-                }
-                ctx.remove_residence_for_object(obj_id, DeterminedDevice::Gpu);
-                return;
-            }
-        }
-
         let normalized_typ = ctx.normalized_typ_for_obj(obj_id, code);
         let src_reg = ensure_same_type(
             obj_id,
@@ -462,6 +439,35 @@ fn move_victims(victims: &[AddrId], code: &mut Code, ctx: &mut Context, imctx: &
             ctx,
         );
 
+        // - If obj_id is already on CPU, we don't need to transfer anything.
+        if ctx.is_obj_alive_on(obj_id, DeterminedDevice::Cpu) {
+            if DEBUG {
+                println!("[MP.move_victims] Victim {:?} is already on CPU", obj_id);
+            }
+
+            code.emit(Instruction::new_no_src(InstructionNode::GpuFree { id: src_reg }));
+
+            ctx.remove_residence_for_object(obj_id, DeterminedDevice::Gpu);
+            return;
+        }
+
+        // - Or if obj_id is sliced from some sliced_obj on CPU, still no transfer needed
+        //   Note that this requrire sliced_obj dies after obj_id in object analysis.
+        if let Some((sliced_obj, _)) = imctx.vertex_inputs.cloned_slice_from(obj_id) {
+            if ctx.is_obj_alive_on(sliced_obj, DeterminedDevice::Cpu) {
+                if DEBUG {
+                    println!(
+                        "[MP.move_victims] Victim {:?} is sliced from {:?} which is already on CPU",
+                        obj_id, sliced_obj
+                    );
+                }
+
+                code.emit(Instruction::new_no_src(InstructionNode::GpuFree { id: src_reg }));
+
+                ctx.remove_residence_for_object(obj_id, DeterminedDevice::Gpu);
+                return;
+            }
+        }
         let new_reg = code.alloc_register_id(normalized_typ.clone());
         let size = imctx.obj_size(obj_id);
         allocate_cpu(obj_id, new_reg, size, code, ctx, true);
@@ -469,6 +475,7 @@ fn move_victims(victims: &[AddrId], code: &mut Code, ctx: &mut Context, imctx: &
             id: new_reg,
             from: src_reg,
         }));
+        code.emit(Instruction::new_no_src(InstructionNode::GpuFree { id: src_reg }));
 
         ctx.remove_residence_for_object(obj_id, DeterminedDevice::Gpu);
         ctx.add_residence_for_object(obj_id, new_reg, DeterminedDevice::Cpu);
@@ -549,7 +556,7 @@ fn allocate_gpu_integral(
                 from: reg_from,
             }));
 
-            code.emit(Instruction::new_no_src(InstructionNode::StackFree {
+            code.emit(Instruction::new_no_src(InstructionNode::GpuFree {
                 id: reg_from,
             }));
 
@@ -1818,6 +1825,10 @@ fn plan_vertex<'s, Rt: RuntimeType>(
         .for_each(|((output_reg, _), typ)| {
             register_types.insert(*output_reg, typ.clone());
         });
+    
+    if DEBUG {
+        println!("[MP.plan] Outputs registers of {:?} are {:?}", vid, &output_registers);
+    }
 
     code.emit(Instruction::new(
         InstructionNode::Type2 {

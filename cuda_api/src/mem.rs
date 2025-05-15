@@ -53,11 +53,21 @@ impl CudaAllocator {
         if self.check_overlap {
             println!("Allocating range: {} - {}", left, right);
             let gap = self.ranges.lower_bound(std::ops::Bound::Included(&left));
-            if let Some((_, pre_end)) = gap.peek_prev() {
-                assert!(pre_end <= &left);
+            if let Some((pred_start, pre_end)) = gap.peek_prev() {
+                if !(pre_end <= &left) {
+                    panic!(
+                        "overlap detected: trying to allocate [{}, {}), overlapping with [{}, {})",
+                        left, right, pred_start, pre_end
+                    )
+                }
             }
-            if let Some((next_start, _)) = gap.peek_next() {
-                assert!(next_start >= &right);
+            if let Some((next_start, next_end)) = gap.peek_next() {
+                if !(next_start >= &right) {
+                    panic!(
+                        "overlap detected: trying to allocate [{}, {}), overlapping with [{}, {})",
+                        left, right, next_start, next_end
+                    )
+                }
             }
             self.ranges.insert(left, right);
         }
@@ -122,27 +132,27 @@ fn test_cuda_allocator() {
 }
 
 #[test]
-fn test_cuda_allocator_overlap() {    
+fn test_cuda_allocator_overlap() {
     let device_id = 0;
     let max_size = 1024;
     let mut allocator = CudaAllocator::new(device_id, max_size, true);
 
-    // 测试1：正常分配不重叠的内存区域    
-    let ptr1: *mut i32 = allocator.allocate(0, 4);  // 0-16 bytes
+    // 测试1：正常分配不重叠的内存区域
+    let ptr1: *mut i32 = allocator.allocate(0, 4); // 0-16 bytes
     let ptr2: *mut i32 = allocator.allocate(16, 4); // 16-32 bytes
     assert!(!ptr1.is_null());
     assert!(!ptr2.is_null());
 
     // 测试3：释放内存后可以重新分配
     allocator.free(ptr1);
-    let ptr3: *mut i32 = allocator.allocate(0, 4);  // 重新分配0-16 bytes
+    let ptr3: *mut i32 = allocator.allocate(0, 4); // 重新分配0-16 bytes
     assert!(!ptr3.is_null());
 
     // 测试4：相邻分配
     allocator.free(ptr2);
     allocator.free(ptr3);
-    let ptr4: *mut i32 = allocator.allocate(0, 4);    // 0-16 bytes
-    let ptr5: *mut i32 = allocator.allocate(16, 4);   // 16-32 bytes，与前一个分配相邻
+    let ptr4: *mut i32 = allocator.allocate(0, 4); // 0-16 bytes
+    let ptr5: *mut i32 = allocator.allocate(16, 4); // 16-32 bytes，与前一个分配相邻
     assert!(!ptr4.is_null());
     assert!(!ptr5.is_null());
 
@@ -157,10 +167,10 @@ fn test_cuda_allocator_overlap_should_panic() {
     let device_id = 0;
     let max_size = 1024;
     let mut allocator = CudaAllocator::new(device_id, max_size, true);
-    
+
     // 首先分配一块内存
-    let _ptr1: *mut i32 = allocator.allocate(0, 4);  // 0-16 bytes
-    
+    let _ptr1: *mut i32 = allocator.allocate(0, 4); // 0-16 bytes
+
     // 尝试分配重叠区域，这会导致panic
     allocator.allocate::<i32>(8, 4); // 8-24 bytes，与前面的分配有重叠
 }
@@ -171,7 +181,7 @@ fn test_cuda_allocator_zero_size_should_panic() {
     let device_id = 0;
     let max_size = 1024;
     let mut allocator = CudaAllocator::new(device_id, max_size, true);
-    
+
     // 尝试分配大小为0的内存，这会导致panic
     allocator.allocate::<i32>(32, 0);
 }
