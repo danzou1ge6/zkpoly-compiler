@@ -243,7 +243,7 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
         })
     }
 
-    pub fn load_artifect(self, dir: impl AsRef<std::path::Path>) -> std::io::Result<Artifect<Rt>> {
+    pub fn load_artifect(mut self, dir: impl AsRef<std::path::Path>) -> std::io::Result<Artifect<Rt>> {
         let mut chunk_f = std::fs::File::open(dir.as_ref().join("chunk.json"))?;
         let rt_chunk_deserializer: type3::lowering::serialization::ChunkDeserializer =
             serde_json::from_reader(&mut chunk_f)?;
@@ -252,21 +252,19 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
         let mut ct_header_f = std::fs::File::open(dir.as_ref().join("constants-manifest.json"))?;
         let ct_header: args::serialization::Header = serde_json::from_reader(&mut ct_header_f)?;
 
-        let mut rt_const_tab = type3::lowering::lower_constants(self.prog.consant_table);
-
         let mut ct_f = std::fs::File::open(dir.as_ref().join("constants.bin"))?;
         let mut allocator = self.prog.memory_pool;
-        ct_header.load_constant_table(&mut rt_const_tab, &mut ct_f, &mut allocator)?;
+        ct_header.load_constant_table(&mut self.prog.consant_table, &mut ct_f, &mut allocator)?;
 
         Ok(Artifect {
             chunk: rt_chunk,
-            constant_table: rt_const_tab,
+            constant_table: self.prog.consant_table,
             allocator,
         })
     }
 
     pub fn load_processed_type2<'de>(
-        self,
+        mut self,
         str_buf: &'de mut String,
         dir: impl AsRef<std::path::Path>,
     ) -> std::io::Result<ProcessedType2<'de, Rt>>
@@ -280,17 +278,13 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
         let mut ct_header_f = std::fs::File::open(dir.as_ref().join("constants-manifest.json"))?;
         let ct_header: args::serialization::Header = serde_json::from_reader(&mut ct_header_f)?;
 
-        let mut rt_const_tab = type3::lowering::lower_constants(self.prog.consant_table);
-
         let mut ct_f = std::fs::File::open(dir.as_ref().join("constants.bin"))?;
         let mut allocator = self.prog.memory_pool;
-        ct_header.load_constant_table(&mut rt_const_tab, &mut ct_f, &mut allocator)?;
-
-        let const_tab = type3::lowering::upper_constants(rt_const_tab);
+        ct_header.load_constant_table(&mut self.prog.consant_table, &mut ct_f, &mut allocator)?;
 
         Ok(ProcessedType2 {
             cg,
-            constant_table: const_tab,
+            constant_table: self.prog.consant_table,
             uf_table: self.prog.user_function_table,
             libs: Libs::new(),
             allocator,

@@ -267,6 +267,11 @@ impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
             "Done.",
         )?;
 
+        if options.debug_fresh_type3 {
+            let mut f = std::fs::File::create(options.debug_dir.join("type3_fresh.html")).unwrap();
+            type3::pretty_print::prettify(&t3chunk, &mut f).unwrap();
+        }
+
         Ok(FreshType3 {
             chunk: t3chunk,
             uf_table: t2uf_tab,
@@ -275,7 +280,7 @@ impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
         })
     }
 
-    pub fn dump(self, dir: impl AsRef<std::path::Path>) -> std::io::Result<()>
+    pub fn dump(&self, dir: impl AsRef<std::path::Path>) -> std::io::Result<()>
     where
         Rt: for<'de> serde::Deserialize<'de> + serde::Serialize,
     {
@@ -284,14 +289,12 @@ impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
         let mut cg_f = std::fs::File::create(dir.as_ref().join("cg.json"))?;
         serde_json::to_writer_pretty(&mut cg_f, &self.cg)?;
 
-        let rt_ct_tab = type3::lowering::lower_constants(self.constant_table);
-
         let mut ct_header_f = std::fs::File::create(dir.as_ref().join("constants-manifest.json"))?;
-        let ct_header = args::serialization::Header::build(&rt_ct_tab);
+        let ct_header = args::serialization::Header::build(&self.constant_table);
         serde_json::to_writer_pretty(&mut ct_header_f, &ct_header)?;
 
         let mut ct_f = std::fs::File::create(dir.as_ref().join("constants.bin"))?;
-        ct_header.dump_entries_data(&rt_ct_tab, &mut ct_f)?;
+        ct_header.dump_entries_data(&self.constant_table, &mut ct_f)?;
 
         Ok(())
     }

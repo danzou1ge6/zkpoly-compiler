@@ -135,7 +135,7 @@ impl<Rt: RuntimeType> Variable<Rt> {
 struct Entry {
     /// (offset, size) if the data
     position: Option<(usize, usize)>,
-    name: String,
+    name: Option<String>,
     typ: Typ,
 }
 
@@ -200,13 +200,13 @@ impl Header {
             if let Some((offset, _size)) = entry.position {
                 reader.seek(io::SeekFrom::Start(offset as u64))?;
                 let val = Variable::load_binary(&entry.typ, reader, allocator)?;
-                let constant = Constant::new(entry.name.clone(), val, entry.typ.clone());
+                let constant = Constant::new(val, entry.name.clone(), entry.typ.clone());
 
                 while ct.len() <= i {
                     // Tuple(vec![]) is placeholder
                     ct.push(Constant::new(
-                        entry.name.clone(),
                         Variable::Tuple(vec![]),
+                        entry.name.clone(),
                         entry.typ.clone(),
                     ));
                 }
@@ -219,7 +219,7 @@ impl Header {
                 let constant = &ct[ConstantId::from(i)];
                 if constant.name != entry.name {
                     panic!(
-                        "constant name mismatch at index {}, expect {}, got {}",
+                        "constant name mismatch at index {}, expect {:?}, got {:?}",
                         i, &entry.name, &constant.name
                     );
                 }
@@ -235,4 +235,3 @@ impl Header {
         Ok(())
     }
 }
-

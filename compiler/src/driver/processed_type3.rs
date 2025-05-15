@@ -81,7 +81,6 @@ impl<'s, Rt: RuntimeType> ProcessedType3<'s, Rt> {
             },
             "Done.",
         )?;
-        let rt_const_tab = type3::lowering::lower_constants(t2const_tab);
 
         if options.debug_instructions {
             let mut f = std::fs::File::create(options.debug_dir.join("instructions.txt")).unwrap();
@@ -94,7 +93,7 @@ impl<'s, Rt: RuntimeType> ProcessedType3<'s, Rt> {
 
         Ok(Artifect {
             chunk: rt_chunk,
-            constant_table: rt_const_tab,
+            constant_table: t2const_tab,
             allocator,
         })
     }

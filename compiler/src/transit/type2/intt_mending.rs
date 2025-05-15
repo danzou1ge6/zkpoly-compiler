@@ -36,7 +36,7 @@ pub fn mend<'s, Rt: RuntimeType>(
                                 let var = crate::ast::Scalar::to_variable(f);
                                 let cid = constant_table.push(super::Constant::new(
                                     var,
-                                    format!("intt_divisor_{}", pred_deg),
+                                    Some(format!("intt_divisor_{}", pred_deg)),
                                     zkpoly_common::typ::Typ::Scalar,
                                 ));
                                 let v_constant = cg.g.add_vertex(Vertex::new(

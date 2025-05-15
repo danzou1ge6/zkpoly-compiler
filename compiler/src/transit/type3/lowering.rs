@@ -819,26 +819,6 @@ pub fn emit_multithread_instructions<'s, Rt: RuntimeType>(
     )
 }
 
-pub fn lower_constants<Rt: RuntimeType>(
-    const_table: type2::ConstantTable<Rt>,
-) -> ConstantTable<Rt> {
-    const_table.map(&mut |_, c| Constant {
-        name: c.name.unwrap_or_else(String::new),
-        value: c.value,
-        typ: c.typ,
-    })
-}
-
-pub fn upper_constants<Rt: RuntimeType>(
-    const_table: ConstantTable<Rt>,
-) -> type2::ConstantTable<Rt> {
-    const_table.map(&mut |_, c| type2::Constant {
-        name: Some(c.name),
-        value: c.value,
-        typ: c.typ,
-    })
-}
-
 pub fn lower<'s, Rt: RuntimeType>(
     mut mt_chunk: MultithreadChunk,
     f_table: FunctionTable<Rt>,

@@ -26,9 +26,7 @@ pub fn add_entry<T: RuntimeType>(t: &mut EntryTable<T>, var: Variable<T>) {
     t.push(var);
 }
 
-pub trait RuntimeType:
-    'static + Clone + Send + Sync + Debug
-{
+pub trait RuntimeType: 'static + Clone + Send + Sync + Debug {
     type PointAffine: CurveAffine<ScalarExt = Self::Field>;
     type Field: PrimeField
         + Into<<Self::PointAffine as CurveAffine>::ScalarExt>
@@ -166,13 +164,13 @@ impl<T: RuntimeType> Variable<T> {
 
 #[derive(Debug, Clone)]
 pub struct Constant<T: RuntimeType> {
-    pub name: String,
+    pub name: Option<String>,
     pub value: Variable<T>,
     pub typ: Typ,
 }
 
-impl<T: RuntimeType> Constant<T> {
-    pub fn new(name: String, value: Variable<T>, typ: Typ) -> Self {
+impl<Rt: RuntimeType> Constant<Rt> {
+    pub fn new(value: Variable<Rt>, name: Option<String>, typ: zkpoly_common::typ::Typ) -> Self {
         Self { name, value, typ }
     }
 }
