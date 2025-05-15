@@ -1,3 +1,4 @@
+pub mod segment_tree;
 pub mod arith;
 pub mod bijection;
 pub mod cpu_event;
@@ -5,7 +6,6 @@ pub mod digraph;
 pub mod get_project_root;
 pub mod heap;
 pub mod injection;
-pub mod interval_tree;
 pub mod load_dynamic;
 pub mod mm_heap;
 pub mod msm_config;
