@@ -266,7 +266,7 @@ mod tests {
 
         let (p1_vec, _) = allocator.allocate(PAGE_SIZE, 10);
         let p1 = p1_vec[0];
-        let idx1 = match allocator.get_page_location(p1).unwrap() { PageLocation::InMemory(i) => i, _ => panic!() };
+        let _ = match allocator.get_page_location(p1).unwrap() { PageLocation::InMemory(i) => i, _ => panic!() };
 
         let (p2_vec, _) = allocator.allocate(PAGE_SIZE, 30);
         let p2 = p2_vec[0];

@@ -976,6 +976,10 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                 gpu_scalar.gpu2cpu(host_scalar, d2h_stream);
             }
 
+            h2d_stream.sync();
+            compute_stream.sync();
+            d2h_stream.sync();
+
             Ok(())
         };
         Function {
