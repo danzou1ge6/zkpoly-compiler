@@ -719,6 +719,9 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
             // the first of mut_var is the buffer for the arguments
             let (arg_buffer, mut_var) = mut_var.split_at_mut(1);
             let arg_buffer = arg_buffer[0].unwrap_gpu_buffer_mut();
+            // check the buffer size
+            assert_eq!(arg_buffer.size, (2 * num_of_vars + 3 * num_of_mut_vars) * std::mem::size_of::<PolyPtr>());
+
             assert!((mut_var.len() - 2 * num_mut_scalars) % 4 == 0);
             assert!((var.len() - 2 * num_scalars) % 3 == 0);
 
@@ -758,6 +761,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
             let mut mut_gpu_scalars = Vec::new();
             for i in 0..num_mut_scalars {
                 let buffer = mut_var[i + num_mut_var].unwrap_gpu_buffer();
+                // check the buffer size
+                assert_eq!(buffer.size, std::mem::size_of::<T::Field>());
                 let gpu_scalar =
                     Scalar::new_gpu(buffer.ptr as *mut T::Field, buffer.device.unwrap_gpu());
                 mut_gpu_scalars.push(gpu_scalar);
@@ -765,6 +770,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
             let mut gpu_scalars = Vec::new();
             for i in 0..num_scalars {
                 let buffer = var[i + num_var].unwrap_gpu_buffer();
+                // check the buffer size
+                assert_eq!(buffer.size, std::mem::size_of::<T::Field>());
                 let gpu_scalar =
                     Scalar::new_gpu(buffer.ptr as *mut T::Field, buffer.device.unwrap_gpu());
                 gpu_scalars.push(gpu_scalar);
@@ -804,6 +811,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
             for i in 0..num_mut_poly {
                 for j in 0..3 {
                     let buffer = mut_var[i + base_index + j * num_mut_poly].unwrap_gpu_buffer();
+                    // check the buffer size
+                    assert_eq!(buffer.size, chunk_len * std::mem::size_of::<T::Field>());
                     let gpu_poly = ScalarArray::new(
                         chunk_len,
                         buffer.ptr as *mut T::Field,
@@ -817,6 +826,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
             for i in 0..num_poly {
                 for j in 0..2 {
                     let buffer = var[i + base_index + j * num_poly].unwrap_gpu_buffer();
+                    // check the buffer size
+                    assert_eq!(buffer.size, chunk_len * std::mem::size_of::<T::Field>());
                     let gpu_poly = ScalarArray::new(
                         chunk_len,
                         buffer.ptr as *mut T::Field,

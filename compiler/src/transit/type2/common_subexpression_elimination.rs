@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use zkpoly_common::{define_usize_id, digraph::internal::Digraph};
+use zkpoly_common::{define_usize_id, digraph::internal::Digraph, union_find::UnionFind};
 use zkpoly_runtime::args::{ConstantId, RuntimeType};
 
 use crate::transit::{
@@ -91,8 +91,50 @@ pub fn cse<'s, Rt: RuntimeType>(cg: Cg<'s, Rt>) -> Cg<'s, Rt> {
 
         node2class.insert(eq_node, class.clone());
     }
-    Cg {
+
+    let (new_cg, changed) = tackle_equality_transforms(Cg {
         output: class2new_id.get(vid2class.get(&cg.output).unwrap()).cloned().unwrap(),
         g: new_graph,
+    });
+    if changed {
+        cse(new_cg)
+    } else {
+        new_cg
     }
+}
+
+pub fn tackle_equality_transforms<'s, Rt: RuntimeType>(mut cg: Cg<'s, Rt>) -> (Cg<'s, Rt>, bool) {
+    // some transformations such as assert_eq can create nodes the same as the original,
+    // in this case, we need to move all the nodes pointing at the origin node to the new node
+
+    let mut equality_nodes_mapping = UnionFind::new(cg.g.order());
+    for (vid, v) in cg.g.topology_sort() {
+        match v.node() {
+            VertexNode::AssertEq(lhs, rhs, _) => {
+            equality_nodes_mapping.union(lhs.clone().into(), vid.into());
+            equality_nodes_mapping.union(rhs.clone().into(), vid.into());
+            }
+            VertexNode::Print(src, _) => {
+                equality_nodes_mapping.union(src.clone().into(), vid.into());
+            }
+            _ => {}
+        }
+    }
+
+    let mut has_change = false;
+    let mut mapping = |vid: VertexId| {VertexId::from(equality_nodes_mapping.find(vid.into()))};
+    cg.g.vertices().for_each(|vid| {
+        let node = cg.g.vertex(vid).node().clone();
+        let new_node = match node {
+            VertexNode::AssertEq(..) | VertexNode::Print(..) => node,
+            _ => node.relabeled(&mut mapping),
+        };
+        if &new_node != cg.g.vertex(vid).node() {
+            has_change = true;
+        }
+        *cg.g.vertex_mut(vid).node_mut() = new_node;
+    });
+    cg.output = mapping(cg.output);
+
+    (cg, has_change)
 }

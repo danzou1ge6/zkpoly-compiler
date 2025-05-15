@@ -445,6 +445,11 @@ pub fn fuse_arith<'s, Rt: RuntimeType>(cg: Cg<'s, Rt>, gpu_mem_limit: u64) -> Cg
 
                 // decide the chunking
                 ag.poly_degree = Some(get_poly_degree(&output_types));
+                // let chunking = if ag.poly_degree.unwrap() > 16 {
+                //     Some(16)
+                // } else {
+                //     None
+                // };
                 let chunking = ag.decide_chunking::<Rt::Field>(gpu_mem_limit);
 
                 // decide the polynomial representation
