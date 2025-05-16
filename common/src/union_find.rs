@@ -2,7 +2,7 @@
 #[derive(Debug, Clone)]
 pub struct UnionFind {
     parent: Vec<usize>,
-    count: usize,      // Number of disjoint sets
+    count: usize, // Number of disjoint sets
 }
 
 impl UnionFind {
@@ -166,7 +166,6 @@ mod tests {
         assert_eq!(uf.parent[1], 3); // parent of old root of 0 (which was 1) is now root of 2 (which is 3)
     }
 
-
     #[test]
     fn test_complex_scenario() {
         let mut uf = UnionFind::new(7);
@@ -188,7 +187,6 @@ mod tests {
         assert!(uf.connected(5, 4)); // same as connected(4,5)
         assert_eq!(uf.find(5), 6);
 
-
         assert!(!uf.connected(0, 2));
         assert!(!uf.connected(1, 5));
         assert_eq!(uf.count(), 3); // {0,1 (root 1)}, {2,3 (root 3)}, {4,5,6 (root 6)}
@@ -204,7 +202,7 @@ mod tests {
         // Connect all
         // union(1,5) => find(1) is 3, find(5) is 6. So parent[3] = 6.
         uf.union(1, 5);
-        assert!(uf.connected(0,6));
+        assert!(uf.connected(0, 6));
         assert_eq!(uf.find(0), 6);
         assert_eq!(uf.find(1), 6);
         assert_eq!(uf.find(2), 6);

@@ -1,7 +1,7 @@
 use arith::{ArithBinOp, ArithUnrOp};
 use std::ops::{Add, Div, Mul, Neg, Sub};
 use zkpoly_common::typ::PolyType;
-use zkpoly_memory_pool::PinnedMemoryPool;
+use zkpoly_memory_pool::CpuMemoryPool;
 
 use crate::{transit::type2::template::VertexNode, transit::type2::NttAlgorithm};
 
@@ -206,7 +206,7 @@ impl<'c, Rt: RuntimeType> PolyLagrange<Rt> {
     }
 
     #[track_caller]
-    pub fn constant(data: &[Rt::Field], allocator: &mut PinnedMemoryPool) -> Self {
+    pub fn constant(data: &[Rt::Field], allocator: &mut CpuMemoryPool) -> Self {
         let src = SourceInfo::new(Location::caller().clone(), None);
         PolyLagrange::new(
             PolyLagrangeNode::Constant(
@@ -221,7 +221,7 @@ impl<'c, Rt: RuntimeType> PolyLagrange<Rt> {
     pub fn constant_from_iter(
         data: impl Iterator<Item = Rt::Field>,
         len: u64,
-        allocator: &mut PinnedMemoryPool,
+        allocator: &mut CpuMemoryPool,
     ) -> Self {
         let src = SourceInfo::new(Location::caller().clone(), None);
         PolyLagrange::new(

@@ -54,7 +54,10 @@ pub fn emit_func<'s, Rt: RuntimeType>(
                 let num_polys_mut = fused_meta.num_mut_vars - num_scalars_mut;
 
                 // check temp buffer num
-                assert_eq!(temp.len(), 1 + num_scalars_mut + num_scalars + 2 * num_polys + 3 * num_polys_mut);
+                assert_eq!(
+                    temp.len(),
+                    1 + num_scalars_mut + num_scalars + 2 * num_polys + 3 * num_polys_mut
+                );
 
                 // check output num
                 assert_eq!(outputs.len(), fused_meta.num_mut_vars);
@@ -97,7 +100,9 @@ pub fn emit_func<'s, Rt: RuntimeType>(
                 }
                 // temp buffer for mut polys
                 for i in 0..3 * num_polys_mut {
-                    arg_mut.push(reg_id2var_id(temp[1 + num_scalars + 2 * num_polys + num_scalars_mut + i]));
+                    arg_mut.push(reg_id2var_id(
+                        temp[1 + num_scalars + 2 * num_polys + num_scalars_mut + i],
+                    ));
                 }
 
                 emit(Instruction::FuncCall {

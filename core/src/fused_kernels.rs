@@ -720,7 +720,10 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
             let (arg_buffer, mut_var) = mut_var.split_at_mut(1);
             let arg_buffer = arg_buffer[0].unwrap_gpu_buffer_mut();
             // check the buffer size
-            assert_eq!(arg_buffer.size, (2 * num_of_vars + 3 * num_of_mut_vars) * std::mem::size_of::<PolyPtr>());
+            assert_eq!(
+                arg_buffer.size,
+                (2 * num_of_vars + 3 * num_of_mut_vars) * std::mem::size_of::<PolyPtr>()
+            );
 
             assert!((mut_var.len() - 2 * num_mut_scalars) % 4 == 0);
             assert!((var.len() - 2 * num_scalars) % 3 == 0);

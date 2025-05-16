@@ -8,7 +8,9 @@ use crate::{
 };
 
 /// Scalar-Polynomial operator
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub enum SpOp {
     Add,
     Sub,
@@ -51,7 +53,9 @@ impl SpOp {
 mod op_template {
     /// Binary operator.
     /// [`P`]: polynomial-Polynomial opertor
-    #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+    #[derive(
+        Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+    )]
     pub enum BinOp<Pp, Ss, Sp> {
         Pp(Pp),
         Ss(Ss),
@@ -60,14 +64,18 @@ mod op_template {
 
     /// Unary operator.
     /// [`Po`]: polynomial unary operator
-    #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Deserialize, serde::Serialize)]
+    #[derive(
+        Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Deserialize, serde::Serialize,
+    )]
     pub enum UnrOp<Po, So> {
         P(Po),
         S(So),
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub enum ArithBinOp {
     Add,
     Sub,
@@ -84,7 +92,9 @@ impl ArithBinOp {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub enum ArithUnrOp {
     Neg,
     Inv,
@@ -106,7 +116,9 @@ pub type UnrOp = op_template::UnrOp<ArithUnrOp, ArithUnrOp>;
 define_usize_id!(ExprId);
 
 /// Kind-specific data of expressions.
-#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub enum Arith<Index> {
     Bin(BinOp, Index, Index),
     Unr(UnrOp, Index),
@@ -138,13 +150,17 @@ where
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Hash, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Hash, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub enum FusedType {
     Scalar,
     ScalarArray,
 }
 
-#[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub enum Operation<OuterId, ArithIndex> {
     Arith(Arith<ArithIndex>),
     Input {
@@ -163,7 +179,9 @@ pub enum Operation<OuterId, ArithIndex> {
     // 2: the output's outer index is the same as some inputs' outer index
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct ArithVertex<OuterId, ArithIndex> {
     pub op: Operation<OuterId, ArithIndex>,
 }
@@ -278,7 +296,9 @@ where
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Hash, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Hash, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub enum Mutability {
     Const,
     Mut,
@@ -301,7 +321,7 @@ where
 {
     pub fn decide_chunking<T: Sized>(&mut self, gpu_mem_limit: u64) -> Option<u64> {
         let ag_space = self.space_needed::<T>();
-        if (ag_space as f64) < gpu_mem_limit as f64  * 0.8 {
+        if (ag_space as f64) < gpu_mem_limit as f64 * 0.8 {
             None
         } else {
             let mut chunking = 4;

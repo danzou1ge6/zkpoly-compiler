@@ -247,15 +247,19 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
         let mut new_ariths = Vec::new();
         let mut new_arith2vids = Vec::new();
 
-        let need_store = ag.outputs.iter().map(|vid| {
-            let v = ag.g.vertex(*vid);
-            if let Operation::Output { store_node, .. } = v.op {
-                store_node
-            } else {
-                panic!("output node should be store node");
-            }
-        }).collect::<BTreeSet<_>>(); // mark the nodes that need to be stored
-        // input nodes can be inferred from the arith graph
+        let need_store = ag
+            .outputs
+            .iter()
+            .map(|vid| {
+                let v = ag.g.vertex(*vid);
+                if let Operation::Output { store_node, .. } = v.op {
+                    store_node
+                } else {
+                    panic!("output node should be store node");
+                }
+            })
+            .collect::<BTreeSet<_>>(); // mark the nodes that need to be stored
+                                       // input nodes can be inferred from the arith graph
 
         for i in 0..(partition.len() - 1) {
             let start = partition[i];
@@ -296,9 +300,9 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
 
                     // insert the arith node
                     let new_arith = new_ag.g.add_vertex(ArithVertex {
-                        op: Operation::Arith(arith.relabeled(&mut |vid| {
-                            old_aid2new_aid.get(&vid).unwrap().clone()
-                        })),
+                        op: Operation::Arith(
+                            arith.relabeled(&mut |vid| old_aid2new_aid.get(&vid).unwrap().clone()),
+                        ),
                     });
                     old_aid2new_aid.insert(vid, new_arith);
                     new_arith2vid.insert(new_arith, arith2vid.get(&vid).unwrap().clone());

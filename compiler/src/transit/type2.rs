@@ -12,22 +12,24 @@
 use crate::ast;
 use crate::transit::{self, PolyInit, SourceInfo};
 pub use ast::lowering::{Constant, ConstantId, ConstantTable};
+use serde::{Deserialize, Serialize};
 pub use typ::Typ;
 use zkpoly_common::arith::{self, ArithUnrOp, UnrOp};
 use zkpoly_common::digraph;
 use zkpoly_common::heap::UsizeId;
 use zkpoly_common::load_dynamic::Libs;
 pub use zkpoly_common::typ::PolyType;
-use zkpoly_memory_pool::PinnedMemoryPool;
+use zkpoly_memory_pool::CpuMemoryPool;
 pub use zkpoly_runtime::args::{RuntimeType, Variable};
 pub use zkpoly_runtime::error::RuntimeError;
-use serde::{Deserialize, Serialize};
 
 zkpoly_common::define_usize_id!(VertexId);
 
 pub type Arith = arith::ArithGraph<VertexId, arith::ExprId>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub enum NttAlgorithm<I> {
     Precomputed(I),
     Standard { pq: I, omega: I },
@@ -123,7 +125,9 @@ pub mod template {
 
     use super::{arith, transit, Device, NttAlgorithm, PolyInit, PolyType};
 
-    #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, serde::Serialize, serde::Deserialize)]
+    #[derive(
+        Debug, Clone, Eq, PartialEq, Ord, PartialOrd, serde::Serialize, serde::Deserialize,
+    )]
     pub enum VertexNode<I, A, C, E> {
         NewPoly(u64, PolyInit, PolyType),
         Constant(C),
@@ -692,7 +696,7 @@ pub struct Program<'s, Rt: RuntimeType> {
     pub(crate) cg: Cg<'s, Rt>,
     pub(crate) user_function_table: user_function::Table<Rt>,
     pub(crate) consant_table: ConstantTable<Rt>,
-    pub(crate) memory_pool: PinnedMemoryPool,
+    pub(crate) memory_pool: CpuMemoryPool,
 }
 
 pub mod arith_decide_mutable;

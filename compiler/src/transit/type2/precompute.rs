@@ -5,7 +5,7 @@ use zkpoly_core::{
     msm::{get_best_config, MSMPrecompute},
     ntt::{GenPqOmegas, SsipPrecompute},
 };
-use zkpoly_memory_pool::PinnedMemoryPool;
+use zkpoly_memory_pool::CpuMemoryPool;
 use zkpoly_runtime::{
     args::{RuntimeType, Variable},
     point::PointArray,
@@ -27,7 +27,7 @@ pub fn precompute<'s, Rt: RuntimeType>(
     mut cg: Cg<'s, Rt>,
     memory_limit: usize,
     libs: &mut Libs,
-    allocator: &mut PinnedMemoryPool,
+    allocator: &mut CpuMemoryPool,
     constant_tb: &mut ConstantTable<Rt>,
 ) -> Cg<'s, Rt> {
     let order = cg.g.vertices().collect::<Vec<_>>();

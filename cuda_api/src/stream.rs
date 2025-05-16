@@ -77,9 +77,7 @@ impl CudaEventRaw {
         unsafe {
             cuda_check!(cudaEventCreateWithFlags(&mut event, cudaEventBlockingSync));
         }
-        Self {
-            event,
-        }
+        Self { event }
     }
 
     pub fn record(&self, stream: &CudaStream) {

@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 zkpoly_cuda_api = { path = "../cuda_api" }
+memmap2 = {version = "0.9.5"}
 
 [dev-dependencies]
 rand = "0.8"

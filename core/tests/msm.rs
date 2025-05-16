@@ -22,7 +22,7 @@ use rayon::{current_thread_index, prelude::*};
 use zkpoly_common::load_dynamic::Libs;
 use zkpoly_core::msm::*;
 use zkpoly_cuda_api::bindings::{cudaFree, cudaMalloc};
-use zkpoly_memory_pool::PinnedMemoryPool;
+use zkpoly_memory_pool::CpuMemoryPool;
 use zkpoly_runtime::{
     args::{RuntimeType, Variable},
     devices::DeviceType,
@@ -124,7 +124,7 @@ fn generate_coefficients(k: u8, bits: usize) -> Vec<Scalar> {
 fn test_msm() {
     let mut libs = Libs::new();
 
-    let mut cpu_alloc = PinnedMemoryPool::new((MAX_K + 1) as u32, size_of::<MyField>());
+    let mut cpu_alloc = CpuMemoryPool::new((MAX_K + 1) as u32, size_of::<MyField>());
 
     for k in 16..=MAX_K {
         let msm_config = get_best_config::<MyRuntimeType>(1 << k, BATCHES, 4 * (1 << 30));

@@ -23,7 +23,10 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for TupleUntyped<Rt> {
                 let table = table.erase(cg);
                 Vertex::new(
                     VertexNode::PolyPermute(input, table, *usable_rows),
-                    Some(Typ::Tuple(vec![Typ::lagrange_with_deg(*usable_rows as u64), Typ::lagrange_with_deg(*usable_rows as u64)])),
+                    Some(Typ::Tuple(vec![
+                        Typ::lagrange_with_deg(*usable_rows as u64),
+                        Typ::lagrange_with_deg(*usable_rows as u64),
+                    ])),
                     self.src_lowered(),
                 )
             }
@@ -131,7 +134,7 @@ impl<Rt: RuntimeType> Tuple2<PolyLagrange<Rt>, PolyLagrange<Rt>, Rt> {
     pub fn plonk_permute(
         input: &PolyLagrange<Rt>,
         table: &PolyLagrange<Rt>,
-        usable_rows: usize
+        usable_rows: usize,
     ) -> Self {
         let src = SourceInfo::new(Location::caller().clone(), None);
         Self::wrap(TupleUntyped::new(
