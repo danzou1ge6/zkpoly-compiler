@@ -267,19 +267,26 @@ impl<F: Field> ScalarArray<F> {
             );
             return None;
         }
-        Some(Self {
-            values: self.values.clone(),
-            len,
-            rotate: 0,
-            device: self.device.clone(),
-            slice_info: Some(ScalarSlice {
+
+        let slice_info = if len == whole_len && offset == 0 {
+            None
+        } else {
+            Some(ScalarSlice {
                 offset,
                 whole_len: if self.slice_info.is_none() {
                     self.len
                 } else {
                     self.slice_info.as_ref().unwrap().whole_len
                 },
-            }),
+            })
+        };
+
+        Some(Self {
+            values: self.values.clone(),
+            len,
+            rotate: 0,
+            device: self.device.clone(),
+            slice_info,
         })
     }
 

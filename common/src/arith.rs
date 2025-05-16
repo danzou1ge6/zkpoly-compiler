@@ -320,16 +320,18 @@ where
     OuterId: Copy,
 {
     pub fn decide_chunking<T: Sized>(&mut self, gpu_mem_limit: u64) -> Option<u64> {
-        let ag_space = self.space_needed::<T>();
-        if (ag_space as f64) < gpu_mem_limit as f64 * 0.8 {
+        let (inputs_space, outputs_space) = self.space_needed::<T>();
+
+        if ((inputs_space + outputs_space) as f64) < gpu_mem_limit as f64 * 0.8 {
             None
         } else {
             let mut chunking = 4;
+            let total_space = 2 * inputs_space + 3 * outputs_space;
 
             // helper func
             let div_ceil = |a: usize, b: u64| (a as u64 + b - 1) / b;
 
-            while div_ceil(ag_space, chunking) * 3 > gpu_mem_limit {
+            while div_ceil(total_space, chunking) * 3 > gpu_mem_limit {
                 chunking *= 2;
             }
             assert!(self.poly_degree.unwrap() as u64 % chunking == 0);
@@ -436,14 +438,15 @@ where
         (vars, mut_vars)
     }
 
-    pub fn space_needed<T: Sized>(&self) -> usize {
+    pub fn space_needed<T: Sized>(&self) -> (usize, usize) {
         let poly_space = self.poly_degree.unwrap() * size_of::<T>();
         let scalar_space = size_of::<T>();
         let space_for_ft = |t| match t {
             FusedType::Scalar => scalar_space,
             FusedType::ScalarArray => poly_space,
         };
-        self.inputs
+        let inputs_space = self
+            .inputs
             .iter()
             .map(|i| space_for_ft(self.g.vertex(*i).op.unwrap_input_typ()))
             .chain(self.outputs.iter().filter_map(|i| {
@@ -454,7 +457,22 @@ where
                     Some(space_for_ft(*ft))
                 }
             }))
-            .sum()
+            .sum();
+
+        let outputs_space = self
+            .outputs
+            .iter()
+            .map(|i| {
+                let (_, ft, _, in_node) = self.g.vertex(*i).op.unwrap_output();
+                if in_node.is_some() {
+                    0
+                } else {
+                    space_for_ft(*ft)
+                }
+            })
+            .sum();
+        
+        (inputs_space, outputs_space)
     }
 
     pub fn uses<'s>(&'s self) -> impl Iterator<Item = OuterId> + 's {
