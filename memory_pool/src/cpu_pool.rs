@@ -115,7 +115,20 @@ impl CpuMemoryPool {
         let mut alloc_ptrs: Vec<NonNull<c_void>> = Vec::with_capacity(num_slabs);
         for _ in 0..num_slabs {
             match self.pool.allocate(self.max_log_factor) {
-                Ok(ptr_nn) => alloc_ptrs.push(ptr_nn),
+                Ok(ptr_nn) => {
+                    // if is mmaped, we have to visit the memory to ensure it's allocated
+                    if self.pool.is_mmaped() {
+                        for i in (0..self.base_size * (1 << self.max_log_factor)).step_by(4 * 1024)
+                        // 4KB
+                        {
+                            unsafe {
+                                // SAFETY: This is a no-op, just to ensure the memory is touched.
+                                *(ptr_nn.as_ptr().add(i) as *mut u8) = 0;
+                            }
+                        }
+                    }
+                    alloc_ptrs.push(ptr_nn)
+                }
                 Err(e) => {
                     // Log or handle preallocation failure for one slab
                     // For simplicity, we can panic or just print an error and continue
