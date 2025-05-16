@@ -144,9 +144,20 @@ impl DebugOptions {
 }
 
 #[derive(Debug, Clone)]
-pub struct HardwareInfo {
+pub struct GpuInfo {
     pub gpu_memory_limit: u64,
     pub gpu_smithereen_space: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct HardwareInfo {
+    pub gpus: Vec<GpuInfo>
+}
+
+impl HardwareInfo {
+    pub fn n_gpus(&self) -> usize {
+        self.gpus.len()
+    }
 }
 
 static GRAPHVIZ_INTERACTIVE_HTML_1: &'static str = r#"

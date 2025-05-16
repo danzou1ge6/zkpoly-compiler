@@ -11,7 +11,7 @@ use zkpoly_common::{
 use zkpoly_runtime::args::RuntimeType;
 
 use super::{
-    object_analysis::{ObjectUse, ObjectsDef, ObjectsDieAfter, VertexValue},
+    object_analysis::{ObjectUse, ObjectsDef, ObjectsDieAfter, VertexOutput},
     VertexId,
 };
 

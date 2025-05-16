@@ -41,10 +41,13 @@ macro_rules! define_usize_id {
 #[derive(Debug, Clone, Default)]
 pub struct IdAllocator<I>(usize, PhantomData<I>);
 
-impl<I: UsizeId> IdAllocator<I> {
+impl<I> IdAllocator<I> {
     pub fn new() -> Self {
         Self(0, PhantomData)
     }
+}
+
+impl<I: UsizeId> IdAllocator<I> {
     pub fn alloc(&mut self) -> I {
         let r = I::from(self.0);
         self.0 += 1;
@@ -61,6 +64,10 @@ impl<I: UsizeId> IdAllocator<I> {
 
     pub fn n_allocated(&self) -> usize {
         self.0
+    }
+
+    pub fn allocated_ids(&self) -> impl Iterator<Item = I> {
+        (0..self.n_allocated()).map(I::from)
     }
 }
 
@@ -100,6 +107,9 @@ impl<I: UsizeId, T> Heap<I, T> {
     }
     pub fn iter_with_id(&self) -> impl Iterator<Item = (I, &T)> {
         self.0.iter().enumerate().map(|(i, x)| (i.into(), x))
+    }
+    pub fn into_iter_with_id(self) -> impl Iterator<Item = (I, T)> {
+        self.0.into_iter().enumerate().map(|(i, x)| (i.into(), x))
     }
     pub fn map<I1, T1>(self, f: &mut impl FnMut(I, T) -> T1) -> Heap<I1, T1> {
         Heap(

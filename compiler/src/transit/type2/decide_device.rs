@@ -11,21 +11,22 @@ pub fn decide<'s, Rt: RuntimeType>(
     let mut devices = BTreeMap::new();
 
     for (vid, v) in g.topology_sort() {
+        use super::DevicePreference::*;
         let device = match v.device() {
-            Device::PreferGpu => {
+            PreferGpu => {
                 if g.successors_of(vid)
-                    .any(|vid| g.vertex(vid).device() == Device::Gpu)
+                    .any(|vid| g.vertex(vid).device() == Gpu)
                     || g.vertex(vid)
                         .predecessors()
                         .any(|vid| devices[&vid] == Device::Cpu)
                 {
-                    Device::Gpu
+                    Device::Gpu(0)
                 } else {
                     Device::Cpu
                 }
             }
-            Device::Gpu => Device::Gpu,
-            Device::Cpu => Device::Cpu,
+            Gpu => Device::Gpu(0),
+            Cpu => Device::Cpu,
         };
 
         devices.insert(vid, device);

@@ -229,7 +229,7 @@ where
     pub fn stack_allocable(&self) -> bool {
         use template::Typ::*;
         match self {
-            Tuple(..) => true,
+            Tuple(..) | Array(..) => true,
             _ => false,
         }
     }

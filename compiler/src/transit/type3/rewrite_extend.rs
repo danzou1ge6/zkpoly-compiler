@@ -117,7 +117,7 @@ pub fn rewrite<'s, Rt: RuntimeType>(chunk: Chunk<'s, Rt>) -> Chunk<'s, Rt> {
                     let t2 = ra.inherit_memory_block(
                         super::typ::Typ::ScalarArray {
                             len: deg,
-                            meta: PolyMeta::Sliced(Slice::new(0, deg0 as u64)),
+                            meta: Slice::new(0, deg0 as u64),
                         },
                         device,
                         t1,
@@ -125,7 +125,7 @@ pub fn rewrite<'s, Rt: RuntimeType>(chunk: Chunk<'s, Rt>) -> Chunk<'s, Rt> {
                     let t3 = ra.inherit_memory_block(
                         super::typ::Typ::ScalarArray {
                             len: deg,
-                            meta: PolyMeta::Sliced(Slice::new(0, deg0 as u64)),
+                            meta: Slice::new(0, deg0 as u64),
                         },
                         device,
                         r1,
