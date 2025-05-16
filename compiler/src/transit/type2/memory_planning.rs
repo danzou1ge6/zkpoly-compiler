@@ -198,6 +198,9 @@ struct Context {
     reg_device: BTreeMap<RegisterId, DeterminedDevice>,
     reg2mb: BTreeMap<RegisterId, MemoryBlock>,
     inplace_obj: BTreeMap<ObjectId, DeviceSpecific<bool>>,
+    cpu_obj_sizes: BTreeMap<ObjectId, Size>,
+    cpu_current_memory: u64,
+    cpu_peak_memory: u64
 }
 
 #[derive(Debug)]
@@ -238,6 +241,18 @@ impl Context {
 
         self.set_reg2obj(reg_id, device, obj_id);
     }
+
+    pub fn bookeep_cpu_obj(&mut self, obj_id: ObjectId, size: Size) {
+        self.cpu_obj_sizes.insert(obj_id, size);
+        self.cpu_current_memory += u64::from(size);
+        self.cpu_peak_memory = u64::max(self.cpu_current_memory, self.cpu_peak_memory)
+    }
+
+    pub fn unbookeep_cpu_obj(&mut self, obj_id: ObjectId) {
+        self.cpu_current_memory -= u64::from(self.cpu_obj_sizes[&obj_id]);
+        self.cpu_obj_sizes.remove(&obj_id);
+    }
+
 
     pub fn set_reg2obj(&mut self, reg_id: RegisterId, device: DeterminedDevice, obj_id: ObjectId) {
         let mb = match device {
@@ -812,6 +827,7 @@ fn allocate_cpu(
     if update_obj_residence {
         ctx.add_residence_for_object(obj_id, id, DeterminedDevice::Cpu);
     }
+    ctx.bookeep_cpu_obj(obj_id, size);
 }
 
 fn allocate_(
@@ -886,6 +902,8 @@ fn deallocate_cpu(obj_id: ObjectId, code: &mut Code, ctx: &mut Context) {
                 obj_id, reg_id
             );
         }
+
+        ctx.unbookeep_cpu_obj(obj_id);
     } else {
         if DEBUG {
             println!("[MP.deallocate] {:?} not alive on Cpu, skipping", obj_id);
@@ -1892,7 +1910,7 @@ pub fn plan<'s, Rt: RuntimeType>(
     uf_table: &user_function::Table<Rt>,
     mut obj_id_allocator: IdAllocator<ObjectId>,
     mut libs: Libs,
-) -> Result<Chunk<'s, Rt>, Error> {
+) -> Result<(Chunk<'s, Rt>, u64), Error> {
     let integral_sizes = collect_integral_sizes(cg, &g, &mut libs);
 
     if DEBUG {
@@ -1919,6 +1937,9 @@ pub fn plan<'s, Rt: RuntimeType>(
         reg_device: BTreeMap::new(),
         reg2mb: BTreeMap::new(),
         inplace_obj: BTreeMap::new(),
+        cpu_current_memory: 0,
+        cpu_obj_sizes: BTreeMap::new(),
+        cpu_peak_memory: 0,
     };
     let mut register_types = BTreeMap::new();
     let imctx = ImmutableContext {
@@ -1975,7 +1996,7 @@ pub fn plan<'s, Rt: RuntimeType>(
 
     let (register_types, reg_id_allocator) = code.1.freeze();
 
-    Ok(Chunk {
+    Ok((Chunk {
         instructions: code.0,
         register_types,
         register_devices: ctx.reg_device,
@@ -1985,5 +2006,5 @@ pub fn plan<'s, Rt: RuntimeType>(
         obj_id_allocator,
         libs,
         _phantom: PhantomData,
-    })
+    }, ctx.cpu_peak_memory))
 }

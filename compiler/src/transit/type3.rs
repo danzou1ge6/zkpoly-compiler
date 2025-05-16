@@ -116,6 +116,15 @@ impl From<u64> for Size {
     }
 }
 
+impl From<Size> for u64 {
+    fn from(value: Size) -> Self {
+        match value {
+            Size::Integral(is) => 2u64.pow(is.0),
+            Size::Smithereen(SmithereenSize(ss)) => ss,
+        }
+    }
+}
+
 impl std::ops::Div<u64> for Size {
     type Output = Size;
     fn div(self, rhs: u64) -> Self::Output {

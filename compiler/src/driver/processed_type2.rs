@@ -243,7 +243,7 @@ impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
 
         // To Type3 through Memory Planning
         let g = SubDigraph::new(&t2cg.g, t2cg.g.connected_component(t2cg.output));
-        let t3chunk = options.log_suround(
+        let (t3chunk, cpu_peak_memory) = options.log_suround(
             "Planning memory",
             || {
                 Ok(type2::memory_planning::plan(
@@ -266,6 +266,10 @@ impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
             },
             "Done.",
         )?;
+
+        if options.log {
+            println!("cpu peak memory is {}", human_readable_size(cpu_peak_memory));
+        }
 
         if options.debug_fresh_type3 {
             let mut f = std::fs::File::create(options.debug_dir.join("type3_fresh.html")).unwrap();
@@ -297,5 +301,24 @@ impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
         ct_header.dump_entries_data(&self.constant_table, &mut ct_f)?;
 
         Ok(())
+    }
+}
+
+fn human_readable_size(size: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = KB * 1024;
+    const GB: u64 = MB * 1024;
+    const TB: u64 = GB * 1024;
+
+    if size >= TB {
+        format!("{:.2} TB", size as f64 / TB as f64)
+    } else if size >= GB {
+        format!("{:.2} GB", size as f64 / GB as f64)
+    } else if size >= MB {
+        format!("{:.2} MB", size as f64 / MB as f64)
+    } else if size >= KB {
+        format!("{:.2} KB", size as f64 / KB as f64)
+    } else {
+        format!("{} B", size)
     }
 }
