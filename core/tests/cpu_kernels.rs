@@ -9,7 +9,7 @@ use rand_core::SeedableRng;
 use rand_xorshift::XorShiftRng;
 use zkpoly_core::cpu_kernels::InterpolateKernel;
 
-use zkpoly_memory_pool::PinnedMemoryPool;
+use zkpoly_memory_pool::CpuMemoryPool;
 use zkpoly_runtime::args::Variable;
 use zkpoly_runtime::devices::DeviceType;
 use zkpoly_runtime::functions::RegisteredFunction;
@@ -27,7 +27,7 @@ fn test_interpolate() {
         } => func,
         _ => panic!("expected Fn"),
     };
-    let mut cpu_pool = PinnedMemoryPool::new(K, size_of::<MyField>());
+    let mut cpu_pool = CpuMemoryPool::new(K, size_of::<MyField>());
     let len = 1 << K;
     let mut a = (0..len)
         .into_iter()

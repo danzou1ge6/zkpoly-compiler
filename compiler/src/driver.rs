@@ -16,7 +16,7 @@ use zkpoly_cuda_api::{
     bindings::{cudaDeviceSynchronize, cudaError_cudaSuccess, cudaGetErrorString},
     cuda_check,
 };
-use zkpoly_memory_pool::PinnedMemoryPool;
+use zkpoly_memory_pool::CpuMemoryPool;
 use zkpoly_runtime::args::{self, RuntimeType};
 
 use crate::{
@@ -146,7 +146,7 @@ impl DebugOptions {
 #[derive(Debug, Clone)]
 pub struct HardwareInfo {
     pub gpu_memory_limit: u64,
-    pub gpu_smithereen_space: u64
+    pub gpu_smithereen_space: u64,
 }
 
 static GRAPHVIZ_INTERACTIVE_HTML_1: &'static str = r#"

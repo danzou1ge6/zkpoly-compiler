@@ -2,7 +2,7 @@ use halo2curves::bn256;
 use std::mem::size_of;
 use std::ptr::copy_nonoverlapping;
 use zkpoly_cuda_api::stream::CudaStream;
-use zkpoly_memory_pool::PinnedMemoryPool;
+use zkpoly_memory_pool::CpuMemoryPool;
 use zkpoly_runtime::runtime::transfer::Transfer;
 use zkpoly_runtime::{devices::DeviceType, scalar::ScalarArray};
 
@@ -12,8 +12,8 @@ type TestField = bn256::Fr;
 // 辅助函数：创建一个CPU上的ScalarArray，使用PinnedMemoryPool
 fn create_cpu_array<const N: usize>(
     values: [TestField; N],
-) -> (ScalarArray<TestField>, PinnedMemoryPool) {
-    let mut pool = PinnedMemoryPool::new(10, size_of::<TestField>()); // 足够大的池
+) -> (ScalarArray<TestField>, CpuMemoryPool) {
+    let mut pool = CpuMemoryPool::new(10, size_of::<TestField>()); // 足够大的池
     let ptr = pool.allocate(N);
     unsafe {
         copy_nonoverlapping(values.as_ptr(), ptr, N);
@@ -127,7 +127,7 @@ fn test_rotate_slice_to_array_transfer() {
     <ScalarArray<TestField> as Transfer>::gpu2gpu(&slice, &mut dst_array, &stream);
 
     // 验证传输结果
-    let mut verify_pool = PinnedMemoryPool::new(10, size_of::<TestField>());
+    let mut verify_pool = CpuMemoryPool::new(10, size_of::<TestField>());
     let mut verify_array = ScalarArray::new(3, verify_pool.allocate(3), DeviceType::CPU);
     <ScalarArray<TestField> as Transfer>::gpu2cpu(&dst_array, &mut verify_array, &stream);
     stream.sync();
@@ -178,7 +178,7 @@ fn test_rotate_slice_to_rotate_array_transfer() {
     <ScalarArray<TestField> as Transfer>::gpu2gpu(&slice, &mut dst_array, &stream);
 
     // 验证传输结果
-    let mut verify_pool = PinnedMemoryPool::new(10, size_of::<TestField>());
+    let mut verify_pool = CpuMemoryPool::new(10, size_of::<TestField>());
     let mut verify_array = ScalarArray::new(3, verify_pool.allocate(3), DeviceType::CPU);
     <ScalarArray<TestField> as Transfer>::gpu2cpu(&dst_array, &mut verify_array, &stream);
     stream.sync();
@@ -227,7 +227,7 @@ fn test_rotate_array_to_rotate_slice_transfer() {
     <ScalarArray<TestField> as Transfer>::gpu2gpu(&src_array, &mut dst_slice, &stream);
 
     // 验证传输结果
-    let mut verify_pool = PinnedMemoryPool::new(10, size_of::<TestField>());
+    let mut verify_pool = CpuMemoryPool::new(10, size_of::<TestField>());
     let mut verify_array = ScalarArray::new(8, verify_pool.allocate(8), DeviceType::CPU);
     <ScalarArray<TestField> as Transfer>::gpu2cpu(&gpu_array, &mut verify_array, &stream);
     stream.sync();
@@ -276,7 +276,7 @@ fn test_rotate_slice_to_slice_transfer() {
     <ScalarArray<TestField> as Transfer>::gpu2gpu(&src_slice, &mut dst_slice, &stream);
 
     // 验证传输结果
-    let mut verify_pool = PinnedMemoryPool::new(10, size_of::<TestField>());
+    let mut verify_pool = CpuMemoryPool::new(10, size_of::<TestField>());
     let mut verify_array = ScalarArray::new(8, verify_pool.allocate(8), DeviceType::CPU);
     <ScalarArray<TestField> as Transfer>::gpu2cpu(&dst_array, &mut verify_array, &stream);
     stream.sync();

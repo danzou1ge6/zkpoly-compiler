@@ -1,7 +1,7 @@
 use super::{processed_type3::ProcessedType3, type3};
 use std::io::Write;
 use zkpoly_common::load_dynamic::Libs;
-use zkpoly_memory_pool::PinnedMemoryPool;
+use zkpoly_memory_pool::CpuMemoryPool;
 use zkpoly_runtime::args::RuntimeType;
 
 use super::{
@@ -13,7 +13,7 @@ pub struct FreshType3<'s, Rt: RuntimeType> {
     pub(super) chunk: type3::Chunk<'s, Rt>,
     pub(super) uf_table: type2::user_function::Table<Rt>,
     pub(super) constant_table: type2::ConstantTable<Rt>,
-    pub(super) allocator: PinnedMemoryPool,
+    pub(super) allocator: CpuMemoryPool,
 }
 
 impl<'s, Rt: RuntimeType> FreshType3<'s, Rt> {

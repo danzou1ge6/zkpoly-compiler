@@ -9,7 +9,7 @@ use zkpoly_cuda_api::{
     mem::{alloc_pinned, free_pinned},
     stream::CudaStream,
 };
-use zkpoly_memory_pool::PinnedMemoryPool;
+use zkpoly_memory_pool::CpuMemoryPool;
 
 use crate::{devices::DeviceType, runtime::transfer::Transfer};
 
@@ -206,7 +206,7 @@ impl<F: Field> ScalarArray<F> {
         }
     }
 
-    pub fn alloc_cpu(len: usize, allocator: &mut PinnedMemoryPool) -> Self {
+    pub fn alloc_cpu(len: usize, allocator: &mut CpuMemoryPool) -> Self {
         let ptr = allocator.allocate(len);
         Self {
             values: ptr,
@@ -217,7 +217,7 @@ impl<F: Field> ScalarArray<F> {
         }
     }
 
-    pub fn from_vec(v: &[F], allocator: &mut PinnedMemoryPool) -> Self {
+    pub fn from_vec(v: &[F], allocator: &mut CpuMemoryPool) -> Self {
         let r = Self::alloc_cpu(v.len(), allocator);
         unsafe {
             std::ptr::copy_nonoverlapping(v.as_ptr(), r.values, v.len());
@@ -228,7 +228,7 @@ impl<F: Field> ScalarArray<F> {
     pub fn from_iter(
         v: impl Iterator<Item = F>,
         len: usize,
-        allocator: &mut PinnedMemoryPool,
+        allocator: &mut CpuMemoryPool,
     ) -> Self {
         let r = Self::alloc_cpu(len, allocator);
         for (i, x) in v.take(len).enumerate() {

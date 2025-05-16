@@ -1,6 +1,6 @@
 use std::io::{Read, Write};
 use zkpoly_common::load_dynamic::Libs;
-use zkpoly_memory_pool::PinnedMemoryPool;
+use zkpoly_memory_pool::CpuMemoryPool;
 use zkpoly_runtime::args::{self, RuntimeType};
 
 use super::{
@@ -17,7 +17,7 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
     pub fn from_ast(
         ast: impl ast::TypeEraseable<Rt>,
         options: &DebugOptions,
-        allocator: PinnedMemoryPool,
+        allocator: CpuMemoryPool,
         ctx: &PanicJoinHandler,
     ) -> Result<Self, Error<'s, Rt>> {
         let (ast_cg, output_vid) = options.log_suround(
@@ -243,7 +243,10 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
         })
     }
 
-    pub fn load_artifect(mut self, dir: impl AsRef<std::path::Path>) -> std::io::Result<Artifect<Rt>> {
+    pub fn load_artifect(
+        mut self,
+        dir: impl AsRef<std::path::Path>,
+    ) -> std::io::Result<Artifect<Rt>> {
         let mut chunk_f = std::fs::File::open(dir.as_ref().join("chunk.json"))?;
         let rt_chunk_deserializer: type3::lowering::serialization::ChunkDeserializer =
             serde_json::from_reader(&mut chunk_f)?;

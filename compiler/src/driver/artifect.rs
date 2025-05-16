@@ -1,7 +1,7 @@
 use super::fresh_type3::FreshType3;
 use std::io::Write;
 use zkpoly_common::load_dynamic::Libs;
-use zkpoly_memory_pool::PinnedMemoryPool;
+use zkpoly_memory_pool::CpuMemoryPool;
 use zkpoly_runtime::args::{self, RuntimeType};
 
 use super::{
@@ -13,7 +13,7 @@ use super::{
 pub struct Artifect<Rt: RuntimeType> {
     pub(super) chunk: type3::lowering::Chunk<Rt>,
     pub(super) constant_table: args::ConstantTable<Rt>,
-    pub(super) allocator: PinnedMemoryPool,
+    pub(super) allocator: CpuMemoryPool,
 }
 
 impl<Rt: RuntimeType> Artifect<Rt> {
@@ -52,7 +52,7 @@ impl<Rt: RuntimeType> Artifect<Rt> {
         )
     }
 
-    pub fn allocator(&mut self) -> &mut PinnedMemoryPool {
+    pub fn allocator(&mut self) -> &mut CpuMemoryPool {
         &mut self.allocator
     }
 }

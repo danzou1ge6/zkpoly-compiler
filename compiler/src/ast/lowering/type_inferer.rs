@@ -473,9 +473,7 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
                 let tdeg = self.try_unwrap_poly_typ(cg, *table, PolyType::Lagrange, &err)?;
 
                 if ideg != tdeg {
-                    return Err(err(ErrorNode::PolyPermuteInconsistentDegrees(
-                        ideg, tdeg,
-                    )));
+                    return Err(err(ErrorNode::PolyPermuteInconsistentDegrees(ideg, tdeg)));
                 }
                 if ideg < *usable_rows as u64 {
                     return Err(err(ErrorNode::PolyPermuteInputLengthLessThanUsableRows {
@@ -484,7 +482,10 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
                     }));
                 }
 
-                type2::Typ::Tuple(vec![type2::Typ::lagrange(*usable_rows as u64), type2::Typ::lagrange(*usable_rows as u64)])
+                type2::Typ::Tuple(vec![
+                    type2::Typ::lagrange(*usable_rows as u64),
+                    type2::Typ::lagrange(*usable_rows as u64),
+                ])
             }
         };
         if let Some(annotated_typ) = v.typ() {

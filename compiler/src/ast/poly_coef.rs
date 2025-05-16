@@ -3,7 +3,7 @@ use std::ops::{Add, Mul, Neg, Sub};
 use zkpoly_common::typ::PolyType;
 
 use type2::NttAlgorithm;
-use zkpoly_memory_pool::PinnedMemoryPool;
+use zkpoly_memory_pool::CpuMemoryPool;
 
 use super::*;
 
@@ -200,7 +200,7 @@ impl<Rt: RuntimeType> PolyCoef<Rt> {
     }
 
     #[track_caller]
-    pub fn constant(values: &[Rt::Field], allocator: &mut PinnedMemoryPool) -> Self {
+    pub fn constant(values: &[Rt::Field], allocator: &mut CpuMemoryPool) -> Self {
         let src = SourceInfo::new(Location::caller().clone(), None);
         PolyCoef::new(
             PolyCoefNode::Constant(rt::scalar::ScalarArray::from_vec(values, allocator)),
@@ -212,7 +212,7 @@ impl<Rt: RuntimeType> PolyCoef<Rt> {
     pub fn constant_from_iter(
         values: impl Iterator<Item = Rt::Field>,
         len: u64,
-        allocator: &mut PinnedMemoryPool,
+        allocator: &mut CpuMemoryPool,
     ) -> Self {
         let src = SourceInfo::new(Location::caller().clone(), None);
         PolyCoef::new(

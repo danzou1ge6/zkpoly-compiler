@@ -9,7 +9,10 @@ pub fn print_subgraph_vertices<I: Copy, Ii>(
     vertex_name_prefix: &str,
     all_output_id: String,
     writer: &mut impl Write,
-) -> std::io::Result<()> where Ii: UsizeId {
+) -> std::io::Result<()>
+where
+    Ii: UsizeId,
+{
     // Node settings
     writeln!(writer, "    // Node settings")?;
     writeln!(writer, "    node [")?;
@@ -25,7 +28,11 @@ pub fn print_subgraph_vertices<I: Copy, Ii>(
         writeln!(
             writer,
             "    {}{} [id = \"v{}{}\", label=\"{}\", style=solid]",
-            vertex_name_prefix, v.into(), vertex_name_prefix, v.into(), label
+            vertex_name_prefix,
+            v.into(),
+            vertex_name_prefix,
+            v.into(),
+            label
         )?;
     }
 
@@ -46,7 +53,10 @@ pub fn print_subgraph_edges<I: Copy + Eq, Ii>(
     vid: impl Fn(I) -> String,
     writer: &mut impl Write,
     edge_tooltips: Option<Vec<(I, String)>>,
-) -> std::io::Result<()> where Ii: UsizeId {
+) -> std::io::Result<()>
+where
+    Ii: UsizeId,
+{
     for v in ag.g.vertices() {
         let op = &ag.g.vertex(v).op;
         // Write internal edges

@@ -9,7 +9,7 @@ use crate::{
 
 use super::{Constant, ConstantId, ConstantTable, RuntimeType, Variable};
 use zkpoly_common::typ::Typ;
-use zkpoly_memory_pool::PinnedMemoryPool;
+use zkpoly_memory_pool::CpuMemoryPool;
 
 impl<Rt: RuntimeType> Variable<Rt> {
     pub fn dump_binary(&self, writer: &mut impl Write) -> io::Result<()> {
@@ -78,7 +78,7 @@ impl<Rt: RuntimeType> Variable<Rt> {
     pub fn load_binary(
         typ: &Typ,
         reader: &mut impl Read,
-        allocator: &mut PinnedMemoryPool,
+        allocator: &mut CpuMemoryPool,
     ) -> io::Result<Self> {
         match typ {
             Typ::ScalarArray { len, .. } => {
@@ -194,7 +194,7 @@ impl Header {
         &self,
         ct: &mut ConstantTable<Rt>,
         reader: &mut (impl Read + Seek),
-        allocator: &mut PinnedMemoryPool,
+        allocator: &mut CpuMemoryPool,
     ) -> io::Result<()> {
         for (i, entry) in self.entries.iter().enumerate() {
             if let Some((offset, _size)) = entry.position {

@@ -36,10 +36,10 @@ impl<T: SegmentValue> Default for MaxInfo<T> {
 
 #[derive(Debug, Clone)]
 struct Node<T: SegmentValue> {
-    left: usize,        // 区间左端点 (0-indexed)
-    right: usize,       // 区间右端点 (0-indexed)
+    left: usize,          // 区间左端点 (0-indexed)
+    right: usize,         // 区间右端点 (0-indexed)
     max_info: MaxInfo<T>, // 区间最大值及其索引
-    set_tag: Option<T>, // 区间赋值的懒标记: node.val = tag_val
+    set_tag: Option<T>,   // 区间赋值的懒标记: node.val = tag_val
 }
 
 impl<T: SegmentValue> Default for Node<T> {
@@ -69,10 +69,7 @@ impl<T: SegmentValue> SegmentTree<T> {
             };
         }
         let tree = vec![Node::default(); 4 * n];
-        let mut st = SegmentTree {
-            tree,
-            data_len: n,
-        };
+        let mut st = SegmentTree { tree, data_len: n };
         st.build(0, 0, n - 1, data);
         st
     }
@@ -83,7 +80,10 @@ impl<T: SegmentValue> SegmentTree<T> {
         self.tree[u].set_tag = None;
 
         if l == r {
-            self.tree[u].max_info = MaxInfo { value: data[l], index: l };
+            self.tree[u].max_info = MaxInfo {
+                value: data[l],
+                index: l,
+            };
             return;
         }
 
@@ -108,7 +108,10 @@ impl<T: SegmentValue> SegmentTree<T> {
 
     // 应用赋值标记到节点 u
     fn apply_set_tag(&mut self, u: usize, tag_val: T) {
-        self.tree[u].max_info = MaxInfo { value: tag_val, index: self.tree[u].left }; // 区间赋值后，最大值索引默认为区间左端点
+        self.tree[u].max_info = MaxInfo {
+            value: tag_val,
+            index: self.tree[u].left,
+        }; // 区间赋值后，最大值索引默认为区间左端点
         self.tree[u].set_tag = Some(tag_val);
     }
 
@@ -186,16 +189,18 @@ impl<T: SegmentValue> SegmentTree<T> {
 
         if query_l <= mid {
             let left_info = self._query_max_info(ls, query_l, query_r);
-            if left_info.value >= res_info.value { //  >= 保证取最左边的索引
+            if left_info.value >= res_info.value {
+                //  >= 保证取最左边的索引
                 res_info = left_info;
             }
         }
         if query_r > mid {
             let right_info = self._query_max_info(rs, query_l, query_r);
             if right_info.value > res_info.value {
-                 res_info = right_info;
-            } else if right_info.value == res_info.value && right_info.index < res_info.index { // 如果值相等，取更小的索引
-                 res_info = right_info;
+                res_info = right_info;
+            } else if right_info.value == res_info.value && right_info.index < res_info.index {
+                // 如果值相等，取更小的索引
+                res_info = right_info;
             }
         }
         res_info
@@ -253,11 +258,11 @@ mod tests {
         assert_eq!(info3.index, 1); // apply_set_tag 将 index 设置为区间的 left
 
         st.modify_set(0, 4, 50); // data 变为 [50,50,50,50,50]
-        let info4 = st.query_max_info(0,4).unwrap();
+        let info4 = st.query_max_info(0, 4).unwrap();
         assert_eq!(info4.value, 50);
         assert_eq!(info4.index, 0); // apply_set_tag 将 index 设置为区间的 left
 
-        let info5 = st.query_max_info(2,3).unwrap();
+        let info5 = st.query_max_info(2, 3).unwrap();
         assert_eq!(info5.value, 50);
         assert_eq!(info5.index, 2); // apply_set_tag 将 index 设置为区间的 left
     }
@@ -283,15 +288,15 @@ mod tests {
 
     #[test]
     fn test_set_tag_index_logic() {
-        let data: [i64; 5] = [1,2,3,4,5];
+        let data: [i64; 5] = [1, 2, 3, 4, 5];
         let mut st = SegmentTree::new(&data);
-        st.modify_set(1,3,10); // [1, 10, 10, 10, 5]
-                               // Node for [1,3] will have max_info {value: 10, index: 1}
-        let info = st.query_max_info(1,3).unwrap();
+        st.modify_set(1, 3, 10); // [1, 10, 10, 10, 5]
+                                 // Node for [1,3] will have max_info {value: 10, index: 1}
+        let info = st.query_max_info(1, 3).unwrap();
         assert_eq!(info.value, 10);
         assert_eq!(info.index, 1); // Querying the exact modified range
 
-        let info_overall = st.query_max_info(0,4).unwrap(); // Max of [1,10,10,10,5]
+        let info_overall = st.query_max_info(0, 4).unwrap(); // Max of [1,10,10,10,5]
         assert_eq!(info_overall.value, 10);
         assert_eq!(info_overall.index, 1); // Index 1 is the first 10
     }

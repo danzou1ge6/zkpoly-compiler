@@ -2,7 +2,7 @@ use halo2curves::bn256;
 use std::mem::size_of;
 use std::ptr::copy_nonoverlapping;
 use zkpoly_cuda_api::stream::CudaStream;
-use zkpoly_memory_pool::PinnedMemoryPool;
+use zkpoly_memory_pool::CpuMemoryPool;
 use zkpoly_runtime::runtime::transfer::Transfer;
 use zkpoly_runtime::{devices::DeviceType, scalar::ScalarArray};
 
@@ -12,8 +12,8 @@ type TestField = bn256::Fr;
 // 辅助函数：创建一个CPU上的ScalarArray，使用PinnedMemoryPool
 fn create_cpu_array<const N: usize>(
     values: [TestField; N],
-) -> (ScalarArray<TestField>, PinnedMemoryPool) {
-    let mut pool = PinnedMemoryPool::new(10, size_of::<TestField>()); // 足够大的池
+) -> (ScalarArray<TestField>, CpuMemoryPool) {
+    let mut pool = CpuMemoryPool::new(10, size_of::<TestField>()); // 足够大的池
     let ptr = pool.allocate(N);
     unsafe {
         copy_nonoverlapping(values.as_ptr(), ptr, N);
@@ -174,7 +174,7 @@ fn test_gpu_transfers() {
     <ScalarArray<TestField> as Transfer>::cpu2gpu(&slice, &mut gpu_slice, &stream);
 
     // 验证切片传输
-    let mut verify_pool = PinnedMemoryPool::new(10, size_of::<TestField>());
+    let mut verify_pool = CpuMemoryPool::new(10, size_of::<TestField>());
     let mut verify_array = ScalarArray::new(4, verify_pool.allocate(4), DeviceType::CPU);
     <ScalarArray<TestField> as Transfer>::gpu2cpu(&gpu_slice, &mut verify_array, &stream);
     stream.sync();
@@ -266,7 +266,7 @@ fn test_gpu_slice_memory_safety() {
             device_id: stream.get_device(),
         },
     );
-    let mut verify_pool = PinnedMemoryPool::new(10, size_of::<TestField>());
+    let mut verify_pool = CpuMemoryPool::new(10, size_of::<TestField>());
     let mut verify_array = ScalarArray::new(4, verify_pool.allocate(4), DeviceType::CPU);
     <ScalarArray<TestField> as Transfer>::gpu2gpu(&slice, &mut gpu_slice, &stream);
     <ScalarArray<TestField> as Transfer>::gpu2cpu(&gpu_slice, &mut verify_array, &stream);

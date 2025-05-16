@@ -10,7 +10,7 @@ impl CpuEvent {
     pub fn reset(&mut self) {
         self.notified.store(false, Ordering::SeqCst);
     }
-    
+
     pub fn new() -> Self {
         Self {
             event: Event::new(),

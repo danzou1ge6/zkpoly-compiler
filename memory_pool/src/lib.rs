@@ -1,4 +1,3 @@
-pub mod pinned_pool;
+pub mod cpu_pool;
 pub mod memory_pool;
-pub use pinned_pool::PinnedMemoryPool;
-
+pub use cpu_pool::CpuMemoryPool;

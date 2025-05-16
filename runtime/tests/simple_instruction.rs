@@ -4,7 +4,7 @@ use zkpoly_common::typ::Typ;
 use zkpoly_core::poly::{PolyAdd, PolyZero};
 use zkpoly_cuda_api::mem::CudaAllocator;
 use zkpoly_cuda_api::stream::CudaEvent;
-use zkpoly_memory_pool::PinnedMemoryPool;
+use zkpoly_memory_pool::CpuMemoryPool;
 use zkpoly_runtime::args::{ConstantTable, EntryTable, RuntimeType, Variable, VariableTable};
 use zkpoly_runtime::async_rng::AsyncRng;
 use zkpoly_runtime::devices::{DeviceType, Event, EventTable};
@@ -34,7 +34,7 @@ fn test_add() {
     let k = 20;
     let len = 1 << k;
 
-    let mut compiler_alloc = PinnedMemoryPool::new(k, size_of::<MyField>());
+    let mut compiler_alloc = CpuMemoryPool::new(k, size_of::<MyField>());
     let mut a_in = Variable::ScalarArray(ScalarArray::new(
         len,
         compiler_alloc.allocate(len),
@@ -160,7 +160,7 @@ fn test_add() {
     instructions.push(Instruction::Deallocate { id: idc_d });
     instructions.push(Instruction::Deallocate { id: stream_id });
 
-    let cpu_alloc = PinnedMemoryPool::new(k, size_of::<MyField>());
+    let cpu_alloc = CpuMemoryPool::new(k, size_of::<MyField>());
     let gpu_alloc = CudaAllocator::new(0, len * size_of::<MyField>() * 3, true);
 
     let mut runtime = Runtime::new(
@@ -212,8 +212,8 @@ fn test_extend() {
     let len = 1 << k;
     let half_len = len / 2;
 
-    let mut compiler_alloc = PinnedMemoryPool::new(k, size_of::<MyField>());
-    let cpu_alloc = PinnedMemoryPool::new(k, size_of::<MyField>());
+    let mut compiler_alloc = CpuMemoryPool::new(k, size_of::<MyField>());
+    let cpu_alloc = CpuMemoryPool::new(k, size_of::<MyField>());
     let gpu_alloc = CudaAllocator::new(0, 2usize.pow(20), true);
 
     let mut a_in = Variable::ScalarArray(ScalarArray::new(

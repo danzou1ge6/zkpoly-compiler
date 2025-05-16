@@ -35,16 +35,15 @@ pub fn decide_mutable<'s, Rt: RuntimeType>(
                 Device::Gpu
             };
 
-            let inputs_values =
-                arith
-                    .inputs
-                    .iter()
-                    .map(|&eid| {
-                        let vid = *arith.g.vertex(eid).op.unwrap_input_outerid();
-                        let v = obj_def.values[&vid].unwrap_single().clone();
-                        (eid, v)
-                    })
-                    .collect::<BTreeMap<_, _>>();
+            let inputs_values = arith
+                .inputs
+                .iter()
+                .map(|&eid| {
+                    let vid = *arith.g.vertex(eid).op.unwrap_input_outerid();
+                    let v = obj_def.values[&vid].unwrap_single().clone();
+                    (eid, v)
+                })
+                .collect::<BTreeMap<_, _>>();
 
             let mut mutated_inputs = BTreeSet::new();
 

@@ -71,14 +71,22 @@ pub fn cse<'s, Rt: RuntimeType>(cg: Cg<'s, Rt>) -> Cg<'s, Rt> {
 
         // insert new node
         if !class2new_id.contains_key(&class) {
-            let new_node: VertexNode = node
-                .relabeled(&mut |vid| class2new_id.get(vid2class.get(&vid).unwrap()).cloned().unwrap());
+            let new_node: VertexNode = node.relabeled(&mut |vid| {
+                class2new_id
+                    .get(vid2class.get(&vid).unwrap())
+                    .cloned()
+                    .unwrap()
+            });
             let new_vid = new_graph.add_vertex(Vertex::new(new_node, typ, src));
             class2new_id.insert(class.clone(), new_vid);
         } else {
             // update src info
             let new_vid = class2new_id.get(&class).unwrap().clone();
-            new_graph.vertex_mut(new_vid).src_mut().location.extend(src.location);
+            new_graph
+                .vertex_mut(new_vid)
+                .src_mut()
+                .location
+                .extend(src.location);
             // check type
             assert_eq!(
                 *new_graph.vertex(new_vid).typ(),
@@ -93,7 +101,10 @@ pub fn cse<'s, Rt: RuntimeType>(cg: Cg<'s, Rt>) -> Cg<'s, Rt> {
     }
 
     let (new_cg, changed) = tackle_equality_transforms(Cg {
-        output: class2new_id.get(vid2class.get(&cg.output).unwrap()).cloned().unwrap(),
+        output: class2new_id
+            .get(vid2class.get(&cg.output).unwrap())
+            .cloned()
+            .unwrap(),
         g: new_graph,
     });
     if changed {
@@ -111,8 +122,8 @@ pub fn tackle_equality_transforms<'s, Rt: RuntimeType>(mut cg: Cg<'s, Rt>) -> (C
     for (vid, v) in cg.g.topology_sort() {
         match v.node() {
             VertexNode::AssertEq(lhs, rhs, _) => {
-            equality_nodes_mapping.union(lhs.clone().into(), vid.into());
-            equality_nodes_mapping.union(rhs.clone().into(), vid.into());
+                equality_nodes_mapping.union(lhs.clone().into(), vid.into());
+                equality_nodes_mapping.union(rhs.clone().into(), vid.into());
             }
             VertexNode::Print(src, _) => {
                 equality_nodes_mapping.union(src.clone().into(), vid.into());
@@ -122,7 +133,7 @@ pub fn tackle_equality_transforms<'s, Rt: RuntimeType>(mut cg: Cg<'s, Rt>) -> (C
     }
 
     let mut has_change = false;
-    let mut mapping = |vid: VertexId| {VertexId::from(equality_nodes_mapping.find(vid.into()))};
+    let mut mapping = |vid: VertexId| VertexId::from(equality_nodes_mapping.find(vid.into()));
     cg.g.vertices().for_each(|vid| {
         let node = cg.g.vertex(vid).node().clone();
         let new_node = match node {

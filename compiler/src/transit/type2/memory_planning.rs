@@ -64,8 +64,8 @@ fn normalize_size(size: Size) -> Size {
 pub struct Instant(pub(super) usize);
 
 mod integral_allocator;
-mod smithereens_allocator;
 mod page_allocator;
+mod smithereens_allocator;
 
 trait AddrMappingHandler {
     fn add(&mut self, addr: Addr, size: Size) -> AddrId;
@@ -724,10 +724,12 @@ impl GpuAllocator {
     }
 
     pub fn deallocate(&mut self, obj_id: ObjectId, code: &mut Code, ctx: &mut Context) {
-        if let Some(reg_id) = ctx
-            .pop_residence_of_object(obj_id, DeterminedDevice::Gpu)
-        {
-            let addr: AddrId = ctx.gpu_obj2addr.get_forward(&obj_id).cloned().unwrap_or_else(|| panic!("no GPU addr recorded for {:?}", obj_id));
+        if let Some(reg_id) = ctx.pop_residence_of_object(obj_id, DeterminedDevice::Gpu) {
+            let addr: AddrId = ctx
+                .gpu_obj2addr
+                .get_forward(&obj_id)
+                .cloned()
+                .unwrap_or_else(|| panic!("no GPU addr recorded for {:?}", obj_id));
 
             let (_, size) = ctx.gpu_addr_mapping[addr];
             match size {
@@ -1464,7 +1466,8 @@ fn plan_vertex<'s, Rt: RuntimeType>(
         .vertex(vid)
         .outputs_inplace(uf_table, exe_device)
         .collect();
-    let inplace_inputs_objects: BTreeSet<ObjectId> = outputs_inplace.iter()
+    let inplace_inputs_objects: BTreeSet<ObjectId> = outputs_inplace
+        .iter()
         .filter_map(|x| *x)
         .map(|vid| imctx.obj_def.values[&vid].unwrap_single().object_id())
         .collect();
@@ -1478,8 +1481,7 @@ fn plan_vertex<'s, Rt: RuntimeType>(
         .uses()
         .zip(imctx.vertex_inputs.input_of(vid))
         .map(|(input_vid, input_vv)| {
-            if mutable_uses.contains(&input_vid) && 
-                input_vv.try_unwrap_single().is_some_and(|v| inplace_inputs_objects.contains(&v.object_id())) {
+            if mutable_uses.contains(&input_vid) && input_vv.try_unwrap_single().is_some_and(|v| inplace_inputs_objects.contains(&v.object_id())) {
                 let input_value = match input_vv {
                     VertexValue::Single(input_value) => input_value.clone(),
                     VertexValue::Tuple(..) => {
@@ -1491,7 +1493,6 @@ fn plan_vertex<'s, Rt: RuntimeType>(
 
                 let (tmp_obj_id, typ) = if let Some(tmp_obj_id) =
                     mutable_object2temp.get(&input_value.object_id()) {
- 
                     if DEBUG {
                         println!(
                             "[MP.plan] {:?} is inplace input of {:?} from {:?}, using already assigned temporary {:?}",
@@ -1844,9 +1845,12 @@ fn plan_vertex<'s, Rt: RuntimeType>(
         .for_each(|((output_reg, _), typ)| {
             register_types.insert(*output_reg, typ.clone());
         });
-    
+
     if DEBUG {
-        println!("[MP.plan] Outputs registers of {:?} are {:?}", vid, &output_registers);
+        println!(
+            "[MP.plan] Outputs registers of {:?} are {:?}",
+            vid, &output_registers
+        );
     }
 
     code.emit(Instruction::new(

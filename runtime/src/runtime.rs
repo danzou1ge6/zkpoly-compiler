@@ -21,13 +21,9 @@ use crate::{
     instructions::Instruction,
 };
 
-use zkpoly_cuda_api::{
-    bindings::cudaDeviceSynchronize,
-    cuda_check,
-    mem::CudaAllocator,
-};
+use zkpoly_cuda_api::{bindings::cudaDeviceSynchronize, cuda_check, mem::CudaAllocator};
 
-use zkpoly_memory_pool::PinnedMemoryPool;
+use zkpoly_memory_pool::CpuMemoryPool;
 
 pub mod alloc;
 pub mod assert_eq;
@@ -40,7 +36,7 @@ pub struct Runtime<T: RuntimeType> {
     funcs: FunctionTable<T>,
     events: EventTable,
     threads: ThreadTable,
-    mem_allocator: PinnedMemoryPool,
+    mem_allocator: CpuMemoryPool,
     gpu_allocator: Vec<CudaAllocator>,
     rng: AsyncRng,
     _libs: Libs,
@@ -66,7 +62,7 @@ impl<T: RuntimeType> Runtime<T> {
         funcs: FunctionTable<T>,
         events: EventTable,
         n_threads: usize,
-        mem_allocator: PinnedMemoryPool,
+        mem_allocator: CpuMemoryPool,
         gpu_allocator: Vec<CudaAllocator>,
         rng: AsyncRng,
         libs: Libs,
@@ -91,9 +87,9 @@ impl<T: RuntimeType> Runtime<T> {
             Event::ThreadEvent(e) => e.reset(),
         });
         for (i, var) in self.variable.0.iter_mut().enumerate() {
-            // if let Some(_) = var {
-            //     println!("var {} is not eliminated", i);
-            // }
+            if let Some(_) = var {
+                println!("var {} is not eliminated", i);
+            }
             *var = None;
         }
     }
@@ -163,7 +159,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
     pub unsafe fn run(
         &self,
         instructions: Vec<Instruction>,
-        mut mem_allocator: Option<&mut PinnedMemoryPool>,
+        mut mem_allocator: Option<&mut CpuMemoryPool>,
         mut gpu_allocator: Option<&mut Vec<CudaAllocator>>,
         epilogue: Option<Sender<i32>>,
         _thread_id: usize,

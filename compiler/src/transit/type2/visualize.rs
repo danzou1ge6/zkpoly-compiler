@@ -136,7 +136,6 @@ pub fn write_graph_with_optional_seq<'s, Ty: Debug>(
             continue;
         }
 
-
         if print_seq {
             label.push_str(&format!("({})", i));
         }

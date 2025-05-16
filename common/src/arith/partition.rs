@@ -13,11 +13,7 @@ where
     OuterId: UsizeId,
     ArithIndex: UsizeId + 'static,
 {
-    pub fn partition(
-        &self,
-        order: &Vec<ArithIndex>,
-        chunk_upper_bound: usize,
-    ) -> Vec<usize> {
+    pub fn partition(&self, order: &Vec<ArithIndex>, chunk_upper_bound: usize) -> Vec<usize> {
         let len = self.g.order();
         let out_degs = self.g.degrees_out_no_multiedge();
         let succ = self.g.successors();

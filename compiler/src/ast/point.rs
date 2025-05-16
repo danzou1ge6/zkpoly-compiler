@@ -1,4 +1,4 @@
-use zkpoly_memory_pool::PinnedMemoryPool;
+use zkpoly_memory_pool::CpuMemoryPool;
 
 use super::*;
 use crate::utils::log2;
@@ -10,7 +10,7 @@ pub type PrecomputedPoints<Rt: RuntimeType> = Outer<PrecomputedPointsData<Rt>>;
 
 impl<Rt: RuntimeType> PrecomputedPoints<Rt> {
     #[track_caller]
-    pub fn construct(points: &[Rt::PointAffine], allocator: &mut PinnedMemoryPool) -> Self {
+    pub fn construct(points: &[Rt::PointAffine], allocator: &mut CpuMemoryPool) -> Self {
         if let Some(log_n) = log2(points.len() as u64) {
             let src = SourceInfo::new(Location::caller().clone(), None);
             Self::new(

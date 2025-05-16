@@ -6,7 +6,7 @@ use zkpoly_cuda_api::{
     mem::{alloc_pinned, free_pinned},
     stream::CudaStream,
 };
-use zkpoly_memory_pool::PinnedMemoryPool;
+use zkpoly_memory_pool::CpuMemoryPool;
 
 #[derive(Clone)]
 pub struct Point<P: CurveAffine> {
@@ -86,7 +86,7 @@ impl<P: CurveAffine> PointArray<P> {
         }
     }
 
-    pub fn alloc_cpu(len: usize, allocator: &mut PinnedMemoryPool) -> Self {
+    pub fn alloc_cpu(len: usize, allocator: &mut CpuMemoryPool) -> Self {
         let ptr = allocator.allocate(len);
         Self {
             values: ptr,
@@ -95,7 +95,7 @@ impl<P: CurveAffine> PointArray<P> {
         }
     }
 
-    pub fn from_vec(vec: &[P], allocator: &mut PinnedMemoryPool) -> Self {
+    pub fn from_vec(vec: &[P], allocator: &mut CpuMemoryPool) -> Self {
         let r = Self::alloc_cpu(vec.len(), allocator);
         unsafe {
             std::ptr::copy_nonoverlapping(vec.as_ptr(), r.values, vec.len());
@@ -172,9 +172,9 @@ impl<P: CurveAffine> Transfer for PointArray<P> {
 #[test]
 fn test_compare_point_array() {
     use halo2curves::bn256::G1Affine as G1;
-    use zkpoly_memory_pool::PinnedMemoryPool;
+    use zkpoly_memory_pool::CpuMemoryPool;
 
-    let mut pool = PinnedMemoryPool::new(10, size_of::<G1>());
+    let mut pool = CpuMemoryPool::new(10, size_of::<G1>());
     let a = PointArray::from_vec(&[G1::generator(), G1::generator()], &mut pool);
     let b = PointArray::from_vec(&[G1::generator(), G1::generator()], &mut pool);
     assert_eq!(a, b);

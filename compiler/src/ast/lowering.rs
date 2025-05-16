@@ -5,7 +5,7 @@ use zkpoly_common::{
     heap::Heap,
     typ::PolyType,
 };
-use zkpoly_memory_pool::PinnedMemoryPool;
+use zkpoly_memory_pool::CpuMemoryPool;
 use zkpoly_runtime as rt;
 pub use zkpoly_runtime::args::ConstantId;
 use zkpoly_runtime::args::{RuntimeType, Variable};
@@ -125,7 +125,7 @@ pub struct Cg<'s, Rt: RuntimeType> {
     pub(crate) constant_table: ConstantTable<Rt>,
     pub(crate) user_function_table: UserFunctionTable<Rt>,
     pub(crate) user_function_id_mapping: BTreeMap<*const u8, UserFunctionId>,
-    pub(crate) allocator: PinnedMemoryPool,
+    pub(crate) allocator: CpuMemoryPool,
     pub(crate) one: ConstantId,
     pub(crate) zero: ConstantId,
 }
@@ -163,7 +163,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
             .clone()
     }
 
-    pub fn allocator(&mut self) -> &mut PinnedMemoryPool {
+    pub fn allocator(&mut self) -> &mut CpuMemoryPool {
         &mut self.allocator
     }
 
@@ -210,7 +210,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
         }
     }
 
-    pub fn empty(allocator: PinnedMemoryPool) -> Self {
+    pub fn empty(allocator: CpuMemoryPool) -> Self {
         let mut constant_table = Heap::new();
         let one = constant_table.push(Constant::new(
             super::Scalar::to_variable(<Rt::Field as group::ff::Field>::ONE),
@@ -236,7 +236,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
 
     pub fn new(
         output_v: impl super::TypeEraseable<Rt>,
-        allocator: PinnedMemoryPool,
+        allocator: CpuMemoryPool,
     ) -> (Self, VertexId) {
         let mut cg = Self::empty(allocator);
         let output_vid = output_v.erase(&mut cg);

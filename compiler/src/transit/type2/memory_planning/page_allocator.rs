@@ -16,7 +16,6 @@ pub enum PageLocation {
     Out,
 }
 
-
 pub struct BeladyAllocator {
     pub page_size: usize,
     pub page_table: Vec<Option<PageId>>,
@@ -43,11 +42,17 @@ impl BeladyAllocator {
 
     fn evict(&mut self) -> PageId {
         // find the page that will be used the farthest in the future
-        let max_next_use = self.next_use.query_max_info(0, self.total_page_num - 1).unwrap(); // [l, r]
+        let max_next_use = self
+            .next_use
+            .query_max_info(0, self.total_page_num - 1)
+            .unwrap(); // [l, r]
         let index = max_next_use.index;
-        
+
         // check the index is valid
-        assert!(self.page_table[index].is_some(), "the found page is already empty");
+        assert!(
+            self.page_table[index].is_some(),
+            "the found page is already empty"
+        );
 
         // update the segment tree
         self.next_use.modify_set(index, index, 0); // set the next use time to 0
@@ -68,7 +73,7 @@ impl BeladyAllocator {
         assert!(page_num <= self.total_page_num, "not enough pages");
         let mut allocated_pages = Vec::new();
         let mut evicted_pages = Vec::new();
-        
+
         // check if there are not enough empty pages
         if self.empty_pages.len() < page_num {
             // find the pages to evict
@@ -78,7 +83,10 @@ impl BeladyAllocator {
             }
         }
 
-        assert!(self.empty_pages.len() >= page_num, "not enough pages after evicting");
+        assert!(
+            self.empty_pages.len() >= page_num,
+            "not enough pages after evicting"
+        );
         // allocate pages
         for _ in 0..page_num {
             let page_id = self.page_id_allocator.alloc();
@@ -86,11 +94,12 @@ impl BeladyAllocator {
             self.empty_pages.remove(&page_index);
             self.page_table[page_index] = Some(page_id);
             allocated_pages.push(page_id);
-            self.page_location.insert(page_id, PageLocation::InMemory(page_index));
+            self.page_location
+                .insert(page_id, PageLocation::InMemory(page_index));
             // update the segment tree
             self.next_use.modify_set(page_index, page_index, next_use);
         }
-        
+
         (allocated_pages, evicted_pages)
     }
 
@@ -124,7 +133,10 @@ mod tests {
         assert_eq!(allocator.page_size, PAGE_SIZE);
         assert_eq!(allocator.total_page_num, total_page_num);
         assert_eq!(allocator.page_table.len(), total_page_num);
-        assert_eq!(allocator.page_table.iter().filter(|p| p.is_some()).count(), 0);
+        assert_eq!(
+            allocator.page_table.iter().filter(|p| p.is_some()).count(),
+            0
+        );
         assert_eq!(allocator.empty_pages.len(), total_page_num);
         assert_eq!(allocator.page_location.len(), 0);
         // Check segment tree initialization, assuming 0 for unused pages
@@ -132,7 +144,14 @@ mod tests {
             assert_eq!(allocator.next_use.query_max_info(i, i).unwrap().index, i);
             assert_eq!(allocator.next_use.query_max_info(i, i).unwrap().value, 0);
         }
-        assert_eq!(allocator.next_use.query_max_info(0, total_page_num - 1).unwrap().value, 0);
+        assert_eq!(
+            allocator
+                .next_use
+                .query_max_info(0, total_page_num - 1)
+                .unwrap()
+                .value,
+            0
+        );
     }
 
     #[test]
@@ -150,7 +169,10 @@ mod tests {
             match allocator.get_page_location(*page_id) {
                 Some(PageLocation::InMemory(idx)) => {
                     assert_eq!(allocator.page_table[idx], Some(*page_id));
-                    assert_eq!(allocator.next_use.query_max_info(idx, idx).unwrap().value, 100);
+                    assert_eq!(
+                        allocator.next_use.query_max_info(idx, idx).unwrap().value,
+                        100
+                    );
                 }
                 _ => panic!("Page should be in memory"),
             }
@@ -185,11 +207,16 @@ mod tests {
 
         // Let's set next_use for page_id1 to 100 and page_id2 to 200
         // First, find their in-memory indices
-        let idx1 = match allocator.get_page_location(page_id1).unwrap() { PageLocation::InMemory(i) => i, _ => panic!()};
-        let idx2 = match allocator.get_page_location(page_id2).unwrap() { PageLocation::InMemory(i) => i, _ => panic!()};
+        let idx1 = match allocator.get_page_location(page_id1).unwrap() {
+            PageLocation::InMemory(i) => i,
+            _ => panic!(),
+        };
+        let idx2 = match allocator.get_page_location(page_id2).unwrap() {
+            PageLocation::InMemory(i) => i,
+            _ => panic!(),
+        };
         allocator.next_use.modify_set(idx1, idx1, 100);
         allocator.next_use.modify_set(idx2, idx2, 200);
-
 
         let (allocated3, evicted3) = allocator.allocate(PAGE_SIZE, 50); // New page has next_use 50
         assert_eq!(allocated3.len(), 1);
@@ -198,23 +225,47 @@ mod tests {
 
         // page_id2 (next_use 200) should be evicted
         assert_eq!(evicted3[0], page_id2);
-        assert_eq!(allocator.get_page_location(page_id2), Some(PageLocation::Out));
+        assert_eq!(
+            allocator.get_page_location(page_id2),
+            Some(PageLocation::Out)
+        );
         assert!(allocator.get_page_location(page_id1).is_some());
-        assert!(matches!(allocator.get_page_location(page_id1).unwrap(), PageLocation::InMemory(_)));
+        assert!(matches!(
+            allocator.get_page_location(page_id1).unwrap(),
+            PageLocation::InMemory(_)
+        ));
         assert!(allocator.get_page_location(page_id3).is_some());
-        assert!(matches!(allocator.get_page_location(page_id3).unwrap(), PageLocation::InMemory(_)));
+        assert!(matches!(
+            allocator.get_page_location(page_id3).unwrap(),
+            PageLocation::InMemory(_)
+        ));
 
-        let new_page_idx = match allocator.get_page_location(page_id3).unwrap() { PageLocation::InMemory(i) => i, _ => panic!()};
-        assert_eq!(allocator.next_use.query_max_info(new_page_idx, new_page_idx).unwrap().value, 50);
+        let new_page_idx = match allocator.get_page_location(page_id3).unwrap() {
+            PageLocation::InMemory(i) => i,
+            _ => panic!(),
+        };
+        assert_eq!(
+            allocator
+                .next_use
+                .query_max_info(new_page_idx, new_page_idx)
+                .unwrap()
+                .value,
+            50
+        );
 
         // The evicted page's old slot should now have next_use 50 (from page_id3)
         // and the other slot (page_id1) should have next_use 100.
         // The slot that held page_id2 (idx2) should now hold page_id3.
         assert_eq!(allocator.page_table[idx2], Some(page_id3));
-        assert_eq!(allocator.next_use.query_max_info(idx2, idx2).unwrap().value, 50);
+        assert_eq!(
+            allocator.next_use.query_max_info(idx2, idx2).unwrap().value,
+            50
+        );
         assert_eq!(allocator.page_table[idx1], Some(page_id1));
-        assert_eq!(allocator.next_use.query_max_info(idx1, idx1).unwrap().value, 100);
-
+        assert_eq!(
+            allocator.next_use.query_max_info(idx1, idx1).unwrap().value,
+            100
+        );
     }
 
     #[test]
@@ -234,7 +285,14 @@ mod tests {
         assert_eq!(allocator.get_page_location(page_id), None);
         assert!(allocator.page_table[page_idx].is_none());
         assert!(allocator.empty_pages.contains(&page_idx));
-        assert_eq!(allocator.next_use.query_max_info(page_idx, page_idx).unwrap().value, 0);
+        assert_eq!(
+            allocator
+                .next_use
+                .query_max_info(page_idx, page_idx)
+                .unwrap()
+                .value,
+            0
+        );
         assert_eq!(allocator.empty_pages.len(), total_page_num);
     }
 
@@ -249,7 +307,10 @@ mod tests {
         let (_, evicted) = allocator.allocate(PAGE_SIZE, 200); // This will allocate a new page and evict page_id1
         assert_eq!(evicted.len(), 1);
         assert_eq!(evicted[0], page_id1);
-        assert_eq!(allocator.get_page_location(page_id1), Some(PageLocation::Out));
+        assert_eq!(
+            allocator.get_page_location(page_id1),
+            Some(PageLocation::Out)
+        );
 
         allocator.deallocate(page_id1);
         assert_eq!(allocator.get_page_location(page_id1), None);
@@ -258,7 +319,6 @@ mod tests {
         assert_eq!(allocator.page_location.len(), 1); // The second page is still there
     }
 
-
     #[test]
     fn test_evict_logic() {
         let total_page_num = 3;
@@ -266,15 +326,24 @@ mod tests {
 
         let (p1_vec, _) = allocator.allocate(PAGE_SIZE, 10);
         let p1 = p1_vec[0];
-        let _ = match allocator.get_page_location(p1).unwrap() { PageLocation::InMemory(i) => i, _ => panic!() };
+        let _ = match allocator.get_page_location(p1).unwrap() {
+            PageLocation::InMemory(i) => i,
+            _ => panic!(),
+        };
 
         let (p2_vec, _) = allocator.allocate(PAGE_SIZE, 30);
         let p2 = p2_vec[0];
-        let idx2 = match allocator.get_page_location(p2).unwrap() { PageLocation::InMemory(i) => i, _ => panic!() };
+        let idx2 = match allocator.get_page_location(p2).unwrap() {
+            PageLocation::InMemory(i) => i,
+            _ => panic!(),
+        };
 
         let (p3_vec, _) = allocator.allocate(PAGE_SIZE, 20);
         let p3 = p3_vec[0];
-        let idx3 = match allocator.get_page_location(p3).unwrap() { PageLocation::InMemory(i) => i, _ => panic!() };
+        let idx3 = match allocator.get_page_location(p3).unwrap() {
+            PageLocation::InMemory(i) => i,
+            _ => panic!(),
+        };
 
         // p2 has the largest next_use (30), so it should be evicted.
         let evicted_page_id = allocator.evict();
@@ -282,7 +351,10 @@ mod tests {
         assert_eq!(allocator.get_page_location(p2), Some(PageLocation::Out));
         assert!(allocator.page_table[idx2].is_none());
         assert!(allocator.empty_pages.contains(&idx2));
-        assert_eq!(allocator.next_use.query_max_info(idx2, idx2).unwrap().value, 0);
+        assert_eq!(
+            allocator.next_use.query_max_info(idx2, idx2).unwrap().value,
+            0
+        );
 
         assert_eq!(allocator.page_location.len(), 3); // p1, p3 in memory, p2 out
         assert_eq!(allocator.empty_pages.len(), 1);
@@ -293,7 +365,10 @@ mod tests {
         assert_eq!(allocator.get_page_location(p3), Some(PageLocation::Out));
         assert!(allocator.page_table[idx3].is_none());
         assert!(allocator.empty_pages.contains(&idx3));
-        assert_eq!(allocator.next_use.query_max_info(idx3, idx3).unwrap().value, 0);
+        assert_eq!(
+            allocator.next_use.query_max_info(idx3, idx3).unwrap().value,
+            0
+        );
 
         assert_eq!(allocator.empty_pages.len(), 2);
     }
@@ -305,22 +380,34 @@ mod tests {
 
         let (allocated1, _) = allocator.allocate(PAGE_SIZE, 10);
         let page_id1 = allocated1[0];
-        let idx1 = match allocator.get_page_location(page_id1).unwrap() { PageLocation::InMemory(i) => i, _ => panic!() };
+        let idx1 = match allocator.get_page_location(page_id1).unwrap() {
+            PageLocation::InMemory(i) => i,
+            _ => panic!(),
+        };
 
-
-        assert!(matches!(allocator.get_page_location(page_id1), Some(PageLocation::InMemory(i)) if i == idx1));
+        assert!(
+            matches!(allocator.get_page_location(page_id1), Some(PageLocation::InMemory(i)) if i == idx1)
+        );
 
         let (allocated2, evicted) = allocator.allocate(PAGE_SIZE * 2, 20); // Needs 2 pages, has 1 empty. Evicts page_id1
         let page_id2 = allocated2[0]; // First of the two new pages
         let page_id3 = allocated2[1]; // Second of the two new pages
 
-
         assert_eq!(evicted.len(), 1);
         assert_eq!(evicted[0], page_id1);
 
-        assert_eq!(allocator.get_page_location(page_id1), Some(PageLocation::Out));
-        assert!(matches!(allocator.get_page_location(page_id2), Some(PageLocation::InMemory(_))));
-        assert!(matches!(allocator.get_page_location(page_id3), Some(PageLocation::InMemory(_))));
+        assert_eq!(
+            allocator.get_page_location(page_id1),
+            Some(PageLocation::Out)
+        );
+        assert!(matches!(
+            allocator.get_page_location(page_id2),
+            Some(PageLocation::InMemory(_))
+        ));
+        assert!(matches!(
+            allocator.get_page_location(page_id3),
+            Some(PageLocation::InMemory(_))
+        ));
 
         let non_existent_page_id = PageId::from(999);
         assert_eq!(allocator.get_page_location(non_existent_page_id), None);
@@ -351,12 +438,18 @@ mod tests {
         assert_eq!(evicted.len(), 1);
         assert_eq!(evicted[0], p2);
         assert_eq!(allocator.get_page_location(p2), Some(PageLocation::Out));
-        assert!(matches!(allocator.get_page_location(p1), Some(PageLocation::InMemory(_))));
-        assert!(matches!(allocator.get_page_location(allocated[0]), Some(PageLocation::InMemory(_))));
+        assert!(matches!(
+            allocator.get_page_location(p1),
+            Some(PageLocation::InMemory(_))
+        ));
+        assert!(matches!(
+            allocator.get_page_location(allocated[0]),
+            Some(PageLocation::InMemory(_))
+        ));
         assert_eq!(allocator.empty_pages.len(), 0);
     }
 
-     #[test]
+    #[test]
     fn test_evict_empty_does_not_panic_if_no_pages_to_evict() {
         // This test is tricky because evict() is private and called by allocate().
         // allocate() has a check: `if self.empty_pages.len() < page_num`
@@ -377,7 +470,7 @@ mod tests {
         let total_page_num = 1;
         let mut allocator = BeladyAllocator::new(PAGE_SIZE, total_page_num);
         allocator.allocate(PAGE_SIZE, 10); // Fill the page
-        
+
         // At this point, page_table[0] is Some, empty_pages is 0.
         // If we allocate again, it will call evict.
         let (allocated, evicted) = allocator.allocate(PAGE_SIZE, 20);

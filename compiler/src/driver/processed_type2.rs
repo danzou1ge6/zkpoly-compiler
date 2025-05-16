@@ -3,7 +3,7 @@ use crate::transit::type3;
 use super::fresh_type3::FreshType3;
 use std::io::Write;
 use zkpoly_common::load_dynamic::Libs;
-use zkpoly_memory_pool::PinnedMemoryPool;
+use zkpoly_memory_pool::CpuMemoryPool;
 use zkpoly_runtime::args::{self, RuntimeType};
 
 use super::{
@@ -16,7 +16,7 @@ pub struct ProcessedType2<'s, Rt: RuntimeType> {
     pub(super) constant_table: type2::ConstantTable<Rt>,
     pub(super) uf_table: type2::user_function::Table<Rt>,
     pub(super) libs: Libs,
-    pub(super) allocator: PinnedMemoryPool,
+    pub(super) allocator: CpuMemoryPool,
 }
 
 impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
