@@ -1,6 +1,6 @@
 use std::{
     borrow::Borrow,
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, VecDeque},
     fs,
     io::{Read, Write},
 };
@@ -10,10 +10,12 @@ use zkpoly_common::{
         Arith, ArithBinOp, ArithGraph, ArithUnrOp, BinOp, FusedType, Mutability, Operation, SpOp,
         UnrOp,
     },
+    belady_allocator::{BeladyAllocator, PageId, PageLocation, SpillPageManger},
     get_project_root::get_project_root,
-    heap::UsizeId,
+    heap::{Heap, UsizeId},
     typ::PolyType,
 };
+use zkpoly_cuda_api::device_info::get_num_sms;
 
 use super::FusedOp;
 use super::FIELD_NAME;
@@ -41,63 +43,66 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
         (num_scalars, num_mut_scalars)
     }
 
-    pub fn new(graph: ArithGraph<OuterId, InnerId>, name: String, limbs: usize) -> Self {
+    pub fn new(mut graph: ArithGraph<OuterId, InnerId>, name: String, limbs: usize) -> Self {
         let (vars, mut_vars) = graph.gen_var_lists();
-        let (schedule, live_ts, regs) = graph.schedule();
+        let (schedule, _, regs) = graph.schedule();
         let partition = graph.partition(&schedule, 1024); // magic number for compile time
 
-        // now we have to generate the inputs and outputs for each partition
-        let mut inputs = vec![BTreeSet::new(); partition.len()];
-        let mut outputs = vec![BTreeSet::new(); partition.len()];
+        // prepare the mapping from the input/output to the kernel arguments
+        let var_mapping = vars
+            .iter()
+            .enumerate()
+            .map(|(i, (_, id))| {
+                let id: usize = id.clone().into();
+                (id, i)
+            })
+            .collect::<BTreeMap<_, _>>();
+        let mut_var_mapping = {
+            let mut x = mut_vars
+                .iter()
+                .enumerate()
+                .map(|(i, (_, id))| {
+                    let id: usize = id.clone().into();
+                    (id, i)
+                })
+                .collect::<BTreeMap<_, _>>();
 
-        let mut past_vars = BTreeSet::new();
-        for i in 0..(partition.len() - 1) {
-            let start = partition[i];
-            let end = partition[i + 1];
-            let mut cur_vars = BTreeSet::new();
-            for j in start..end {
-                let cur_node = schedule[j];
-                let vertex = graph.g.vertex(cur_node);
-                cur_vars.insert(cur_node);
-                match &vertex.op {
-                    Operation::Arith(arith) => {
-                        for depend in arith.uses() {
-                            if past_vars.contains(&depend) {
-                                // this is an input
-                                inputs[i].insert(depend);
-                            }
-                        }
-                        if live_ts[cur_node.clone().into()] as usize >= end {
-                            // this is an output
-                            outputs[i].insert(cur_node);
-                        }
+            graph.outputs.iter().for_each(|oi| {
+                let (_, _, _, in_node) = graph.g.vertex(*oi).op.unwrap_output();
+                if let Some(in_node) = in_node {
+                    if graph.g.vertex(*in_node).op.unwrap_input_mutability() == Mutability::Mut {
+                        let in_node_usize: usize = in_node.clone().into();
+                        let oi_usize: usize = oi.clone().into();
+                        x.insert(in_node_usize, x[&oi_usize]);
                     }
-                    Operation::Output { store_node, .. } => {
-                        if past_vars.contains(store_node) {
-                            // this is an input
-                            inputs[i].insert(*store_node);
-                        }
-                    }
-                    Operation::Input { .. } => {
-                        if live_ts[cur_node.clone().into()] as usize >= end {
-                            // this is an output
-                            outputs[i].insert(cur_node);
-                        }
-                    }
-                    Operation::Todo => unreachable!("todo should be handled earlier"),
                 }
+            });
+
+            x
+        };
+
+        // eliminate all in_node in the output, as this is not needed
+        // and may cause trouble in the kernel generation
+        graph.outputs.iter().for_each(|oid| {
+            if let Operation::Output { in_node, .. } = &mut graph.g.vertex_mut(*oid).op {
+                *in_node = None;
+            } else {
+                unreachable!("output should be output")
             }
-            past_vars.extend(cur_vars);
-        }
+        });
 
         let u32_regs = regs * limbs;
-        let launch_bounds = if u32_regs < 128 {
-            1024
+        let reg_limit = if u32_regs < 128 {
+            64
         } else if u32_regs < 256 {
-            512
+            128
         } else {
             256
         };
+
+        let field_regs = reg_limit / limbs as u32 - 1; // -1 saved for indexs and other things
+
+        assert!(field_regs > 2);
 
         Self {
             graph,
@@ -106,9 +111,11 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
             mut_vars,
             schedule,
             partition,
-            launch_bounds,
-            inputs,
-            outputs,
+            reg_limit,
+            field_regs,
+            var_mapping,
+            mut_var_mapping,
+            limbs,
         }
     }
 
@@ -125,10 +132,22 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
         f.write_all(s.as_bytes()).unwrap();
     }
 
+    pub fn get_temp_buffer_size(&self) -> usize {
+        let (_, _, spilled_regs) = self.gen_kernel();
+        let block_size = 1024 * 64 / self.reg_limit;
+        let grid_size = get_num_sms(0);
+        let size = spilled_regs * block_size as usize * grid_size as usize * std::mem::size_of::<u32>() * self.limbs;
+        size
+    }
+
     pub fn gen(&self, head_annotation: impl Borrow<str>) {
-        let header = format!("{}\n{}", head_annotation.borrow(), self.gen_header());
-        let kernels = self.gen_kernel();
-        let wrapper = self.gen_wrapper();
+        let (kernels, used_regs, spilled_regs) = self.gen_kernel();
+        let header = format!(
+            "{}\n{}",
+            head_annotation.borrow(),
+            self.gen_header(used_regs)
+        );
+        let wrapper = self.gen_wrapper(used_regs, spilled_regs);
 
         let project_root = get_project_root();
         let base_path = project_root + "/core/src/fused_kernels/src/" + self.name.as_str();
@@ -137,44 +156,38 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
         let header_path = base_path.clone() + HEADER_SUFFIX;
         self.compare_or_write(&header_path, &header);
 
-        let max_regcount = 1024 * 64 / self.launch_bounds; // WARNING: this is ok for ampere, but previous archs may not
-
         // wrapper file and kernel files has a suffix regarding the launch bounds
         // this is used to inform xmake to set maxregcount
         // because we find sometimes the auto maxregcount is not very efficient
         // wrapper file
-        let wrapper_path = base_path.clone() + WRAPPER_SUFFIX + &format!("_regs{}.cu", max_regcount);
+        let wrapper_path =
+            base_path.clone() + WRAPPER_SUFFIX + &format!("_regs{}.cu", self.reg_limit);
         self.compare_or_write(&wrapper_path, &wrapper);
 
         for (id, kernel) in kernels.iter().enumerate() {
-            let kernel_path = base_path.clone() + &format!("_{SUB_FUNC_NAME}{id}_regs{}.cu", max_regcount);
+            let kernel_path =
+                base_path.clone() + &format!("_{SUB_FUNC_NAME}{id}_regs{}.cu", self.reg_limit);
             self.compare_or_write(&kernel_path, kernel);
         }
     }
 
-    fn gen_device_func_args(&self, id: usize, typename: &str) -> String {
+    fn gen_device_func_args(&self, typename: &str, used_regs: usize) -> String {
         let mut func_sig = String::new();
         func_sig.push_str("(\n");
         func_sig.push_str(&format!(
-            "{TABS}ConstPolyPtr const* vars, PolyPtr const* mut_vars, unsigned long long idx, bool is_first",
+            "{TABS}ConstPolyPtr const* vars, PolyPtr const* mut_vars, unsigned long long idx, bool is_first, {typename}* local_buffer",
         ));
 
-        // inputs
-        for input_id in self.inputs[id].iter() {
-            let input_id: usize = input_id.clone().into();
-            func_sig += &format!(",\n{TABS}const {typename} {TMP_PREFIX}{input_id}");
+        // regs
+        for i in 0..used_regs {
+            func_sig += &format!(",\n{TABS}{typename} &{TMP_PREFIX}{i}");
         }
 
-        // outputs
-        for output_id in self.outputs[id].iter() {
-            let output_id: usize = output_id.clone().into();
-            func_sig += &format!(",\n{TABS}{typename} &{TMP_PREFIX}{output_id}");
-        }
         func_sig.push_str("\n)");
         func_sig
     }
 
-    fn gen_header(&self) -> String {
+    fn gen_header(&self, used_regs: usize) -> String {
         let mut header = String::new();
         header.push_str("#pragma once\n");
         header.push_str("#include \"../../common/mont/src/field_impls.cuh\"\n");
@@ -193,7 +206,7 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                 "template <typename Field>\n__device__ void {}_{SUB_FUNC_NAME}{id}",
                 self.name
             ));
-            header.push_str(&self.gen_device_func_args(id, "Field"));
+            header.push_str(&self.gen_device_func_args("Field", used_regs));
             header.push_str(";\n\n");
         }
         header.push_str("}\n");
@@ -201,7 +214,7 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
         header
     }
 
-    fn gen_wrapper(&self) -> String {
+    fn gen_wrapper(&self, used_regs: usize, spilled_regs: usize) -> String {
         let mut wrapper = String::new();
 
         wrapper += &format!("#include \"{}{HEADER_SUFFIX}\"\n\n", self.name);
@@ -213,44 +226,33 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
         wrapper += "__global__ void ";
         wrapper.push_str(&self.name);
         wrapper.push_str(
-            "(ConstPolyPtr const* vars, PolyPtr const* mut_vars, unsigned long long len, bool is_first) {\n",
+            "(ConstPolyPtr const* vars, PolyPtr const* mut_vars, unsigned long long len, bool is_first, void* local_buffer_ptr) {\n",
         );
 
-        wrapper +=
-            &format!("{TABS}unsigned long long idx = blockIdx.x * blockDim.x + threadIdx.x;\n");
-        wrapper += &format!("{TABS}if (idx >= len) return;\n");
+        wrapper += &format!("{TABS}u32 thread_id = blockIdx.x * blockDim.x + threadIdx.x;\n");
+        wrapper += &format!("{TABS}auto local_buffer = reinterpret_cast<Field*>(local_buffer_ptr) + thread_id * {spilled_regs};\n");
 
+        wrapper += &format!("{TABS}u32 total_threads = blockDim.x * gridDim.x;\n");
+        wrapper +=
+            &format!("{TABS}for (u32 idx = thread_id; idx < len; idx += total_threads) {{\n");
+
+        for i in 0..used_regs {
+            wrapper += &format!("{TABS}{TABS}Field {TMP_PREFIX}{i};\n");
+        }
         // call the partitioned kernels
         for id in 0..(self.partition.len() - 1) {
-            // create output variables
-            for (output_rank, output_id) in self.outputs[id].iter().enumerate() {
-                let output_id: usize = output_id.clone().into();
-                if output_rank == 0 {
-                    wrapper += &format!("{TABS}Field ");
-                }
-                if output_rank + 1 == self.outputs[id].len() {
-                    wrapper += &format!("{TMP_PREFIX}{output_id};\n");
-                } else {
-                    wrapper += &format!("{TMP_PREFIX}{output_id}, ");
-                }
-            }
-
             wrapper += &format!(
-                "{TABS}{}_{SUB_FUNC_NAME}{id}<Field>(\n{TABS}{TABS}vars, mut_vars, idx, is_first",
+                "{TABS}{}_{SUB_FUNC_NAME}{id}<Field>(\n{TABS}{TABS}vars, mut_vars, idx, is_first, local_buffer",
                 self.name
             );
-            // inputs
-            for input_id in self.inputs[id].iter() {
-                let input_id: usize = input_id.clone().into();
-                wrapper += &format!(",\n{TABS}{TABS}{TMP_PREFIX}{input_id}");
+
+            for i in 0..used_regs {
+                wrapper += &format!(",\n{TABS}{TABS}{TMP_PREFIX}{i}");
             }
-            // outputs
-            for output_id in self.outputs[id].iter() {
-                let output_id: usize = output_id.clone().into();
-                wrapper += &format!(",\n{TABS}{TABS}{TMP_PREFIX}{output_id}");
-            }
+
             wrapper.push_str(&format!("\n{TABS});\n"));
         }
+        wrapper.push_str(&format!("{TABS}}}\n"));
         wrapper.push_str("}\n");
         wrapper.push_str("}\n");
 
@@ -258,115 +260,161 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
         wrapper.push_str("extern \"C\" cudaError_t ");
         wrapper.push_str(&self.name);
         wrapper.push_str(
-            "(ConstPolyPtr const* vars, PolyPtr const* mut_vars, unsigned long long len, bool is_first, cudaStream_t stream) {\n",
+            "(ConstPolyPtr const* vars, PolyPtr const* mut_vars, unsigned long long len, bool is_first, void* local_buffer, cudaStream_t stream) {\n",
         );
 
-        wrapper.push_str("uint block_size = 256;\n");
-        wrapper.push_str("uint grid_size = (len + block_size - 1) / block_size;\n");
-        wrapper.push_str("detail::");
-        wrapper.push_str(&self.name);
-        wrapper.push_str(&format!("<{FIELD_NAME}>"));
+        wrapper += &format!("auto func = detail::{}<{}>;\n", self.name, FIELD_NAME);
+
+        // we don't use shared memory
+        wrapper += &format!("CUDA_CHECK(cudaFuncSetAttribute(func, cudaFuncAttributePreferredSharedMemoryCarveout, cudaSharedmemCarveoutMaxL1));\n");
+        let block_size = 1024 * 64 / self.reg_limit;
+        let grid_size = get_num_sms(0);
+        wrapper.push_str(&format!("uint block_size = {block_size};\n"));
+        wrapper.push_str(&format!("uint grid_size = {grid_size};\n"));
+
         wrapper.push_str(
-            " <<< grid_size, block_size, 0, stream >>> (vars, mut_vars, len, is_first);\n",
+            "func<<< grid_size, block_size, 0, stream >>> (vars, mut_vars, len, is_first, local_buffer);\n",
         );
+        wrapper += "CUDA_CHECK(cudaGetLastError());\n";
 
-        wrapper.push_str("return cudaGetLastError();\n");
+        wrapper.push_str("return cudaSuccess;\n");
         wrapper.push_str("}\n");
         wrapper
     }
 
-    fn gen_kernel(&self) -> Vec<String> {
-        let mut kernels = Vec::new();
+    fn get_next_use(&self) -> Heap<InnerId, VecDeque<usize>> {
+        let mut next_use = Heap::new();
 
-        // prepare the mapping from the input/output to the kernel arguments
-        let var_mapping = self
-            .vars
-            .iter()
-            .enumerate()
-            .map(|(i, (_, id))| {
-                let id: usize = id.clone().into();
-                (id, i)
-            })
-            .collect::<BTreeMap<_, _>>();
-        let mut_var_mapping = {
-            let mut x = self
-                .mut_vars
-                .iter()
-                .enumerate()
-                .map(|(i, (_, id))| {
-                    let id: usize = id.clone().into();
-                    (id, i)
-                })
-                .collect::<BTreeMap<_, _>>();
+        for _ in 0..self.graph.g.order() {
+            next_use.push(VecDeque::new());
+        }
 
-            self.graph.outputs.iter().for_each(|oi| {
-                let (_, _, _, in_node) = self.graph.g.vertex(*oi).op.unwrap_output();
-                if let Some(in_node) = in_node {
-                    if self.graph.g.vertex(*in_node).op.unwrap_input_mutability() == Mutability::Mut
-                    {
-                        let in_node_usize: usize = in_node.clone().into();
-                        let oi_usize: usize = oi.clone().into();
-                        x.insert(in_node_usize, x[&oi_usize]);
-                    }
-                }
-            });
+        for step in 0..self.schedule.len() {
+            let cur = self.schedule[step];
+            let vertex = self.graph.g.vertex(cur.clone());
+            for from in vertex.uses() {
+                next_use[from].push_back(step);
+            }
+        }
+        next_use
+    }
 
-            x
-        };
+    fn gen_kernel(&self) -> (Vec<String>, usize, usize) {
+        let mut kernel_bodies = Vec::new();
+
+        // analysis next uses
+        let mut next_use = self.get_next_use();
+
+        let mut spill_manager = SpillPageManger::new();
+        let mut arithid2pageid = BTreeMap::new();
+        let mut allocator = BeladyAllocator::new(1, self.field_regs as usize);
 
         for id in 0..(self.partition.len() - 1) {
-            let mut kernel = String::new();
-            kernel.push_str(&format!("#include \"{}{HEADER_SUFFIX}\"\n", self.name));
-            kernel.push_str("namespace detail {\n");
-
-            // generate the kernel signature
-            kernel.push_str(&format!(
-                "template <typename Field>\n__device__ void {}_{SUB_FUNC_NAME}{id}",
-                self.name
-            ));
-            kernel.push_str(&self.gen_device_func_args(id, "Field"));
-            kernel.push_str(" {\n");
+            let mut kernel_body = String::new();
 
             let start = self.partition[id];
             let end = self.partition[id + 1];
 
             for step in start..end {
-                let head = self.schedule[step];
-                let vertex = self.graph.g.vertex(head.clone());
-                let store_target = if self.outputs[id].contains(&head) {
-                    format!("{TMP_PREFIX}{}", head.clone().into())
-                } else {
-                    format!("auto {TMP_PREFIX}{}", head.clone().into())
-                };
+                let cur = self.schedule[step];
+                let vertex = self.graph.g.vertex(cur.clone());
+
+                // restore the registers, we need to get arith2reg because they may be freed later
+                let mut arith2reg = vertex.uses().fold(BTreeMap::new(), |mut acc, src| {
+                    let page_id: PageId = arithid2pageid[&src];
+                    let reg_id = if let PageLocation::InMemory(reg_id) =
+                        allocator.get_page_location(page_id.clone()).unwrap()
+                    {
+                        reg_id
+                    } else {
+                        let (reg_id, evicted) = allocator.restore(page_id); // next use will be updated later
+                        if let Some(evict_id) = evicted {
+                            let spill_pos = spill_manager.allocate(evict_id.0);
+                            // emit the evict code
+                            kernel_body += &format!(
+                                "{TABS}local_buffer[{spill_pos}] = {TMP_PREFIX}{};\n",
+                                evict_id.1
+                            );
+                        }
+                        // emit the restore code
+                        kernel_body += &format!(
+                            "{TABS}{TMP_PREFIX}{reg_id} = local_buffer[{}];\n",
+                            spill_manager.get_spill_pos(page_id.clone()).unwrap()
+                        );
+
+                        // remove from the spill manager
+                        spill_manager.deallocate(page_id);
+                        reg_id
+                    };
+                    acc.insert(src, reg_id);
+                    acc
+                });
+
+                // update the next use
+                // this need to be done separately, to aviod evicting the using registers
+                vertex.uses().for_each(|src| {
+                    let page_id: PageId = arithid2pageid[&src];
+                    let next_use = next_use[src].pop_front();
+                    if let Some(next_use) = next_use {
+                        assert!(next_use >= step);
+                        allocator.update_next_use(page_id, next_use as u64);
+                    } else {
+                        allocator.deallocate(page_id);
+                    }
+                });
+
+                // now we can allocate the target register
+                match vertex.op {
+                    Operation::Output { .. } | Operation::Todo => {}
+                    _ => {
+                        let next_use = next_use[cur].pop_front().unwrap(); // can't be empty, otherwise this is a dead code
+                        let (page_id, evicted_pages) = allocator.allocate(1, next_use as u64);
+                        assert_eq!(page_id.len(), 1);
+                        assert!(evicted_pages.len() <= 1);
+                        if evicted_pages.len() > 0 {
+                            let evict_id = evicted_pages[0];
+                            let spill_pos = spill_manager.allocate(evict_id.0);
+                            // emit the evict code
+                            kernel_body += &format!(
+                                "{TABS}local_buffer[{spill_pos}] = {TMP_PREFIX}{};\n",
+                                evict_id.1
+                            );
+                        }
+                        arithid2pageid.insert(cur.clone(), page_id[0].clone());
+                        arith2reg.insert(cur, allocator.get_page_location(page_id[0].clone()).unwrap().unwrap_in_memory());
+                    }
+                }
+
                 match &vertex.op {
                     Operation::Output {
                         typ, store_node, ..
                     } => {
-                        let src: usize = store_node.clone().into();
-                        let id: usize = head.clone().into(); // self.outputs_i2o[&head].clone().into();
+                        let src = arith2reg[store_node];
+                        let id: usize = cur.clone().into();
                         match typ {
                             FusedType::Scalar => {
-                                kernel += &format!("*reinterpret_cast<Field*>(mut_vars[{}].ptr) = {TMP_PREFIX}{src};\n", mut_var_mapping[&id]);
+                                kernel_body += &format!("{TABS}*reinterpret_cast<Field*>(mut_vars[{}].ptr) = {TMP_PREFIX}{src};\n", self.mut_var_mapping[&id]);
                             }
                             FusedType::ScalarArray => {
-                                kernel += &format!("make_slice_iter<Field>(mut_vars[{}])[idx] = {TMP_PREFIX}{src};\n", mut_var_mapping[&id]);
+                                kernel_body += &format!("{TABS}make_slice_iter<Field>(mut_vars[{}])[idx] = {TMP_PREFIX}{src};\n", self.mut_var_mapping[&id]);
                             }
                         }
                     }
                     Operation::Input { typ, .. } => {
-                        let id = head.clone().into(); // outer_id.clone().into();
-                        let (map_id, mutability) = if var_mapping.contains_key(&id) {
-                            (var_mapping[&id], "vars")
+                        let id = cur.clone().into();
+                        let (map_id, mutability) = if self.var_mapping.contains_key(&id) {
+                            (self.var_mapping[&id], "vars")
                         } else {
-                            (mut_var_mapping[&id], "mut_vars")
+                            (self.mut_var_mapping[&id], "mut_vars")
                         };
+                        let store_target = arith2reg[&cur];
                         match typ {
                             FusedType::Scalar => {
-                                kernel += &format!("{store_target} = *reinterpret_cast<const Field*>({}[{}].ptr);\n", mutability, map_id);
+                                kernel_body += &format!("{TABS}{TMP_PREFIX}{store_target} = *reinterpret_cast<const Field*>({}[{}].ptr);\n", mutability, map_id);
                             }
                             FusedType::ScalarArray => {
-                                kernel += &format!(
-                                    "{store_target} = make_slice_iter<Field>({}[{}])[idx];\n",
+                                kernel_body += &format!(
+                                    "{TABS}{TMP_PREFIX}{store_target} = make_slice_iter<Field>({}[{}])[idx];\n",
                                     mutability, map_id
                                 );
                             }
@@ -374,23 +422,24 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                     }
                     Operation::Arith(arith) => match arith {
                         Arith::Bin(op, lhs, rhs) => {
-                            let lhs: usize = lhs.clone().into();
-                            let rhs: usize = rhs.clone().into();
+                            let lhs = arith2reg[lhs];
+                            let rhs = arith2reg[rhs];
+                            let store_target = arith2reg[&cur];
                             match op {
                                 BinOp::Pp(op) => match op {
                                     ArithBinOp::Add => {
-                                        kernel += &format!(
-                                        "{store_target} = {TMP_PREFIX}{lhs} + {TMP_PREFIX}{rhs};\n"
+                                        kernel_body += &format!(
+                                        "{TABS}{TMP_PREFIX}{store_target} = {TMP_PREFIX}{lhs} + {TMP_PREFIX}{rhs};\n"
                                     )
                                     }
                                     ArithBinOp::Sub => {
-                                        kernel += &format!(
-                                        "{store_target} = {TMP_PREFIX}{lhs} - {TMP_PREFIX}{rhs};\n"
+                                        kernel_body += &format!(
+                                        "{TABS}{TMP_PREFIX}{store_target} = {TMP_PREFIX}{lhs} - {TMP_PREFIX}{rhs};\n"
                                     )
                                     }
                                     ArithBinOp::Mul => {
-                                        kernel += &format!(
-                                        "{store_target} = {TMP_PREFIX}{lhs} * {TMP_PREFIX}{rhs};\n"
+                                        kernel_body += &format!(
+                                        "{TABS}{TMP_PREFIX}{store_target} = {TMP_PREFIX}{lhs} * {TMP_PREFIX}{rhs};\n"
                                     )
                                     }
                                     ArithBinOp::Div => {
@@ -399,18 +448,18 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                                 },
                                 BinOp::Ss(op) => match op {
                                     ArithBinOp::Add => {
-                                        kernel += &format!(
-                                        "{store_target} = {TMP_PREFIX}{lhs} + {TMP_PREFIX}{rhs};\n"
+                                        kernel_body += &format!(
+                                        "{TABS}{TMP_PREFIX}{store_target} = {TMP_PREFIX}{lhs} + {TMP_PREFIX}{rhs};\n"
                                     )
                                     }
                                     ArithBinOp::Sub => {
-                                        kernel += &format!(
-                                        "{store_target} = {TMP_PREFIX}{lhs} - {TMP_PREFIX}{rhs};\n"
+                                        kernel_body += &format!(
+                                        "{TABS}{TMP_PREFIX}{store_target} = {TMP_PREFIX}{lhs} - {TMP_PREFIX}{rhs};\n"
                                     )
                                     }
                                     ArithBinOp::Mul => {
-                                        kernel += &format!(
-                                        "{store_target} = {TMP_PREFIX}{lhs} * {TMP_PREFIX}{rhs};\n"
+                                        kernel_body += &format!(
+                                        "{TABS}{TMP_PREFIX}{store_target} = {TMP_PREFIX}{lhs} * {TMP_PREFIX}{rhs};\n"
                                     )
                                     }
                                     ArithBinOp::Div => {
@@ -421,39 +470,39 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                                     SpOp::Add => {
                                         let stmt = match self.graph.poly_repr {
                                             PolyType::Coef => {
-                                                format!("{store_target} = (idx == 0 && is_first) ? {TMP_PREFIX}{lhs} + {TMP_PREFIX}{rhs} : {TMP_PREFIX}{rhs};\n")
+                                                format!("{TABS}{TMP_PREFIX}{store_target} = (idx == 0 && is_first) ? {TMP_PREFIX}{lhs} + {TMP_PREFIX}{rhs} : {TMP_PREFIX}{rhs};\n")
                                             }
                                             PolyType::Lagrange => {
-                                                format!("{store_target} = {TMP_PREFIX}{lhs} + {TMP_PREFIX}{rhs};\n")
+                                                format!("{TABS}{TMP_PREFIX}{store_target} = {TMP_PREFIX}{lhs} + {TMP_PREFIX}{rhs};\n")
                                             }
                                         };
-                                        kernel += &stmt;
+                                        kernel_body += &stmt;
                                     }
                                     SpOp::Sub => {
                                         let stmt = match self.graph.poly_repr {
                                             PolyType::Coef => {
-                                                format!("{store_target} = (idx == 0 && is_first) ? {TMP_PREFIX}{lhs} - {TMP_PREFIX}{rhs} : {TMP_PREFIX}{rhs}.neg();\n")
+                                                format!("{TABS}{TMP_PREFIX}{store_target} = (idx == 0 && is_first) ? {TMP_PREFIX}{lhs} - {TMP_PREFIX}{rhs} : {TMP_PREFIX}{rhs}.neg();\n")
                                             }
                                             PolyType::Lagrange => {
-                                                format!("{store_target} = {TMP_PREFIX}{lhs} - {TMP_PREFIX}{rhs};\n")
+                                                format!("{TABS}{TMP_PREFIX}{store_target} = {TMP_PREFIX}{lhs} - {TMP_PREFIX}{rhs};\n")
                                             }
                                         };
-                                        kernel += &stmt;
+                                        kernel_body += &stmt;
                                     }
                                     SpOp::SubBy => {
                                         let stmt = match self.graph.poly_repr {
                                             PolyType::Coef => {
-                                                format!("{store_target} = (idx == 0 && is_first) ? {TMP_PREFIX}{rhs} - {TMP_PREFIX}{lhs} : {TMP_PREFIX}{rhs};\n")
+                                                format!("{TABS}{TMP_PREFIX}{store_target} = (idx == 0 && is_first) ? {TMP_PREFIX}{rhs} - {TMP_PREFIX}{lhs} : {TMP_PREFIX}{rhs};\n")
                                             }
                                             PolyType::Lagrange => {
-                                                format!("{store_target} = {TMP_PREFIX}{rhs} - {TMP_PREFIX}{lhs};\n")
+                                                format!("{TABS}{TMP_PREFIX}{store_target} = {TMP_PREFIX}{rhs} - {TMP_PREFIX}{lhs};\n")
                                             }
                                         };
-                                        kernel += &stmt;
+                                        kernel_body += &stmt;
                                     }
                                     SpOp::Mul => {
-                                        kernel += &format!(
-                                        "{store_target} = {TMP_PREFIX}{lhs} * {TMP_PREFIX}{rhs};\n"
+                                        kernel_body += &format!(
+                                        "{TABS}{TMP_PREFIX}{store_target} = {TMP_PREFIX}{lhs} * {TMP_PREFIX}{rhs};\n"
                                     )
                                     }
                                     SpOp::Div => {
@@ -466,23 +515,24 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                             }
                         }
                         Arith::Unr(op, arg) => {
-                            let arg: usize = arg.clone().into();
+                            let arg = arith2reg[arg];
+                            let store_target = arith2reg[&cur];
                             match op {
                                 UnrOp::P(ArithUnrOp::Neg) => {
-                                    kernel +=
-                                        &format!("{store_target} = {TMP_PREFIX}{arg}.neg();\n");
+                                    kernel_body +=
+                                        &format!("{TABS}{TMP_PREFIX}{store_target} = {TMP_PREFIX}{arg}.neg();\n");
                                 }
                                 UnrOp::P(ArithUnrOp::Inv) => {
                                     unreachable!("invert poly should be handled in batche invert")
                                 }
                                 UnrOp::P(ArithUnrOp::Pow(power)) => {
-                                    kernel += &format!(
-                                        "{store_target} = {TMP_PREFIX}{arg}.pow({power});\n"
+                                    kernel_body += &format!(
+                                        "{TABS}{TMP_PREFIX}{store_target} = {TMP_PREFIX}{arg}.pow({power});\n"
                                     );
                                 }
                                 UnrOp::S(ArithUnrOp::Neg) => {
-                                    kernel +=
-                                        &format!("{store_target} = {TMP_PREFIX}{arg}.neg();\n");
+                                    kernel_body +=
+                                        &format!("{TABS}{TMP_PREFIX}{store_target} = {TMP_PREFIX}{arg}.neg();\n");
                                 }
                                 UnrOp::S(ArithUnrOp::Inv) => {
                                     unreachable!("invert scalar should be handled in scalar invert")
@@ -496,6 +546,26 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                     Operation::Todo => unreachable!("todo should be handled earlier"),
                 }
             }
+            kernel_bodies.push(kernel_body);
+        }
+
+        let used_regs = allocator.get_max_used_pages();
+        let spill_regs = spill_manager.max_spill_pos;
+        let mut kernels = Vec::new();
+        for id in 0..(self.partition.len() - 1) {
+            let mut kernel = String::new();
+            kernel.push_str(&format!("#include \"{}{HEADER_SUFFIX}\"\n", self.name));
+            kernel.push_str("namespace detail {\n");
+
+            // generate the kernel signature
+            kernel.push_str(&format!(
+                "template <typename Field>\n__device__ void {}_{SUB_FUNC_NAME}{id}",
+                self.name
+            ));
+            kernel.push_str(&self.gen_device_func_args("Field", used_regs));
+            kernel.push_str(" {\n");
+
+            kernel.push_str(&kernel_bodies[id]);
 
             kernel.push_str("}\n");
 
@@ -504,12 +574,13 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                 "template __device__ void {}_{SUB_FUNC_NAME}{id}<{FIELD_NAME}>",
                 self.name
             );
-            kernel.push_str(&self.gen_device_func_args(id, FIELD_NAME));
+            kernel.push_str(&self.gen_device_func_args(FIELD_NAME, used_regs));
             kernel.push_str(";\n");
 
             kernel.push_str("}\n");
             kernels.push(kernel);
         }
-        kernels
+
+        (kernels, used_regs, spill_regs)
     }
 }

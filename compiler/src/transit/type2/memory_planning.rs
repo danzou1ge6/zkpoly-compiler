@@ -64,7 +64,6 @@ fn normalize_size(size: Size) -> Size {
 pub struct Instant(pub(super) usize);
 
 mod integral_allocator;
-mod page_allocator;
 mod smithereens_allocator;
 
 trait AddrMappingHandler {

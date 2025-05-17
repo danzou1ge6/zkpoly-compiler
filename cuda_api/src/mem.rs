@@ -45,7 +45,6 @@ impl CudaAllocator {
     }
 
     pub fn allocate<F: Sized>(&mut self, offset: usize, len: usize) -> *mut F {
-        assert!(len > 0);
         assert!(offset < self.max_size);
         let left = offset;
         let right = offset + len * std::mem::size_of::<F>();
