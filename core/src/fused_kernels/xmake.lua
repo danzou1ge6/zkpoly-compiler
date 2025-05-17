@@ -27,9 +27,12 @@ target("fused_kernels")
                 local flag = "--maxrregcount=" .. regcount
                 print("Applying to " .. filename .. ": " .. flag)
                 -- 为该源文件添加该选项
-                target:fileconfig_set(sourcefile, {
-                    cuflags = flag
-                })
+                -- 256 is the biggest value for maxrregcount, so we don't need to set it
+                if tonumber(regcount) < 256 then
+                    target:fileconfig_set(sourcefile, {
+                        cuflags = flag
+                    })
+                end
             end
         end
     end)

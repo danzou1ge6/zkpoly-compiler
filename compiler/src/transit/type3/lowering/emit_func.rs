@@ -56,7 +56,7 @@ pub fn emit_func<'s, Rt: RuntimeType>(
                 // check temp buffer num
                 assert_eq!(
                     temp.len(),
-                    1 + num_scalars_mut + num_scalars + 2 * num_polys + 3 * num_polys_mut
+                    2 + num_scalars_mut + num_scalars + 2 * num_polys + 3 * num_polys_mut
                 );
 
                 // check output num
