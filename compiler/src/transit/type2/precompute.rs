@@ -1,6 +1,8 @@
 use std::{collections::BTreeMap, panic::Location};
 
-use zkpoly_common::{load_dynamic::Libs, msm_config::MsmConfig, typ::PolyType};
+use zkpoly_common::{
+    devices::DeviceType, load_dynamic::Libs, msm_config::MsmConfig, typ::PolyType,
+};
 use zkpoly_core::{
     msm::{get_best_config, MSMPrecompute},
     ntt::{GenPqOmegas, SsipPrecompute},
@@ -167,7 +169,7 @@ pub fn precompute<'s, Rt: RuntimeType>(
                         let point_array = PointArray::<Rt::PointAffine>::new(
                             len,
                             allocator.allocate(len),
-                            zkpoly_runtime::devices::DeviceType::CPU,
+                            DeviceType::CPU,
                         );
                         point_arrays.push(point_array);
                     }

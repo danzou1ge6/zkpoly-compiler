@@ -136,7 +136,11 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
         let (_, _, spilled_regs) = self.gen_kernel();
         let block_size = 1024 * 64 / self.reg_limit;
         let grid_size = get_num_sms(0);
-        let size = spilled_regs * block_size as usize * grid_size as usize * std::mem::size_of::<u32>() * self.limbs;
+        let size = spilled_regs
+            * block_size as usize
+            * grid_size as usize
+            * std::mem::size_of::<u32>()
+            * self.limbs;
         size
     }
 
@@ -381,7 +385,13 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
                             );
                         }
                         arithid2pageid.insert(cur.clone(), page_id[0].clone());
-                        arith2reg.insert(cur, allocator.get_page_location(page_id[0].clone()).unwrap().unwrap_in_memory());
+                        arith2reg.insert(
+                            cur,
+                            allocator
+                                .get_page_location(page_id[0].clone())
+                                .unwrap()
+                                .unwrap_in_memory(),
+                        );
                     }
                 }
 

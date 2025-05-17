@@ -153,6 +153,7 @@ impl BeladyAllocator {
 
     pub fn restore(&mut self, page_id: PageId) -> (usize, Option<(PageId, usize)>) {
         let next_use = 0; // we don't want to evict this page untill its next use is updated
+        
         // restore the page to the page table if moved out
         if let PageLocation::Out = self.page_location[&page_id] {
             let mut evict_page = None;

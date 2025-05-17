@@ -456,7 +456,8 @@ pub fn fuse_arith<'s, Rt: RuntimeType>(cg: Cg<'s, Rt>, gpu_mem_limit: u64) -> Cg
                 // };
                 let temp_spaces = temporary_space::arith::<Rt>(&ag, None);
                 assert!(temp_spaces.len() == 2);
-                let chunking = ag.decide_chunking::<Rt::Field>(gpu_mem_limit - temp_spaces[0] - temp_spaces[1]);
+                let chunking = ag
+                    .decide_chunking::<Rt::Field>(gpu_mem_limit - temp_spaces[0] - temp_spaces[1]);
 
                 // decide the polynomial representation
                 ag.poly_repr = get_poly_repr(&output_types);

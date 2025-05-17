@@ -1,12 +1,11 @@
 use group::prime::PrimeCurveAffine;
-use zkpoly_common::typ::Typ;
+use zkpoly_common::{devices::DeviceType, typ::Typ};
 use zkpoly_cuda_api::{mem::CudaAllocator, stream::CudaStream};
 use zkpoly_memory_pool::CpuMemoryPool;
 
 use crate::{
     any::AnyWrapper,
     args::{RuntimeType, Variable, VariableId},
-    devices::DeviceType,
     gpu_buffer::GpuBuffer,
     point::PointArray,
     runtime::RuntimeInfo,

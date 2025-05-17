@@ -19,13 +19,12 @@ use ::halo2curves::bn256::{Fr as Scalar, G1Affine as Point};
 use rand_core::{RngCore, SeedableRng};
 use rand_xorshift::XorShiftRng;
 use rayon::{current_thread_index, prelude::*};
-use zkpoly_common::load_dynamic::Libs;
+use zkpoly_common::{devices::DeviceType, load_dynamic::Libs};
 use zkpoly_core::msm::*;
 use zkpoly_cuda_api::bindings::{cudaFree, cudaMalloc};
 use zkpoly_memory_pool::CpuMemoryPool;
 use zkpoly_runtime::{
     args::{RuntimeType, Variable},
-    devices::DeviceType,
     functions::*,
     gpu_buffer::GpuBuffer,
     point::PointArray,

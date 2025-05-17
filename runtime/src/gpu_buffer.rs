@@ -1,4 +1,4 @@
-use crate::devices::DeviceType;
+use zkpoly_common::devices::DeviceType;
 
 #[derive(Debug, Clone)]
 pub struct GpuBuffer {

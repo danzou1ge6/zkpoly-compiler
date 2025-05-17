@@ -471,7 +471,7 @@ where
                 }
             })
             .sum();
-        
+
         (inputs_space, outputs_space)
     }
 

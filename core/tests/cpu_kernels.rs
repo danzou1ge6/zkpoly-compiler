@@ -9,9 +9,9 @@ use rand_core::SeedableRng;
 use rand_xorshift::XorShiftRng;
 use zkpoly_core::cpu_kernels::InterpolateKernel;
 
+use zkpoly_common::devices::DeviceType;
 use zkpoly_memory_pool::CpuMemoryPool;
 use zkpoly_runtime::args::Variable;
-use zkpoly_runtime::devices::DeviceType;
 use zkpoly_runtime::functions::RegisteredFunction;
 use zkpoly_runtime::functions::*;
 use zkpoly_runtime::scalar::{Scalar, ScalarArray};

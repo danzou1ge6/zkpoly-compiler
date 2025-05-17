@@ -1,7 +1,8 @@
 use std::ops::Index;
 
-use crate::{devices::DeviceType, runtime::transfer::Transfer};
+use crate::runtime::transfer::Transfer;
 use halo2curves::CurveAffine;
+use zkpoly_common::devices::DeviceType;
 use zkpoly_cuda_api::{
     mem::{alloc_pinned, free_pinned},
     stream::CudaStream,
