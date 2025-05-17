@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::transit::{type2, SourceInfo};
 
-use super::{Cg, Vertex, VertexId, VertexNode};
+use super::{temporary_space, Cg, Vertex, VertexId, VertexNode};
 use zkpoly_common::{
     arith::{
         self, Arith, ArithGraph, ArithUnrOp, ArithVertex, ExprId, FusedType, Mutability, Operation,
@@ -454,7 +454,9 @@ pub fn fuse_arith<'s, Rt: RuntimeType>(cg: Cg<'s, Rt>, gpu_mem_limit: u64) -> Cg
                 // } else {
                 //     None
                 // };
-                let chunking = ag.decide_chunking::<Rt::Field>(gpu_mem_limit);
+                let temp_spaces = temporary_space::arith::<Rt>(&ag, None);
+                assert!(temp_spaces.len() == 2);
+                let chunking = ag.decide_chunking::<Rt::Field>(gpu_mem_limit - temp_spaces[0] - temp_spaces[1]);
 
                 // decide the polynomial representation
                 ag.poly_repr = get_poly_repr(&output_types);
