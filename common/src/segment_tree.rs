@@ -1,4 +1,3 @@
-use std::cmp::max;
 
 /// 定义一个 trait 来约束线段树中存储的值类型
 pub trait SegmentValue: Default + Copy + Ord {

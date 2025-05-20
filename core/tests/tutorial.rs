@@ -4,7 +4,7 @@ use group::ff::Field;
 use zkpoly_common::load_dynamic::Libs;
 use zkpoly_core::tutorial::SimpleFunc;
 use zkpoly_runtime::{
-    args::{RuntimeType, Variable},
+    args::Variable,
     functions::{FunctionValue, RegisteredFunction},
     scalar::Scalar,
 };

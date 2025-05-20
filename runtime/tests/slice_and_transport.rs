@@ -1,10 +1,11 @@
 use halo2curves::bn256;
 use std::mem::size_of;
 use std::ptr::copy_nonoverlapping;
+use zkpoly_common::devices::DeviceType;
 use zkpoly_cuda_api::stream::CudaStream;
 use zkpoly_memory_pool::CpuMemoryPool;
 use zkpoly_runtime::runtime::transfer::Transfer;
-use zkpoly_runtime::{devices::DeviceType, scalar::ScalarArray};
+use zkpoly_runtime::scalar::ScalarArray;
 
 // 定义测试用的Field类型
 type TestField = bn256::Fr;

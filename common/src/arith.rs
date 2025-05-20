@@ -1,9 +1,9 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use crate::{
     define_usize_id,
     digraph::internal::{Digraph, Predecessors},
-    heap::{Heap, UsizeId},
+    heap::UsizeId,
     typ::PolyType,
 };
 
@@ -397,7 +397,7 @@ where
         let mut inplace_inputs = BTreeSet::new();
         for inner_id in self.outputs.iter() {
             if let Operation::Output { in_node, .. } = &self.g.vertex(*inner_id).op {
-                for in_id in in_node {
+                if let Some(in_id) = in_node {
                     let m = self.g.vertex(*in_id).op.unwrap_input_mutability();
                     if m == Mutability::Mut {
                         inplace_inputs.insert(*in_id);
