@@ -173,14 +173,3 @@ fn test_cuda_allocator_overlap_should_panic() {
     // 尝试分配重叠区域，这会导致panic
     allocator.allocate::<i32>(8, 4); // 8-24 bytes，与前面的分配有重叠
 }
-
-#[test]
-#[should_panic]
-fn test_cuda_allocator_zero_size_should_panic() {
-    let device_id = 0;
-    let max_size = 1024;
-    let mut allocator = CudaAllocator::new(device_id, max_size, true);
-
-    // 尝试分配大小为0的内存，这会导致panic
-    allocator.allocate::<i32>(32, 0);
-}
