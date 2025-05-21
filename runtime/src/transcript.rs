@@ -171,7 +171,7 @@ pub trait TranscriptWriterBuffer<W: Write, C: CurveAffine, E: EncodedChallenge<C
 
 /// We will replace BLAKE2b with an algebraic hash function in a later version.
 #[derive(Debug, Clone)]
-pub struct Blake2bRead<R: Read, C: CurveAffine, E: EncodedChallenge<C>> {
+pub struct Blake2bRead<R: Read + Send + Sync, C: CurveAffine, E: EncodedChallenge<C>> {
     state: Blake2bState,
     reader: R,
     _marker: PhantomData<(C, E)>,
@@ -179,7 +179,7 @@ pub struct Blake2bRead<R: Read, C: CurveAffine, E: EncodedChallenge<C>> {
 
 /// Keccak256 hash function reader for EVM compatibility
 #[derive(Debug, Clone)]
-pub struct Keccak256Read<R: Read, C: CurveAffine, E: EncodedChallenge<C>> {
+pub struct Keccak256Read<R: Read + Send + Sync, C: CurveAffine, E: EncodedChallenge<C>> {
     state: Keccak256,
     reader: R,
     _marker: PhantomData<(C, E)>,

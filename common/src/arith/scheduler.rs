@@ -1,4 +1,4 @@
-use std::collections::{BinaryHeap, VecDeque};
+use std::collections::{BTreeSet, BinaryHeap, VecDeque};
 
 use crate::{arith::ArithGraph, heap::UsizeId};
 
@@ -101,7 +101,7 @@ where
         let mut max_reg: usize = 0;
         for id in schedule.iter() {
             present_reg += def_sz[*id] as usize;
-            for child_id in self.g.vertex(InnerId::from(id.clone())).uses() {
+            for child_id in self.g.vertex(InnerId::from(id.clone())).uses().into_iter().collect::<BTreeSet<_>>() {
                 if live_ts[child_id.into()] <= cur_step.try_into().unwrap() {
                     present_reg -= def_sz[child_id.into()] as usize;
                 }
