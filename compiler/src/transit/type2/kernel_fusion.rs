@@ -31,7 +31,10 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
     ) -> bool {
         let v = self.g.vertex(vid);
         let vid_usize: usize = vid.into();
-        if fused[vid_usize] != 0 || to[vid_usize] == MarkStatus::Marked || from[vid_usize] == MarkStatus::Marked {
+        if fused[vid_usize] != 0
+            || to[vid_usize] == MarkStatus::Marked
+            || from[vid_usize] == MarkStatus::Marked
+        {
             return false;
         }
         match v.node() {
@@ -117,7 +120,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
     ) {
         let vid_usize: usize = vid.into();
         if to[vid_usize] == MarkStatus::Unvisited {
-        let can_fuse = self.can_fuse(vid, fused, to, from); // , None, None);
+            let can_fuse = self.can_fuse(vid, fused, to, from); // , None, None);
             if start_mark {
                 to[vid_usize] = MarkStatus::Marked;
             } else {

@@ -4,9 +4,11 @@
 // Bell Telephone Laboratories, Incorporated, Murray Hill, New Jersey
 // https://dl.acm.org/doi/pdf/10.1145/321623.321627
 
-use std::collections::HashMap;
-
 use crate::{arith::ArithGraph, heap::UsizeId};
+
+fn map_index(x: i64, y: i64) -> (usize, usize) {
+    (x as usize, (x - y) as usize)
+}
 
 impl<OuterId, ArithIndex> ArithGraph<OuterId, ArithIndex>
 where
@@ -19,9 +21,10 @@ where
         let succ = self.g.successors();
         let mut t = vec![0; len + 1];
         let mut l = vec![0; len + 1];
-        let mut c = HashMap::new();
+        let mut c = vec![vec![0; chunk_upper_bound + 1]; len + 1]; // we use map_index to map y into [0, chunk_upper_bound]
         for i in 0..=len as i64 {
-            c.insert((i, i), 0); // c(i, i) = 0
+            let (id_x, id_y) = map_index(i, i);
+            c[id_x][id_y] = 0; // c(i, i) = 0
         }
         for x in 1..=(len as i64) {
             let mut minimized_y = -1;
@@ -31,8 +34,10 @@ where
             for y in ((x - chunk_upper_bound as i64).max(0)..x).rev() {
                 let y_point = order[y as usize];
                 relevent_in_degree += succ[y_point].contains(&changing_point) as usize;
-                let c_xy = c[&(x - 1, y)] + out_degs[changing_point] - relevent_in_degree;
-                c.insert((x, y), c_xy);
+                let (id_x, id_y) = map_index(x - 1, y);
+                let c_xy = c[id_x][id_y] + out_degs[changing_point] - relevent_in_degree;
+                let (id_x, id_y) = map_index(x, y);
+                c[id_x][id_y] = c_xy;
                 let new_val = t[y as usize] + c_xy;
                 if minimized_y == -1 || t[x as usize] >= new_val {
                     minimized_y = y;
