@@ -1,4 +1,5 @@
 use halo2curves::bn256;
+use rand_core::OsRng;
 use zkpoly_common::devices::DeviceType;
 use zkpoly_common::load_dynamic::Libs;
 use zkpoly_common::typ::Typ;
@@ -173,7 +174,7 @@ fn test_add() {
         0,
         cpu_alloc,
         vec![gpu_alloc],
-        AsyncRng::new(10),
+        AsyncRng::new(10, OsRng::default()),
         libs,
     )
     .with_variables(variable);
@@ -319,7 +320,7 @@ fn test_extend() {
         0,
         cpu_alloc,
         vec![gpu_alloc],
-        AsyncRng::new(10),
+        AsyncRng::new(10, OsRng::default()),
         libs,
     )
     .with_variables(variable);

@@ -14,17 +14,24 @@ use zkpoly_common::{
 };
 use zkpoly_runtime::args::RuntimeType;
 
+#[derive(PartialEq, Eq, Clone, Copy)]
+enum MarkStatus {
+    Unvisited,
+    Marked,
+    Visited,
+}
+
 impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
     fn can_fuse(
         &self,
         vid: VertexId,
         fused: &Vec<usize>,
-        to: &Vec<bool>,
-        from: &Vec<bool>,
+        to: &Vec<MarkStatus>,
+        from: &Vec<MarkStatus>,
     ) -> bool {
         let v = self.g.vertex(vid);
         let vid_usize: usize = vid.into();
-        if fused[vid_usize] != 0 || to[vid_usize] || from[vid_usize] {
+        if fused[vid_usize] != 0 || to[vid_usize] == MarkStatus::Marked || from[vid_usize] == MarkStatus::Marked {
             return false;
         }
         match v.node() {
@@ -66,8 +73,8 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
         &self,
         vid: VertexId,
         fused: &mut Vec<usize>,
-        to: &mut Vec<bool>,
-        from: &mut Vec<bool>,
+        to: &mut Vec<MarkStatus>,
+        from: &mut Vec<MarkStatus>,
         vid2arith: &mut BTreeMap<VertexId, ExprId>,
         arith2vid: &mut BTreeMap<ExprId, VertexId>,
         succ: &Heap<VertexId, BTreeSet<VertexId>>,
@@ -101,27 +108,28 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
     fn mark_fwd(
         &self,
         vid: VertexId,
-        to: &mut Vec<bool>,
+        to: &mut Vec<MarkStatus>,
         succ: &Heap<VertexId, BTreeSet<VertexId>>,
         start_mark: bool,
         fused: &Vec<usize>,
-        from: &Vec<bool>,
+        from: &Vec<MarkStatus>,
         fuse_id: usize,
     ) {
         let vid_usize: usize = vid.into();
-        if to[vid_usize] {
-            return;
-        }
+        if to[vid_usize] == MarkStatus::Unvisited {
         let can_fuse = self.can_fuse(vid, fused, to, from); // , None, None);
-        if start_mark {
-            to[vid_usize] = true
-        }
-        let mut mark_next = start_mark;
-        if !can_fuse && fused[vid_usize] != fuse_id {
-            mark_next = true;
-        }
-        for fwd in succ[vid].iter() {
-            self.mark_fwd(*fwd, to, succ, mark_next, fused, from, fuse_id);
+            if start_mark {
+                to[vid_usize] = MarkStatus::Marked;
+            } else {
+                to[vid_usize] = MarkStatus::Visited;
+            }
+            let mut mark_next = start_mark;
+            if !can_fuse && fused[vid_usize] != fuse_id {
+                mark_next = true;
+            }
+            for fwd in succ[vid].iter() {
+                self.mark_fwd(*fwd, to, succ, mark_next, fused, from, fuse_id);
+            }
         }
     }
 
@@ -129,26 +137,27 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
     fn mark_bwd(
         &self,
         vid: VertexId,
-        from: &mut Vec<bool>,
+        from: &mut Vec<MarkStatus>,
         start_mark: bool,
         fused: &Vec<usize>,
-        to: &Vec<bool>,
+        to: &Vec<MarkStatus>,
         fuse_id: usize,
     ) {
         let vid_usize: usize = vid.into();
-        if from[vid_usize] {
-            return;
-        }
-        let can_fuse = self.can_fuse(vid, fused, to, from); // , None, None);
-        if start_mark {
-            from[vid_usize] = true;
-        }
-        let mut mark_next = start_mark;
-        if !can_fuse && fused[vid_usize] != fuse_id {
-            mark_next = true;
-        }
-        for bwd in self.g.vertex(vid).uses() {
-            self.mark_bwd(bwd, from, mark_next, fused, to, fuse_id);
+        if from[vid_usize] == MarkStatus::Unvisited {
+            let can_fuse = self.can_fuse(vid, fused, to, from); // , None, None);
+            if start_mark {
+                from[vid_usize] = MarkStatus::Marked;
+            } else {
+                from[vid_usize] = MarkStatus::Visited;
+            }
+            let mut mark_next = start_mark;
+            if !can_fuse && fused[vid_usize] != fuse_id {
+                mark_next = true;
+            }
+            for bwd in self.g.vertex(vid).uses() {
+                self.mark_bwd(bwd, from, mark_next, fused, to, fuse_id);
+            }
         }
     }
 
@@ -156,8 +165,8 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
         &self,
         vid: VertexId,
         fused: &mut Vec<usize>,
-        to: &mut Vec<bool>,
-        from: &mut Vec<bool>,
+        to: &mut Vec<MarkStatus>,
+        from: &mut Vec<MarkStatus>,
         vid2arith: &mut BTreeMap<VertexId, ExprId>,
         arith2vid: &mut BTreeMap<ExprId, VertexId>,
         succ: &Heap<VertexId, BTreeSet<VertexId>>,
@@ -369,8 +378,8 @@ pub fn fuse_arith<'s, Rt: RuntimeType>(cg: Cg<'s, Rt>, gpu_mem_limit: u64) -> Cg
     let succ: Heap<VertexId, BTreeSet<VertexId>> = cg.g.successors();
     let mut fused = vec![0; cg.g.order()];
     let order = cg.g.topology_sort().map(|(vid, _)| vid).collect::<Vec<_>>();
-    let mut to = vec![false; cg.g.order()]; // vertexs rely on the current fused kernel
-    let mut from = vec![false; cg.g.order()]; // vertexs the current fused kernel relies on
+    let mut to = vec![MarkStatus::Unvisited; cg.g.order()]; // vertexs rely on the current fused kernel
+    let mut from = vec![MarkStatus::Unvisited; cg.g.order()]; // vertexs the current fused kernel relies on
     let mut fuse_id = 1;
 
     let mut new_graph = Digraph::new();
@@ -485,8 +494,8 @@ pub fn fuse_arith<'s, Rt: RuntimeType>(cg: Cg<'s, Rt>, gpu_mem_limit: u64) -> Cg
 
             // reconstruct succ and clear to and from
             fuse_id += 1;
-            to = vec![false; cg.g.order()];
-            from = vec![false; cg.g.order()];
+            to = vec![MarkStatus::Unvisited; cg.g.order()];
+            from = vec![MarkStatus::Unvisited; cg.g.order()];
         } else if fused[usize::from(id)] == 0 {
             // not fused yet and not fusable
             let new_vid = new_graph.add_vertex(cg.g.vertex(id).clone());
