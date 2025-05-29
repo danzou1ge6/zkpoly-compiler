@@ -704,7 +704,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
         let on_device = super::type3::Device::for_execution_on;
         let on_gpu = |dev: Device| {
             if !device.is_gpu() {
-                panic!("this vertex needs to be executed on some GPU");
+                panic!("this vertex {:?} needs to be executed on some GPU, got {:?}", vid, device);
             }
             on_device(dev)
         };
@@ -732,7 +732,8 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
                 let (_, len) = self.g.vertex(polys[0]).typ().unwrap_poly();
                 Some((
                     temporary_space::msm::<Rt>(alg, *len as usize, libs),
-                    on_gpu(device),
+                    // We are using only one gpu for now
+                    on_device(Device::Gpu(0))
                 ))
             }
             HashTranscript { .. } => None,

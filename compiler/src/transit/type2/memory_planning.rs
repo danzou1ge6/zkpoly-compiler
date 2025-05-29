@@ -32,6 +32,7 @@ mod prelude {
         },
         type3::{self, Device, DeviceSpecific, RegisterId},
     };
+    pub(super) use crate::driver::HardwareInfo;
 
     pub(super) use super::{
         address::{Addr, AddrId, AddrMapping},
@@ -149,5 +150,6 @@ pub fn plan<'s, Rt: RuntimeType>(
         libs,
         obj_id_allocator,
         &obj_info,
+        hd_info
     ))
 }

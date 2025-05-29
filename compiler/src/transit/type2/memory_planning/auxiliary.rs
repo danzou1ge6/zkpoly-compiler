@@ -7,14 +7,15 @@ pub struct AuxiliaryInfo<'i, Rt: RuntimeType> {
     next_uses: BTreeMap<ObjectId, DeviceSpecific<VecDeque<Index>>>,
     planning_devices: BTreeSet<Device>,
     unplanned_devices: BTreeSet<Device>,
-    obj_info: &'i object_info::Info<Rt>
+    obj_info: &'i object_info::Info<Rt>,
+    n_gpus: usize
 }
 
 impl<'i, Rt: RuntimeType> AuxiliaryInfo<'i, Rt> {
     fn next_uses_queue_of(&mut self, object: ObjectId, device: Device) -> &mut VecDeque<Index> {
         self.next_uses
             .entry(object)
-            .or_default()
+            .or_insert_with(|| DeviceSpecific::default(self.n_gpus))
             .get_device_mut(device)
     }
 
@@ -74,6 +75,7 @@ impl<'i, Rt: RuntimeType> AuxiliaryInfo<'i, Rt> {
         planning_devices: BTreeSet<Device>,
         unplanned_devices: BTreeSet<Device>,
         obj_info: &'i object_info::Info<Rt>,
+        n_gpus: usize
     ) -> Self {
         Self {
             pc: Index::default(),
@@ -81,11 +83,12 @@ impl<'i, Rt: RuntimeType> AuxiliaryInfo<'i, Rt> {
             planning_devices,
             unplanned_devices,
             obj_info,
+            n_gpus
         }
     }
 
     pub fn tick(&mut self, pc: Index) {
-        assert!(pc > self.pc);
+        assert!(self.pc == 0.into() || pc > self.pc);
         self.pc = pc;
     }
 

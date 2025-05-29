@@ -3,7 +3,9 @@ use crate::{
     transit::type2::object_analysis::value::{OutputValue, ValueNode},
 };
 use std::{
-    collections::{BTreeMap, BTreeSet}, io::Write, ops::Deref
+    collections::{BTreeMap, BTreeSet},
+    io::Write,
+    ops::Deref,
 };
 
 use super::{value, ObjectId};
@@ -84,6 +86,7 @@ fn mark_use(
     obj_last_use: &mut BTreeMap<ObjectId, DeviceSpecific<Option<VertexId>>>,
 ) {
     fn extend_lifetime(
+        hd_info: &HardwareInfo,
         obj_last_use: &mut BTreeMap<ObjectId, DeviceSpecific<Option<VertexId>>>,
         object_id: ObjectId,
         device: Device,
@@ -91,7 +94,7 @@ fn mark_use(
     ) {
         *obj_last_use
             .entry(object_id)
-            .or_default()
+            .or_insert_with(|| DeviceSpecific::default(hd_info.n_gpus()))
             .get_device_mut(device) = Some(vid);
 
         // Considering that parent memory device has bigger space,
@@ -99,7 +102,7 @@ fn mark_use(
         // on child device,
         // to trade parent memory for transfer costs.
         if let Some(parent_device) = device.parent() {
-            extend_lifetime(obj_last_use, object_id, parent_device, vid);
+            extend_lifetime(hd_info, obj_last_use, object_id, parent_device, vid);
         }
     }
 
@@ -127,21 +130,24 @@ fn mark_use(
         if let Some((cloned_obj, _)) = cloned_slices.0.get_backward(&object_id) {
             let def_on_device = def_on[&cloned_obj];
             if def_on_device == device {
-                extend_lifetime(obj_last_use, *cloned_obj, device, vid);
+                extend_lifetime(hd_info, obj_last_use, *cloned_obj, device, vid);
             } else {
                 if is_used_on(*cloned_obj, device) {
-                    extend_lifetime(obj_last_use, *cloned_obj, device, vid);
+                    extend_lifetime(hd_info, obj_last_use, *cloned_obj, device, vid);
                 } else {
-                    extend_lifetime(obj_last_use, *cloned_obj, def_on_device, vid);
+                    extend_lifetime(hd_info, obj_last_use, *cloned_obj, def_on_device, vid);
                 }
             }
         }
     }
 
     // Extend the object's lifetime on the device where it is used
-    extend_lifetime(obj_last_use, object_id, device, vid);
+    extend_lifetime(hd_info, obj_last_use, object_id, device, vid);
 
-    *used_on.entry(object_id).or_default().get_device_mut(device) = true;
+    *used_on
+        .entry(object_id)
+        .or_insert_with(|| DeviceSpecific::default(hd_info.n_gpus()))
+        .get_device_mut(device) = true;
 }
 
 /// Collects input values of a vertex.
@@ -336,7 +342,7 @@ fn vertex_output_of<'s, Rt: RuntimeType>(
         }
         // Output value of [`Return`] vertex is the desired output value of the computation graph
         AssertEq(a, _, _) | Print(a, _) | Return(a) => {
-            let pred_value = value[a].clone();
+            let pred_value = value[a].clone().with_no_inplace();
             pred_value.with_device(Device::Cpu)
         }
         // Following vertices define new objects
@@ -509,7 +515,7 @@ impl DefUse {
             object_dies_after: obj_last_use,
         };
 
-        def_use.check_contracts(g, seq, return_vid, &object_id_allocator);
+        def_use.check_contracts(g, seq, &object_id_allocator);
 
         (def_use, object_id_allocator)
     }
@@ -518,7 +524,6 @@ impl DefUse {
         &self,
         g: &SubDigraph<'_, VertexId, type2::Vertex<'s, Rt>>,
         seq: &[VertexId],
-        return_vid: VertexId,
         object_id_allocator: &IdAllocator<ObjectId>,
     ) {
         macro_rules! check_key {
@@ -528,11 +533,6 @@ impl DefUse {
                 }
             };
         }
-
-        let returned_objects = self.value[&return_vid]
-            .iter()
-            .map(|v| v.object_id())
-            .collect::<BTreeSet<_>>();
 
         let vertex_defined_objects = seq
             .iter()
@@ -549,14 +549,6 @@ impl DefUse {
         for object in object_id_allocator.allocated_ids() {
             check_key!(&self.def_at, &object, "def_at");
             check_key!(&self.def_on, &object, "def_on");
-
-            if !(self.object_dies_after.contains_key(&object) || returned_objects.contains(&object))
-            {
-                panic!(
-                    "{:?} is neither found in obj_last_use nor returned_objects",
-                    object
-                );
-            }
 
             if !(vertex_defined_objects.contains(&object)
                 || self.cloned_slices.get_backward(&object).is_some())
@@ -590,7 +582,10 @@ impl DefUse {
         &self.value[&vid]
     }
 
-    pub fn input_of<'a>(&'a self, vid: VertexId) -> impl Iterator<Item = &'a(VertexId, VertexInput)> + 'a {
+    pub fn input_of<'a>(
+        &'a self,
+        vid: VertexId,
+    ) -> impl Iterator<Item = &'a (VertexId, VertexInput)> + 'a {
         self.input[&vid].iter()
     }
 }

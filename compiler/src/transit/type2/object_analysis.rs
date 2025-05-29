@@ -308,8 +308,14 @@ where
                 .map(|v| {
                     (
                         v.deref().clone().into(),
-                        v.inplace_of()
-                            .map(|inplaced_vid| vid2mutated_obj[&inplaced_vid]),
+                        v.inplace_of().map(|inplaced_vid| {
+                            vid2mutated_obj.get(&inplaced_vid).unwrap_or_else(|| {
+                                panic!(
+                                    "inplace object not found for input {:?} at {:?}",
+                                    inplaced_vid, vid
+                                )
+                            }).clone()
+                        }),
                     )
                 })
                 .collect();

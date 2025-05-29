@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, VecDeque};
 
-use crate::transit::type3::{Device, DeviceSpecific};
+use crate::{driver, transit::type3::{Device, DeviceSpecific}};
 
 use super::{template::OperationSeq, Index, ObjectId};
 
@@ -43,10 +43,10 @@ impl std::cmp::Ord for AtModifier {
 pub struct UsedBy(BTreeMap<ObjectId, DeviceSpecific<Vec<Index>>>);
 
 impl UsedBy {
-    fn add_use(&mut self, index: Index, object: ObjectId, device: Device) {
+    fn add_use(&mut self, index: Index, object: ObjectId, device: Device, hd_info: &driver::HardwareInfo) {
         self.0
             .entry(object)
-            .or_default()
+            .or_insert_with(|| DeviceSpecific::default(hd_info.n_gpus()))
             .get_device_mut(device)
             .push(index)
     }
@@ -57,7 +57,7 @@ impl UsedBy {
     ///
     /// However, it can be guaranteed that the real uses are subset of the uses inferred here,
     /// so it's safe to deallocate object after last inferred use.
-    pub fn analyze<'s, T, P>(ops: &OperationSeq<'s, T, P>) -> Self
+    pub fn analyze<'s, T, P>(ops: &OperationSeq<'s, T, P>, hd_info: &driver::HardwareInfo) -> Self
     where
         ObjectId: for<'a> From<&'a T>,
         P: Clone,
@@ -66,7 +66,7 @@ impl UsedBy {
 
         for (index, op) in ops.iter() {
             op.object_uses().for_each(|(object_id, device)| {
-                used_by.add_use(index, object_id, device);
+                used_by.add_use(index, object_id, device, hd_info);
             });
         }
 

@@ -47,7 +47,7 @@ impl Device {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct DeviceSpecific<T> {
     pub gpu: Vec<T>,
     pub cpu: T,
@@ -76,6 +76,14 @@ impl<T> DeviceSpecific<T> {
             gpu: self.gpu.into_iter().map(&mut f).collect(),
             cpu: (&mut f)(self.cpu),
             stack: f(self.stack),
+        }
+    }
+
+    pub fn default(n_gpus: usize) -> Self where T: Default {
+        DeviceSpecific {
+            gpu: (0..n_gpus).map(|_| Default::default()).collect(),
+            cpu: T::default(),
+            stack: T::default(),
         }
     }
 }

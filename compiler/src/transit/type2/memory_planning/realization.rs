@@ -10,16 +10,18 @@ pub fn realize<'s, 'a, T, Rt: RuntimeType>(
     libs: Libs,
     object_id_allocator: IdAllocator<ObjectId>,
     obj_inf: &object_info::Info<Rt>,
+    hd_info: &HardwareInfo,
 ) -> type3::Chunk<'s, Rt>
 where
     T: std::fmt::Debug,
     ObjectId: for<'o> From<&'o T>,
 {
     let mut aux_x = AuxiliaryInfo::new(
-        liveness::UsedBy::analyze(&ops),
+        liveness::UsedBy::analyze(&ops, hd_info),
         BTreeSet::new(),
         BTreeSet::new(),
         obj_inf,
+        hd_info.n_gpus()
     );
 
     let mut machine_x: Machine<'_, Pointer> = Machine::empty();

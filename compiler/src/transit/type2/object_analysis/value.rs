@@ -243,6 +243,18 @@ impl VertexOutput {
             _ => panic!("called unwrap_single on VertexValue::Tuple"),
         }
     }
+
+    pub fn with_no_inplace(self) -> Self {
+        use VertexOutput::*;
+        match self {
+            Tuple(ss) => VertexOutput::Tuple(
+                ss.iter()
+                    .map(|OutputValue(v, _)| OutputValue(v.clone(), None))
+                    .collect(),
+            ),
+            Single(OutputValue(v, _)) => VertexOutput::Single(OutputValue(v.clone(), None)),
+        }
+    }
 }
 
 /// One of the input values to a vertex.

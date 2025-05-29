@@ -1,4 +1,4 @@
-use crate::{driver, transit::type2::memory_planning::prelude::*};
+use crate::{transit::type2::memory_planning::prelude::*};
 use allocators::{SuperAllocator, CpuAllocator, GpuAllocator};
 pub use machine::*;
 
@@ -112,15 +112,17 @@ fn plan_devices<'s, 'a, P, Rt: RuntimeType>(
     planning_devices: &BTreeSet<Device>,
     unplanned_devices: &BTreeSet<Device>,
     allocators_x: AllocatorCollection<'a, ObjectId, P, Rt>,
+    hd_info: &HardwareInfo,
 ) -> Result<OperationSeq<'s, ObjectId, P>, Error<'s>>
 where
     P: UsizeId + 'static,
 {
     let mut info_x = AuxiliaryInfo::new(
-        liveness::UsedBy::analyze(&source_ops),
+        liveness::UsedBy::analyze(&source_ops, hd_info),
         planning_devices.clone(),
         unplanned_devices.clone(),
         obj_info,
+        hd_info.n_gpus(),
     );
 
     let mut unplanned_allocators: BTreeMap<_, _> = unplanned_devices
@@ -520,7 +522,7 @@ pub fn transform_ops<'s, P, Rt: RuntimeType> (
     gpu_allocators: &mut [GpuAllocator<P>],
     cpu_allocator: &mut CpuAllocator<P>,
     obj_info: &object_info::Info<Rt>,
-    hd_info: &driver::HardwareInfo
+    hd_info: &HardwareInfo
 ) -> Result<OperationSeq<'s, ObjectId, P>, Error<'s>> where P: UsizeId + 'static {
     let plan_phases: Vec<BTreeSet<Device>> = vec![
         (0..hd_info.n_gpus()).map(|i| Device::Gpu(i)).collect(),
@@ -554,6 +556,7 @@ pub fn transform_ops<'s, P, Rt: RuntimeType> (
             &planning_devices,
             &unplanned_devices,
             allocators,
+            hd_info
         )?;
 
         planned_devices.append(&mut planning_devices);
