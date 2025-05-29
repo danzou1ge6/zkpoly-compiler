@@ -1,7 +1,6 @@
 use crate::transit::type2::memory_planning::prelude::*;
 
 pub mod gpu_allocator;
-pub mod page_allocator;
 pub mod regretting_integral;
 pub mod smithereens_allocator;
 pub mod super_allocator;
