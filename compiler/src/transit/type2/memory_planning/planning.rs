@@ -183,6 +183,9 @@ where
         aux.tick(index);
 
         use Operation::*;
+
+        let object_uses = op.object_uses().collect::<Vec<_>>();
+
         match op {
             Type2(vid, outputs, node, temps, src) => {
                 // Prepare inputs
@@ -509,6 +512,22 @@ where
             op@Transfer(..) | op@Allocate(..) | op@Deallocate(..) => {
                 // We already know source and destination pointer, so we just leave the operation as it is.
                 machine.ops.emit(op)
+            }
+        }
+
+        for (object, _) in object_uses {
+            if aux.dead(object) {
+                for d in planned_devices.iter(){
+                    if allocators
+                        .handle(*d, machine, aux)
+                        .completeness(object)
+                        .is_one() {
+                        let resp = allocators
+                            .handle(*d, machine, aux)
+                            .deallocate(&object);
+                        resp.commit(allocators, machine, aux);
+                    }
+                }
             }
         }
     }
