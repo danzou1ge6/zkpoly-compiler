@@ -1,8 +1,58 @@
-use memmap2::{MmapMut, MmapOptions};
-use std::collections::HashMap;
+use memmap2::{Mmap, MmapMut, MmapOptions};
+use tempfile::TempDir;
+use zkpoly_common::get_project_root::get_project_root;
+use std::{collections::HashMap, fs::{File, OpenOptions}};
 use std::ffi::c_void;
 use std::ptr::NonNull;
 use zkpoly_cuda_api::bindings::{cudaError_cudaSuccess, cudaFreeHost, cudaMallocHost};
+
+#[derive(Debug)]
+struct MmapInfo {
+    /// Memory mapped file handle.
+    mmap_handle: MmapMut,
+    /// The File descriptor for the memory-mapped file.
+    file: File,
+}
+
+impl Drop for MmapInfo {
+    fn drop(&mut self) {
+        // then close and delete the file
+        if let Err(e) = self.file.sync_all() {
+            eprintln!("Failed to sync mmap file before dropping: {}", e);
+        }
+        if let Err(e) = self.file.set_len(0) {
+            eprintln!("Failed to truncate mmap file before dropping: {}", e);
+        }
+        if let Err(e) = self.file.sync_all() {
+            eprintln!("Failed to sync mmap file before dropping: {}", e);
+        }
+        // Note: TempDir will handle its own cleanup when dropped, so we don't need to delete it here.
+    }
+}
+
+impl MmapInfo {
+    fn new(temp_dir: &TempDir, size: usize, file_name: &str) -> Self {
+        let file_path = temp_dir.path().join(file_name);
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&file_path)
+            .expect("Failed to create file for memory mapping");
+        file.set_len(size as u64).expect("Failed to set file size for memory mapping");
+        let mmap_handle = unsafe {
+            MmapOptions::new()
+                .len(size)
+                .map_mut(&file)
+                .expect("Failed to create memory map")
+        };
+        MmapInfo {
+            mmap_handle,
+            file,
+        }
+    }
+}
 
 /// Metadata for a memory slab.
 #[derive(Debug)]
@@ -11,7 +61,7 @@ struct SlabInfo {
     /// `None` if this slab is a non-leaf node in the buddy tree and its memory is fully covered by its children.
     location: Option<NonNull<c_void>>,
 
-    mmap_handle: Option<MmapMut>,
+    mmap_handle: Option<MmapInfo>,
 
     /// Size of the slab = base_size * (2^log_factor).
     log_factor: u32,
@@ -87,6 +137,8 @@ pub struct MemoryPool {
     // Placeholder for future swap management functionality
     // swap_manager: Option<SwapManager>,
     use_mmap: bool,
+
+    _tmp_dir_handle: Option<TempDir>,
 }
 
 unsafe impl Send for MemoryPool {}
@@ -106,6 +158,7 @@ impl MemoryPool {
             max_log_factor,
             base_size,
             use_mmap: false,
+            _tmp_dir_handle: None,
         }
     }
 
@@ -115,6 +168,7 @@ impl MemoryPool {
             "Cannot change to mmap after slabs are allocated"
         );
         self.use_mmap = true;
+        self._tmp_dir_handle = Some(TempDir::new_in(get_project_root()).expect("Failed to create temporary directory for mmap"));
     }
 
     /// Gets a new or recycled `SlabInfo` index and initializes the `SlabInfo` struct.
@@ -347,11 +401,14 @@ impl MemoryPool {
             let new_slab_idx = self.obtain_slab_info_index(log_factor, None);
 
             if self.use_mmap {
-                let mut mmap_handle = MmapOptions::new().len(slab_actual_size).map_anon().unwrap();
-                let mmap_ptr = NonNull::new(mmap_handle.as_mut_ptr() as *mut c_void)
+                // let mut mmap_handle = MmapOptions::new().len(slab_actual_size).map_anon().unwrap();
+                // let mmap_ptr = NonNull::new(mmap_handle.as_mut_ptr() as *mut c_void)
+                //     .ok_or_else(|| "mmap reported success but returned null pointer".to_string())?;
+                let mut mmap_info = MmapInfo::new(self._tmp_dir_handle.as_ref().unwrap(), slab_actual_size, &format!("chunk_{}", self.slabs.len()));
+                let mmap_ptr = NonNull::new(mmap_info.mmap_handle.as_mut_ptr() as *mut c_void)
                     .ok_or_else(|| "mmap reported success but returned null pointer".to_string())?;
                 self.slabs[new_slab_idx].location = Some(mmap_ptr);
-                self.slabs[new_slab_idx].mmap_handle = Some(mmap_handle);
+                self.slabs[new_slab_idx].mmap_handle = Some(mmap_info);
             } else {
                 let ptr = self.allocate_pinned_memory(slab_actual_size)?; // Use actual size for this specific slab
                 self.slabs[new_slab_idx].location = Some(ptr);
