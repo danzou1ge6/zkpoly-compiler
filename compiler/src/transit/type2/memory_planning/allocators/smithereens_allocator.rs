@@ -2,7 +2,8 @@
 
 use std::collections::BTreeMap;
 
-use super::{Addr, AddrId, AddrMappingHandler, Size, SmithereenSize};
+use super::super::{Addr, AddrId, Size, SmithereenSize};
+use super::AddrMappingHandler;
 
 static DEBUG: bool = false;
 

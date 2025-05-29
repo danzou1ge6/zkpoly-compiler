@@ -158,6 +158,14 @@ impl HardwareInfo {
     pub fn n_gpus(&self) -> usize {
         self.gpus.len()
     }
+
+    pub fn gpus(&self) -> impl Iterator<Item = &GpuInfo> {
+        self.gpus.iter()
+    }
+
+    pub fn smallest_gpu_memory_integral_limit(&self) -> u64 {
+        self.gpus().map(|gpu| gpu.gpu_memory_limit - gpu.gpu_smithereen_space).min().expect("no GPU")
+    }
 }
 
 static GRAPHVIZ_INTERACTIVE_HTML_1: &'static str = r#"
@@ -234,8 +242,7 @@ fn debug_type2_def_use<'s, Rt: std::fmt::Debug + RuntimeType>(
     g: &Digraph<type2::VertexId, type2::Vertex<'s, Rt>>,
     devices: &BTreeMap<type2::VertexId, type2::Device>,
     seq: &[type2::VertexId],
-    obj_def: &type2::object_analysis::ObjectsDef,
-    vertex_inputs: &type2::object_analysis::ObjectUse,
+    obj_def_use: &type2::object_analysis::cg_def_use::DefUse,
     visualizer: Type2DebugVisualizer,
 ) -> Option<JoinHandle<()>> {
     let fpath = match visualizer {
@@ -261,16 +268,13 @@ fn debug_type2_def_use<'s, Rt: std::fmt::Debug + RuntimeType>(
         true,
         |vid, _| match devices[&vid] {
             type2::Device::Cpu => Some("#FFFFFF"),
-            type2::Device::Gpu => Some("#A5D6A7"),
-            type2::Device::PreferGpu => {
-                panic!("PreferGpu should has been resolved during deciding device")
-            }
+            type2::Device::Gpu(_) => Some("#A5D6A7"),
         },
-        |vid, _| Some(format!("{:?}", &obj_def.values[&vid])),
+        |vid, _| Some(format!("{:?}", &obj_def_use.value(vid))),
         |vid, v| {
             Some(
                 v.uses()
-                    .zip(vertex_inputs.input_of(vid).map(|vv| format!("{:?}", vv)))
+                    .zip(obj_def_use.input_of(vid).map(|vv| format!("{:?}", vv)))
                     .collect(),
             )
         },

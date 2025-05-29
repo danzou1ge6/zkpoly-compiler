@@ -10,7 +10,7 @@ use zkpoly_common::{
     arith::Mutability,
     define_usize_id,
     digraph::internal::SubDigraph,
-    heap::{Heap, IdAllocator},
+    heap::{Heap, IdAllocator, UsizeId},
     load_dynamic::Libs,
     typ::{PolyMeta, Slice},
 };
@@ -18,7 +18,7 @@ use zkpoly_runtime::args::RuntimeType;
 
 use crate::transit::{
     type2,
-    type3::{typ::Slice as SliceRange, Device, DeviceSpecific, Size, SmithereenSize},
+    type3::{typ::Slice as SliceRange, Device, DeviceSpecific},
     SourceInfo,
 };
 
@@ -30,7 +30,10 @@ pub use value::{ObjectId, Value, ValueNode, VertexInput, VertexOutput};
 pub type VertexNode = type2::alt_label::VertexNode<VertexInput<Value>>;
 
 pub mod template {
-    use super::{define_usize_id, Device, Heap, ObjectId, Slice, SourceInfo, Value, VertexInput, VertexId};
+    use super::{
+        define_usize_id, Device, Heap, ObjectId, Slice, SourceInfo, Value, ValueNode, VertexId,
+        VertexInput,
+    };
     use crate::transit::type2;
 
     /// A value that we know where its pointer points to.
@@ -38,6 +41,10 @@ pub mod template {
     pub struct ResidentalValue<P>(Value, P);
 
     impl<P> ResidentalValue<P> {
+        pub fn new(value: Value, pointer: P) -> Self {
+            ResidentalValue(value, pointer)
+        }
+
         pub fn pointer(&self) -> &P {
             &self.1
         }
@@ -48,6 +55,10 @@ pub mod template {
 
         pub fn value(&self) -> &Value {
             &self.0
+        }
+
+        pub fn with_object_id(self, object_id: ObjectId) -> Self {
+            ResidentalValue(self.0.with_object_id(object_id), self.1)
         }
     }
 
@@ -67,10 +78,18 @@ pub mod template {
         }
     }
 
+    impl<P> ResidentalValue<Option<P>> {
+        pub fn assume_pointed(self) -> ResidentalValue<P> {
+            ResidentalValue(self.0, self.1.unwrap())
+        }
+    }
+
     /// A memory relevant operation involved in executing a Type2 computation graph.
     ///
     /// Type parameter [`T`] is the smallest unit of memory transferring, Token.
     /// [`P`] means Pointer, by which the object is accessed from memory.
+    ///
+    /// Only operations with a specific pointer for each operand can be lowered to Type3.
     #[derive(Debug, Clone)]
     pub enum Operation<'s, T, P> {
         /// A Type2 vertex translated to value inputs/outputs.
@@ -80,21 +99,21 @@ pub mod template {
         /// may be unknown.
         Type2(
             VertexId,
-            Vec<ResidentalValue<Option<P>>>,
+            Vec<(ResidentalValue<Option<P>>, Option<ObjectId>)>,
             type2::alt_label::VertexNode<VertexInput<ResidentalValue<Option<P>>>>,
             Vec<ResidentalValue<Option<P>>>,
             SourceInfo<'s>,
         ),
 
-        /// [`CloneSlice(o1, d, o2, s)`]  means o1 <- CloneSlice d, o2, s,
-        /// i.e., Clone a slice `s` of object `o2` and store it to a new object `o1` on device `d`
-        CloneSlice(ObjectId, Device, ObjectId, Slice),
+        /// [`CloneSlice(o1, d, o2, s)`]  means o1 <- Clone d, o2, s,
+        /// i.e., Clone a (potential) slice `s` of object `o2` and store it to a new object `o1` on device `d`.
+        Clone(ObjectId, Device, ObjectId, Option<Slice>),
 
-        /// Similar to [`CloneSlice`], but does not slice the source object.
-        Clone(ObjectId, Device, ObjectId),
-
-        /// Reassign memory space of `.2` on `.1` to a new object ID
-        Move(ObjectId, Device, ObjectId),
+        /// Like [`Eject`], [`Reclaim`] and [`Tranfer`], but here transfers are carried out
+        /// by units of objects, and slicing is supported.
+        EjectObject(Value, ResidentalValue<P>),
+        ReclaimObject(ResidentalValue<P>, Value),
+        TransferObject(ResidentalValue<P>, ResidentalValue<P>),
 
         /// [`Eject(d1, t, d2, p)`] means d1 <- Eject t, d2, p,
         /// i.e., eject token `t` from device `d2` at memory location `p` to device `d1`.
@@ -106,8 +125,11 @@ pub mod template {
 
         /// [`Reclaim(d1, p, t, d2`] means d1, p <- Reclaim t, d2,
         /// i.e., reclaim token `t` from device `d2` to device `t1` at memory location `p`.
-        ///
         /// This operation serves a similar purpose as [`Eject`], but in the opposite direction.
+        ///
+        /// However, when really planning memory of `d2`, if the token is not found on `d2`,
+        /// it must have been poped to `d2`'s parent device.
+        /// In this case, we postpone reclaim to planning of `d2`'s parent device.
         Reclaim(Device, P, T, Device),
 
         /// [`Transfer(d1, p1, t, d2, p2)`] means d1, p <- Transfer t, d2, p,
@@ -136,18 +158,43 @@ pub mod template {
                         .flatten()
                         .chain(temps.iter().map(|v| (v.object_id(), v.device()))),
                 ),
-                CloneSlice(_, d, u, _) | Clone(_, d, u) | Move(_, d, u) => {
-                    Box::new([(*u, *d)].into_iter())
+                Clone(_, d, u, _) => Box::new([(*u, *d)].into_iter()),
+                EjectObject(_, rv) | TransferObject(_, rv) => {
+                    Box::new([(rv.object_id(), rv.device())].into_iter())
                 }
+                ReclaimObject(_, v) => Box::new([(v.object_id(), v.device())].into_iter()),
                 Eject(_, t, d, _) | Reclaim(_, _, t, d) | Transfer(_, _, t, d, _) => {
                     Box::new([(t.into(), *d)].into_iter())
                 }
                 Allocate(_, _, _) | Deallocate(_, _, _) => Box::new(std::iter::empty()),
             }
         }
+
+        pub fn ready_for_type3(&self) -> bool {
+            use Operation::*;
+            match self {
+                Type2(_, outputs, node, temps, src) => {
+                    outputs.iter().all(|(rv, _)| rv.pointer().is_some())
+                        && node
+                            .uses_ref()
+                            .all(|vi| vi.iter().all(|v| v.pointer().is_some()))
+                        && temps.iter().all(|rv| rv.pointer().is_some())
+                }
+                TransferObject(..) => true,
+                Transfer(..) => true,
+                Allocate(..) | Deallocate(..) => true,
+                _ => false,
+            }
+        }
     }
 
     define_usize_id!(Index);
+
+    impl Index {
+        pub fn inf() -> Self {
+            Index::from(usize::MAX)
+        }
+    }
 
     /// A sequence of [`Operation`]
     #[derive(Debug, Clone)]
@@ -172,13 +219,15 @@ pub mod template {
     }
 }
 
-pub type Operation<'s> = template::Operation<'s, ObjectId, ()>;
-pub type OperationSeq<'s> = template::OperationSeq<'s, ObjectId, ()>;
-pub use template::Index;
+pub use template::{Index, Operation, OperationSeq};
 
 pub mod cg_def_use;
+pub mod size;
 
-impl<'s> OperationSeq<'s> {
+impl<'s, T, P> OperationSeq<'s, T, P>
+where
+    P: UsizeId,
+{
     pub fn construct<Rt: RuntimeType>(
         cg: &Cg<'s, Rt>,
         g: &SubDigraph<'_, VertexId, type2::Vertex<'s, Rt>>,
@@ -192,16 +241,16 @@ impl<'s> OperationSeq<'s> {
 
         // This closure emits an operation that makes a slice clone if it no clone been made
         let mut sliced_is_cloned = BTreeSet::new();
-        let mut make_slice_if_needed = |v: &Value, ops: &mut OperationSeq| {
+        let mut make_slice_if_needed = |v: &Value, ops: &mut OperationSeq<T, P>| {
             if let Some((sliced_object, slice)) = def_use.object_is_cloned_slice(v.object_id()) {
                 if !sliced_is_cloned.contains(&v.object_id()) {
                     sliced_is_cloned.insert(v.object_id());
 
-                    ops.emit(Operation::CloneSlice(
+                    ops.emit(Operation::Clone(
                         v.object_id(),
                         v.device(),
                         sliced_object,
-                        slice,
+                        Some(slice),
                     ))
                 }
             }
@@ -209,11 +258,14 @@ impl<'s> OperationSeq<'s> {
 
         for &vid in seq.iter().filter(|&vid| !g.vertex(*vid).is_virtual()) {
             let v = g.vertex(vid);
+
+            let mut vid2mutated_obj = BTreeMap::new();
+
             let node = v.node().relabeled(|u| {
                 def_use.input[&vid]
                     .iter()
                     .find(|(vid, _)| *vid == u)
-                    .map(|(_, vi)| {
+                    .map(|(input_vid, vi)| {
                         // Clone slices, if needed
                         vi.iter().for_each(|v| {
                             make_slice_if_needed(v, &mut ops);
@@ -223,24 +275,25 @@ impl<'s> OperationSeq<'s> {
                         // - If the inputed object dies after this vertex on this its device, it's space is simply reused
                         // - Otherwise, we make a clone for it
                         let vi = if let Some(mutated_v) = vi.mutable() {
-                            let temp_object = obj_id_allocator.alloc();
-
-                            let constructor = if def_use
+                            if def_use
                                 .dies_after(mutated_v.object_id(), mutated_v.device())
                                 .unwrap()
                                 == vid
                             {
-                                Operation::Move
+                                vid2mutated_obj.insert(input_vid, mutated_v.object_id());
+                                VertexInput::single_mutable(mutated_v.clone())
                             } else {
-                                Operation::Clone
-                            };
+                                let temp_object = obj_id_allocator.alloc();
+                                ops.emit(Operation::Clone(
+                                    temp_object,
+                                    mutated_v.device(),
+                                    mutated_v.object_id(),
+                                    None,
+                                ));
 
-                            ops.emit(constructor(
-                                temp_object,
-                                mutated_v.device(),
-                                mutated_v.object_id(),
-                            ));
-                            VertexInput::single_mutable(mutated_v.with_object_id(temp_object))
+                                vid2mutated_obj.insert(input_vid, temp_object);
+                                VertexInput::single_mutable(mutated_v.with_object_id(temp_object))
+                            }
                         } else {
                             vi.clone()
                         };
@@ -249,6 +302,17 @@ impl<'s> OperationSeq<'s> {
                     })
                     .unwrap()
             });
+
+            let output = def_use.value[&vid]
+                .iter()
+                .map(|v| {
+                    (
+                        v.deref().clone().into(),
+                        v.inplace_of()
+                            .map(|inplaced_vid| vid2mutated_obj[&inplaced_vid]),
+                    )
+                })
+                .collect();
 
             let temp = cg
                 .temporary_space_needed(vid, execution_device(vid), libs)
@@ -262,22 +326,14 @@ impl<'s> OperationSeq<'s> {
                                     obj_id_allocator.alloc(),
                                     md,
                                     ValueNode::GpuBuffer(s as usize),
-                                ).into()
+                                )
+                                .into()
                             })
                             .collect()
                     },
                 );
 
-            let t2op = Operation::Type2(
-                vid,
-                def_use.value[&vid]
-                    .iter()
-                    .map(|v| v.deref().clone().into())
-                    .collect(),
-                node,
-                temp,
-                v.src().clone(),
-            );
+            let t2op = Operation::Type2(vid, output, node, temp, v.src().clone());
 
             ops.emit(t2op);
         }

@@ -1,3 +1,4 @@
+use crate::transit::type2::VertexId;
 use crate::transit::type3::{self, Device};
 use zkpoly_common::arith::Mutability;
 use zkpoly_common::define_usize_id;
@@ -149,7 +150,7 @@ impl Value {
 /// If `.1` is [`Some`], it is the index of the input value taken inplace.
 /// A input value is said to be taken inplace if the underlying memory space is then used by the output.
 #[derive(Debug, Clone)]
-pub struct OutputValue(Value, Option<usize>);
+pub struct OutputValue(Value, Option<VertexId>);
 
 impl std::ops::Deref for OutputValue {
     type Target = Value;
@@ -159,12 +160,16 @@ impl std::ops::Deref for OutputValue {
 }
 
 impl OutputValue {
-    pub fn new(value: Value, inplace: Option<usize>) -> Self {
+    pub fn new(value: Value, inplace: Option<VertexId>) -> Self {
         OutputValue(value, inplace)
     }
 
     pub fn non_inplace(value: Value) -> Self {
         OutputValue(value, None)
+    }
+
+    pub fn inplace_of(&self) -> Option<VertexId> {
+        self.1
     }
 }
 

@@ -127,7 +127,7 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
             || {
                 Ok(type2::precompute::precompute(
                     t2cg,
-                    hardware_info.gpu_memory_limit as usize,
+                    hardware_info.smallest_gpu_memory_integral_limit() as usize,
                     &mut libs,
                     &mut allocator,
                     &mut t2const_tab,
@@ -210,7 +210,7 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
             || {
                 Ok(type2::kernel_fusion::fuse_arith(
                     t2cg,
-                    hardware_info.gpu_memory_limit,
+                    hardware_info.smallest_gpu_memory_integral_limit()
                 ))
             },
             "Done.",
@@ -303,6 +303,6 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
         self.apply_passes(options, hardware_info, ctx)?
             .to_type3(options, hardware_info, ctx)?
             .apply_passes(options)?
-            .to_artifect(options, ctx)
+            .to_artifect(options, hardware_info, ctx)
     }
 }

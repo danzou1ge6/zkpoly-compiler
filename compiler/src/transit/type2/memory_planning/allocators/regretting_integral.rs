@@ -1,6 +1,7 @@
-use super::{Addr, AddrId, AddrMappingHandler, Instant, IntegralSize, Size};
-use std::collections::{BTreeMap, BTreeSet};
-use zkpoly_common::mm_heap::MmHeap;
+use super::AddrMappingHandler;
+use crate::transit::type2::memory_planning::prelude::*;
+
+type Instant = Index;
 
 static DEBUG: bool = true;
 
@@ -125,7 +126,7 @@ impl<'a> std::fmt::Debug for BlocksDebugger<'a> {
         ) -> std::fmt::Result {
             let block = &a.blocks[&lbs][&addr];
             match &block.status {
-                BlockStatus::Free(last_die_at) => {
+                BlockStatus::Free(_last_die_at) => {
                     // write!(
                     //     f,
                     //     "{}({}, {}, {}): Free({})\n",
@@ -259,8 +260,8 @@ impl Allocator {
     }
 
     pub fn tick(&mut self, t: Instant) {
-        assert!(self.now == 0 || t.0 > self.now);
-        self.now = t.0;
+        assert!(self.now == 0 || usize::from(t) > self.now);
+        self.now = t.into();
     }
 
     fn max_lbs(&self) -> u32 {
@@ -327,11 +328,18 @@ impl Allocator {
         let lbs = lbs.0;
 
         if DEBUG {
-            println!("Update next use of ({}, {}) to {}", lbs, addr, next_use.0);
+            println!(
+                "Update next use of ({}, {}) to {}",
+                lbs,
+                addr,
+                usize::from(next_use)
+            );
         }
 
-        self.block_mut(addr, lbs).status.update_next_use(next_use.0);
-        self.update_next_use_in_parent(addr, lbs, next_use.0);
+        self.block_mut(addr, lbs)
+            .status
+            .update_next_use(usize::from(next_use));
+        self.update_next_use_in_parent(addr, lbs, usize::from(next_use));
 
         if DEBUG {
             println!("{:#?}", self);
@@ -573,7 +581,7 @@ impl Allocator {
         mapping: &mut impl AddrMappingHandler,
     ) -> Option<(Vec<Transfer>, AddrId)> {
         let lbs = size.0;
-        let next_use = next_use.0;
+        let next_use = usize::from(next_use);
 
         if !self.lbss.contains(&lbs) {
             panic!("invalid block size")
@@ -636,7 +644,7 @@ impl Allocator {
         // For blocks of `parent_lbs` to condense successfully, there must be a free block of `lbs`, so there is no need trying condensing
         // when allocating a block of `parent_lbs` since we already know here that there is no free block of `lbs`.
         if let Some((transfers, parent_addr)) =
-            self._allocate::<false>(IntegralSize(parent_lbs), Instant(next_use), mapping)
+            self._allocate::<false>(IntegralSize(parent_lbs), Instant::from(next_use), mapping)
         {
             assert!(transfers.len() == 0);
 
@@ -804,10 +812,10 @@ impl Allocator {
 
             let block = self.block_mut(addr, lbs);
             block.addr = Self::new_addr_id(addr, lbs, mapping);
-            block.status = BlockStatus::Occupied(now, next_use.0);
+            block.status = BlockStatus::Occupied(now, usize::from(next_use));
 
             let addr_id = block.addr;
-            self.update_next_use_in_parent(addr, lbs, next_use.0);
+            self.update_next_use_in_parent(addr, lbs, usize::from(next_use));
 
             if DEBUG {
                 println!("Decided victim at {:?}", mapping.get(addr_id));
@@ -823,8 +831,12 @@ impl Allocator {
                 self.decide_and_realloc_victim(IntegralSize(parent_lbs), next_use, mapping)?;
             let (Addr(parent_addr), _) = mapping.get(addr_id);
 
-            let addr =
-                self.subdivide_parent_and_alloc_first(parent_addr, parent_lbs, next_use.0, mapping);
+            let addr = self.subdivide_parent_and_alloc_first(
+                parent_addr,
+                parent_lbs,
+                usize::from(next_use),
+                mapping,
+            );
             let addr_id = self.addr_id_of(addr, lbs);
 
             Some((addr_id, victims))
@@ -894,12 +906,11 @@ impl Allocator {
 
 #[cfg(test)]
 mod test {
-    use std::collections::{BTreeMap, BTreeSet};
+    use std::collections::BTreeSet;
 
-    use super::super::AddrMappingHandler;
-    use crate::transit::{
-        type2::memory_planning::{GpuAddrMappingHandler, Instant},
-        type3::{AddrMapping, IntegralSize, Size},
+    use super::{
+        super::{AddrMapping, OffsettedAddrMapping},
+        Instant, IntegralSize,
     };
 
     struct A {
@@ -926,7 +937,7 @@ mod test {
         let mut allocator =
             super::Allocator::new(cap as u64, lbss.iter().copied().map(IntegralSize).collect());
         let mut mapping = AddrMapping::new();
-        let mut handler = GpuAddrMappingHandler(&mut mapping, 0);
+        let mut handler = OffsettedAddrMapping::new(&mut mapping, 0);
 
         let mut deallocation_queue = BTreeSet::new();
         let mut ejected = BTreeSet::new();
@@ -940,12 +951,12 @@ mod test {
             },
         ) in list.into_iter().enumerate()
         {
-            allocator.tick(Instant(t));
+            allocator.tick(Instant::from(t));
             let log_size = lbss[log_size_idx];
 
             let addr_id = if let Some((_, addr_id)) = allocator.allocate(
                 IntegralSize(log_size),
-                Instant(t + next_use_after_alloc),
+                Instant::from(t + next_use_after_alloc),
                 &mut handler,
             ) {
                 addr_id
@@ -953,7 +964,7 @@ mod test {
                 let (addr_id, victims) = allocator
                     .decide_and_realloc_victim(
                         IntegralSize(log_size),
-                        Instant(t + next_use_after_alloc),
+                        Instant::from(t + next_use_after_alloc),
                         &mut handler,
                     )
                     .unwrap_or_else(|| panic!("no valid victim"));

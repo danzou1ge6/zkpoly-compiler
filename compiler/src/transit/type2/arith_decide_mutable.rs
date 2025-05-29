@@ -1,49 +1,40 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::transit::{
-    type2::{object_analysis::AtModifier, Cg, VertexNode},
-    type3::Device,
+use crate::{
+    driver,
+    transit::{
+        type2::{Cg, VertexNode},
+        type3::Device,
+    },
 };
 use zkpoly_common::{
     arith::{ArithGraph, FusedType, Mutability, Operation},
+    digraph::internal::SubDigraph,
     heap::{Heap, UsizeId},
 };
 use zkpoly_runtime::args::RuntimeType;
 
-use super::{
-    object_analysis::{ObjectUse, ObjectsDef, ObjectsDieAfter, VertexOutput},
-    VertexId,
-};
+use super::{object_analysis::{self, cg_def_use}, VertexId};
 
 pub fn decide_mutable<'s, Rt: RuntimeType>(
     mut cg: Cg<'s, Rt>,
-    obj_def: &ObjectsDef,
-    obj_die_after: &ObjectsDieAfter,
+    seq: &[VertexId],
+    obj_def_use: &object_analysis::cg_def_use::DefUse,
+    execution_devices: impl Fn(VertexId) -> super::Device,
 ) -> Cg<'s, Rt> {
-    let connected_component = cg.g.connected_component(cg.output);
-
-    for vid in
-        cg.g.vertices()
-            .collect::<Vec<_>>()
-            .into_iter()
-            .filter(|vid| connected_component[*vid])
-    {
-        if let VertexNode::Arith { arith, chunking } = cg.g.vertex_mut(vid).node_mut() {
-            let device = if chunking.is_some() {
-                Device::Cpu
-            } else {
-                Device::Gpu
-            };
-
+    for &vid in seq {
+        if let VertexNode::Arith { arith, .. } = cg.g.vertex_mut(vid).node_mut() {
             let inputs_values = arith
                 .inputs
                 .iter()
                 .map(|&eid| {
                     let vid = *arith.g.vertex(eid).op.unwrap_input_outerid();
-                    let v = obj_def.values[&vid].unwrap_single().clone();
+                    let v = obj_def_use.value(vid).unwrap_single().clone();
                     (eid, v)
                 })
                 .collect::<BTreeMap<_, _>>();
+
+            let device = cg_def_use::decide_device(execution_devices(vid));
 
             let mut mutated_inputs = BTreeSet::new();
 
@@ -65,12 +56,9 @@ pub fn decide_mutable<'s, Rt: RuntimeType>(
                         let input = arith.g.vertex(input_eid);
                         !mutated_inputs.contains(&input_eid)
                             && input.op.unwrap_input_typ() == FusedType::ScalarArray
-                            && obj_die_after
-                                .get_device(device)
-                                .get(&inputs_values[&input_eid].object_id())
-                                .is_some_and(|(after_vid, atm)| {
-                                    *after_vid == vid && *atm == AtModifier::After
-                                })
+                            && obj_def_use
+                                .dies_after(inputs_values[&input_eid].object_id(), device)
+                                .is_some_and(|after_vid| after_vid == vid)
                     })
                     .filter_map(|&eid| {
                         let same_obj_eids = arith

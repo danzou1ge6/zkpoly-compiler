@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use zkpoly_runtime::args::RuntimeType;
 
-use crate::transit::type2::memory_planning::MemoryBlock;
+use crate::{driver, transit::type2::memory_planning::MemoryBlock};
 
 use super::{Chunk, InstructionIndex, RegisterId, Track, TrackSpecific};
 
@@ -60,7 +60,7 @@ impl MemoryBlockRwWeb {
     }
 }
 
-pub fn split<'s, Rt: RuntimeType>(chunk: &Chunk<'s, Rt>) -> TrackTasks {
+pub fn split<'s, Rt: RuntimeType>(chunk: &Chunk<'s, Rt>, hd_info: &driver::HardwareInfo) -> TrackTasks {
     let assigned_at = chunk.assigned_at();
     let malloc_at = chunk.malloc_at();
     let uses_at = chunk.use_not_deallocate_at();
@@ -139,7 +139,7 @@ pub fn split<'s, Rt: RuntimeType>(chunk: &Chunk<'s, Rt>) -> TrackTasks {
         // Insert synchronization points
         track_tasks.inst_depend.insert(i, Vec::new());
 
-        depended_of_each_track.iter().for_each(|(_, depended)| {
+        depended_of_each_track.iter(hd_info.n_gpus()).for_each(|(_, depended)| {
             depended.iter().for_each(|&depended| {
                 if depended != i {
                     track_tasks.inst_depend.get_mut(&i).unwrap().push(depended);

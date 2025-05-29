@@ -1,7 +1,9 @@
 use std::{collections::BTreeMap, marker::PhantomData};
 
-use crate::transit::{self, type2};
-use crate::utils::{log2, log2_ceil};
+use crate::transit::{
+    self,
+    type2::{self, memory_planning::MemoryBlock},
+};
 use zkpoly_common::{
     arith, define_usize_id,
     heap::{Heap, IdAllocator, RoHeap},
@@ -9,153 +11,7 @@ use zkpoly_common::{
 };
 use zkpoly_runtime::args::RuntimeType;
 
-use super::type2::memory_planning::MemoryBlock;
 use super::type2::object_analysis::ObjectId;
-
-define_usize_id!(AddrId);
-
-pub type AddrMapping = Heap<AddrId, (Addr, Size)>;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct IntegralSize(pub u32);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct SmithereenSize(pub u64);
-
-impl IntegralSize {
-    pub fn double(self) -> Self {
-        Self(self.0 + 1)
-    }
-}
-impl From<IntegralSize> for SmithereenSize {
-    fn from(size: IntegralSize) -> Self {
-        Self(2u64.pow(size.0))
-    }
-}
-
-impl TryFrom<SmithereenSize> for IntegralSize {
-    type Error = ();
-    fn try_from(value: SmithereenSize) -> Result<Self, Self::Error> {
-        if let Some(l) = value.0.checked_ilog2() {
-            if 2u64.pow(l) == value.0 {
-                Ok(IntegralSize(l))
-            } else {
-                Err(())
-            }
-        } else {
-            Err(())
-        }
-    }
-}
-
-impl TryFrom<Size> for IntegralSize {
-    type Error = ();
-    fn try_from(value: Size) -> Result<Self, Self::Error> {
-        match value {
-            Size::Integral(size) => Ok(size),
-            Size::Smithereen(ss) => ss.try_into(),
-        }
-    }
-}
-
-impl IntegralSize {
-    pub fn ceiling(size: SmithereenSize) -> Self {
-        Self(log2_ceil(size.0))
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Size {
-    Integral(IntegralSize),
-    Smithereen(SmithereenSize),
-}
-
-impl std::fmt::Display for Size {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Size::Integral(size) => write!(f, "2^{}", size.0),
-            Size::Smithereen(size) => write!(f, "{}", size.0),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Addr(pub(crate) u64);
-
-impl Addr {
-    pub fn offset(self, x: u64) -> Addr {
-        Addr(self.0 + x)
-    }
-
-    pub fn unoffset(self, x: u64) -> Addr {
-        Addr(self.0 - x)
-    }
-}
-
-impl Size {
-    pub fn new(s: u64) -> Self {
-        let ss = SmithereenSize(s);
-        if let Ok(is) = IntegralSize::try_from(ss) {
-            Self::Integral(is)
-        } else {
-            Self::Smithereen(ss)
-        }
-    }
-
-    pub fn unwrap_integral(self) -> IntegralSize {
-        match self {
-            Size::Integral(size) => size,
-            Size::Smithereen(..) => panic!("unwrap_integral on Size::Smithereen"),
-        }
-    }
-}
-
-impl From<u64> for Size {
-    fn from(size: u64) -> Self {
-        Self::new(size)
-    }
-}
-
-impl From<Size> for u64 {
-    fn from(value: Size) -> Self {
-        match value {
-            Size::Integral(is) => 2u64.pow(is.0),
-            Size::Smithereen(SmithereenSize(ss)) => ss,
-        }
-    }
-}
-
-impl std::ops::Div<u64> for Size {
-    type Output = Size;
-    fn div(self, rhs: u64) -> Self::Output {
-        match self {
-            Size::Integral(IntegralSize(is)) => {
-                if let Some(log) = log2(rhs) {
-                    Self::Integral(IntegralSize(is - log))
-                } else {
-                    panic!("can only divide by power of 2")
-                }
-            }
-            Size::Smithereen(SmithereenSize(ss)) => Self::Smithereen(SmithereenSize(ss / rhs)),
-        }
-    }
-}
-
-impl std::ops::Mul<u64> for Size {
-    type Output = Size;
-    fn mul(self, rhs: u64) -> Self::Output {
-        match self {
-            Size::Integral(IntegralSize(is)) => {
-                if let Some(log) = log2(rhs) {
-                    Self::Integral(IntegralSize(is + log))
-                } else {
-                    panic!("can only multiply by power of 2")
-                }
-            }
-            Size::Smithereen(SmithereenSize(ss)) => Self::Smithereen(SmithereenSize(ss * rhs)),
-        }
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Device {
@@ -214,6 +70,14 @@ impl<T> DeviceSpecific<T> {
             Device::Stack => &mut self.stack,
         }
     }
+
+    pub fn map<U>(self, mut f: impl FnMut(T) -> U) -> DeviceSpecific<U> {
+        DeviceSpecific {
+            gpu: self.gpu.into_iter().map(&mut f).collect(),
+            cpu: (&mut f)(self.cpu),
+            stack: f(self.stack),
+        }
+    }
 }
 
 impl std::ops::Sub<Self> for DeviceSpecific<bool> {
@@ -239,10 +103,28 @@ pub mod template {
 
     use crate::{ast::PolyInit, transit::type2};
 
-    use super::Size;
+    use type2::object_analysis::size::Size;
 
     #[derive(Debug, Clone)]
-    pub enum InstructionNode<I, A, V> {
+    pub struct PhysicalAddr(usize);
+
+    #[derive(Debug, Clone)]
+    pub struct VirtualAddr(usize);
+
+    impl From<u64> for VirtualAddr {
+        fn from(value: u64) -> Self {
+            Self(value as usize)
+        }
+    }
+
+    impl VirtualAddr {
+        pub fn get(&self) -> usize {
+            self.0
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    pub enum InstructionNode<I, V> {
         Type2 {
             /// (a, Some(b)) says that a use b inplace, so we need move b to a when lowering this to
             /// runtime instruction.
@@ -254,7 +136,8 @@ pub mod template {
         },
         GpuMalloc {
             id: I,
-            addr: A,
+            addr: VirtualAddr,
+            size: u64
         },
         GpuFree {
             id: I,
@@ -299,7 +182,7 @@ pub mod template {
         },
     }
 
-    impl<I, A, V> InstructionNode<I, A, V>
+    impl<I, V> InstructionNode<I, V>
     where
         I: Copy,
     {
@@ -384,7 +267,7 @@ pub type VertexNode = type2::template::VertexNode<
     type2::user_function::Id,
 >;
 
-pub type InstructionNode = template::InstructionNode<RegisterId, AddrId, VertexNode>;
+pub type InstructionNode = template::InstructionNode<RegisterId, VertexNode>;
 
 #[derive(Debug, Clone)]
 pub struct Instruction<'s> {
@@ -595,6 +478,8 @@ impl<'s> Instruction<'s> {
 }
 define_usize_id!(InstructionIndex);
 
+pub use template::VirtualAddr;
+
 pub struct RegisterAllocator {
     register_types: Heap<RegisterId, typ::Typ>,
     register_devices: BTreeMap<RegisterId, Device>,
@@ -665,7 +550,6 @@ pub struct Chunk<'s, Rt: RuntimeType> {
     pub(crate) instructions: Vec<Instruction<'s>>,
     pub(crate) register_types: RoHeap<RegisterId, typ::Typ>,
     pub(crate) register_devices: BTreeMap<RegisterId, Device>,
-    pub(crate) gpu_addr_mapping: AddrMapping,
     pub(crate) reg_id_allocator: IdAllocator<RegisterId>,
     pub(crate) reg_memory_blocks: BTreeMap<RegisterId, MemoryBlock>,
     pub(crate) obj_id_allocator: IdAllocator<ObjectId>,

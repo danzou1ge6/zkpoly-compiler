@@ -161,6 +161,14 @@ pub mod template {
                 GpuBuffer(len) => *len,
             }
         }
+
+        pub fn is_gpu_buffer(&self) -> bool {
+            use Typ::*;
+            match self {
+                GpuBuffer(_) => true,
+                _ => false,
+            }
+        }
     }
 }
 
@@ -169,6 +177,24 @@ pub type Typ = template::Typ<()>;
 impl template::Typ<()> {
     pub fn scalar_array(len: usize) -> Self {
         template::Typ::ScalarArray { len, meta: () }
+    }
+
+    pub fn with_normalized_p(&self) -> template::Typ<PolyMeta> {
+        use template::Typ::*;
+        match self {
+            ScalarArray { len, .. } => ScalarArray {
+                len: *len,
+                meta: Slice::new(0, *len as u64),
+            },
+            PointBase { len } => PointBase { len: *len },
+            Scalar => Scalar,
+            Transcript => Transcript,
+            Point => Point,
+            Tuple => Tuple,
+            Any(tid, len) => Any(*tid, *len),
+            Stream => Stream,
+            GpuBuffer(len) => GpuBuffer(*len),
+        }
     }
 }
 

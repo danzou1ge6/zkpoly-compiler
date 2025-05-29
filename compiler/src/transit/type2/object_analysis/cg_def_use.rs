@@ -1,11 +1,16 @@
-use crate::driver::HardwareInfo;
-use crate::transit::type2::object_analysis::value::{OutputValue, ValueNode};
-use std::collections::{BTreeMap, BTreeSet};
-use std::ops::Deref;
+use crate::{
+    driver::HardwareInfo,
+    transit::type2::object_analysis::value::{OutputValue, ValueNode},
+};
+use std::{
+    collections::{BTreeMap, BTreeSet}, io::Write, ops::Deref
+};
 
 use super::{value, ObjectId};
-use crate::transit::type2::{self, VertexId};
-use crate::transit::type3::{Device, DeviceSpecific};
+use crate::transit::{
+    type2::{self, VertexId},
+    type3::{Device, DeviceSpecific},
+};
 use value::{Value, VertexOutput};
 use zkpoly_common::{
     arith::Mutability, bijection::Bijection, digraph::internal::SubDigraph, heap::IdAllocator,
@@ -53,15 +58,9 @@ pub struct DefUse {
 }
 
 /// Determine where outputs and inputs of a vertex are, based on where it is executed.
-fn decide_device<Rt: RuntimeType>(executed_on: type2::Device, typ: &type2::Typ<Rt>) -> Device {
+pub fn decide_device(executed_on: type2::Device) -> Device {
     match executed_on {
-        type2::Device::Cpu => {
-            if typ.stack_allocable() {
-                Device::Stack
-            } else {
-                Device::Cpu
-            }
-        }
+        type2::Device::Cpu => Device::Cpu,
         type2::Device::Gpu(i) => Device::Gpu(i),
     }
 }
@@ -173,6 +172,14 @@ fn vertex_input_of<'s, Rt: RuntimeType>(
         )
     });
 
+    let with_device = |v: Value| {
+        if matches!(memory_device, Device::Stack) {
+            panic!("stack is not a memory device in current phase");
+        } else {
+            v.with_device(memory_device)
+        }
+    };
+
     let inputs = uses
         .map(|(used_vid, mutability)| {
             let iv = match &value[&used_vid] {
@@ -183,25 +190,24 @@ fn vertex_input_of<'s, Rt: RuntimeType>(
                         let (_, slice) = ov.node().unwrap_poly();
                         let new_object = cloned_slices.register(
                             vid,
-                            memory_device,
                             ov.object_id(),
                             slice.clone(),
                             object_id_allocator,
                             def_at,
                         );
-                        let new_value = ov
-                            .with_object_id(new_object)
-                            .with_node(ValueNode::plain_scalar_array(slice.len() as usize))
-                            .with_device(memory_device);
+                        let new_value = with_device(
+                            ov.with_object_id(new_object)
+                                .with_node(ValueNode::plain_scalar_array(slice.len() as usize)),
+                        );
                         VertexInput::Single(new_value, mutability)
                     } else {
-                        VertexInput::Single(ov.with_device(memory_device), mutability)
+                        VertexInput::Single(with_device(ov.deref().clone()), mutability)
                     }
                 }
                 VertexOutput::Tuple(tuple) => VertexInput::Tuple({
                     tuple
                         .iter()
-                        .map(|ov| ov.with_device(memory_device))
+                        .map(|ov| with_device(ov.deref().clone()))
                         .collect::<Vec<_>>()
                 }),
             };
@@ -309,7 +315,6 @@ fn vertex_output_of<'s, Rt: RuntimeType>(
                 let (deg, slice) = pred_value.node().unwrap_poly();
                 let new_obj_id = cloned_slices.register(
                     vid,
-                    memory_device,
                     pred_value.object_id(),
                     *slice,
                     object_id_allocator,
@@ -369,7 +374,7 @@ fn vertex_output_of<'s, Rt: RuntimeType>(
 
                         OutputValue::new(
                             input_value.with_object_id(object_id_allocator.alloc()),
-                            Some(i),
+                            Some(inplace_input),
                         )
                     } else {
                         let value_node = lower_typ(typ);
@@ -408,7 +413,6 @@ impl ClonedSliceRegistry {
     pub fn register(
         &mut self,
         vid: VertexId,
-        device: Device,
         cloned_object: ObjectId,
         slice: Slice,
         object_id_allocator: &mut IdAllocator<ObjectId>,
@@ -433,7 +437,7 @@ impl DefUse {
         seq: &[VertexId],
         return_vid: VertexId,
         execution_device: impl Fn(VertexId) -> type2::Device,
-        hd_info: &HardwareInfo
+        hd_info: &HardwareInfo,
     ) -> (Self, IdAllocator<ObjectId>) {
         let mut object_id_allocator = IdAllocator::new();
 
@@ -456,7 +460,7 @@ impl DefUse {
 
             let v = g.vertex(vid);
             let execution_device = execution_device(vid);
-            let memory_device = decide_device(execution_device, v.typ());
+            let memory_device = decide_device(execution_device);
 
             // Invariant: `used_on` records all uses before this vertex
 
@@ -574,7 +578,19 @@ impl DefUse {
             .flatten()
     }
 
+    pub fn debug_dies_after(&self, f: &mut impl Write) -> std::io::Result<()> {
+        write!(f, "{:#?}", &self.object_dies_after)
+    }
+
     pub fn object_is_cloned_slice(&self, object_id: ObjectId) -> Option<(ObjectId, Slice)> {
         self.cloned_slices.get_backward(&object_id).cloned()
+    }
+
+    pub fn value(&self, vid: VertexId) -> &VertexOutput {
+        &self.value[&vid]
+    }
+
+    pub fn input_of<'a>(&'a self, vid: VertexId) -> impl Iterator<Item = &'a(VertexId, VertexInput)> + 'a {
+        self.input[&vid].iter()
     }
 }

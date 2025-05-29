@@ -21,6 +21,7 @@ impl<'s, Rt: RuntimeType> ProcessedType3<'s, Rt> {
     pub fn to_artifect(
         self,
         options: &DebugOptions,
+        hardware_info: &HardwareInfo,
         _ctx: &PanicJoinHandler,
     ) -> Result<Artifect<Rt>, Error<'s, Rt>> {
         let Self {
@@ -33,7 +34,7 @@ impl<'s, Rt: RuntimeType> ProcessedType3<'s, Rt> {
         // - Track Splitting
         let track_tasks = options.log_suround(
             "Splitting tracks",
-            || Ok(type3::track_splitting::split(&t3chunk)),
+            || Ok(type3::track_splitting::split(&t3chunk, hardware_info)),
             "Done.",
         )?;
 

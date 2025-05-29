@@ -176,10 +176,11 @@ pub fn write_graph_with_optional_seq<'s, Ty: Debug>(
         let (color, style) = if let Some(color) = override_color(vid, vertex) {
             (color, "filled")
         } else {
+            use super::DevicePreference::*;
             let style = match vertex.node().device() {
-                Device::Gpu => "filled",
-                Device::Cpu => "solid",
-                Device::PreferGpu => "dashed",
+                Gpu => "filled",
+                Cpu => "solid",
+                PreferGpu => "dashed",
             };
             (get_node_color(vertex.node()), style)
         };
