@@ -25,7 +25,7 @@ pub fn emit_func<'s, Rt: RuntimeType>(
         VertexNode::Arith { arith, chunking } => {
             if chunking.is_none() {
                 let mut arg = vec![stream.unwrap()];
-                let mut arg_mut = vec![reg_id2var_id(temp[0])];
+                let mut arg_mut = vec![reg_id2var_id(temp[0]), reg_id2var_id(temp[1])];
 
                 // outputs
                 arg_mut.extend(outputs.iter().map(|id| reg_id2var_id(*id)));
@@ -56,7 +56,7 @@ pub fn emit_func<'s, Rt: RuntimeType>(
                 // check temp buffer num
                 assert_eq!(
                     temp.len(),
-                    1 + num_scalars_mut + num_scalars + 2 * num_polys + 3 * num_polys_mut
+                    2 + num_scalars_mut + num_scalars + 2 * num_polys + 3 * num_polys_mut
                 );
 
                 // check output num
@@ -67,6 +67,7 @@ pub fn emit_func<'s, Rt: RuntimeType>(
 
                 // arg buffer
                 arg_mut.push(reg_id2var_id(temp[0]));
+                arg_mut.push(reg_id2var_id(temp[1]));
 
                 // outputs
                 arg_mut.extend(outputs.iter().map(|id| reg_id2var_id(*id)));
@@ -86,22 +87,22 @@ pub fn emit_func<'s, Rt: RuntimeType>(
 
                 // temp buffer for scalars
                 for i in 0..num_scalars {
-                    arg.push(reg_id2var_id(temp[1 + i]));
+                    arg.push(reg_id2var_id(temp[2 + i]));
                 }
 
                 // temp buffer for polys
                 for i in 0..2 * num_polys {
-                    arg.push(reg_id2var_id(temp[1 + num_scalars + i]));
+                    arg.push(reg_id2var_id(temp[2 + num_scalars + i]));
                 }
 
                 // temp buffer for mut scalars
                 for i in 0..num_scalars_mut {
-                    arg_mut.push(reg_id2var_id(temp[1 + num_scalars + 2 * num_polys + i]));
+                    arg_mut.push(reg_id2var_id(temp[2 + num_scalars + 2 * num_polys + i]));
                 }
                 // temp buffer for mut polys
                 for i in 0..3 * num_polys_mut {
                     arg_mut.push(reg_id2var_id(
-                        temp[1 + num_scalars + 2 * num_polys + num_scalars_mut + i],
+                        temp[2 + num_scalars + 2 * num_polys + num_scalars_mut + i],
                     ));
                 }
 

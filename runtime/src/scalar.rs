@@ -5,13 +5,14 @@ use std::{
 
 use group::ff::Field;
 use rand_core::RngCore;
+use zkpoly_common::devices::DeviceType;
 use zkpoly_cuda_api::{
     mem::{alloc_pinned, free_pinned},
     stream::CudaStream,
 };
 use zkpoly_memory_pool::CpuMemoryPool;
 
-use crate::{devices::DeviceType, runtime::transfer::Transfer};
+use crate::runtime::transfer::Transfer;
 
 #[derive(Clone)]
 pub struct Scalar<F: Field> {

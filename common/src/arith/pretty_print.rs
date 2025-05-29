@@ -2,7 +2,7 @@ use std::io::Write;
 
 use crate::heap::UsizeId;
 
-use super::{Arith, ArithGraph, ExprId, Operation};
+use super::{Arith, ArithGraph, Operation};
 
 pub fn print_subgraph_vertices<I: Copy, Ii>(
     ag: &ArithGraph<I, Ii>,

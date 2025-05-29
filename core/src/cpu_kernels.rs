@@ -8,7 +8,7 @@ use zkpoly_runtime::{
     error::RuntimeError,
     functions::{FuncMeta, Function, FunctionValue, KernelType, RegisteredFunction},
     scalar::ScalarArray,
-    transcript::{Transcript, TranscriptWrite},
+    transcript::{ChallengeScalarUnit, Transcript, TranscriptWrite},
 };
 
 #[macro_export]
@@ -216,7 +216,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for SqueezeScalar<T> {
             let (trans_buf, scalar_buf) = mut_var.split_at_mut(1);
             let transcript = trans_buf[0].unwrap_transcript_mut().as_mut();
             let scalar = scalar_buf[0].unwrap_scalar_mut();
-            let c_scalar = transcript.squeeze_challenge_scalar();
+            let c_scalar: ChallengeScalarUnit<_> = transcript.squeeze_challenge_scalar();
             *scalar.as_mut() = T::Field::from(*c_scalar);
             Ok(())
         };

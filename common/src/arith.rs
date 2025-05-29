@@ -1,9 +1,9 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use crate::{
     define_usize_id,
     digraph::internal::{Digraph, Predecessors},
-    heap::{Heap, UsizeId},
+    heap::UsizeId,
     typ::PolyType,
 };
 
@@ -335,10 +335,10 @@ where
     ArithIndex: UsizeId,
     OuterId: Clone,
 {
-    pub fn decide_chunking<T: Sized>(&mut self, gpu_mem_limit: u64) -> Option<u64> {
+    pub fn decide_chunking<T: Sized>(&mut self, usable_size: u64) -> Option<u64> {
         let (inputs_space, outputs_space) = self.space_needed::<T>();
 
-        if ((inputs_space + outputs_space) as f64) < gpu_mem_limit as f64 * 0.8 {
+        if ((inputs_space + outputs_space) as f64) < usable_size as f64 * 0.8 {
             None
         } else {
             let mut chunking = 4;
@@ -347,7 +347,7 @@ where
             // helper func
             let div_ceil = |a: usize, b: u64| (a as u64 + b - 1) / b;
 
-            while div_ceil(total_space, chunking) * 3 > gpu_mem_limit {
+            while div_ceil(total_space, chunking) * 3 > usable_size {
                 chunking *= 2;
             }
             assert!(self.poly_degree.unwrap() as u64 % chunking == 0);

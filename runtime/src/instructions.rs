@@ -1,9 +1,10 @@
 use std::io::Write;
 
 use crate::args::{ConstantId, EntryId, RuntimeType, VariableId};
-use crate::devices::{DeviceType, EventId, ThreadId};
+use crate::devices::{EventId, ThreadId};
 use crate::functions::{self, FunctionId};
 use serde::{Deserialize, Serialize};
+use zkpoly_common::devices::DeviceType;
 use zkpoly_common::typ::Typ;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -15,6 +16,11 @@ pub enum Instruction {
         offset: Option<usize>, // for gpu allocation
     },
 
+    // AllocateGpu {
+    //     device: DeviceType,
+    //     va: VirtualAddressId,
+    //     pa: Vec<ptrs>,
+    // }
     Deallocate {
         // free the underlying memory
         id: VariableId,

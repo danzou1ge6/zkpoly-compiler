@@ -1,4 +1,5 @@
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
+use std::ffi::c_void;
 use std::ptr::null_mut;
 use std::{
     any::type_name,
@@ -44,6 +45,7 @@ pub struct FusedKernel<T: RuntimeType> {
             mut_vars: *const PolyPtr,
             len: c_ulonglong,
             is_first: bool,
+            local_buffer: *mut c_void,
             stream: cudaStream_t,
         ) -> cudaError_t,
     >,
@@ -61,9 +63,11 @@ pub struct FusedOp<OuterId, InnerId> {
     pub mut_vars: Vec<(FusedType, InnerId)>,
     schedule: Vec<InnerId>,
     partition: Vec<usize>,
-    launch_bounds: u32,
-    inputs: Vec<BTreeSet<InnerId>>, // inputs of each partitioned sub function
-    outputs: Vec<BTreeSet<InnerId>>, // outputs of each partitioned sub function
+    reg_limit: u32,
+    field_regs: u32,
+    var_mapping: BTreeMap<usize, usize>,
+    mut_var_mapping: BTreeMap<usize, usize>,
+    limbs: usize,
 }
 
 const FIELD_NAME: &str = "FUSED_FIELD";
@@ -96,10 +100,11 @@ impl<T: RuntimeType> RegisteredFunction<T> for FusedKernel<T> {
               -> Result<(), RuntimeError> {
             let mut len = 0;
             assert_eq!(meta.num_vars, var.len() - 1);
-            assert_eq!(meta.num_mut_vars, mut_var.len() - 1);
+            assert_eq!(meta.num_mut_vars, mut_var.len() - 2);
             let stream = var[0].unwrap_stream();
-            let (arg_buffer, mut_vars) = mut_var.split_at_mut(1);
-            let arg_buffer = arg_buffer[0].unwrap_gpu_buffer_mut();
+            let (tmp_buffers, mut_vars) = mut_var.split_at_mut(2);
+            let arg_buffer = tmp_buffers[0].unwrap_gpu_buffer();
+            let local_buffer = tmp_buffers[1].unwrap_gpu_buffer();
             let vars = var
                 .iter()
                 .skip(1)
@@ -169,6 +174,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for FusedKernel<T> {
                     d_mut_vars,
                     len.try_into().unwrap(),
                     true,
+                    local_buffer.ptr as *mut c_void,
                     stream.raw()
                 ));
             }
@@ -217,8 +223,9 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                               var: Vec<&Variable<T>>|
               -> Result<(), RuntimeError> {
             // the first of mut_var is the buffer for the arguments
-            let (arg_buffer, mut_var) = mut_var.split_at_mut(1);
-            let arg_buffer = arg_buffer[0].unwrap_gpu_buffer_mut();
+            let (tmp_buffers, mut_var) = mut_var.split_at_mut(2);
+            let arg_buffer = tmp_buffers[0].unwrap_gpu_buffer();
+            let local_buffer = tmp_buffers[1].unwrap_gpu_buffer();
             // check the buffer size
             assert_eq!(
                 arg_buffer.size,
@@ -453,6 +460,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                         d_mut_vars[mut_buffer_id],
                         chunk_len.try_into().unwrap(),
                         chunk_id == 0,
+                        local_buffer.ptr as *mut c_void,
                         compute_stream.raw()
                     ));
                 }

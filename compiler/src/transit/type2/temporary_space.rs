@@ -1,5 +1,6 @@
 use zkpoly_common::{arith::FusedType, load_dynamic::Libs, msm_config::MsmConfig};
 use zkpoly_core::{
+    fused_kernels::FusedOp,
     msm::MSM,
     poly::{KateDivision, PolyEval, PolyInvert, PolyPermute, PolyScan},
     poly_ptr::PolyPtr,
@@ -46,9 +47,19 @@ pub fn poly_invert<Rt: RuntimeType>(len: usize, libs: &mut Libs) -> Vec<u64> {
 }
 
 pub fn arith<Rt: RuntimeType>(arith: &Arith, chunking: Option<u64>) -> Vec<u64> {
+    let local_size = FusedOp::new(
+        arith.clone(),
+        "temp".to_string(),
+        size_of::<Rt::Field>() / size_of::<u32>(),
+    )
+    .get_temp_buffer_size()
+        + 1; // add one to avoid zero size
     if chunking.is_none() {
         let (vars, mut_vars) = arith.gen_var_lists();
-        vec![((vars.len() + mut_vars.len()) * size_of::<PolyPtr>()) as u64]
+        vec![
+            ((vars.len() + mut_vars.len()) * size_of::<PolyPtr>()) as u64,
+            local_size as u64,
+        ]
     } else {
         let mut temp_sizes = Vec::new();
         let poly_degree = arith.poly_degree.unwrap();
@@ -57,6 +68,7 @@ pub fn arith<Rt: RuntimeType>(arith: &Arith, chunking: Option<u64>) -> Vec<u64> 
         // place for arguments
         let arg_size = (2 * vars.len() + 3 * mut_vars.len()) * size_of::<PolyPtr>();
         temp_sizes.push(arg_size as u64);
+        temp_sizes.push(local_size as u64); // place for local variables
 
         // place for chunking
         let (vars, mut_vars) = arith.gen_var_lists();

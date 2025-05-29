@@ -112,9 +112,10 @@ pub trait Transcript<C: CurveAffine, E: EncodedChallenge<C>>: Send + Sync + Clon
     fn squeeze_challenge(&mut self) -> E;
 
     /// Squeeze a typed challenge (in the scalar field) from the transcript.
-    fn squeeze_challenge_scalar(&mut self) -> ChallengeScalar<C> {
+    fn squeeze_challenge_scalar<T>(&mut self) -> ChallengeScalar<C, T> {
         ChallengeScalar {
             inner: self.squeeze_challenge().get_scalar(),
+            _marker: PhantomData,
         }
     }
 
@@ -170,7 +171,7 @@ pub trait TranscriptWriterBuffer<W: Write, C: CurveAffine, E: EncodedChallenge<C
 
 /// We will replace BLAKE2b with an algebraic hash function in a later version.
 #[derive(Debug, Clone)]
-pub struct Blake2bRead<R: Read, C: CurveAffine, E: EncodedChallenge<C>> {
+pub struct Blake2bRead<R: Read + Send + Sync, C: CurveAffine, E: EncodedChallenge<C>> {
     state: Blake2bState,
     reader: R,
     _marker: PhantomData<(C, E)>,
@@ -178,7 +179,7 @@ pub struct Blake2bRead<R: Read, C: CurveAffine, E: EncodedChallenge<C>> {
 
 /// Keccak256 hash function reader for EVM compatibility
 #[derive(Debug, Clone)]
-pub struct Keccak256Read<R: Read, C: CurveAffine, E: EncodedChallenge<C>> {
+pub struct Keccak256Read<R: Read + Send + Sync, C: CurveAffine, E: EncodedChallenge<C>> {
     state: Keccak256,
     reader: R,
     _marker: PhantomData<(C, E)>,
@@ -538,11 +539,14 @@ where
 /// The `Type` type can be used to scope the challenge to a specific context, or
 /// set to `()` if no context is required.
 #[derive(Copy, Clone, Debug)]
-pub struct ChallengeScalar<C: CurveAffine> {
+pub struct ChallengeScalar<C: CurveAffine, T> {
     inner: C::Scalar,
+    _marker: PhantomData<T>,
 }
 
-impl<C: CurveAffine> std::ops::Deref for ChallengeScalar<C> {
+pub type ChallengeScalarUnit<C> = ChallengeScalar<C, ()>;
+
+impl<C: CurveAffine, T> std::ops::Deref for ChallengeScalar<C, T> {
     type Target = C::Scalar;
 
     fn deref(&self) -> &Self::Target {
@@ -566,9 +570,10 @@ pub trait EncodedChallenge<C: CurveAffine> {
     fn get_scalar(&self) -> C::Scalar;
 
     /// Cast an encoded challenge as a typed `ChallengeScalar`.
-    fn as_challenge_scalar(&self) -> ChallengeScalar<C> {
+    fn as_challenge_scalar<T>(&self) -> ChallengeScalar<C, T> {
         ChallengeScalar {
             inner: self.get_scalar(),
+            _marker: PhantomData,
         }
     }
 }
@@ -608,16 +613,16 @@ where
     }
 }
 
-// pub(crate) fn read_n_points<C: CurveAffine, E: EncodedChallenge<C>, T: TranscriptRead<C, E>>(
-//     transcript: &mut T,
-//     n: usize,
-// ) -> io::Result<Vec<C>> {
-//     (0..n).map(|_| transcript.read_point()).collect()
-// }
+pub fn read_n_points<C: CurveAffine, E: EncodedChallenge<C>, T: TranscriptRead<C, E>>(
+    transcript: &mut T,
+    n: usize,
+) -> io::Result<Vec<C>> {
+    (0..n).map(|_| transcript.read_point()).collect()
+}
 
-// pub(crate) fn read_n_scalars<C: CurveAffine, E: EncodedChallenge<C>, T: TranscriptRead<C, E>>(
-//     transcript: &mut T,
-//     n: usize,
-// ) -> io::Result<Vec<C::Scalar>> {
-//     (0..n).map(|_| transcript.read_scalar()).collect()
-// }
+pub fn read_n_scalars<C: CurveAffine, E: EncodedChallenge<C>, T: TranscriptRead<C, E>>(
+    transcript: &mut T,
+    n: usize,
+) -> io::Result<Vec<C::Scalar>> {
+    (0..n).map(|_| transcript.read_scalar()).collect()
+}

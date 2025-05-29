@@ -20,7 +20,6 @@ use zkpoly_cuda_api::{
 
 use zkpoly_runtime::{
     args::{RuntimeType, Variable},
-    devices::DeviceType,
     error::RuntimeError,
     functions::{FuncMeta, KernelType},
     runtime::transfer::Transfer,
@@ -28,7 +27,7 @@ use zkpoly_runtime::{
 
 use super::build_func::{resolve_type, xmake_config, xmake_run};
 
-use zkpoly_common::load_dynamic::Libs;
+use zkpoly_common::{devices::DeviceType, load_dynamic::Libs};
 
 use zkpoly_runtime::functions::{Function, FunctionValue, RegisteredFunction};
 

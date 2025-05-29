@@ -1,10 +1,10 @@
 use std::any::type_name;
 
+use zkpoly_common::devices::DeviceType;
 use zkpoly_cuda_api::stream::CudaStream;
 
 use crate::{
     args::{RuntimeType, Variable, VariableId},
-    devices::DeviceType,
     runtime::RuntimeInfo,
 };
 

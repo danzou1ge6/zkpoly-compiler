@@ -8,12 +8,12 @@ use std::{
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 pub use threadpool::ThreadPool;
 
-use zkpoly_common::load_dynamic::Libs;
+use zkpoly_common::{devices::DeviceType, load_dynamic::Libs};
 
 use crate::{
     args::{new_variable_table, ConstantTable, EntryTable, RuntimeType, Variable, VariableTable},
     async_rng::AsyncRng,
-    devices::{new_thread_table, DeviceType, Event, EventTable, ThreadTable},
+    devices::{new_thread_table, Event, EventTable, ThreadTable},
     functions::{
         FuncMeta, FunctionTable,
         FunctionValue::{Fn, FnMut, FnOnce},
@@ -36,7 +36,7 @@ pub struct Runtime<T: RuntimeType> {
     funcs: FunctionTable<T>,
     events: EventTable,
     threads: ThreadTable,
-    mem_allocator: CpuMemoryPool,
+    pub mem_allocator: Option<CpuMemoryPool>,
     gpu_allocator: Vec<CudaAllocator>,
     rng: AsyncRng,
     _libs: Libs,
@@ -74,7 +74,7 @@ impl<T: RuntimeType> Runtime<T> {
             funcs,
             events,
             threads: new_thread_table(n_threads),
-            mem_allocator,
+            mem_allocator: Some(mem_allocator),
             gpu_allocator,
             rng,
             _libs: libs,
@@ -126,7 +126,7 @@ impl<T: RuntimeType> Runtime<T> {
         let r = unsafe {
             info.run(
                 self.instructions.clone(),
-                Some(&mut self.mem_allocator),
+                Some(&mut self.mem_allocator.as_mut().unwrap()),
                 Some(&mut self.gpu_allocator),
                 None,
                 0,

@@ -6,11 +6,12 @@ use super::track_splitting::TrackTasks;
 use super::{Track, VertexNode};
 use kernel_gen::GeneratedFunctions;
 use zkpoly_common::define_usize_id;
+use zkpoly_common::devices::DeviceType;
 use zkpoly_common::heap::{Heap, IdAllocator};
 use zkpoly_common::load_dynamic::Libs;
 use zkpoly_common::typ::Typ;
 use zkpoly_runtime::args::{Constant, ConstantTable, RuntimeType, VariableId};
-use zkpoly_runtime::devices::{DeviceType, Event, EventId, EventTable, ThreadId};
+use zkpoly_runtime::devices::{Event, EventId, EventTable, ThreadId};
 use zkpoly_runtime::functions::FunctionTable;
 use zkpoly_runtime::instructions::Instruction;
 

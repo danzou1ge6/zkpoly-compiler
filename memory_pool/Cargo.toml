@@ -6,6 +6,10 @@ edition = "2021"
 [dependencies]
 zkpoly_cuda_api = { path = "../cuda_api" }
 memmap2 = {version = "0.9.5"}
+nix = {version = "0.30.1", features = ["fs", "uio"]}
+libc = "0.2"
+tempfile = "3.10"
+zkpoly_common = { path = "../common" }
 
 [dev-dependencies]
 rand = "0.8"
