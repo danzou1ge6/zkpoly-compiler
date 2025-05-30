@@ -259,6 +259,9 @@ where
         if !inst.node.is_allloc() {
             inst.defs().for_each(|r| self.reg_booking.define(r));
         }
+        if let type3::InstructionNode::Type2 { temp, .. } = &inst.node {
+            temp.iter().for_each(|r| self.reg_booking.define(*r))
+        }
         self.instructions.push(inst);
     }
 
@@ -378,7 +381,12 @@ where
     P: UsizeId,
 {
     /// Emit a GpuMalloc instruction at `va`, for object, type and pointer specified in `rv`.
-    pub fn gpu_allocate(&mut self, va: type3::VirtualAddr, size: Size, rv: ResidentalValue<P>) -> RegisterId {
+    pub fn gpu_allocate(
+        &mut self,
+        va: type3::VirtualAddr,
+        size: Size,
+        rv: ResidentalValue<P>,
+    ) -> RegisterId {
         assert!(rv.device() == self.device);
 
         let reg = self.machine.new_reg(rv);
@@ -386,7 +394,7 @@ where
             .emit(Instruction::new_no_src(InstructionNode::GpuMalloc {
                 id: reg,
                 addr: va,
-                size: size.into()
+                size: size.into(),
             }));
         reg
     }

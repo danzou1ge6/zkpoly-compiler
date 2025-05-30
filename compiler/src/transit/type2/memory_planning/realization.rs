@@ -11,7 +11,7 @@ pub fn realize<'s, 'a, T, Rt: RuntimeType>(
     object_id_allocator: IdAllocator<ObjectId>,
     obj_inf: &object_info::Info<Rt>,
     hd_info: &HardwareInfo,
-) -> type3::Chunk<'s, Rt>
+) -> Result<type3::Chunk<'s, Rt>, Error<'s>>
 where
     T: std::fmt::Debug,
     ObjectId: for<'o> From<&'o T>,
@@ -20,8 +20,9 @@ where
         liveness::UsedBy::analyze(&ops, hd_info),
         BTreeSet::new(),
         BTreeSet::new(),
+        BTreeSet::new(),
         obj_inf,
-        hd_info.n_gpus()
+        hd_info.n_gpus(),
     );
 
     let mut machine_x: Machine<'_, Pointer> = Machine::empty();
@@ -87,20 +88,20 @@ where
                                 Some(inplace_reg)
                             )
                         } else {
-                            (machine.undefined_reg_for( rv.clone().assume_pointed()), None)
+                            (machine.undefined_reg_for(rv.clone().assume_pointed()), None)
                         }
                     }).collect::<Vec<_>>();
 
                 // Get registers for outputs
-                let temps = temps
-                    .into_iter()
+                let temp_regs = temps
+                    .iter()
                     .map(|rv| machine.undefined_reg_for(rv.clone().assume_pointed()))
                     .collect::<Vec<_>>();
 
                 machine.emit(Instruction::new(
                     InstructionNode::Type2 {
                         ids: output_regs,
-                        temp: temps,
+                        temp: temp_regs,
                         vertex: node,
                         vid,
                     },
@@ -122,7 +123,7 @@ where
                     to_device,
                     &to_pointer,
                 );
-                resp.commit(allocators, machine, aux);
+                resp.commit(allocators, machine, aux)?;
             }
             Allocate(t, device, p) => {
                 allocators.realizer(device, machine, aux).allocate(&t, &p);
@@ -134,7 +135,7 @@ where
         }
     }
 
-    type3::Chunk {
+    Ok(type3::Chunk {
         instructions: machine_x.instructions,
         register_types: machine_x.reg_booking.export_reg_types(),
         register_devices: machine_x.reg_booking.export_reg_devices(),
@@ -143,5 +144,5 @@ where
         obj_id_allocator: object_id_allocator,
         libs,
         _phantom: PhantomData,
-    }
+    })
 }

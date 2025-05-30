@@ -1,6 +1,5 @@
 use crate::transit::type2::memory_planning::prelude::*;
 
-
 #[derive(Debug, Clone)]
 pub struct Machine<'s, T, P> {
     pub(super) ops: OperationSeq<'s, T, P>,
@@ -19,7 +18,7 @@ fn values_for_transfer<Rt: RuntimeType>(
 
         assert!(slice.len() <= o2_deg as u64);
         assert!(slice.begin() <= o2_deg as u64);
-        assert!(obj_info.typ(from_object).unwrap_poly().0 == slice.len() as usize);
+        assert!(obj_info.typ(to_object).unwrap_poly().0 == slice.len() as usize);
 
         (
             ValueNode::plain_scalar_array(slice.len() as usize),
@@ -89,6 +88,8 @@ impl<'s, T, P> Machine<'s, T, P> {
         self.ops.emit(Operation::TransferObject(rv_to, rv_from));
     }
 
+    /// Transfer an object from one (device, pointer) to another.
+    /// `from_object` and `to_object` can be the same, but there can't be two objects with same ID on one device.
     pub fn transfer_object_sliced<Rt: RuntimeType>(
         &mut self,
         to_device: Device,
@@ -174,7 +175,10 @@ pub struct MachineHandle<'m, 's, T, P> {
 
 impl<'m, 's, T, P> MachineHandle<'m, 's, T, P> {
     /// Emit a [`Operation::Allocate`], for similar purpose as `deallocate`.
-    pub fn allocate(&mut self, t: T, pointer: P) {
+    pub fn allocate(&mut self, t: T, pointer: P) where T: std::fmt::Debug, P: std::fmt::Debug {
+        // fixme
+        println!("Planning machine emit Allocate({:?}, {:?})", t, pointer);
+
         self.m.emit(Operation::Allocate(t, self.device, pointer))
     }
 
@@ -264,7 +268,8 @@ where
     }
 }
 
-impl<'f, 's, T, P, Rt: RuntimeType> Continuation<'f, Machine<'s, T, P>, T, P, Result<(), super::super::Error<'s>>, Rt>
+impl<'f, 's, T, P, Rt: RuntimeType>
+    Continuation<'f, Machine<'s, T, P>, T, P, Result<(), super::super::Error<'s>>, Rt>
 where
     T: Clone + 'static,
     P: 'static,
@@ -273,6 +278,9 @@ where
     /// token `t` with size `size`.
     /// The receiving device simply allocates space for the whole token, if the token is not present,
     /// then emit a transfer or eject opertion.
+    ///
+    /// `from_device` must be planning or planned, that is , its pointer is meaningful.
+    /// `to_device` must be planning or unplanned.
     pub fn simple_receive(
         from_device: Device,
         from_pointer: P,
@@ -283,6 +291,8 @@ where
         let f = move |allocators: &mut AllocatorCollection<T, P, Rt>,
                       machine: &mut Machine<'s, T, P>,
                       aux: &mut AuxiliaryInfo<Rt>| {
+            assert!(aux.is_planning(from_device) || aux.is_planned(from_device));
+
             if allocators
                 .handle(to_device, machine, aux)
                 .access(&t)
@@ -298,8 +308,10 @@ where
 
                 if aux.is_planning(to_device) {
                     machine.transfer(to_device, to_pointer, t, from_device, from_pointer);
-                } else {
+                } else if aux.is_unplanned(to_device) {
                     machine.eject(to_device, t, from_device, from_pointer);
+                } else {
+                    panic!("to_device {:?} must be planning or unplanned", to_device);
                 }
             }
             Response::Complete(Ok(()))
@@ -310,20 +322,45 @@ where
 
     /// Creates a simple continuation that instructs the target `from_device` to provide a token `t`.
     /// The token must be present in the target device.
-    pub fn simple_provide(
-        to_device: Device,
-        to_pointer: P,
-        from_device: Device,
-        t: T,
-    ) -> Self {
+    /// Transfer always happens.
+    ///
+    /// `to_device` can be planned, planning or unplanned. In the last case, `to_pointer` is ignored.
+    /// `from_device` must be planning or unplanned.
+    pub fn simple_provide(to_device: Device, to_pointer: P, from_device: Device, t: T) -> Self
+    where
+        T: std::fmt::Debug,
+    {
         let f = move |allocators: &mut AllocatorCollection<T, P, Rt>,
                       machine: &mut Machine<T, P>,
                       aux: &mut AuxiliaryInfo<Rt>| {
-            let p = allocators
-                .handle(from_device, machine, aux)
-                .access(&t)
-                .expect("token not found");
-            machine.transfer(to_device, to_pointer, t, from_device, p);
+            if aux.is_planning(from_device) {
+                let from_pointer = allocators
+                    .handle(from_device, machine, aux)
+                    .access(&t)
+                    .expect("token not found");
+
+                // fixme
+                println!(
+                    "simple_provide({:?}, p, {:?}, {:?}), from_device is planning",
+                    &to_device, &from_device, t
+                );
+
+                // - planning -> planning/planned, use transfer
+                // - planning -> unplanned, use eject
+                if aux.is_planning(to_device) || aux.is_planned(to_device) {
+                    machine.transfer(to_device, to_pointer, t, from_device, from_pointer);
+                } else {
+                    assert!(aux.is_unplanned(to_device));
+                    machine.eject(to_device, t, from_device, from_pointer)
+                }
+            } else {
+                // - unplanned -> unplanned, do nothing
+                // - unplanned -> planning/planned, use reclaim
+                assert!(aux.is_unplanned(from_device));
+                if aux.is_planning(to_device) | aux.is_planned(to_device) {
+                    machine.reclaim(to_device, to_pointer, t, from_device);
+                }
+            }
             Response::Complete(Ok(()))
         };
 
@@ -331,4 +368,5 @@ where
     }
 }
 
-pub type PlanningResponse<'f, 's, T, P, R, Rt: RuntimeType> = Response<'f, Machine<'s, T, P>, T, P, R, Rt>;
+pub type PlanningResponse<'f, 's, T, P, R, Rt: RuntimeType> =
+    Response<'f, Machine<'s, T, P>, T, P, R, Rt>;

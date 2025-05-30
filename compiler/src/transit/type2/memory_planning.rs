@@ -19,6 +19,7 @@ mod prelude {
 
     pub(super) use zkpoly_runtime::args::RuntimeType;
 
+    pub(super) use crate::driver::HardwareInfo;
     pub(super) use crate::transit::{
         type2::{
             self,
@@ -32,7 +33,6 @@ mod prelude {
         },
         type3::{self, Device, DeviceSpecific, RegisterId},
     };
-    pub(super) use crate::driver::HardwareInfo;
 
     pub(super) use super::{
         address::{Addr, AddrId, AddrMapping},
@@ -144,12 +144,5 @@ pub fn plan<'s, Rt: RuntimeType>(
         )))
         .collect();
 
-    Ok(realization::realize(
-        ops,
-        allocators,
-        libs,
-        obj_id_allocator,
-        &obj_info,
-        hd_info
-    ))
+    realization::realize(ops, allocators, libs, obj_id_allocator, &obj_info, hd_info)
 }

@@ -45,9 +45,7 @@ fn normalize_size(size: Size) -> Size {
     }
 }
 
-pub fn collect_integral_sizes(
-    sizes: impl Iterator<Item = Size>,
-) -> Vec<IntegralSize> {
+pub fn collect_integral_sizes(sizes: impl Iterator<Item = Size>) -> Vec<IntegralSize> {
     let mut integral_sizes = BTreeSet::<IntegralSize>::new();
     for size in sizes {
         if let Size::Integral(is) = normalize_size(size) {
@@ -138,10 +136,13 @@ where
     where
         's: 'f,
     {
+        if self.allocator.objects_at.get_forward(t).is_some() {
+            panic!("object {:?} already allocated", t);
+        }
         // We need no calling `machine.allocate` here, as there is no structions needed for actual
         // allocating space.
         let size = normalize_size(size);
-        match size {
+        let resp = match size {
             Size::Smithereen(ss) => {
                 if let Some(addr_id) = self.allocator.smithereen_allocator.allocate(
                     ss,
@@ -226,13 +227,24 @@ where
                             .bind_result(move |_| Continuation::return_(Ok(p(addr)))),
                         )
                     } else {
-                        return Response::Complete(Err(Error::VertexInputsOutputsNotAccommodated(
-                            None,
-                        )));
+                        Response::Complete(Err(Error::VertexInputsOutputsNotAccommodated(None)))
                     }
                 }
             }
-        }
+        };
+
+        let this_device = self.device();
+        let t = *t;
+        resp.bind_result(move |p| {
+            Continuation::new(
+                move |_allocators: &mut AllocatorCollection<ObjectId, P, Rt>,
+                      machine: &mut Machine<ObjectId, P>,
+                      _aux: &mut AuxiliaryInfo<Rt>| {
+                    machine.handle(this_device).allocate(t, p);
+                    Response::Complete(Ok(p))
+                },
+            )
+        })
     }
 
     fn deallocate<'f>(
@@ -257,6 +269,8 @@ where
                 mapping_handler!(self, self.allocator.smithereen_offset),
             ),
         };
+
+        self.machine.deallocate(*t, p(addr_id));
 
         Response::Complete(())
     }
@@ -316,6 +330,14 @@ impl<'a, 'm, 's, 'au, 'i, P: UsizeId + 'static, Rt: RuntimeType>
     AllocatorRealizer<'s, ObjectId, P, Rt> for Realizer<'a, 'm, 's, 'au, 'i, P, Rt>
 {
     fn allocate(&mut self, t: &ObjectId, pointer: &P) {
+        // fixme
+        println!(
+            "{:?} allocated at {:?} on {:?}",
+            t,
+            pointer,
+            self.machine.device()
+        );
+
         let (addr, size) = self.allocator.mapping[p_inv(*pointer)];
         let vn = self.aux.obj_info().typ(*t).with_normalized_p();
         let rv = ResidentalValue::new(Value::new(*t, self.machine.device(), vn), *pointer);
@@ -323,6 +345,14 @@ impl<'a, 'm, 's, 'au, 'i, P: UsizeId + 'static, Rt: RuntimeType>
     }
 
     fn deallocate(&mut self, t: &ObjectId, pointer: &P) {
+        // fixme
+        println!(
+            "{:?} deallocated at {:?} on {:?}",
+            t,
+            pointer,
+            self.machine.device()
+        );
+
         let vn = self.aux.obj_info().typ(*t).with_normalized_p();
         let rv = ResidentalValue::new(Value::new(*t, self.machine.device(), vn), *pointer);
         self.machine.gpu_deallocate(&rv);

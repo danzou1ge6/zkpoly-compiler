@@ -3,7 +3,7 @@ use crate::transit::type2::memory_planning::prelude::*;
 
 type Instant = Index;
 
-static DEBUG: bool = true;
+static DEBUG: bool = false;
 
 #[derive(Clone, Debug)]
 pub struct Transfer {

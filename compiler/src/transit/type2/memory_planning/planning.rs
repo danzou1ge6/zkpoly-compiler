@@ -119,6 +119,7 @@ where
 {
     let mut info_x = AuxiliaryInfo::new(
         liveness::UsedBy::analyze(&source_ops, hd_info),
+        planned_devices.clone(),
         planning_devices.clone(),
         unplanned_devices.clone(),
         obj_info,
@@ -294,7 +295,7 @@ where
                 let outputs = outputs.into_iter()
                         .map(|(rv, inplace_of)| {
                             if planning!(rv.device()) {
-                                Ok((pointer_for(rv)?, None))
+                                Ok((pointer_for(rv)?, inplace_of))
                             } else {
                                 Ok((rv, inplace_of))
                             }
@@ -515,6 +516,7 @@ where
             }
         }
 
+        todo!("to fix: object 65 deallocated immediately after allocation");
         for (object, _) in object_uses {
             if aux.dead(object) {
                 for d in planned_devices.iter(){
@@ -561,12 +563,16 @@ pub fn transform_ops<'s, P, Rt: RuntimeType> (
         );
     
     for mut planning_devices in plan_phases.into_iter() {
+        unplanned_devices = unplanned_devices.difference(&planning_devices).into_iter().cloned().collect();
+
         let allocators: AllocatorCollection<ObjectId, P, Rt> = gpu_allocators
             .iter_mut()
             .enumerate()
             .map(|(i, alloc)| (Device::Gpu(i), alloc as &mut dyn Allocator<ObjectId, P, Rt>))
             .chain(std::iter::once((Device::Cpu, cpu_allocator as &mut dyn Allocator<ObjectId, P, Rt>)))
             .collect();
+
+        println!("planning {:?}, unplanned {:?}, planned {:?}", &planning_devices, &unplanned_devices, &planned_devices);
 
         ops = plan_devices(
             ops,
@@ -579,7 +585,6 @@ pub fn transform_ops<'s, P, Rt: RuntimeType> (
         )?;
 
         planned_devices.append(&mut planning_devices);
-        unplanned_devices = unplanned_devices.difference(&planned_devices).into_iter().cloned().collect();
     }
 
     Ok(ops)

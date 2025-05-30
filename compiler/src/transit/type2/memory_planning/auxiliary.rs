@@ -7,6 +7,7 @@ pub struct AuxiliaryInfo<'i, Rt: RuntimeType> {
     next_uses: BTreeMap<ObjectId, DeviceSpecific<VecDeque<Index>>>,
     planning_devices: BTreeSet<Device>,
     unplanned_devices: BTreeSet<Device>,
+    planned_devices: BTreeSet<Device>,
     obj_info: &'i object_info::Info<Rt>,
     n_gpus: usize
 }
@@ -72,6 +73,7 @@ impl<'i, Rt: RuntimeType> AuxiliaryInfo<'i, Rt> {
 
     pub fn new(
         used_by: liveness::UsedBy,
+        planned_devices: BTreeSet<Device>,
         planning_devices: BTreeSet<Device>,
         unplanned_devices: BTreeSet<Device>,
         obj_info: &'i object_info::Info<Rt>,
@@ -80,6 +82,7 @@ impl<'i, Rt: RuntimeType> AuxiliaryInfo<'i, Rt> {
         Self {
             pc: Index::default(),
             next_uses: used_by.export_online(),
+            planned_devices,
             planning_devices,
             unplanned_devices,
             obj_info,
@@ -98,6 +101,10 @@ impl<'i, Rt: RuntimeType> AuxiliaryInfo<'i, Rt> {
 
     pub fn is_unplanned(&self, device: Device) -> bool {
         self.unplanned_devices.contains(&device)
+    }
+
+    pub fn is_planned(&self, device: Device) -> bool {
+        self.planned_devices.contains(&device)
     }
 
     pub fn obj_info(&self) -> &'i object_info::Info<Rt> {

@@ -37,6 +37,14 @@ where
         _size: Size,
         t: &ObjectId,
     ) -> PlanningResponse<'f, 's, ObjectId, P, Result<P, Error<'s>>, Rt> {
+        if self.allocator.mapping.contains_key(t) {
+            panic!("{:?} already allocated on {:?}", t, self.machine.device());
+        }
+
+        if *t == ObjectId::from(248) {
+            panic!("allocating object 248");
+        }
+
         let p = *self
             .allocator
             .mapping
@@ -70,6 +78,9 @@ where
             return Response::Complete(Ok(()));
         }
 
+        // fixme
+        println!("claim object {:?} from {:?}", t, from);
+
         let p = self.allocator.p_allocator.alloc();
         self.allocator.mapping.insert(t.clone(), p);
 
@@ -95,6 +106,9 @@ where
             .mapping
             .remove(&old_object)
             .unwrap_or_else(|| panic!("token {:?} not allocated", old_object));
+        
+        // fixme
+        println!("reuse object {:?} to {:?}", old_object, new_object);
 
         self.allocator.mapping.insert(new_object.clone(), p);
     }

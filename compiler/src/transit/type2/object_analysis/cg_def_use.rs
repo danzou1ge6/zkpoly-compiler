@@ -178,11 +178,13 @@ fn vertex_input_of<'s, Rt: RuntimeType>(
         )
     });
 
-    let with_device = |v: Value| {
+    let with_device = |val: Value| {
         if matches!(memory_device, Device::Stack) {
             panic!("stack is not a memory device in current phase");
+        } else if v.node().is_virtual() {
+            val
         } else {
-            v.with_device(memory_device)
+            val.with_device(memory_device)
         }
     };
 
@@ -341,7 +343,7 @@ fn vertex_output_of<'s, Rt: RuntimeType>(
             VertexOutput::Single(OutputValue::non_inplace(new_value))
         }
         // Output value of [`Return`] vertex is the desired output value of the computation graph
-        AssertEq(a, _, _) | Print(a, _) | Return(a) => {
+        AssertEq(a, _, _) | Print(a, _) => {
             let pred_value = value[a].clone().with_no_inplace();
             pred_value.with_device(Device::Cpu)
         }
