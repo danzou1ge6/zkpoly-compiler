@@ -1,7 +1,7 @@
 use group::prime::PrimeCurveAffine;
 use zkpoly_common::{devices::DeviceType, typ::Typ};
 use zkpoly_cuda_api::{mem::CudaAllocator, stream::CudaStream};
-use zkpoly_memory_pool::CpuMemoryPool;
+use zkpoly_memory_pool::{BuddyDiskPool, CpuMemoryPool};
 
 use crate::{
     any::AnyWrapper,
@@ -21,6 +21,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         offset: Option<usize>,
         mem_allocator: &mut Option<&mut CpuMemoryPool>,
         gpu_allocator: &mut Option<&mut Vec<CudaAllocator>>,
+        disk_allocator: &mut Option<&mut Vec<BuddyDiskPool>>,
     ) -> Variable<T> {
         match typ {
             Typ::ScalarArray { len, meta: _ } => {
@@ -36,7 +37,9 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                             .allocate(offset.unwrap(), len as usize),
                         device.clone(),
                     ),
-                    DeviceType::Disk => todo!(),
+                    DeviceType::Disk => {
+                        ScalarArray::<T::Field>::alloc_disk(len as usize, disk_allocator.as_mut().unwrap())
+                    }
                 };
                 Variable::ScalarArray(poly)
             }
@@ -101,6 +104,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         var_id: VariableId,
         mem_allocator: &mut Option<&mut CpuMemoryPool>,
         gpu_allocator: &mut Option<&mut Vec<CudaAllocator>>,
+        disk_allocator: &mut Option<&mut Vec<BuddyDiskPool>>,
     ) {
         match var {
             Variable::ScalarArray(poly) => match poly.device {
@@ -110,7 +114,12 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                 DeviceType::GPU { device_id } => {
                     gpu_allocator.as_mut().unwrap()[device_id as usize].free(poly.values);
                 }
-                _ => unimplemented!(),
+                DeviceType::Disk => {
+                    let bytes = poly.len() * size_of::<T::Field>() / poly.disk_pos.len();
+                    disk_allocator.as_mut().unwrap().iter_mut().zip(poly.disk_pos.iter()).for_each(|(disk_pool, (_, offset))| {
+                        disk_pool.deallocate(*offset, bytes);
+                    });
+                }
             },
             Variable::PointArray(point_base) => match point_base.device {
                 DeviceType::CPU => {
@@ -123,7 +132,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
             },
             Variable::Tuple(vec) => {
                 for var in vec {
-                    self.deallocate(var, var_id, mem_allocator, gpu_allocator);
+                    self.deallocate(var, var_id, mem_allocator, gpu_allocator, disk_allocator);
                 }
             }
             Variable::Stream(stream) => {

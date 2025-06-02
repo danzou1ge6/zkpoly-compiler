@@ -23,7 +23,7 @@ use crate::{
 
 use zkpoly_cuda_api::{bindings::cudaDeviceSynchronize, cuda_check, mem::CudaAllocator};
 
-use zkpoly_memory_pool::CpuMemoryPool;
+use zkpoly_memory_pool::{CpuMemoryPool, BuddyDiskPool};
 
 pub mod alloc;
 pub mod assert_eq;
@@ -38,6 +38,7 @@ pub struct Runtime<T: RuntimeType> {
     threads: ThreadTable,
     pub mem_allocator: Option<CpuMemoryPool>,
     gpu_allocator: Vec<CudaAllocator>,
+    disk_allocator: Vec<BuddyDiskPool>,
     rng: AsyncRng,
     _libs: Libs,
 }
@@ -64,6 +65,7 @@ impl<T: RuntimeType> Runtime<T> {
         n_threads: usize,
         mem_allocator: CpuMemoryPool,
         gpu_allocator: Vec<CudaAllocator>,
+        disk_allocator: Vec<BuddyDiskPool>,
         rng: AsyncRng,
         libs: Libs,
     ) -> Self {
@@ -76,6 +78,7 @@ impl<T: RuntimeType> Runtime<T> {
             threads: new_thread_table(n_threads),
             mem_allocator: Some(mem_allocator),
             gpu_allocator,
+            disk_allocator,
             rng,
             _libs: libs,
         }
@@ -128,6 +131,7 @@ impl<T: RuntimeType> Runtime<T> {
                 self.instructions.clone(),
                 Some(&mut self.mem_allocator.as_mut().unwrap()),
                 Some(&mut self.gpu_allocator),
+                Some(&mut self.disk_allocator),
                 None,
                 0,
                 Arc::new(std::sync::Mutex::new(())),
@@ -161,6 +165,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         instructions: Vec<Instruction>,
         mut mem_allocator: Option<&mut CpuMemoryPool>,
         mut gpu_allocator: Option<&mut Vec<CudaAllocator>>,
+        mut disk_allocator: Option<&mut Vec<BuddyDiskPool>>,
         epilogue: Option<Sender<i32>>,
         _thread_id: usize,
         global_mutex: Arc<Mutex<()>>,
@@ -209,6 +214,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                         offset,
                         &mut mem_allocator,
                         &mut gpu_allocator,
+                        &mut disk_allocator,
                     ));
                 }
                 Instruction::Deallocate { id } => {
@@ -216,7 +222,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     assert!(self.main_thread);
                     let guard = &mut (*self.variable)[id];
                     if let Some(var) = guard.as_mut() {
-                        self.deallocate(var, id, &mut mem_allocator, &mut gpu_allocator);
+                        self.deallocate(var, id, &mut mem_allocator, &mut gpu_allocator, &mut disk_allocator);
                         *guard = None;
                     } else {
                         panic!("deallocate a non-existing variable");
@@ -351,6 +357,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     thread::spawn(move || {
                         sub_info.run(
                             instructions,
+                            None,
                             None,
                             None,
                             Some(tx),

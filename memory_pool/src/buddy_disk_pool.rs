@@ -106,6 +106,10 @@ pub struct BuddyDiskPool {
 // Or, keep them as direct fields and use &mut self. The original MemoryPool uses &mut self.
 
 impl BuddyDiskPool {
+    pub fn get_alignment(&self) -> usize {
+        self.system_alignment
+    }
+    
     pub fn new(total_capacity_request: usize, min_block_size_request: usize) -> Result<Self, BuddyDiskPoolError> {
         if total_capacity_request == 0 {
             return Err(BuddyDiskPoolError::InvalidCapacity("Total capacity request cannot be zero.".to_string()));
@@ -403,6 +407,10 @@ impl BuddyDiskPool {
         } else {
             Ok(log_factor)
         }
+    }
+
+    pub fn get_fd(&self) -> i32 {
+        self.file.as_raw_fd()
     }
 
     pub fn allocate(&mut self, size_bytes: usize) -> Result<usize, BuddyDiskPoolError> {

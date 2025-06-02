@@ -89,7 +89,15 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                         Scalar => unwrap_scalar_mut
                     );
                 }
-                DeviceType::Disk => unimplemented!("Disk will be supported in later development"),
+                DeviceType::Disk => {
+                    match src {
+                        Variable::ScalarArray(poly) => {
+                            let dst = dst.unwrap_scalar_array_mut();
+                            poly.cpu2disk(dst);
+                        }
+                        _ => unimplemented!()
+                    }
+                }
             },
             DeviceType::GPU { .. } => match dst_device {
                 DeviceType::CPU => {
@@ -118,7 +126,21 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                 }
                 DeviceType::Disk => unimplemented!(),
             },
-            DeviceType::Disk => unimplemented!(),
+            DeviceType::Disk => {
+                match dst_device {
+                    DeviceType::CPU => {
+                        match src {
+                            Variable::ScalarArray(poly) => {
+                                let dst = dst.unwrap_scalar_array_mut();
+                                poly.disk2cpu(dst);
+                            }
+                            _ => unimplemented!()
+                        }
+                    }
+                    DeviceType::GPU { .. } => unimplemented!(),
+                    DeviceType::Disk => unimplemented!(),
+                }
+            }
         }
     }
 }

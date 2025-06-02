@@ -5,12 +5,13 @@ use std::{
 
 use group::ff::Field;
 use rand_core::RngCore;
+use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use zkpoly_common::devices::DeviceType;
 use zkpoly_cuda_api::{
     mem::{alloc_pinned, free_pinned},
     stream::CudaStream,
 };
-use zkpoly_memory_pool::CpuMemoryPool;
+use zkpoly_memory_pool::{BuddyDiskPool, CpuMemoryPool};
 
 use crate::runtime::transfer::Transfer;
 
@@ -149,6 +150,7 @@ pub struct ScalarArray<F: Field> {
     pub(crate) rotate: i64, // the i64 is just to support neg during add, when getting rotate, we can safely assume it is positive
     pub device: DeviceType,
     pub slice_info: Option<ScalarSlice>,
+    pub disk_pos: Vec<(i32, usize)>, // if the poly is stored on disk, this is the offset of each part in each file, (fd, offset)
 }
 
 impl<F: Field> std::fmt::Debug for ScalarArray<F> {
@@ -204,6 +206,7 @@ impl<F: Field> ScalarArray<F> {
             rotate: 0,
             device,
             slice_info: None,
+            disk_pos: Vec::new(),
         }
     }
 
@@ -215,6 +218,27 @@ impl<F: Field> ScalarArray<F> {
             rotate: 0,
             device: DeviceType::CPU,
             slice_info: None,
+            disk_pos: Vec::new(),
+        }
+    }
+
+    pub fn alloc_disk(len: usize, allocator: &mut Vec<BuddyDiskPool>) -> Self {
+        assert!(len % allocator.len() == 0);
+        let part_len = len / allocator.len();
+        let disk_pose = allocator
+            .iter_mut()
+            .map(|pool| {
+                let pos = pool.allocate(part_len * size_of::<F>()).unwrap();
+                (pool.get_fd() as i32, pos)
+            })
+            .collect::<Vec<_>>();
+        Self {
+            values: std::ptr::null_mut(),
+            len,
+            rotate: 0,
+            device: DeviceType::Disk,
+            slice_info: None,
+            disk_pos: disk_pose,
         }
     }
 
@@ -288,6 +312,7 @@ impl<F: Field> ScalarArray<F> {
             rotate: 0,
             device: self.device.clone(),
             slice_info,
+            disk_pos: Vec::new(),
         })
     }
 
@@ -308,6 +333,7 @@ impl<F: Field> ScalarArray<F> {
                 offset: actual_pos,
                 whole_len: self.len,
             }),
+            disk_pos: self.disk_pos.clone(),
         }
     }
 
@@ -990,5 +1016,73 @@ impl<F: Field> Transfer for ScalarArray<F> {
                 }
             }
         }
+    }
+
+    fn cpu2disk(&self, target: &mut Self) {
+        assert_eq!(self.device, DeviceType::CPU);
+        assert_eq!(target.device, DeviceType::Disk);
+        assert_eq!(self.rotate, target.rotate);
+        assert!(self.slice_info.is_none());
+        assert!(target.slice_info.is_none());
+        let part_len = self.len / self.disk_pos.len();
+        target
+            .disk_pos
+            .par_iter()
+            .enumerate()
+            .for_each(|(disk_id, (fd, offset))| {
+                let offset = offset.clone();
+                let fd = fd.clone();
+                let cpu_offset = part_len * disk_id;
+
+                unsafe {
+                    let write_size = part_len * size_of::<F>();
+                    let res = libc::pwrite(
+                        fd,
+                        self.values.add(cpu_offset).cast(),
+                        write_size,
+                        offset as i64,
+                    );
+                    if res < write_size as isize {
+                        panic!(
+                            "Failed to write {} bytes to disk {} at offset {}: {}",
+                            write_size, disk_id, offset, res
+                        );
+                    }
+                }
+            });
+    }
+
+    fn disk2cpu(&self, target: &mut Self) {
+        assert_eq!(self.device, DeviceType::Disk);
+        assert_eq!(target.device, DeviceType::CPU);
+        assert_eq!(self.rotate, target.rotate);
+        assert!(self.slice_info.is_none());
+        assert!(target.slice_info.is_none());
+
+        let part_len = self.len / self.disk_pos.len();
+        self.disk_pos
+            .par_iter()
+            .enumerate()
+            .for_each(|(disk_id, (fd, offset))| {
+                let tmp_target = target.clone();
+                let (fd, offset) = (fd.clone(), offset.clone());
+                let cpu_offset = part_len * disk_id;
+
+                unsafe {
+                    let read_size = part_len * size_of::<F>();
+                    let res = libc::pread(
+                        fd,
+                        tmp_target.values.add(cpu_offset).cast(),
+                        read_size,
+                        offset as i64,
+                    );
+                    if res < read_size as isize {
+                        panic!(
+                            "Failed to read {} bytes from disk {} at offset {}: {}",
+                            read_size, disk_id, offset, res
+                        );
+                    }
+                }
+            });
     }
 }
