@@ -4,6 +4,7 @@ pub mod gpu_allocator;
 pub mod regretting_integral;
 pub mod smithereens_allocator;
 pub mod super_allocator;
+pub mod constant_pool;
 
 pub mod cpu_allocator {
     pub use super::super_allocator::SuperAllocator as CpuAllocator;
@@ -13,6 +14,7 @@ pub mod cpu_allocator {
 pub use gpu_allocator::GpuAllocator;
 pub use super_allocator::SuperAllocator;
 pub use cpu_allocator::CpuAllocator;
+pub use constant_pool::ConstantPool;
 
 struct OffsettedAddrMapping<'a> {
     mapping: &'a mut AddrMapping,

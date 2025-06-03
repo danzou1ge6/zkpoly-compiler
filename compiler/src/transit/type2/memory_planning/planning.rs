@@ -541,13 +541,18 @@ where
 }
 
 /// Run `plan_devices` repetitively from bottom devices to top devices.
-pub fn transform_ops<'s, P, Rt: RuntimeType> (
+pub fn transform_ops<'s, P, Rt: RuntimeType, Ca, Ga> (
     mut ops: OperationSeq<'s, ObjectId, P>,
-    gpu_allocators: &mut [GpuAllocator<P>],
-    cpu_allocator: &mut CpuAllocator<P>,
+    gpu_allocators: &mut [Ga],
+    cpu_allocator: &mut Ca,
     obj_info: &object_info::Info<Rt>,
     hd_info: &HardwareInfo
-) -> Result<OperationSeq<'s, ObjectId, P>, Error<'s>> where P: UsizeId + 'static {
+) -> Result<OperationSeq<'s, ObjectId, P>, Error<'s>>
+where
+    P: UsizeId + 'static,
+    Ca: Allocator<ObjectId, P, Rt> +'static,
+    Ga: Allocator<ObjectId, P, Rt> +'static,
+{
     let plan_phases: Vec<BTreeSet<Device>> = vec![
         (0..hd_info.n_gpus()).map(|i| Device::Gpu(i)).collect(),
         [Device::Cpu].into_iter().collect(),

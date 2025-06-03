@@ -390,18 +390,11 @@ pub mod template {
             }
         }
 
-        pub fn no_allocate_output(&self) -> bool {
-            use VertexNode::*;
-            match self {
-                Entry(..) | Constant(..) | AssertEq(..) | Print(..) => true,
-                _ => false,
-            }
-        }
-
         pub fn immortal_on_cpu(&self) -> bool {
             use VertexNode::*;
             match self {
                 Constant(..) => true,
+                Entry(..) => true,
                 _ => false,
             }
         }

@@ -18,10 +18,10 @@ impl<P> SuperAllocator<P> {
         }
     }
 
-    pub fn new() -> Self {
+    pub fn new(p_allocator: IdAllocator<P>) -> Self {
         Self {
             mapping: BTreeMap::new(),
-            p_allocator: IdAllocator::new(),
+            p_allocator,
             physical: true,
         }
     }
@@ -108,7 +108,7 @@ where
         ))
     }
 
-    fn completeness(&self, object: ObjectId) -> Completeness {
+    fn completeness(&mut self, object: ObjectId) -> Completeness {
         if self.allocator.mapping.contains_key(&object) {
             Completeness::plain_one()
         } else {

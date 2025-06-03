@@ -275,7 +275,7 @@ where
         Response::Complete(())
     }
 
-    fn completeness(&self, object: ObjectId) -> Completeness {
+    fn completeness(&mut self, object: ObjectId) -> Completeness {
         self.allocator
             .objects_at
             .get_forward(&object)

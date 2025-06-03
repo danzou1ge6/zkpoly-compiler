@@ -73,7 +73,7 @@ pub trait AllocatorHandle<'s, T, P, Rt: RuntimeType> {
     /// Get completeness of the object on this device.
     /// Completeness may be a number between zero and one if the device uses page allocation
     /// and ejects by pages.
-    fn completeness(&self, object: ObjectId) -> Completeness;
+    fn completeness(&mut self, object: ObjectId) -> Completeness;
 }
 
 pub trait AllocatorRealizer<'s, T, P, Rt: RuntimeType> {

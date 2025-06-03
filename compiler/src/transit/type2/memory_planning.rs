@@ -112,14 +112,23 @@ pub fn plan<'s, Rt: RuntimeType>(
 
     let obj_info = object_info::Info::<Rt>::collect(&ops);
 
-    use allocators::{CpuAllocator, GpuAllocator};
+    use allocators::{ConstantPool, CpuAllocator, GpuAllocator};
 
     let lbss = allocators::gpu_allocator::collect_integral_sizes(obj_info.sizes());
     let mut gpu_allocators: Vec<GpuAllocator<Pointer>> = hd_info
         .gpus()
         .map(|gpu| GpuAllocator::new(gpu.gpu_memory_limit, gpu.gpu_smithereen_space, lbss.clone()))
         .collect();
-    let mut cpu_allocator = CpuAllocator::<Pointer>::new();
+
+    let mut p_allocator = IdAllocator::new();
+    let constant_objects = def_use
+        .immortal_objects()
+        .iter()
+        .copied()
+        .map(|obj| (obj, p_allocator.alloc()))
+        .collect::<Vec<_>>();
+    let cpu_allocator = CpuAllocator::<Pointer>::new(p_allocator);
+    let mut cpu_allocator = ConstantPool::new(cpu_allocator, constant_objects.into_iter());
 
     let ops = planning::transform_ops(
         ops,
@@ -144,12 +153,5 @@ pub fn plan<'s, Rt: RuntimeType>(
         )))
         .collect();
 
-    realization::realize(
-        ops,
-        allocators,
-        libs,
-        obj_id_allocator,
-        &obj_info,
-        hd_info,
-    )
+    realization::realize(ops, allocators, libs, obj_id_allocator, &obj_info, hd_info)
 }
