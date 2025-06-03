@@ -9,7 +9,7 @@ pub struct AuxiliaryInfo<'i, Rt: RuntimeType> {
     unplanned_devices: BTreeSet<Device>,
     planned_devices: BTreeSet<Device>,
     obj_info: &'i object_info::Info<Rt>,
-    n_gpus: usize
+    n_gpus: usize,
 }
 
 impl<'i, Rt: RuntimeType> AuxiliaryInfo<'i, Rt> {
@@ -49,7 +49,7 @@ impl<'i, Rt: RuntimeType> AuxiliaryInfo<'i, Rt> {
         self.pop_next_use_until(object, device, |hd| hd > pc)
     }
 
-    /// Check if `object` is dead on all devices.
+    /// Check if `object` is dead on all devices, and it is not immortal.
     pub fn dead(&mut self, object: ObjectId) -> bool {
         // We only check planning and unplanned devices here,
         // as uses on currently planned devices should have incurred reclaims from currently planning or
@@ -77,7 +77,7 @@ impl<'i, Rt: RuntimeType> AuxiliaryInfo<'i, Rt> {
         planning_devices: BTreeSet<Device>,
         unplanned_devices: BTreeSet<Device>,
         obj_info: &'i object_info::Info<Rt>,
-        n_gpus: usize
+        n_gpus: usize,
     ) -> Self {
         Self {
             pc: Index::default(),
@@ -86,7 +86,7 @@ impl<'i, Rt: RuntimeType> AuxiliaryInfo<'i, Rt> {
             planning_devices,
             unplanned_devices,
             obj_info,
-            n_gpus
+            n_gpus,
         }
     }
 

@@ -316,7 +316,7 @@ impl Track {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct TrackSpecific<T> {
     pub(crate) memory_management: T,
     pub(crate) co_process: T,
@@ -328,6 +328,18 @@ pub struct TrackSpecific<T> {
 }
 
 impl<T> TrackSpecific<T> {
+    pub fn default(n_gpus: usize) -> Self where T: Default {
+        Self {
+            memory_management: T::default(),
+            co_process: T::default(),
+            gpu: (0..n_gpus).map(|_| T::default()).collect(),
+            cpu: T::default(),
+            to_gpu: T::default(),
+            from_gpu: T::default(),
+            gpu_memory: (0..n_gpus).map(|_| T::default()).collect(),
+        }
+    }
+
     pub fn get_track(&self, track: Track) -> &T {
         use Track::*;
         match track {
@@ -421,6 +433,7 @@ impl<'s> Instruction<'s> {
         };
 
         match &self.node {
+            Type2 { vertex: type2::template::VertexNode::Return(..), ..} => Cpu,
             Type2 { vertex, ids, .. } => vertex.track(executor_of(devices(ids[0].0))),
             GpuMalloc { .. } => MemoryManagement,
             GpuFree { .. } => MemoryManagement,

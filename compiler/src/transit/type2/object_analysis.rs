@@ -30,6 +30,8 @@ pub use value::{ObjectId, Value, ValueNode, VertexInput, VertexOutput};
 pub type VertexNode = type2::alt_label::VertexNode<VertexInput<Value>>;
 
 pub mod template {
+    use zkpoly_common::heap::UsizeId;
+
     use super::{
         define_usize_id, Device, Heap, ObjectId, Slice, SourceInfo, Value, ValueNode, VertexId,
         VertexInput,
@@ -37,8 +39,24 @@ pub mod template {
     use crate::transit::type2;
 
     /// A value that we know where its pointer points to.
-    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+    #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
     pub struct ResidentalValue<P>(Value, P);
+
+    impl<P> std::fmt::Debug for ResidentalValue<P>
+    where
+        P: std::fmt::Debug
+    {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(
+                f,
+                "(o{}, {:?}, {:?}, {:?})",
+                usize::from(self.object_id()),
+                self.device(),
+                self.node(),
+                self.pointer()
+            )
+        }
+    }
 
     impl<P> ResidentalValue<P> {
         pub fn new(value: Value, pointer: P) -> Self {
@@ -309,12 +327,15 @@ where
                     (
                         v.deref().clone().into(),
                         v.inplace_of().map(|inplaced_vid| {
-                            vid2mutated_obj.get(&inplaced_vid).unwrap_or_else(|| {
-                                panic!(
-                                    "inplace object not found for input {:?} at {:?}",
-                                    inplaced_vid, vid
-                                )
-                            }).clone()
+                            vid2mutated_obj
+                                .get(&inplaced_vid)
+                                .unwrap_or_else(|| {
+                                    panic!(
+                                        "inplace object not found for input {:?} at {:?}",
+                                        inplaced_vid, vid
+                                    )
+                                })
+                                .clone()
                         }),
                     )
                 })

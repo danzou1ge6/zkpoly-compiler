@@ -31,8 +31,14 @@ where
     let machine = &mut machine_x;
     let aux = &mut aux_x;
 
+    // fixme
+    println!("begin realization");
+
     for (_, op) in ops.into_iter() {
         use Operation::*;
+
+        // fixme
+        println!("op = {:?}", &op);
 
         match op {
             Type2(vid, outputs, node, temps, src) => {

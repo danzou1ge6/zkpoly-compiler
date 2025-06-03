@@ -144,5 +144,12 @@ pub fn plan<'s, Rt: RuntimeType>(
         )))
         .collect();
 
-    realization::realize(ops, allocators, libs, obj_id_allocator, &obj_info, hd_info)
+    realization::realize(
+        ops,
+        allocators,
+        libs,
+        obj_id_allocator,
+        &obj_info,
+        hd_info,
+    )
 }

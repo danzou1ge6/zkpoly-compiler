@@ -49,7 +49,7 @@ pub struct DefUse {
 
     /// The set of objects that should not be deallocated on CPU.
     /// For example, constants and computation graph inputs.
-    pub(super) cpu_immortal_objects: BTreeSet<ObjectId>,
+    pub(super) immortal_objects: BTreeSet<ObjectId>,
 
     /// The last vertex that uses an object on some device.
     /// All allocated objects except unused ones should appear in this mapping.
@@ -513,7 +513,7 @@ impl DefUse {
             input,
             cloned_slices: cloned_slices.0,
             def_on,
-            cpu_immortal_objects,
+            immortal_objects: cpu_immortal_objects,
             object_dies_after: obj_last_use,
         };
 
@@ -589,5 +589,9 @@ impl DefUse {
         vid: VertexId,
     ) -> impl Iterator<Item = &'a (VertexId, VertexInput)> + 'a {
         self.input[&vid].iter()
+    }
+
+    pub fn immortal_objects(&self) -> &BTreeSet<ObjectId> {
+        &self.immortal_objects
     }
 }

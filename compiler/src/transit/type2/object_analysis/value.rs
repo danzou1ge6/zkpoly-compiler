@@ -16,7 +16,7 @@ impl From<&ObjectId> for ObjectId {
 pub type ValueNode = Typ<Slice>;
 
 /// Represents what we know now about what's inside a runtime register
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Value {
     /// The object it points to
     object_id: ObjectId,
@@ -25,6 +25,18 @@ pub struct Value {
     device: Device,
     /// Variant of the value
     node: ValueNode,
+}
+
+impl std::fmt::Debug for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "(o{}, {:?}, {:?})",
+            usize::from(self.object_id()),
+            self.device(),
+            self.node()
+        )
+    }
 }
 
 impl Value {

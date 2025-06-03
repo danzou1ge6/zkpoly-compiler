@@ -4,13 +4,25 @@ use planning::machine::*;
 pub struct SuperAllocator<P> {
     mapping: BTreeMap<ObjectId, P>,
     p_allocator: IdAllocator<P>,
+    /// If `physical` is false, then this allocator will not instruct machine for allocation or deallocation.
+    /// That is used in case when the underlying device is unplanned.
+    physical: bool,
 }
 
 impl<P> SuperAllocator<P> {
+    pub fn for_unplanned() -> Self {
+        Self {
+            mapping: BTreeMap::new(),
+            p_allocator: IdAllocator::new(),
+            physical: false,
+        }
+    }
+
     pub fn new() -> Self {
         Self {
             mapping: BTreeMap::new(),
             p_allocator: IdAllocator::new(),
+            physical: true,
         }
     }
 }
@@ -51,7 +63,9 @@ where
             .entry(t.clone())
             .or_insert_with(|| self.allocator.p_allocator.alloc());
 
-        self.machine.allocate(t.clone(), p);
+        if self.allocator.physical {
+            self.machine.allocate(t.clone(), p);
+        }
 
         Response::Complete(Ok(p))
     }
@@ -63,7 +77,9 @@ where
             .remove(t)
             .unwrap_or_else(|| panic!("token {:?} not allocated", t));
 
-        self.machine.deallocate(t.clone(), p);
+        if self.allocator.physical {
+            self.machine.deallocate(t.clone(), p);
+        }
 
         Response::Complete(())
     }
@@ -106,7 +122,7 @@ where
             .mapping
             .remove(&old_object)
             .unwrap_or_else(|| panic!("token {:?} not allocated", old_object));
-        
+
         // fixme
         println!("reuse object {:?} to {:?}", old_object, new_object);
 

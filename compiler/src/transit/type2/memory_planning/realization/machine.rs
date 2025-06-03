@@ -362,10 +362,11 @@ where
     }
 
     /// Free registers pointing to `pointer`
-    fn free_regs_to(&mut self, pointer: P, object: ObjectId, device: Device) {
+    fn free_regs_to(&mut self, pointer: P, object: ObjectId, device: Device, except: RegisterId) {
         let regs = self
             .reg_booking
             .regs_pointing_to(object, pointer, device, RegisterStatus::Defined)
+            .filter(|r| *r != except)
             .collect::<Vec<_>>();
         regs.into_iter().for_each(|r| self.free_reg(r));
     }
@@ -408,7 +409,7 @@ where
                 id: reg,
             }));
         self.machine
-            .free_regs_to(*rv.pointer(), rv.object_id(), rv.device());
+            .free_regs_to(*rv.pointer(), rv.object_id(), rv.device(), reg);
     }
 
     pub fn cpu_allocate(&mut self, size: Size, rv: ResidentalValue<P>) -> RegisterId {
@@ -432,7 +433,7 @@ where
                 id: reg,
             }));
         self.machine
-            .free_regs_to(*rv.pointer(), rv.object_id(), rv.device());
+            .free_regs_to(*rv.pointer(), rv.object_id(), rv.device(), reg);
     }
 
     /// Inform the machine that `pointer` on `device` to `object` is no longer available

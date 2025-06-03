@@ -128,7 +128,7 @@ where
 
     let mut unplanned_allocators: BTreeMap<_, _> = unplanned_devices
         .iter()
-        .map(|d| (*d, SuperAllocator::new()))
+        .map(|d| (*d, SuperAllocator::for_unplanned()))
         .collect();
 
     // Parent devices of all planning devices, which is expected to be subset of unplanned devices
@@ -186,6 +186,9 @@ where
         use Operation::*;
 
         let object_uses = op.object_uses().collect::<Vec<_>>();
+
+        // fixme
+        println!("op = {:?}", op);
 
         match op {
             Type2(vid, outputs, node, temps, src) => {
@@ -516,10 +519,10 @@ where
             }
         }
 
-        todo!("to fix: object 65 deallocated immediately after allocation");
+
         for (object, _) in object_uses {
             if aux.dead(object) {
-                for d in planned_devices.iter(){
+                for d in planning_devices.iter().chain(unplanned_devices.iter()) {
                     if allocators
                         .handle(*d, machine, aux)
                         .completeness(object)
@@ -572,7 +575,7 @@ pub fn transform_ops<'s, P, Rt: RuntimeType> (
             .chain(std::iter::once((Device::Cpu, cpu_allocator as &mut dyn Allocator<ObjectId, P, Rt>)))
             .collect();
 
-        println!("planning {:?}, unplanned {:?}, planned {:?}", &planning_devices, &unplanned_devices, &planned_devices);
+        println!("begin phase planning {:?}, unplanned {:?}, planned {:?}", &planning_devices, &unplanned_devices, &planned_devices);
 
         ops = plan_devices(
             ops,
@@ -581,7 +584,7 @@ pub fn transform_ops<'s, P, Rt: RuntimeType> (
             &planning_devices,
             &unplanned_devices,
             allocators,
-            hd_info
+            hd_info,
         )?;
 
         planned_devices.append(&mut planning_devices);

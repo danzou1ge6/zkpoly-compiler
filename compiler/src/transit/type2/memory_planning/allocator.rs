@@ -44,7 +44,6 @@ pub trait AllocatorHandle<'s, T, P, Rt: RuntimeType> {
         's: 'f;
 
     /// Deallocate the token, which must be recorded on device, otherwise panics.
-    /// That is, it can be ejected, but it must has been allocated.
     fn deallocate<'f>(&mut self, t: &T) -> Response<'f, planning::Machine<'s, T, P>, T, P, (), Rt>
     where
         's: 'f;
