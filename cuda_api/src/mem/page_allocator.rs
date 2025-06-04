@@ -165,6 +165,10 @@ impl CudaPageAllocator {
             cuda_driver_check!(cuMemAddressFree(va, va_size));
         }
     }
+
+    pub fn page_size(&self) -> usize {
+        self.page_size
+    }
 }
 
 impl Drop for CudaPageAllocator {

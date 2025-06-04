@@ -21,7 +21,7 @@ use crate::{
     instructions::Instruction,
 };
 
-use zkpoly_cuda_api::{bindings::cudaDeviceSynchronize, cuda_check, mem::CudaAllocator};
+use zkpoly_cuda_api::{bindings::cudaDeviceSynchronize, cuda_check, mem::{page_allocator::{self, CudaPageAllocator}, CudaAllocator}};
 
 use zkpoly_memory_pool::{CpuMemoryPool, BuddyDiskPool};
 
@@ -39,6 +39,7 @@ pub struct Runtime<T: RuntimeType> {
     pub mem_allocator: Option<CpuMemoryPool>,
     gpu_allocator: Vec<CudaAllocator>,
     disk_allocator: Vec<BuddyDiskPool>,
+    page_allocator: Vec<CudaPageAllocator>,
     rng: AsyncRng,
     _libs: Libs,
 }
@@ -66,6 +67,7 @@ impl<T: RuntimeType> Runtime<T> {
         mem_allocator: CpuMemoryPool,
         gpu_allocator: Vec<CudaAllocator>,
         disk_allocator: Vec<BuddyDiskPool>,
+        page_allocator: Vec<CudaPageAllocator>,
         rng: AsyncRng,
         libs: Libs,
     ) -> Self {
@@ -79,6 +81,7 @@ impl<T: RuntimeType> Runtime<T> {
             mem_allocator: Some(mem_allocator),
             gpu_allocator,
             disk_allocator,
+            page_allocator,
             rng,
             _libs: libs,
         }
@@ -132,6 +135,7 @@ impl<T: RuntimeType> Runtime<T> {
                 Some(&mut self.mem_allocator.as_mut().unwrap()),
                 Some(&mut self.gpu_allocator),
                 Some(&mut self.disk_allocator),
+                Some(&mut self.page_allocator),
                 None,
                 0,
                 Arc::new(std::sync::Mutex::new(())),
@@ -166,6 +170,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         mut mem_allocator: Option<&mut CpuMemoryPool>,
         mut gpu_allocator: Option<&mut Vec<CudaAllocator>>,
         mut disk_allocator: Option<&mut Vec<BuddyDiskPool>>,
+        mut page_allocator: Option<&mut Vec<CudaPageAllocator>>,
         epilogue: Option<Sender<i32>>,
         _thread_id: usize,
         global_mutex: Arc<Mutex<()>>,
@@ -202,7 +207,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     device,
                     typ,
                     id,
-                    offset,
+                    gpu_alloc,
                 } => {
                     // only main thread can allocate memory
                     assert!(self.main_thread);
@@ -211,10 +216,11 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     *guard = Some(self.allocate(
                         device,
                         typ,
-                        offset,
+                        gpu_alloc,
                         &mut mem_allocator,
                         &mut gpu_allocator,
                         &mut disk_allocator,
+                        &mut page_allocator,
                     ));
                 }
                 Instruction::Deallocate { id } => {
@@ -357,6 +363,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     thread::spawn(move || {
                         sub_info.run(
                             instructions,
+                            None,
                             None,
                             None,
                             None,

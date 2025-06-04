@@ -48,6 +48,7 @@ impl<Rt: RuntimeType> Artifect<Rt> {
             self.allocator,
             gpu_allocator,
             vec![], // TODO: disk allocators
+            vec![], // TODO: page allocators
             rng,
             self.chunk.libs,
         )

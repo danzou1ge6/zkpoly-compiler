@@ -420,7 +420,7 @@ fn lower_instruction<'s, Rt: RuntimeType>(
                 device: DeviceType::from(t3chunk.register_devices[id]),
                 typ: t3chunk.register_types[*id].erase_p(),
                 id: var_id,
-                offset: Some(physical_addr as usize),
+                gpu_alloc: Some(zkpoly_runtime::instructions::GpuAlloc::Offset(physical_addr as usize)),
             });
         }
         super::InstructionNode::GpuFree { id } => emit(Instruction::Deallocate {
@@ -433,7 +433,7 @@ fn lower_instruction<'s, Rt: RuntimeType>(
                 device: DeviceType::CPU,
                 typ: t3chunk.register_types[*id].erase_p(),
                 id: var_id,
-                offset: None,
+                gpu_alloc: None,
             });
         }
         super::InstructionNode::CpuFree { id } => emit(Instruction::Deallocate {
@@ -838,7 +838,7 @@ pub fn lower<'s, Rt: RuntimeType>(
             device: DeviceType::GPU { device_id: 0 },
             typ: Typ::Stream,
             id: var_id,
-            offset: None,
+            gpu_alloc: None,
         })
     });
 

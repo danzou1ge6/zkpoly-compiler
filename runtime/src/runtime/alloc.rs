@@ -1,12 +1,19 @@
 use group::prime::PrimeCurveAffine;
 use zkpoly_common::{devices::DeviceType, typ::Typ};
-use zkpoly_cuda_api::{mem::CudaAllocator, stream::CudaStream};
+use zkpoly_cuda_api::{
+    mem::{
+        page_allocator::CudaPageAllocator,
+        CudaAllocator,
+    },
+    stream::CudaStream,
+};
 use zkpoly_memory_pool::{BuddyDiskPool, CpuMemoryPool};
 
 use crate::{
     any::AnyWrapper,
     args::{RuntimeType, Variable, VariableId},
     gpu_buffer::GpuBuffer,
+    instructions::GpuAlloc,
     point::PointArray,
     runtime::RuntimeInfo,
     scalar::{Scalar, ScalarArray},
@@ -18,10 +25,11 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         &self,
         device: DeviceType,
         typ: Typ,
-        offset: Option<usize>,
+        gpu_alloc: Option<GpuAlloc>,
         mem_allocator: &mut Option<&mut CpuMemoryPool>,
         gpu_allocator: &mut Option<&mut Vec<CudaAllocator>>,
         disk_allocator: &mut Option<&mut Vec<BuddyDiskPool>>,
+        page_allocator: &mut Option<&mut Vec<CudaPageAllocator>>,
     ) -> Variable<T> {
         match typ {
             Typ::ScalarArray { len, meta: _ } => {
@@ -31,15 +39,24 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                         mem_allocator.as_mut().unwrap().allocate(len as usize),
                         device.clone(),
                     ),
-                    DeviceType::GPU { device_id } => ScalarArray::<T::Field>::new(
+                    DeviceType::GPU { device_id } => match gpu_alloc.unwrap() {
+                        GpuAlloc::Offset(offset) => ScalarArray::<T::Field>::new(
+                            len as usize,
+                            gpu_allocator.as_mut().unwrap()[device_id as usize]
+                                .allocate(offset, len as usize),
+                            device.clone(),
+                        ),
+                        GpuAlloc::PageInfo { va_size, pa } => ScalarArray::<T::Field>::new(
+                            len as usize,
+                            page_allocator.as_mut().unwrap()[device_id as usize]
+                                .allocate(va_size, pa),
+                            device.clone(),
+                        ),
+                    },
+                    DeviceType::Disk => ScalarArray::<T::Field>::alloc_disk(
                         len as usize,
-                        gpu_allocator.as_mut().unwrap()[device_id as usize]
-                            .allocate(offset.unwrap(), len as usize),
-                        device.clone(),
+                        disk_allocator.as_mut().unwrap(),
                     ),
-                    DeviceType::Disk => {
-                        ScalarArray::<T::Field>::alloc_disk(len as usize, disk_allocator.as_mut().unwrap())
-                    }
                 };
                 Variable::ScalarArray(poly)
             }
@@ -50,23 +67,38 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                         mem_allocator.as_mut().unwrap().allocate(len as usize),
                         device.clone(),
                     ),
-                    DeviceType::GPU { device_id } => PointArray::<T::PointAffine>::new(
-                        len as usize,
-                        gpu_allocator.as_mut().unwrap()[device_id as usize]
-                            .allocate(offset.unwrap(), len as usize),
-                        device.clone(),
-                    ),
+                    DeviceType::GPU { device_id } => match gpu_alloc.unwrap() {
+                        GpuAlloc::Offset(offset) => PointArray::<T::PointAffine>::new(
+                            len as usize,
+                            gpu_allocator.as_mut().unwrap()[device_id as usize]
+                                .allocate(offset, len as usize),
+                            device.clone(),
+                        ),
+                        GpuAlloc::PageInfo { va_size, pa } => PointArray::<T::PointAffine>::new(
+                            len as usize,
+                            page_allocator.as_mut().unwrap()[device_id as usize]
+                                .allocate(va_size, pa),
+                            device.clone(),
+                        ),
+                    },
                     DeviceType::Disk => todo!(),
                 };
                 Variable::PointArray(point_base)
             }
             Typ::Scalar => match device {
                 DeviceType::CPU => Variable::Scalar(Scalar::new_cpu()),
-                DeviceType::GPU { device_id } => Variable::Scalar(Scalar::new_gpu(
-                    gpu_allocator.as_mut().unwrap()[device_id as usize]
-                        .allocate(offset.unwrap(), 1),
-                    device_id,
-                )),
+                DeviceType::GPU { device_id } => match gpu_alloc.unwrap() {
+                    GpuAlloc::Offset(offset) => Variable::Scalar(Scalar::new_gpu(
+                        gpu_allocator.as_mut().unwrap()[device_id as usize]
+                            .allocate(offset, 1),
+                        device_id,
+                    )),
+                    GpuAlloc::PageInfo { va_size, pa } =>  Variable::Scalar(Scalar::new_gpu(
+                        page_allocator.as_mut().unwrap()[device_id as usize]
+                            .allocate(va_size, pa),
+                        device_id,
+                    )),
+                },
                 DeviceType::Disk => unreachable!(),
             },
             Typ::Transcript => {
@@ -88,12 +120,20 @@ impl<T: RuntimeType> RuntimeInfo<T> {
             }
             Typ::GpuBuffer(size) => {
                 let device_id = device.unwrap_gpu();
-                Variable::GpuBuffer(GpuBuffer {
-                    ptr: gpu_allocator.as_mut().unwrap()[device_id as usize]
-                        .allocate(offset.unwrap(), size),
-                    size: size as usize,
-                    device: device,
-                })
+                match gpu_alloc.unwrap() {
+                    GpuAlloc::Offset(offset) => Variable::GpuBuffer(GpuBuffer {
+                        ptr: gpu_allocator.as_mut().unwrap()[device_id as usize]
+                            .allocate(offset, size),
+                        size: size as usize,
+                        device: device,
+                    }),
+                    GpuAlloc::PageInfo { va_size, pa } => Variable::GpuBuffer(GpuBuffer {
+                        ptr: page_allocator.as_mut().unwrap()[device_id as usize]
+                            .allocate(va_size, pa),
+                        size: size as usize,
+                        device: device,
+                    }),
+                }
             }
         }
     }
@@ -116,9 +156,14 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                 }
                 DeviceType::Disk => {
                     let bytes = poly.len() * size_of::<T::Field>() / poly.disk_pos.len();
-                    disk_allocator.as_mut().unwrap().iter_mut().zip(poly.disk_pos.iter()).for_each(|(disk_pool, (_, offset))| {
-                        disk_pool.deallocate(*offset, bytes);
-                    });
+                    disk_allocator
+                        .as_mut()
+                        .unwrap()
+                        .iter_mut()
+                        .zip(poly.disk_pos.iter())
+                        .for_each(|(disk_pool, (_, offset))| {
+                            disk_pool.deallocate(*offset, bytes);
+                        });
                 }
             },
             Variable::PointArray(point_base) => match point_base.device {

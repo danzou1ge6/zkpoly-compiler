@@ -8,19 +8,23 @@ use zkpoly_common::devices::DeviceType;
 use zkpoly_common::typ::Typ;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum GpuAlloc {
+    PageInfo {
+        va_size: usize, // size of the virtual address space
+        pa: Vec<usize>, // ids of the physical pages
+    },
+    Offset(usize), // offset in the cuda memory pool
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Instruction {
     Allocate {
         device: DeviceType,
         typ: Typ,
         id: VariableId,
-        offset: Option<usize>, // for gpu allocation
+        gpu_alloc: Option<GpuAlloc>, // for gpu allocation
     },
 
-    // AllocateGpu {
-    //     device: DeviceType,
-    //     va: VirtualAddressId,
-    //     pa: Vec<ptrs>,
-    // }
     Deallocate {
         // free the underlying memory
         id: VariableId,
@@ -140,7 +144,7 @@ pub fn instruction_label<Rt: RuntimeType>(
 ) -> String {
     use Instruction::*;
     match inst {
-        Allocate { device, offset, .. } => offset.map_or_else(
+        Allocate { device, gpu_alloc, .. } => gpu_alloc.as_ref().map_or_else(
             || format!("Allocate({:?})", device),
             |_| format!("AllocateGpu"),
         ),
@@ -190,9 +194,9 @@ pub fn instruction_label<Rt: RuntimeType>(
 pub fn static_args(inst: &Instruction) -> Option<String> {
     use Instruction::*;
     match inst {
-        Allocate { typ, offset, .. } => Some(offset.map_or_else(
+        Allocate { typ, gpu_alloc, .. } => Some(gpu_alloc.as_ref().map_or_else(
             || format!("{:?}", typ),
-            |offset| format!("{:?}, {}", typ, offset),
+            |gpu_alloc| format!("{:?}, {:?}", typ, gpu_alloc),
         )),
         Wait { event, slave, .. } => Some(format!("{:?}, {:?}", event, slave)),
         Record { event, .. } => Some(format!("{:?}", event)),
