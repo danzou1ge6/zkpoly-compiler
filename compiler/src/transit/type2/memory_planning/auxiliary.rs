@@ -49,7 +49,7 @@ impl<'i, Rt: RuntimeType> AuxiliaryInfo<'i, Rt> {
         self.pop_next_use_until(object, device, |hd| hd > pc)
     }
 
-    /// Check if `object` is dead on all devices, and it is not immortal.
+    /// Check if `object` is dead on all planning and unplanned devices
     pub fn dead(&mut self, object: ObjectId) -> bool {
         // We only check planning and unplanned devices here,
         // as uses on currently planned devices should have incurred reclaims from currently planning or
@@ -58,6 +58,15 @@ impl<'i, Rt: RuntimeType> AuxiliaryInfo<'i, Rt> {
             .planning_devices()
             .chain(self.unplanned_devices())
             .collect::<Vec<_>>();
+        self.will_not_be_used_on(object, devices.into_iter())
+    }
+
+    /// Check if `object` will be not used on some devices
+    pub fn will_not_be_used_on(
+        &mut self,
+        object: ObjectId,
+        devices: impl Iterator<Item = Device>,
+    ) -> bool {
         devices
             .into_iter()
             .all(|device| self.query_next_use(object, device).is_none())

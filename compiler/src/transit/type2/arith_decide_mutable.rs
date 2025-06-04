@@ -57,8 +57,8 @@ pub fn decide_mutable<'s, Rt: RuntimeType>(
                         !mutated_inputs.contains(&input_eid)
                             && input.op.unwrap_input_typ() == FusedType::ScalarArray
                             && obj_def_use
-                                .dies_after(inputs_values[&input_eid].object_id(), device)
-                                .is_some_and(|after_vid| after_vid == vid)
+                                .dies(inputs_values[&input_eid].object_id(), device)
+                                .is_after(vid)
                     })
                     .filter_map(|&eid| {
                         let same_obj_eids = arith

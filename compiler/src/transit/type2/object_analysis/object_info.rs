@@ -4,7 +4,7 @@ use zkpoly_common::typ::Typ;
 use zkpoly_runtime::args::RuntimeType;
 
 use super::{
-    size::{IntegralSize, Size, SmithereenSize},
+    size::{Size, SmithereenSize},
     template::{Operation, OperationSeq},
     value::Value,
     ObjectId,

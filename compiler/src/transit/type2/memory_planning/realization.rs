@@ -69,7 +69,8 @@ where
                 });
 
                 // Get registers for outputs.
-                // - If the output is inplace, its space need no allocation, so the currespounding output register
+                // - If the output is inplace, or if the output is immortal,
+                //   its space need no allocation, so the currespounding output register
                 //   is not created yet.
                 // - If the output is not inplace, the currespounding output register must have been created by
                 //   previous memory allocation instruction.
@@ -92,6 +93,11 @@ where
                             (
                                 machine.new_reg(rv.clone().assume_pointed()),
                                 Some(inplace_reg)
+                            )
+                        } else if node.immortal_on_cpu() {
+                            (
+                                machine.new_reg(rv.clone().assume_pointed()),
+                                None
                             )
                         } else {
                             (machine.undefined_reg_for(rv.clone().assume_pointed()), None)

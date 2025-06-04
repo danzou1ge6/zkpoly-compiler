@@ -405,7 +405,7 @@ where
 
         let reg = self.machine.defined_reg_for(rv);
         self.machine
-            .emit(Instruction::new_no_src(InstructionNode::CpuFree {
+            .emit(Instruction::new_no_src(InstructionNode::GpuFree {
                 id: reg,
             }));
         self.machine

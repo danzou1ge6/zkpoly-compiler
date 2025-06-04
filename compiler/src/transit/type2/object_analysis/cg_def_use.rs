@@ -437,6 +437,21 @@ impl ClonedSliceRegistry {
     }
 }
 
+pub enum Die {
+    After(VertexId),
+    NeverUsed,
+    Never
+}
+
+impl Die {
+    pub fn is_after(&self, vid: VertexId) -> bool {
+        match self {
+            Die::After(v) => vid == *v,
+            _ => false,
+        }
+    }
+}
+
 impl DefUse {
     /// Analyze a computation graph for a [`DefUse`].
     pub fn analyze<'s, Rt: RuntimeType>(
@@ -565,11 +580,16 @@ impl DefUse {
 
     /// Get the vertex after which an object dies on `device`.
     /// Returns [`None`] if the object is never used on `device`.
-    pub fn dies_after(&self, object_id: ObjectId, device: Device) -> Option<VertexId> {
-        self.object_dies_after
-            .get(&object_id)
-            .map(|places| places.get_device(device).clone())
-            .flatten()
+    pub fn dies(&self, object_id: ObjectId, device: Device) -> Die {
+        if self.immortal_objects.contains(&object_id) {
+            Die::Never
+        } else {
+            self.object_dies_after
+                .get(&object_id)
+                .map(|places| places.get_device(device).clone())
+                .flatten()
+                .map_or(Die::NeverUsed, Die::After)
+        }
     }
 
     pub fn debug_dies_after(&self, f: &mut impl Write) -> std::io::Result<()> {

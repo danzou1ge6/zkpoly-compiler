@@ -4,7 +4,7 @@ use std::{
     ops::Deref,
 };
 
-use cg_def_use::DefUse;
+use cg_def_use::{DefUse, Die};
 use template::ResidentalValue;
 use zkpoly_common::{
     arith::Mutability,
@@ -44,7 +44,7 @@ pub mod template {
 
     impl<P> std::fmt::Debug for ResidentalValue<P>
     where
-        P: std::fmt::Debug
+        P: std::fmt::Debug,
     {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             write!(
@@ -293,24 +293,26 @@ where
                         // - If the inputed object dies after this vertex on this its device, it's space is simply reused
                         // - Otherwise, we make a clone for it
                         let vi = if let Some(mutated_v) = vi.mutable() {
-                            if def_use
-                                .dies_after(mutated_v.object_id(), mutated_v.device())
-                                .unwrap()
-                                == vid
-                            {
-                                vid2mutated_obj.insert(input_vid, mutated_v.object_id());
-                                VertexInput::single_mutable(mutated_v.clone())
-                            } else {
-                                let temp_object = obj_id_allocator.alloc();
-                                ops.emit(Operation::Clone(
-                                    temp_object,
-                                    mutated_v.device(),
-                                    mutated_v.object_id(),
-                                    None,
-                                ));
+                            match def_use.dies(mutated_v.object_id(), mutated_v.device()) {
+                                Die::After(x) if x == vid => {
+                                    vid2mutated_obj.insert(input_vid, mutated_v.object_id());
+                                    VertexInput::single_mutable(mutated_v.clone())
+                                }
+                                Die::After(..) | Die::Never => {
+                                    let temp_object = obj_id_allocator.alloc();
+                                    ops.emit(Operation::Clone(
+                                        temp_object,
+                                        mutated_v.device(),
+                                        mutated_v.object_id(),
+                                        None,
+                                    ));
 
-                                vid2mutated_obj.insert(input_vid, temp_object);
-                                VertexInput::single_mutable(mutated_v.with_object_id(temp_object))
+                                    vid2mutated_obj.insert(input_vid, temp_object);
+                                    VertexInput::single_mutable(
+                                        mutated_v.with_object_id(temp_object),
+                                    )
+                                }
+                                Die::NeverUsed => panic!("{:?} cannot be unused on device {:?} because we are using it now", mutated_v.object_id(), mutated_v.device())
                             }
                         } else {
                             vi.clone()

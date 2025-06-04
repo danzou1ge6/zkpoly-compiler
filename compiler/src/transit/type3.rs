@@ -433,7 +433,7 @@ impl<'s> Instruction<'s> {
         };
 
         match &self.node {
-            Type2 { vertex: type2::template::VertexNode::Return(..), ..} => Cpu,
+            Type2 { vertex: type2::template::VertexNode::Return(..), ..} => MemoryManagement,
             Type2 { vertex, ids, .. } => vertex.track(executor_of(devices(ids[0].0))),
             GpuMalloc { .. } => MemoryManagement,
             GpuFree { .. } => MemoryManagement,

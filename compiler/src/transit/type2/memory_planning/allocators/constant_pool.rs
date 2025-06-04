@@ -1,7 +1,7 @@
 use super::super::prelude::*;
 
-/// Create an allocator that wraps around `inner`, adding a constant pool to it. 
-/// 
+/// Create an allocator that wraps around `inner`, adding a constant pool to it.
+///
 /// When allocating an object that is a constant object in this pool,
 /// allocation and deallocation is intercepted and skipped,
 /// while accesses to constant objects always return a valid pointer.
@@ -12,7 +12,8 @@ pub struct ConstantPool<A, T, P, Rt: RuntimeType> {
 }
 
 impl<A, T, P, Rt: RuntimeType> ConstantPool<A, T, P, Rt>
-where A: Allocator<T, P, Rt>,
+where
+    A: Allocator<T, P, Rt>,
 {
     /// `objects` are the constant objects in the pool, and the pointers must be
     /// distinct from those allocated and will be allocated in `inner`.
@@ -110,8 +111,11 @@ where
     where
         's: 'f,
     {
-        self.check_is_not_constant(t, "deallocate");
-        self.inner_handle().deallocate(t)
+        if !self.allocator.objects.contains_key(t) {
+            self.inner_handle().deallocate(t)
+        } else {
+            Response::Complete(())
+        }
     }
 
     fn device(&self) -> Device {

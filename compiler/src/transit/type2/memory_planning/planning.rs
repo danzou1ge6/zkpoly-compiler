@@ -1,5 +1,5 @@
 use crate::{transit::type2::memory_planning::prelude::*};
-use allocators::{SuperAllocator, CpuAllocator, GpuAllocator};
+use allocators::SuperAllocator;
 pub use machine::*;
 
 pub mod machine;
@@ -519,7 +519,38 @@ where
             }
         }
 
+        // Mark objects as used, so their next uses will be updated
+        for (object, device) in object_uses.iter().copied() {
+            aux.mark_use(object, device);
+        }
 
+        // For objects that will not be used on any planning devices, eject them
+        // from all planning devices
+        for (object, _) in object_uses.iter().copied() {
+            if aux.will_not_be_used_on(object, planning_devices.iter().copied()) {
+                for &d in planning_devices.iter() {
+                    if allocators
+                        .handle(d, machine, aux)
+                        .completeness(object).is_one()
+                    {
+                        let from_p = allocators
+                            .handle(d, machine, aux)
+                            .access(&object)
+                            .unwrap();
+                        let c = Continuation::simple_eject(
+                            d,
+                            from_p,
+                            object,
+                            obj_info.size(object)
+                        );
+                        allocators.apply_continuation(c, machine, aux)?;
+                    }
+                }
+            }
+        }
+
+        // For objects that will not be used on any unplanned devices nor any planning devices,
+        // deallocate them on all planning and unplanned devices
         for (object, _) in object_uses {
             if aux.dead(object) {
                 for d in planning_devices.iter().chain(unplanned_devices.iter()) {
@@ -580,6 +611,7 @@ where
             .chain(std::iter::once((Device::Cpu, cpu_allocator as &mut dyn Allocator<ObjectId, P, Rt>)))
             .collect();
 
+        // fixme
         println!("begin phase planning {:?}, unplanned {:?}, planned {:?}", &planning_devices, &unplanned_devices, &planned_devices);
 
         ops = plan_devices(
