@@ -48,6 +48,11 @@ where
                 // Record mutable inputs, to use in markings for inplace outputs
                 let mut mutable_inputs = Vec::new();
 
+                let input_objects = node
+                    .uses_ref()
+                    .map(|vi| vi.iter().map(|v| v.object_id()))
+                    .flatten()
+                    .collect::<BTreeSet<_>>();
                 // Get registers for inputs
                 let node = node.relabeled(|vi| match vi {
                     VertexInput::Single(rv, mutability) => {
@@ -73,7 +78,9 @@ where
                 //   its space need no allocation, so the currespounding output register
                 //   is not created yet.
                 // - If the output is not inplace, the currespounding output register must have been created by
-                //   previous memory allocation instruction.
+                //   previous memory allocation instruction, which is undefined.
+                // - If the output object is the same as some input object,
+                //   create a new register for the output.pointing to the same object
                 let output_regs =
                     outputs.into_iter().map(|(rv, inplace_of)| {
                         if let Some(inplace_of) = inplace_of {
@@ -99,15 +106,20 @@ where
                                 machine.new_reg(rv.clone().assume_pointed()),
                                 None
                             )
+                        } else if input_objects.contains(&rv.object_id()) {
+                            (
+                                machine.new_reg(rv.clone().assume_pointed()),
+                                None
+                            )
                         } else {
-                            (machine.undefined_reg_for(rv.clone().assume_pointed()), None)
+                            (machine.undefined_reg_for(&rv.clone().assume_pointed()), None)
                         }
                     }).collect::<Vec<_>>();
 
                 // Get registers for outputs
                 let temp_regs = temps
                     .iter()
-                    .map(|rv| machine.undefined_reg_for(rv.clone().assume_pointed()))
+                    .map(|rv| machine.undefined_reg_for(&rv.clone().assume_pointed()))
                     .collect::<Vec<_>>();
 
                 machine.emit(Instruction::new(

@@ -313,7 +313,7 @@ where
     /// Unlike `defined_reg_for`, this function does not create new register through slicing.
     ///
     /// However, this function does create new register by calling realizer.
-    pub fn undefined_reg_for(&mut self, rv: ResidentalValue<P>) -> RegisterId
+    pub fn undefined_reg_for(&mut self, rv: &ResidentalValue<P>) -> RegisterId
     where
         P: UsizeId,
     {
@@ -352,7 +352,7 @@ where
     }
 
     pub fn transfer_object(&mut self, rv_to: ResidentalValue<P>, rv_from: ResidentalValue<P>) {
-        let reg_to = self.undefined_reg_for(rv_to);
+        let reg_to = self.undefined_reg_for(&rv_to);
         let reg_from = self.defined_reg_for(&rv_from);
 
         self.emit(Instruction::new_no_src(InstructionNode::Transfer {

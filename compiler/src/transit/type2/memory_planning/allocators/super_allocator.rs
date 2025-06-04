@@ -53,10 +53,6 @@ where
             panic!("{:?} already allocated on {:?}", t, self.machine.device());
         }
 
-        if *t == ObjectId::from(248) {
-            panic!("allocating object 248");
-        }
-
         let p = *self
             .allocator
             .mapping

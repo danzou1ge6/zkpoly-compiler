@@ -214,12 +214,19 @@ where
                 // We only care about objects on planning devices and unplanned devices.
                 // - If the output took place of some input object, we later reuse space of the input object after
                 //   pointers for inputs have been obtained
+                // - If the output object is the same as input, do nothign
                 // - Otherwise, allocate new space
+                let input_objects = node
+                    .uses_ref()
+                    .map(|vi|
+                        vi.iter().map(|vi| vi.object_id())
+                    ).flatten()
+                    .collect::<BTreeSet<_>>();
                 for (vo, inplace_of) in outputs
                     .iter()
                 {
                     if planning_or_unplanned!(vo.device()) {
-                        if inplace_of.is_some() {
+                        if inplace_of.is_some() || input_objects.contains(&vo.object_id()) {
                             // do nothing
                         } else {
                             let resp = allocators.handle(vo.device(), machine, aux)
