@@ -111,7 +111,7 @@ pub mod template {
     #[derive(Debug, Clone)]
     pub enum Operation<'s, T, P> {
         /// A Type2 vertex translated to value inputs/outputs.
-        /// For `Type2(o, i, t, s)`, `o` are the outputs, `i` are the inputs and `t` are temporary spaces.
+        /// For `Type2(vid, o, i, t, s)`, `o` are the outputs, `i` are the inputs and `t` are temporary spaces.
         ///
         /// Depending on current device of memory planning, some of the values' pointers
         /// may be unknown.
@@ -182,6 +182,25 @@ pub mod template {
                 }
                 ReclaimObject(_, v) => Box::new([(v.object_id(), v.device())].into_iter()),
                 Eject(_, t, d, _) | Reclaim(_, _, t, d) | Transfer(_, _, t, d, _) => {
+                    Box::new([(t.into(), *d)].into_iter())
+                }
+                Allocate(_, _, _) | Deallocate(_, _, _) => Box::new(std::iter::empty()),
+            }
+        }
+
+        /// Get all objects defined by this operation, and on which device they are used
+        pub fn object_defs<'a>(&'a self) -> Box<dyn Iterator<Item = (ObjectId, Device)> + 'a> {
+            use Operation::*;
+            match self {
+                Type2(_, outputs, ..) => {
+                    Box::new(outputs.iter().map(|(v, _)| (v.object_id(), v.device())))
+                }
+                Clone(o, d, _, _) => Box::new([(*o, *d)].into_iter()),
+                ReclaimObject(rv, _) | TransferObject(rv, _) => {
+                    Box::new([(rv.object_id(), rv.device())].into_iter())
+                }
+                EjectObject(v, _) => Box::new([(v.object_id(), v.device())].into_iter()),
+                Eject(d, t, ..) | Reclaim(d, _, t, ..) | Transfer(d, _, t, ..) => {
                     Box::new([(t.into(), *d)].into_iter())
                 }
                 Allocate(_, _, _) | Deallocate(_, _, _) => Box::new(std::iter::empty()),

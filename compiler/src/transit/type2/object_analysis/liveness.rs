@@ -1,6 +1,9 @@
 use std::collections::{BTreeMap, VecDeque};
 
-use crate::{driver, transit::type3::{Device, DeviceSpecific}};
+use crate::{
+    driver,
+    transit::type3::{Device, DeviceSpecific},
+};
 
 use super::{template::OperationSeq, Index, ObjectId};
 
@@ -43,7 +46,13 @@ impl std::cmp::Ord for AtModifier {
 pub struct UsedBy(BTreeMap<ObjectId, DeviceSpecific<Vec<Index>>>);
 
 impl UsedBy {
-    fn add_use(&mut self, index: Index, object: ObjectId, device: Device, hd_info: &driver::HardwareInfo) {
+    fn add_use(
+        &mut self,
+        index: Index,
+        object: ObjectId,
+        device: Device,
+        hd_info: &driver::HardwareInfo,
+    ) {
         self.0
             .entry(object)
             .or_insert_with(|| DeviceSpecific::default(hd_info.n_gpus()))
@@ -65,9 +74,11 @@ impl UsedBy {
         let mut used_by = Self(BTreeMap::new());
 
         for (index, op) in ops.iter() {
-            op.object_uses().for_each(|(object_id, device)| {
-                used_by.add_use(index, object_id, device, hd_info);
-            });
+            op.object_uses()
+                .chain(op.object_defs())
+                .for_each(|(object_id, device)| {
+                    used_by.add_use(index, object_id, device, hd_info);
+                });
         }
 
         used_by

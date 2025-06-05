@@ -263,7 +263,7 @@ pub(crate) fn format_node_label<'s, Vid: UsizeId + Debug>(
         }
         Arith { chunking, .. } => {
             if chunking.is_some() {
-                format!("Arith\\n(chunked)")
+                format!("Arith(chunked)")
             } else {
                 String::from("Arith")
             }

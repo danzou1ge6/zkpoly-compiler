@@ -38,7 +38,9 @@ impl<'i, Rt: RuntimeType> AuxiliaryInfo<'i, Rt> {
     /// Returns the next use of `object` on `device` after (and including) current pc.
     pub fn query_next_use(&mut self, object: ObjectId, device: Device) -> Option<Index> {
         let pc = self.pc;
-        self.pop_next_use_until(object, device, |hd| hd >= pc)
+        let next_use = self.pop_next_use_until(object, device, |hd| hd >= pc)?;
+
+        Some(next_use)
     }
 
     /// Mark that we are using the obejct on the device now, so all uses before (and including) now
@@ -102,6 +104,10 @@ impl<'i, Rt: RuntimeType> AuxiliaryInfo<'i, Rt> {
     pub fn tick(&mut self, pc: Index) {
         assert!(self.pc == 0.into() || pc > self.pc);
         self.pc = pc;
+    }
+
+    pub fn pc(&self) -> Index {
+        self.pc
     }
 
     pub fn is_planning(&self, device: Device) -> bool {

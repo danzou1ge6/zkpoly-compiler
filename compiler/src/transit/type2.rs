@@ -696,7 +696,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
 
         let on_device = super::type3::Device::for_execution_on;
         let on_gpu = |dev: Device| {
-            if !device.is_gpu() {
+            if !dev.is_gpu() {
                 panic!("this vertex {:?} needs to be executed on some GPU, got {:?}", vid, device);
             }
             on_device(dev)
@@ -708,7 +708,8 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
             SingleArith(..) => None,
             Arith { arith, chunking } => Some((
                 temporary_space::arith::<Rt>(arith, chunking.clone()),
-                on_gpu(device),
+                // We are using only one gpu for now
+                on_gpu(Device::Gpu(0)),
             )),
             NewPoly(..) => None,
             Constant(..) => None,

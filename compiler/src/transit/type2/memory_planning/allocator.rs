@@ -190,13 +190,18 @@ impl<'a, T, P, Rt: RuntimeType> AllocatorCollection<'a, T, P, Rt> {
         machine: &mut planning::Machine<'s, T, P>,
         aux: &mut AuxiliaryInfo<'i, Rt>,
     ) -> Vec<Device> {
-        devices
+        let devices = devices
             .filter(move |&device| {
                 self.handle(device, machine, aux)
                     .completeness(object)
                     .non_zero()
             })
-            .collect()
+            .collect();
+
+        // fixme
+        println!("{:?} is available on {:?}", object, devices);
+
+        devices
     }
 }
 

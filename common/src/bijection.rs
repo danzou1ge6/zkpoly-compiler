@@ -22,6 +22,23 @@ where
         }
     }
 
+    pub fn insert_checked(&mut self, a: T1, b: T2)
+    where
+        T1: std::fmt::Debug,
+        T2: std::fmt::Debug,
+    {
+        if let Some(b_old) = self.forward.get(&a) {
+            panic!("insertion failed: {:?} already mapped to {:?}", a, b_old)
+        }
+
+        if let Some(a_old) = self.backward.get(&b) {
+            panic!("insertion failed: {:?} already mapped to {:?}", b, a_old)
+        }
+
+        self.forward.insert(a.clone(), b.clone());
+        self.backward.insert(b, a);
+    }
+
     pub fn insert(&mut self, a: T1, b: T2) {
         if let Some(b_old) = self.forward.get(&a) {
             self.backward.remove(b_old);

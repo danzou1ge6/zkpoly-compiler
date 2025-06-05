@@ -175,7 +175,11 @@ pub struct MachineHandle<'m, 's, T, P> {
 
 impl<'m, 's, T, P> MachineHandle<'m, 's, T, P> {
     /// Emit a [`Operation::Allocate`], for similar purpose as `deallocate`.
-    pub fn allocate(&mut self, t: T, pointer: P) where T: std::fmt::Debug, P: std::fmt::Debug {
+    pub fn allocate(&mut self, t: T, pointer: P)
+    where
+        T: std::fmt::Debug,
+        P: std::fmt::Debug,
+    {
         // fixme
         println!("Planning machine emit Allocate({:?}, {:?})", t, pointer);
 
@@ -227,6 +231,12 @@ where
 
             // Dead object needs no ejection
             if aux.dead(object) {
+                // fixme
+                println!(
+                    "{:?} dead, no ejection needed from {:?}",
+                    object, from_device
+                );
+
                 return Response::Complete(Ok(()));
             }
 
@@ -236,10 +246,16 @@ where
                 .chain(aux.unplanned_devices())
                 .filter(|d| *d != from_device)
                 .collect::<Vec<_>>();
-            if !allocators
+            if let Some(alive_on) = allocators
                 .object_available_on(devices.into_iter(), object, machine, aux)
-                .is_empty()
+                .pop()
             {
+                // fixme
+                println!(
+                    "{:?} is alive on {:?}, no ejection needed from {:?}",
+                    object, alive_on, from_device
+                );
+
                 return Response::Complete(Ok(()));
             }
 
@@ -254,6 +270,12 @@ where
                     to_device
                 );
             }
+
+            // fixme
+            println!(
+                "ejecting {:?} from {:?} to {:?}",
+                object, from_device, to_device
+            );
 
             Response::Continue(Continuation::simple_receive(
                 from_device,
@@ -287,7 +309,10 @@ where
         to_device: Device,
         size: Size,
         t: T,
-    ) -> Self {
+    ) -> Self
+    where
+        T: std::fmt::Debug,
+    {
         let f = move |allocators: &mut AllocatorCollection<T, P, Rt>,
                       machine: &mut Machine<'s, T, P>,
                       aux: &mut AuxiliaryInfo<Rt>| {
@@ -305,6 +330,9 @@ where
                     Ok(p) => p,
                     Err(e) => return Response::Complete(Err(e)),
                 };
+
+                // fixme
+                println!("{:?} received {:?} from {:?}", to_device, t, from_device);
 
                 if aux.is_planning(to_device) {
                     machine.transfer(to_device, to_pointer, t, from_device, from_pointer);

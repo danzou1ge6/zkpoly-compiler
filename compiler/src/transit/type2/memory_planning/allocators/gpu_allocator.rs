@@ -109,6 +109,11 @@ where
             );
         }
     }
+
+    fn tick(&mut self) {
+        let pc = self.aux.pc();
+        self.allocator.integral_allocator.tick(pc);
+    }
 }
 
 impl<'a, 'm, 's, 'au, 'i, P, Rt: RuntimeType> AllocatorHandle<'s, ObjectId, P, Rt>
@@ -139,6 +144,9 @@ where
         if self.allocator.objects_at.get_forward(t).is_some() {
             panic!("object {:?} already allocated", t);
         }
+
+        self.tick();
+
         // We need no calling `machine.allocate` here, as there is no structions needed for actual
         // allocating space.
         let size = normalize_size(size);
@@ -151,7 +159,7 @@ where
                         self.allocator.smithereen_offset,
                     ),
                 ) {
-                    self.allocator.objects_at.insert(*t, addr_id);
+                    self.allocator.objects_at.insert_checked(*t, addr_id);
                     Response::Complete(Ok(p(addr_id)))
                 } else {
                     Response::Complete(Err(Error::InsufficientSmithereenSpace))
@@ -171,15 +179,14 @@ where
                         let object = self
                             .allocator
                             .objects_at
-                            .get_backward(&from)
-                            .expect("expected object on device to reallocate it")
-                            .clone();
+                            .remove_backward(&from)
+                            .expect("expected object on device to reallocate it");
                         self.machine
                             .transfer(self.device(), p(to), object, self.device(), p(from));
-                        self.allocator.objects_at.insert(object, to);
+                        self.allocator.objects_at.insert_checked(object, to);
                     }
 
-                    self.allocator.objects_at.insert(*t, addr);
+                    self.allocator.objects_at.insert_checked(*t, addr);
                     Response::Complete(Ok(p(addr)))
                 } else {
                     if let Some((addr, victims)) =
@@ -205,12 +212,15 @@ where
                             .for_each(|(obj, victim_addr)| {
                                 self.machine.deallocate(*obj, p(*victim_addr))
                             });
+                        for victim in victims.iter() {
+                            self.allocator.objects_at.remove_backward(victim);
+                        }
 
                         let sizes = victims
                             .iter()
                             .map(|victim| self.allocator.mapping[*victim].1)
                             .collect::<Vec<_>>();
-                        self.allocator.objects_at.insert(*t, addr);
+                        self.allocator.objects_at.insert_checked(*t, addr);
 
                         let this_device = self.device();
 
@@ -254,6 +264,11 @@ where
     where
         's: 'f,
     {
+        self.tick();
+
+        // fixme
+        println!("GPU deallocating {:?}", t);
+
         let addr_id = self
             .allocator
             .objects_at
@@ -287,6 +302,10 @@ where
     }
 
     fn reuse(&mut self, new_object: ObjectId, old_object: ObjectId) {
+
+        // fixme
+        println!("GPU reuse {:?} from {:?}", new_object, old_object);
+
         let addr_id = self
             .allocator
             .objects_at
@@ -296,7 +315,7 @@ where
         let next_use = self.aux.query_next_use(new_object, self.device());
         self.try_update_next_use(addr_id, next_use);
 
-        self.allocator.objects_at.insert(new_object, addr_id);
+        self.allocator.objects_at.insert_checked(new_object, addr_id);
     }
 
     fn claim<'f>(

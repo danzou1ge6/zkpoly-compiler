@@ -3,7 +3,7 @@ use crate::transit::type2::memory_planning::prelude::*;
 
 type Instant = Index;
 
-static DEBUG: bool = false;
+static DEBUG: bool = true;
 
 #[derive(Clone, Debug)]
 pub struct Transfer {
@@ -260,7 +260,7 @@ impl Allocator {
     }
 
     pub fn tick(&mut self, t: Instant) {
-        assert!(self.now == 0 || usize::from(t) > self.now);
+        assert!(self.now == 0 || usize::from(t) >= self.now);
         self.now = t.into();
     }
 
@@ -317,7 +317,7 @@ impl Allocator {
         }
     }
 
-    pub fn update_next_use(
+    pub(super) fn update_next_use(
         &mut self,
         addr_id: AddrId,
         next_use: Instant,
@@ -669,7 +669,7 @@ impl Allocator {
         None
     }
 
-    pub fn allocate(
+    pub(super) fn allocate(
         &mut self,
         size: IntegralSize,
         next_use: Instant,
@@ -774,7 +774,7 @@ impl Allocator {
         }
     }
 
-    pub fn decide_and_realloc_victim(
+    pub(super) fn decide_and_realloc_victim(
         &mut self,
         size: IntegralSize,
         next_use: Instant,
@@ -888,7 +888,7 @@ impl Allocator {
         }
     }
 
-    pub fn deallocate(&mut self, addr_id: AddrId, mapping: &mut impl AddrMappingHandler) {
+    pub(super) fn deallocate(&mut self, addr_id: AddrId, mapping: &mut impl AddrMappingHandler) {
         let (Addr(addr), bs) = mapping.get(addr_id);
         let lbs: IntegralSize = bs.try_into().expect("should be power of 2");
 
