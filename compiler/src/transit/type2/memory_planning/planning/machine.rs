@@ -394,6 +394,56 @@ where
 
         Continuation::new(f)
     }
+
+    pub fn simple_send(
+        to_device: Device,
+        from_device: Device,
+        from_pointer: P,
+        t: T,
+        size: Size,
+    ) -> Self
+    where
+        T: std::fmt::Debug,
+    {
+        let f = move |allocators: &mut AllocatorCollection<T, P, Rt>,
+                      machine: &mut Machine<'s, T, P>,
+                      aux: &mut AuxiliaryInfo<Rt>| {
+            if allocators
+                .handle(to_device, machine, aux)
+                .access(&t)
+                .is_some()
+            {
+                Response::Complete(Ok(()))
+            } else {
+                let resp = allocators
+                    .handle(to_device, machine, aux)
+                    .allocate(size, &t);
+                let to_pointer = match resp.commit(allocators, machine, aux) {
+                    Ok(to_pointer) => to_pointer,
+                    Err(e) => return Response::Complete(Err(e)),
+                };
+                {
+                    if aux.is_planning(from_device) {
+                        if aux.is_planning(to_device) {
+                            machine.transfer(to_device, to_pointer, t, from_device, from_pointer);
+                        } else if aux.is_unplanned(to_device) {
+                            machine.eject(to_device, t, from_device, from_pointer);
+                        }
+                    } else if aux.is_unplanned(from_device) {
+                        if aux.is_planning(to_device) {
+                            machine.reclaim(to_device, to_pointer, t, from_device);
+                        } else if aux.is_unplanned(to_device) {
+                            // do nothing
+                        }
+                    }
+
+                    Response::Complete(Ok(()))
+                }
+            }
+        };
+
+        Continuation::new(f)
+    }
 }
 
 pub type PlanningResponse<'f, 's, T, P, R, Rt: RuntimeType> =

@@ -181,6 +181,7 @@ where
                             .objects_at
                             .remove_backward(&from)
                             .expect("expected object on device to reallocate it");
+                        self.machine.allocate(object, p(to));
                         self.machine
                             .transfer(self.device(), p(to), object, self.device(), p(from));
                         self.allocator.objects_at.insert_checked(object, to);
@@ -223,6 +224,8 @@ where
                         self.allocator.objects_at.insert_checked(*t, addr);
 
                         let this_device = self.device();
+
+                        todo!("fix: deallocation now occurs before ejection, which is wrong");
 
                         Response::Continue(
                             Continuation::collect_result(

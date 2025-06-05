@@ -309,7 +309,8 @@ where
                         });
 
                         // If input is mutated
-                        // - If the inputed object dies after this vertex on this its device, it's space is simply reused
+                        // - If the inputed object dies after this vertex on this its device,
+                        //   it's space will be simply reused.
                         // - Otherwise, we make a clone for it
                         let vi = if let Some(mutated_v) = vi.mutable() {
                             match def_use.dies(mutated_v.object_id(), mutated_v.device()) {

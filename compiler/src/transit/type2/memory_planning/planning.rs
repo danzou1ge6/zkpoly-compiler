@@ -212,9 +212,10 @@ where
 
                 // Allocate outputs and temporaries.
                 // We only care about objects on planning devices and unplanned devices.
-                // - If the output took place of some input object, we later reuse space of the input object after
-                //   pointers for inputs have been obtained
-                // - If the output object is the same as input, do nothign
+                // - If the output took place of some input object,
+                //   we first get the input object to where it will later be used,
+                //   then later reuse space of the input object after pointers for inputs have been obtained.
+                // - If the output object is the same as input, do nothing
                 // - Otherwise, allocate new space
                 let input_objects = node
                     .uses_ref()
@@ -278,6 +279,26 @@ where
                 {
                     if planning_or_unplanned!(vo.device()) {
                         if let Some(inplace_of) = *inplace_of {
+                            if let Some(target_device) = aux.next_used_device_except(
+                                inplace_of, vo.device()
+                            ) {
+                                // fixme
+                                println!("before reuse, send {:?} from {:?} to {:?}", inplace_of, vo.device(), target_device);
+
+                                let from_pointer = allocators
+                                    .handle(vo.device(), machine, aux)
+                                    .access(&inplace_of)
+                                    .expect("i just found pointer to this input object on this device");
+                                let c = Continuation::simple_send(
+                                    target_device,
+                                    vo.device(),
+                                    from_pointer,
+                                    inplace_of,
+                                    obj_info.size(vo.object_id())
+                                );
+                                allocators.apply_continuation(c, machine, aux)?;
+                            }
+ 
                             allocators.handle(vo.device(), machine, aux)
                                 .reuse(vo.object_id(), inplace_of);
                         } else {
@@ -334,7 +355,7 @@ where
                         }
                     });
             }
-            Clone(new_object, device, sliced_object, slice) => {
+            Clone(new_object, device, sliced_object, slice) if planning_or_unplanned!(device) => {
                 // First allocate space for `new_object`
                 let resp = allocators.handle(device, machine, aux)
                     .allocate(obj_info.size(new_object), &new_object);
@@ -354,7 +375,7 @@ where
                     // - `device` , transfer object from it
                     // - Planning device, transfer object from it
                     // - Unplanned device, reclaim object from it
-                    if allocators.handle(device, machine, aux).access(&sliced_object).is_some() {
+                    if allocators.handle(device, machine, aux).completeness(sliced_object).is_one() {
                         let to_pointer = access!(&new_object);
                         let from_pointer = get_src_pointer!(device, sliced_object);
 
@@ -414,8 +435,11 @@ where
                         machine.eject_object_sliced(device, new_object, src_device, src_pointer, sliced_object, slice, obj_info);
                     } 
                 } else {
-                    panic!("{:?} not found on either planning devices or unplanned devices, but this should indicates that the Clone operation has been filled with pointer", device);
+                    unreachable!()
                 }
+            }
+            Clone(_, device, _, _) => {
+                panic!("{:?} not found on either planning devices or unplanned devices, but this should indicates that the Clone operation has been filled with pointer", device);
             }
             EjectObject(to_v, from_rv) => {
                 // The ejected object must be from some planned device.

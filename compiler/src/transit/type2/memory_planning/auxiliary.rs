@@ -74,6 +74,16 @@ impl<'i, Rt: RuntimeType> AuxiliaryInfo<'i, Rt> {
             .all(|device| self.query_next_use(object, device).is_none())
     }
 
+    pub fn next_used_device_except(&mut self, object: ObjectId, except: Device) -> Option<Device> {
+        let devices = self
+            .planning_devices()
+            .chain(self.unplanned_devices())
+            .collect::<Vec<_>>();
+        devices
+            .into_iter()
+            .find(|device| self.query_next_use(object, *device).is_some() && *device != except)
+    }
+
     pub fn planning_devices<'a>(&'a self) -> impl Iterator<Item = Device> + 'a {
         self.planning_devices.iter().copied()
     }
