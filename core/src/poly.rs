@@ -439,7 +439,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyScan<T> {
             let x0 = var[1].unwrap_scalar();
             let stream = var[2].unwrap_stream();
 
-            stream.memcpy_d2d(target.get_ptr(0), x0.value, 1);
+            stream.memcpy_d2d(target.get_ptr(0).0, x0.value, 1);
 
             let mut target_slice = target.slice(1, target.len);
             let p_slice = p.slice(0, p.len - 1);

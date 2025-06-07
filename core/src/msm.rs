@@ -245,16 +245,17 @@ impl<T: RuntimeType> RegisteredFunction<T> for MSM<T> {
             let h_points: Vec<*const c_uint> = (0..n_precompute.try_into().unwrap())
                 .map(|i: usize| var[i].unwrap_point_array().values as *const c_uint)
                 .collect();
-            let h_scaler_batch: Vec<*const c_uint> = (n_precompute.try_into().unwrap()..var.len())
+            let (h_scaler_batch, _scalar_guards) = (n_precompute.try_into().unwrap()..var.len())
                 .map(|i: usize| {
                     let array = var[i].unwrap_scalar_array();
                     assert!(
                         array.get_rotation() == 0,
                         "currently, we don't support rotate in msm"
                     );
-                    array.values as *const c_uint
+                    let tmp_ptr = array.values.get_ptr();
+                    (tmp_ptr.0 as *const c_uint, tmp_ptr.1)
                 })
-                .collect();
+                .collect::<(Vec<_>, Vec<_>)>();
             let (buffers, answers) = mut_var.split_at_mut(config.cards.len());
             assert_eq!(buffers.len(), config.cards.len());
             let buffers = buffers

@@ -23,7 +23,7 @@ use crate::{
 
 use zkpoly_cuda_api::{bindings::cudaDeviceSynchronize, cuda_check, mem::{page_allocator::{self, CudaPageAllocator}, CudaAllocator}};
 
-use zkpoly_memory_pool::{CpuMemoryPool, BuddyDiskPool};
+use zkpoly_memory_pool::{swap_page_pool, BuddyDiskPool, CpuMemoryPool, SwapPagePool};
 
 pub mod alloc;
 pub mod assert_eq;
@@ -129,6 +129,7 @@ impl<T: RuntimeType> Runtime<T> {
             executed_kernels,
             debug_instruction,
         };
+        let mut swap_page_pool = SwapPagePool::new(DeviceType::CPU, 2 * 1024 * 1024, 10, 8*1024*1024*1024).unwrap();
         let r = unsafe {
             info.run(
                 self.instructions.clone(),
@@ -136,6 +137,7 @@ impl<T: RuntimeType> Runtime<T> {
                 Some(&mut self.gpu_allocator),
                 Some(&mut self.disk_allocator),
                 Some(&mut self.page_allocator),
+                Some(&mut swap_page_pool),
                 None,
                 0,
                 Arc::new(std::sync::Mutex::new(())),
@@ -171,6 +173,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         mut gpu_allocator: Option<&mut Vec<CudaAllocator>>,
         mut disk_allocator: Option<&mut Vec<BuddyDiskPool>>,
         mut page_allocator: Option<&mut Vec<CudaPageAllocator>>,
+        mut swap_page_pool: Option<&mut SwapPagePool>,
         epilogue: Option<Sender<i32>>,
         _thread_id: usize,
         global_mutex: Arc<Mutex<()>>,
@@ -221,6 +224,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                         &mut gpu_allocator,
                         &mut disk_allocator,
                         &mut page_allocator,
+                        &mut swap_page_pool,
                     ));
                 }
                 Instruction::Deallocate { id } => {
@@ -228,7 +232,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     assert!(self.main_thread);
                     let guard = &mut (*self.variable)[id];
                     if let Some(var) = guard.as_mut() {
-                        self.deallocate(var, id, &mut mem_allocator, &mut gpu_allocator, &mut disk_allocator);
+                        self.deallocate(var, id, &mut mem_allocator, &mut gpu_allocator, &mut disk_allocator, &mut swap_page_pool);
                         *guard = None;
                     } else {
                         panic!("deallocate a non-existing variable");
@@ -367,6 +371,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                             None,
                             None,
                             None,
+                            None,
                             Some(tx),
                             new_thread.into(),
                             global_mutex,
@@ -477,7 +482,8 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                             let stream_guard = &(*self.variable)[stream.unwrap()];
                             let stream = stream_guard.as_ref().unwrap().unwrap_stream();
                             assert_eq!(stream.get_device(), device_id);
-                            stream.memcpy_d2d(scalar.value, poly.get_ptr(idx), 1);
+                            let (ptr, _guard) = poly.get_ptr(idx);
+                            stream.memcpy_d2d(scalar.value, ptr, 1);
                         }
                         DeviceType::Disk => unreachable!("scalar can't be on disk"),
                     }

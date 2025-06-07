@@ -46,7 +46,7 @@ impl ConstPolyPtr {
 impl<F: Field> From<&mut ScalarArray<F>> for PolyPtr {
     fn from(poly: &mut ScalarArray<F>) -> Self {
         let len = poly.len;
-        let ptr = poly.values;
+        let (ptr, _guard) = poly.values.get_ptr();
         let rotate = poly.get_rotation();
         let (offset, whole_len) = if poly.slice_info.is_none() {
             (0, len)
@@ -67,7 +67,7 @@ impl<F: Field> From<&mut ScalarArray<F>> for PolyPtr {
 impl<F: Field> From<&ScalarArray<F>> for ConstPolyPtr {
     fn from(poly: &ScalarArray<F>) -> Self {
         let len = poly.len;
-        let ptr = poly.values;
+        let (ptr, _guard) = poly.values.get_ptr();
         let rotate = poly.get_rotation();
         let (offset, whole_len) = if poly.slice_info.is_none() {
             (0, len)

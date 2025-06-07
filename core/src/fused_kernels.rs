@@ -325,7 +325,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                     assert_eq!(buffer.size, chunk_len * std::mem::size_of::<T::Field>());
                     let gpu_poly = ScalarArray::new(
                         chunk_len,
-                        buffer.ptr as *mut T::Field,
+                        zkpoly_runtime::scalar::PolyPtr::Raw(buffer.ptr.cast()),
                         buffer.device.clone(),
                     );
                     mut_gpu_polys[j].push(gpu_poly);
@@ -340,7 +340,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                     assert_eq!(buffer.size, chunk_len * std::mem::size_of::<T::Field>());
                     let gpu_poly = ScalarArray::new(
                         chunk_len,
-                        buffer.ptr as *mut T::Field,
+                        zkpoly_runtime::scalar::PolyPtr::Raw(buffer.ptr.cast()),
                         buffer.device.clone(),
                     );
                     gpu_polys[j].push(gpu_poly);

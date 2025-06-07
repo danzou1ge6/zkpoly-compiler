@@ -23,7 +23,7 @@ impl<Rt: RuntimeType> Variable<Rt> {
                 }
                 unsafe {
                     let v = slice::from_raw_parts(
-                        poly.values.cast::<u8>(),
+                        poly.values.get_ptr().0.cast::<u8>(),
                         poly.len * std::mem::size_of::<Rt::Field>(),
                     );
                     writer.write_all(v)?;
@@ -85,7 +85,7 @@ impl<Rt: RuntimeType> Variable<Rt> {
                 let p: ScalarArray<Rt::Field> = ScalarArray::alloc_cpu(*len, allocator);
                 unsafe {
                     let v = slice::from_raw_parts_mut(
-                        p.values.cast::<u8>(),
+                        p.values.get_ptr().0.cast::<u8>(),
                         p.len * std::mem::size_of::<Rt::Field>(),
                     );
                     reader.read_exact(v)?;

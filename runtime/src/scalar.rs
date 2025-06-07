@@ -1,6 +1,6 @@
 use std::{
     ops::{Index, IndexMut},
-    ptr::copy_nonoverlapping,
+    ptr::{copy_nonoverlapping, null_mut},
 };
 
 use group::ff::Field;
@@ -11,7 +11,7 @@ use zkpoly_cuda_api::{
     mem::{alloc_pinned, free_pinned},
     stream::CudaStream,
 };
-use zkpoly_memory_pool::{BuddyDiskPool, CpuMemoryPool};
+use zkpoly_memory_pool::{swap_page_pool::{MemoryPtr, PtrHandle}, BuddyDiskPool, CpuMemoryPool};
 
 use crate::runtime::transfer::Transfer;
 
@@ -145,12 +145,30 @@ impl<F: Field> Transfer for Scalar<F> {
 pub struct ScalarArray<F: Field> {
     // when this is a slice, the pointer is pointed to the base array's start,
     // you have to visit the slice with slice_offset or by index
-    pub values: *mut F,
+    pub values: PolyPtr<F>,
     pub len: usize,
     pub(crate) rotate: i64, // the i64 is just to support neg during add, when getting rotate, we can safely assume it is positive
     pub device: DeviceType,
     pub slice_info: Option<ScalarSlice>,
     pub disk_pos: Vec<(i32, usize)>, // if the poly is stored on disk, this is the offset of each part in each file, (fd, offset)
+}
+
+#[derive(Clone, Debug)]
+pub enum PolyPtr<F: Field> {
+    Raw(*mut F),
+    Swap(PtrHandle<F>),
+}
+
+impl<F: Field> PolyPtr<F> {
+    pub fn get_ptr(&self) -> (*mut F, Option<MemoryPtr<F>>) {
+        match self {
+            PolyPtr::Raw(ptr) => (*ptr, None),
+            PolyPtr::Swap(handle) => {
+                let ptr = handle.get_ptr().unwrap();
+                (ptr.as_ptr(), Some(ptr))
+            }
+        }
+    }
 }
 
 impl<F: Field> std::fmt::Debug for ScalarArray<F> {
@@ -170,7 +188,7 @@ impl<F: Field> std::fmt::Debug for ScalarArray<F> {
             .field("rotate", &self.rotate)
             .field("device", &self.device)
             .field("slice_info", &self.slice_info)
-            .field("values", &Array(self.values, self.len))
+            // .field("values", &Array(self.values, self.len))
             .finish()
     }
 }
@@ -199,7 +217,7 @@ impl<F: Field> PartialEq for ScalarArray<F> {
 }
 
 impl<F: Field> ScalarArray<F> {
-    pub fn new(len: usize, ptr: *mut F, device: DeviceType) -> Self {
+    pub fn new(len: usize, ptr: PolyPtr<F>, device: DeviceType) -> Self {
         Self {
             values: ptr,
             len,
@@ -213,7 +231,7 @@ impl<F: Field> ScalarArray<F> {
     pub fn alloc_cpu(len: usize, allocator: &mut CpuMemoryPool) -> Self {
         let ptr = allocator.allocate(len);
         Self {
-            values: ptr,
+            values: PolyPtr::Raw(ptr),
             len,
             rotate: 0,
             device: DeviceType::CPU,
@@ -233,7 +251,7 @@ impl<F: Field> ScalarArray<F> {
             })
             .collect::<Vec<_>>();
         Self {
-            values: std::ptr::null_mut(),
+            values: PolyPtr::Raw(null_mut()),
             len,
             rotate: 0,
             device: DeviceType::Disk,
@@ -244,8 +262,9 @@ impl<F: Field> ScalarArray<F> {
 
     pub fn from_vec(v: &[F], allocator: &mut CpuMemoryPool) -> Self {
         let r = Self::alloc_cpu(v.len(), allocator);
+        let (ptr, _guard) = r.values.get_ptr();
         unsafe {
-            std::ptr::copy_nonoverlapping(v.as_ptr(), r.values, v.len());
+            std::ptr::copy_nonoverlapping(v.as_ptr(), ptr, v.len());
         }
         r
     }
@@ -256,9 +275,10 @@ impl<F: Field> ScalarArray<F> {
         allocator: &mut CpuMemoryPool,
     ) -> Self {
         let r = Self::alloc_cpu(len, allocator);
+        let (ptr, _guard) = r.values.get_ptr();
         for (i, x) in v.take(len).enumerate() {
             unsafe {
-                *r.values.add(i) = x;
+                *ptr.add(i) = x;
             }
         }
         r
@@ -325,7 +345,7 @@ impl<F: Field> ScalarArray<F> {
         let rotate = self.get_rotation();
         let actual_pos = (self.len + start - rotate) % self.len;
         Self {
-            values: self.values,
+            values: self.values.clone(),
             len: end - start,
             rotate: 0, // slice can't rotate
             device: self.device.clone(),
@@ -340,13 +360,16 @@ impl<F: Field> ScalarArray<F> {
     pub fn as_ref(&self) -> &[F] {
         assert!(self.slice_info.is_none());
         assert!(self.rotate == 0);
-        unsafe { std::slice::from_raw_parts(self.values, self.len) }
+        let (values, _guard) = self.values.get_ptr();
+        assert!(_guard.is_none());
+        unsafe { std::slice::from_raw_parts(values, self.len) }
     }
 
     pub fn as_mut(&mut self) -> &mut [F] {
         assert!(self.slice_info.is_none());
         assert!(self.rotate == 0);
-        unsafe { std::slice::from_raw_parts_mut(self.values, self.len) }
+        let (values, _guard) = self.values.get_ptr();
+        unsafe { std::slice::from_raw_parts_mut(values, self.len) }
     }
 
     pub fn rotate(&mut self, shift: i64) {
@@ -404,7 +427,7 @@ impl<F: Field> ScalarArray<F> {
         shift as usize
     }
 
-    pub fn get_ptr(&self, index: usize) -> *mut F {
+    pub fn get_ptr(&self, index: usize) -> (*mut F, Option<MemoryPtr<F>>) {
         assert!(index < self.len);
         let (offset, mod_len) = if self.slice_info.is_none() {
             (0, self.len)
@@ -414,7 +437,8 @@ impl<F: Field> ScalarArray<F> {
         };
         let rotate = self.rotate as usize;
         let actual_pos = (index + mod_len + offset - rotate) % mod_len;
-        unsafe { self.values.add(actual_pos) }
+        let (values, guard) = self.values.get_ptr();
+        (unsafe { values.add(actual_pos) }, guard)
     }
 }
 
@@ -433,6 +457,7 @@ pub struct ScalarArrayIterMut<'a, F: Field> {
 impl<'a, F: Field> Iterator for ScalarArrayIter<'a, F> {
     type Item = &'a F;
 
+    // no longer safe now, but ignore it
     fn next(&mut self) -> Option<Self::Item> {
         if self.pos >= self.array.len {
             None
@@ -445,7 +470,8 @@ impl<'a, F: Field> Iterator for ScalarArrayIter<'a, F> {
             };
             let actual_pos = (self.pos + self.mod_len + offset - rotate) % self.mod_len;
             self.pos += 1;
-            Some(unsafe { &*self.array.values.add(actual_pos) })
+            let (values, _guard) = self.array.values.get_ptr();
+            Some(unsafe { &*values.add(actual_pos) })
         }
     }
 }
@@ -465,7 +491,8 @@ impl<'a, F: Field> Iterator for ScalarArrayIterMut<'a, F> {
             };
             let actual_pos = (self.pos + self.mod_len + offset - rotate) % self.mod_len;
             self.pos += 1;
-            Some(unsafe { &mut *self.array.values.add(actual_pos) })
+            let (values, _guard) = self.array.values.get_ptr();
+            Some(unsafe { &mut *values.add(actual_pos) })
         }
     }
 }
@@ -474,13 +501,15 @@ impl<F: Field> Index<usize> for ScalarArray<F> {
     type Output = F;
 
     fn index(&self, index: usize) -> &Self::Output {
-        unsafe { &*self.get_ptr(index) }
+        let (ptr, _guard) = self.get_ptr(index);
+        unsafe { &*ptr }
     }
 }
 
 impl<F: Field> IndexMut<usize> for ScalarArray<F> {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        unsafe { &mut *self.get_ptr(index) }
+        let (ptr, _guard) = self.get_ptr(index);
+        unsafe { &mut *ptr }
     }
 }
 
@@ -492,8 +521,8 @@ impl<F: Field> Transfer for ScalarArray<F> {
 
         let shift = self.get_shift(target);
         let len = self.len;
-        let src = self.values;
-        let dst = target.values;
+        let (src, _src_guard) = self.values.get_ptr();
+        let (dst, _dst_guard) = target.values.get_ptr();
 
         if self.slice_info.is_none() && target.slice_info.is_none() {
             unsafe {
@@ -624,8 +653,8 @@ impl<F: Field> Transfer for ScalarArray<F> {
 
         let shift = self.get_shift(target);
         let len = self.len;
-        let src = self.values;
-        let dst = target.values;
+        let (src, _src_guard) = self.values.get_ptr();
+        let (dst, _dst_guard) = target.values.get_ptr();
 
         if self.slice_info.is_none() && target.slice_info.is_none() {
             stream.memcpy_h2d(dst, unsafe { src.add(shift) }, len - shift);
@@ -757,8 +786,8 @@ impl<F: Field> Transfer for ScalarArray<F> {
         );
         let shift = self.get_shift(target);
         let len = self.len;
-        let src = self.values;
-        let dst = target.values;
+        let (src, _src_guard) = self.values.get_ptr();
+        let (dst, _dst_guard) = target.values.get_ptr();
 
         if self.slice_info.is_none() && target.slice_info.is_none() {
             stream.memcpy_d2h(dst, unsafe { src.add(shift) }, len - shift);
@@ -896,8 +925,8 @@ impl<F: Field> Transfer for ScalarArray<F> {
         );
         let shift = self.get_shift(target);
         let len = self.len;
-        let src = self.values;
-        let dst = target.values;
+        let (src, _src_guard) = self.values.get_ptr();
+        let (dst, _dst_guard) = target.values.get_ptr();
 
         if self.slice_info.is_none() && target.slice_info.is_none() {
             stream.memcpy_d2d(dst, unsafe { src.add(shift) }, len - shift);
@@ -1019,70 +1048,70 @@ impl<F: Field> Transfer for ScalarArray<F> {
     }
 
     fn cpu2disk(&self, target: &mut Self) {
-        assert_eq!(self.device, DeviceType::CPU);
-        assert_eq!(target.device, DeviceType::Disk);
-        assert_eq!(self.rotate, target.rotate);
-        assert!(self.slice_info.is_none());
-        assert!(target.slice_info.is_none());
-        let part_len = self.len / self.disk_pos.len();
-        target
-            .disk_pos
-            .par_iter()
-            .enumerate()
-            .for_each(|(disk_id, (fd, offset))| {
-                let offset = offset.clone();
-                let fd = fd.clone();
-                let cpu_offset = part_len * disk_id;
+        // assert_eq!(self.device, DeviceType::CPU);
+        // assert_eq!(target.device, DeviceType::Disk);
+        // assert_eq!(self.rotate, target.rotate);
+        // assert!(self.slice_info.is_none());
+        // assert!(target.slice_info.is_none());
+        // let part_len = self.len / self.disk_pos.len();
+        // target
+        //     .disk_pos
+        //     .par_iter()
+        //     .enumerate()
+        //     .for_each(|(disk_id, (fd, offset))| {
+        //         let offset = offset.clone();
+        //         let fd = fd.clone();
+        //         let cpu_offset = part_len * disk_id;
 
-                unsafe {
-                    let write_size = part_len * size_of::<F>();
-                    let res = libc::pwrite(
-                        fd,
-                        self.values.add(cpu_offset).cast(),
-                        write_size,
-                        offset as i64,
-                    );
-                    if res < write_size as isize {
-                        panic!(
-                            "Failed to write {} bytes to disk {} at offset {}: {}",
-                            write_size, disk_id, offset, res
-                        );
-                    }
-                }
-            });
+        //         unsafe {
+        //             let write_size = part_len * size_of::<F>();
+        //             let res = libc::pwrite(
+        //                 fd,
+        //                 self.values.add(cpu_offset).cast(),
+        //                 write_size,
+        //                 offset as i64,
+        //             );
+        //             if res < write_size as isize {
+        //                 panic!(
+        //                     "Failed to write {} bytes to disk {} at offset {}: {}",
+        //                     write_size, disk_id, offset, res
+        //                 );
+        //             }
+        //         }
+        //     });
     }
 
     fn disk2cpu(&self, target: &mut Self) {
-        assert_eq!(self.device, DeviceType::Disk);
-        assert_eq!(target.device, DeviceType::CPU);
-        assert_eq!(self.rotate, target.rotate);
-        assert!(self.slice_info.is_none());
-        assert!(target.slice_info.is_none());
+        // assert_eq!(self.device, DeviceType::Disk);
+        // assert_eq!(target.device, DeviceType::CPU);
+        // assert_eq!(self.rotate, target.rotate);
+        // assert!(self.slice_info.is_none());
+        // assert!(target.slice_info.is_none());
 
-        let part_len = self.len / self.disk_pos.len();
-        self.disk_pos
-            .par_iter()
-            .enumerate()
-            .for_each(|(disk_id, (fd, offset))| {
-                let tmp_target = target.clone();
-                let (fd, offset) = (fd.clone(), offset.clone());
-                let cpu_offset = part_len * disk_id;
+        // let part_len = self.len / self.disk_pos.len();
+        // self.disk_pos
+        //     .par_iter()
+        //     .enumerate()
+        //     .for_each(|(disk_id, (fd, offset))| {
+        //         let tmp_target = target.clone();
+        //         let (fd, offset) = (fd.clone(), offset.clone());
+        //         let cpu_offset = part_len * disk_id;
 
-                unsafe {
-                    let read_size = part_len * size_of::<F>();
-                    let res = libc::pread(
-                        fd,
-                        tmp_target.values.add(cpu_offset).cast(),
-                        read_size,
-                        offset as i64,
-                    );
-                    if res < read_size as isize {
-                        panic!(
-                            "Failed to read {} bytes from disk {} at offset {}: {}",
-                            read_size, disk_id, offset, res
-                        );
-                    }
-                }
-            });
+        //         unsafe {
+        //             let read_size = part_len * size_of::<F>();
+        //             let res = libc::pread(
+        //                 fd,
+        //                 tmp_target.values.add(cpu_offset).cast(),
+        //                 read_size,
+        //                 offset as i64,
+        //             );
+        //             if res < read_size as isize {
+        //                 panic!(
+        //                     "Failed to read {} bytes from disk {} at offset {}: {}",
+        //                     read_size, disk_id, offset, res
+        //                 );
+        //             }
+        //         }
+        //     });
     }
 }

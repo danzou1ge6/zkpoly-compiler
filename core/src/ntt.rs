@@ -134,7 +134,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for DistributePowers<T> {
                 cuda_check!(cudaSetDevice(stream.get_device()));
                 cuda_check!((c_func)(
                     PolyPtr::from(x),
-                    powers.values as *const c_uint,
+                    powers.values.get_ptr().0 as *const c_uint,
                     powers.len as u64,
                     stream.raw(),
                 ));
@@ -184,7 +184,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for SsipNtt<T> {
                 cuda_check!(cudaSetDevice(stream.get_device()));
                 cuda_check!((c_func)(
                     PolyPtr::from(x),
-                    twiddle.values as *const c_uint,
+                    twiddle.values.get_ptr().0 as *const c_uint,
                     log_len,
                     stream.raw(),
                     max_threads_stage1_log,
@@ -224,7 +224,7 @@ impl<T: RuntimeType> SsipPrecompute<T> {
                 assert!(twiddle.len.is_power_of_two());
                 unsafe {
                     cuda_check!((c_func)(
-                        twiddle.values as *mut c_uint,
+                        twiddle.values.get_ptr().0 as *mut c_uint,
                         twiddle.len as c_uint,
                         unit as *const T::Field as *const c_uint,
                     ));
@@ -271,9 +271,9 @@ impl<T: RuntimeType> RegisteredFunction<T> for RecomputeNtt<T> {
                 cuda_check!(cudaSetDevice(stream.get_device()));
                 cuda_check!((c_func)(
                     PolyPtr::from(x),
-                    pq.values as *const c_uint,
+                    pq.values.get_ptr().0 as *const c_uint,
                     pq_deg,
-                    omegas.values as *const c_uint,
+                    omegas.values.get_ptr().0 as *const c_uint,
                     log_len,
                     stream.raw(),
                     max_threads_stage1_log,
@@ -357,8 +357,8 @@ impl<T: RuntimeType> GenPqOmegas<T> {
 
                 unsafe {
                     ((c_func)(
-                        pq.values as *mut c_uint,
-                        omegas.values as *mut c_uint,
+                        pq.values.get_ptr().0 as *mut c_uint,
+                        omegas.values.get_ptr().0 as *mut c_uint,
                         pq_deg,
                         len.try_into().unwrap(),
                         unit as *const T::Field as *const c_uint,

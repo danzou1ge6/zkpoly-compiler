@@ -61,7 +61,7 @@ pub fn lagrange_interpolate<F: Field>(points: &Vec<F>, evals: &Vec<F>, res: &mut
         // Compute (x_j - x_k)^(-1) for each j != i
         denoms.iter_mut().flat_map(|v| v.iter_mut()).batch_invert();
         unsafe {
-            ptr::write_bytes(res.values, 0x00, res.len());
+            ptr::write_bytes(res.values.get_ptr().0, 0x00, res.len());
         }
         for (j, (denoms, eval)) in denoms.into_iter().zip(evals.iter()).enumerate() {
             let mut tmp: Vec<F> = Vec::with_capacity(points.len());
