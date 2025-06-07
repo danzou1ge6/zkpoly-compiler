@@ -24,6 +24,11 @@ impl Completeness {
     }
 }
 
+define_usize_id!(ProcedureId);
+
+pub type AResp<'s, T, P, R, Rt: RuntimeType> =
+    Response<'s, planning::Machine<'s, T, P>, T, P, Result<R, Error<'s>>, Rt>;
+
 /// Handle to an allocator, with which memory can be manipulated.
 ///
 /// See [`Allocator`] for what [`P`] is for.
@@ -35,32 +40,17 @@ pub trait AllocatorHandle<'s, T, P, Rt: RuntimeType> {
     /// such as `read` or `allocate`.
     ///
     /// Token must not be recorded on device.
-    fn allocate<'f>(
-        &mut self,
-        size: Size,
-        t: &T,
-    ) -> Response<'f, planning::Machine<'s, T, P>, T, P, Result<P, Error<'s>>, Rt>
-    where
-        's: 'f;
+    fn allocate(&mut self, size: Size, t: &T) -> AResp<'s, T, P, P, Rt>;
 
     /// Deallocate the token, which must be recorded on device, otherwise panics.
-    fn deallocate<'f>(&mut self, t: &T) -> Response<'f, planning::Machine<'s, T, P>, T, P, (), Rt>
-    where
-        's: 'f;
+    fn deallocate(&mut self, t: &T) -> AResp<'s, T, P, (), Rt>;
 
     /// Reuse space for object.
     /// The object must be accessible, otherwise panics.
     fn reuse(&mut self, new_object: ObjectId, old_object: ObjectId);
 
     /// Ask the allocator to claim token from some device.
-    fn claim<'f>(
-        &mut self,
-        t: &T,
-        size: Size,
-        from: Device,
-    ) -> Response<'f, planning::Machine<'s, T, P>, T, P, Result<(), Error<'s>>, Rt>
-    where
-        's: 'f;
+    fn claim(&mut self, t: &T, size: Size, from: Device) -> AResp<'s, T, P, (), Rt>;
 
     /// Get reference of pointer which can be used to access this token.
     /// The token must be recorded on device.
@@ -74,6 +64,8 @@ pub trait AllocatorHandle<'s, T, P, Rt: RuntimeType> {
     /// Completeness may be a number between zero and one if the device uses page allocation
     /// and ejects by pages.
     fn completeness(&mut self, object: ObjectId) -> Completeness;
+
+    fn evoke(&mut self, procedure: ProcedureId) -> AResp<'s, T, P, (), Rt>;
 }
 
 pub trait AllocatorRealizer<'s, T, P, Rt: RuntimeType> {
@@ -83,15 +75,15 @@ pub trait AllocatorRealizer<'s, T, P, Rt: RuntimeType> {
 
     /// Instruct the machine to deallocate space at pointer
     fn deallocate(&mut self, t: &T, pointer: &P);
-    
+
     /// Instruct the machine to perform a transfer
-    fn transfer<'f>(
+    fn transfer(
         &mut self,
         t: &T,
         from_pointer: &P,
         to_device: Device,
         to_pointer: &P,
-    ) -> RealizationResponse<'f, 's, T, P, Result<(), Error<'s>>, Rt>;
+    ) -> RealizationResponse<'s, T, P, Result<(), Error<'s>>, Rt>;
 }
 
 /// A memory allocator.
@@ -109,8 +101,8 @@ pub trait AllocatorRealizer<'s, T, P, Rt: RuntimeType> {
 /// sequence to Type3, which is done by the realizer.
 /// Realizer is responsible for emitting currespounding allocation/deallocation/transfer Type3
 /// instructions.
-pub trait Allocator<T, P, Rt: RuntimeType> {
-    fn handle<'a, 'b, 'c, 'd, 's, 'i>(
+pub trait Allocator<'s, T, P, Rt: RuntimeType> {
+    fn handle<'a, 'b, 'c, 'd, 'i>(
         &'a mut self,
         machine: planning::MachineHandle<'b, 's, T, P>,
         aux: &'c mut AuxiliaryInfo<'i, Rt>,
@@ -121,7 +113,7 @@ pub trait Allocator<T, P, Rt: RuntimeType> {
         'c: 'd,
         'i: 'd;
 
-    fn realizer<'a, 'b, 'c, 'd, 's, 'i>(
+    fn realizer<'a, 'b, 'c, 'd, 'i>(
         &'a mut self,
         machine: realization::MachineHandle<'b, 's, P>,
         aux: &'c mut AuxiliaryInfo<'i, Rt>,
@@ -133,14 +125,17 @@ pub trait Allocator<T, P, Rt: RuntimeType> {
         'i: 'd;
 }
 
-pub struct AllocatorCollection<'a, T, P, Rt: RuntimeType>(BTreeMap<Device, &'a mut (dyn Allocator<T, P, Rt> + 'static)>);
+pub struct AllocatorCollection<'a, 's, T, P, Rt: RuntimeType>(
+    BTreeMap<Device, &'a mut (dyn Allocator<'s, T, P, Rt> + 's)>,
+);
 
-impl<'a, T, P, Rt: RuntimeType> AllocatorCollection<'a, T, P, Rt> {
-    pub fn get(&mut self, device: Device) -> &mut dyn Allocator<T, P, Rt> {
+impl<'a, 's, T, P, Rt: RuntimeType> AllocatorCollection<'a, 's, T, P, Rt>
+{
+    pub fn get(&mut self, device: Device) -> &mut dyn Allocator<'s, T, P, Rt> {
         *self.0.get_mut(&device).unwrap()
     }
 
-    pub fn handle<'b, 'm, 's, 'aux, 'c, 'i>(
+    pub fn handle<'b, 'm, 'aux, 'c, 'i>(
         &'b mut self,
         device: Device,
         machine: &'m mut planning::Machine<'s, T, P>,
@@ -155,7 +150,7 @@ impl<'a, T, P, Rt: RuntimeType> AllocatorCollection<'a, T, P, Rt> {
         self.get(device).handle(machine.handle(device), aux)
     }
 
-    pub fn realizer<'b, 'm, 's, 'aux, 'c, 'i>(
+    pub fn realizer<'b, 'm, 'aux, 'c, 'i>(
         &'b mut self,
         device: Device,
         machine: &'m mut realization::Machine<'s, P>,
@@ -173,17 +168,17 @@ impl<'a, T, P, Rt: RuntimeType> AllocatorCollection<'a, T, P, Rt> {
     pub fn insert<'b>(
         self,
         device: Device,
-        allocator: &'b mut (dyn Allocator<T, P, Rt> + 'static),
-    ) -> AllocatorCollection<'b, T, P, Rt>
+        allocator: &'b mut (dyn Allocator<'s, T, P, Rt> + 's),
+    ) -> AllocatorCollection<'b, 's, T, P, Rt>
     where
         'a: 'b,
     {
-        let mut map: BTreeMap<Device, &'b mut (dyn Allocator<T, P, Rt> + 'static)> = self.0;
+        let mut map: BTreeMap<Device, &'b mut (dyn Allocator<'s, T, P, Rt> + 's)> = self.0;
         map.insert(device, allocator);
         AllocatorCollection(map)
     }
 
-    pub fn object_available_on<'s, 'i>(
+    pub fn object_available_on<'i>(
         &mut self,
         devices: impl Iterator<Item = Device>,
         object: ObjectId,
@@ -205,10 +200,13 @@ impl<'a, T, P, Rt: RuntimeType> AllocatorCollection<'a, T, P, Rt> {
     }
 }
 
-impl<'a, T, P, Rt: RuntimeType> FromIterator<(Device, &'a mut (dyn Allocator<T, P, Rt> + 'static))>
-    for AllocatorCollection<'a, T, P, Rt>
+impl<'a, 's, T, P, Rt: RuntimeType>
+    FromIterator<(Device, &'a mut (dyn Allocator<'s, T, P, Rt> + 's))>
+    for AllocatorCollection<'a, 's, T, P, Rt>
 {
-    fn from_iter<It: IntoIterator<Item = (Device, &'a mut (dyn Allocator<T, P, Rt> + 'static))>>(
+    fn from_iter<
+        It: IntoIterator<Item = (Device, &'a mut (dyn Allocator<'s, T, P, Rt> + 's))>,
+    >(
         iter: It,
     ) -> Self {
         Self(iter.into_iter().collect())

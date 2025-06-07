@@ -5,15 +5,15 @@ use super::super::prelude::*;
 /// When allocating an object that is a constant object in this pool,
 /// allocation and deallocation is intercepted and skipped,
 /// while accesses to constant objects always return a valid pointer.
-pub struct ConstantPool<A, T, P, Rt: RuntimeType> {
+pub struct ConstantPool<'f, A, T, P, Rt: RuntimeType> {
     inner: A,
     objects: BTreeMap<ObjectId, P>,
-    _phantom: PhantomData<(T, P, Rt)>,
+    _phantom: PhantomData<(&'f T, P, Rt)>,
 }
 
-impl<A, T, P, Rt: RuntimeType> ConstantPool<A, T, P, Rt>
+impl<'f, A, T, P, Rt: RuntimeType> ConstantPool<'f, A, T, P, Rt>
 where
-    A: Allocator<T, P, Rt>,
+    A: Allocator<'f, T, P, Rt>,
 {
     /// `objects` are the constant objects in the pool, and the pointers must be
     /// distinct from those allocated and will be allocated in `inner`.
@@ -27,19 +27,20 @@ where
 }
 
 pub struct Handle<'a, 'm, 's, 'i, 'au, A, T, P, Rt: RuntimeType> {
-    allocator: &'a mut ConstantPool<A, T, P, Rt>,
+    allocator: &'a mut ConstantPool<'s, A, T, P, Rt>,
     machine: planning::MachineHandle<'m, 's, T, P>,
     aux: &'au mut AuxiliaryInfo<'i, Rt>,
 }
 
-impl<'a, 'm, 's, 'i, 'au, A, P, Rt: RuntimeType> Handle<'a, 'm, 's, 'i, 'au, A, ObjectId, P, Rt>
+impl<'a, 'm, 's, 'i, 'au, 'f, A, P, Rt: RuntimeType> Handle<'a, 'm, 's, 'i, 'au, A, ObjectId, P, Rt>
 where
-    A: Allocator<ObjectId, P, Rt>,
+    A: Allocator<'s, ObjectId, P, Rt>,
 {
     fn inner_handle<'se, 'd>(&'se mut self) -> Box<dyn AllocatorHandle<'s, ObjectId, P, Rt> + 'd>
     where
         'se: 'd,
         Self: 'd,
+        's: 'f,
     {
         // unsafe here is safe because this method's signature enforces that `self` (i.e. the handle)
         // is not useable until the returned handle is dropped.
@@ -57,8 +58,9 @@ where
 impl<'a, 'm, 's, 'i, 'au, A, P, Rt: RuntimeType> AllocatorHandle<'s, ObjectId, P, Rt>
     for Handle<'a, 'm, 's, 'i, 'au, A, ObjectId, P, Rt>
 where
-    A: Allocator<ObjectId, P, Rt>,
+    A: Allocator<'s, ObjectId, P, Rt>,
     P: Clone,
+    's: 'a,
 {
     fn access(&mut self, t: &ObjectId) -> Option<P> {
         if let Some(p) = self.allocator.objects.get(t) {
@@ -68,13 +70,7 @@ where
         }
     }
 
-    fn allocate<'f>(
-        &mut self,
-        size: Size,
-        t: &ObjectId,
-    ) -> Response<'f, planning::Machine<'s, ObjectId, P>, ObjectId, P, Result<P, Error<'s>>, Rt>
-    where
-        's: 'f,
+    fn allocate(&mut self, size: Size, t: &ObjectId) -> allocator::AResp<'s, ObjectId, P, P, Rt>
     {
         if let Some(p) = self.allocator.objects.get(t) {
             Response::Complete(Ok(p.clone()))
@@ -83,14 +79,12 @@ where
         }
     }
 
-    fn claim<'f>(
+    fn claim(
         &mut self,
         t: &ObjectId,
         size: Size,
         from: Device,
-    ) -> Response<'f, planning::Machine<'s, ObjectId, P>, ObjectId, P, Result<(), Error<'s>>, Rt>
-    where
-        's: 'f,
+    ) -> allocator::AResp<'s, ObjectId, P, (), Rt>
     {
         self.check_is_not_constant(t, "claim");
         self.inner_handle().claim(t, size, from)
@@ -104,17 +98,12 @@ where
         }
     }
 
-    fn deallocate<'f>(
-        &mut self,
-        t: &ObjectId,
-    ) -> Response<'f, planning::Machine<'s, ObjectId, P>, ObjectId, P, (), Rt>
-    where
-        's: 'f,
+    fn deallocate(&mut self, t: &ObjectId) -> allocator::AResp<'s, ObjectId, P, (), Rt>
     {
         if !self.allocator.objects.contains_key(t) {
             self.inner_handle().deallocate(t)
         } else {
-            Response::Complete(())
+            Response::ok(())
         }
     }
 
@@ -126,17 +115,24 @@ where
         self.check_is_not_constant(&old_object, "reuse");
         self.inner_handle().reuse(new_object, old_object)
     }
+
+    fn evoke(
+        &mut self,
+        procedure: allocator::ProcedureId,
+    ) -> allocator::AResp<'s, ObjectId, P, (), Rt> {
+        self.inner_handle().evoke(procedure)
+    }
 }
 
 pub struct Realizer<'a, 'm, 's, 'au, 'i, A, P, Rt: RuntimeType> {
-    allocator: &'a mut ConstantPool<A, ObjectId, P, Rt>,
+    allocator: &'a mut ConstantPool<'s, A, ObjectId, P, Rt>,
     machine: realization::MachineHandle<'m, 's, P>,
     aux: &'au mut AuxiliaryInfo<'i, Rt>,
 }
 
 impl<'a, 'm, 's, 'au, 'i, A, P, Rt: RuntimeType> Realizer<'a, 'm, 's, 'au, 'i, A, P, Rt>
 where
-    A: Allocator<ObjectId, P, Rt>,
+    A: Allocator<'s, ObjectId, P, Rt>,
     P: Clone,
 {
     fn inner_realizer<'se, 'd>(
@@ -156,7 +152,7 @@ where
 impl<'a, 'm, 's, 'au, 'i, A, P, Rt: RuntimeType> AllocatorRealizer<'s, ObjectId, P, Rt>
     for Realizer<'a, 'm, 's, 'au, 'i, A, P, Rt>
 where
-    A: Allocator<ObjectId, P, Rt>,
+    A: Allocator<'s, ObjectId, P, Rt>,
     P: UsizeId + 'static,
 {
     fn allocate(&mut self, t: &ObjectId, pointer: &P) {
@@ -171,13 +167,13 @@ where
         }
     }
 
-    fn transfer<'f>(
+    fn transfer(
         &mut self,
         t: &ObjectId,
         from_pointer: &P,
         to_device: Device,
         to_pointer: &P,
-    ) -> RealizationResponse<'f, 's, ObjectId, P, Result<(), Error<'s>>, Rt> {
+    ) -> RealizationResponse<'s, ObjectId, P, Result<(), Error<'s>>, Rt> {
         Response::Continue(Continuation::transfer_object(
             self.machine.device(),
             *from_pointer,
@@ -188,12 +184,13 @@ where
     }
 }
 
-impl<P, A, Rt: RuntimeType> Allocator<ObjectId, P, Rt> for ConstantPool<A, ObjectId, P, Rt>
+impl<'s, P, A, Rt: RuntimeType> Allocator<'s, ObjectId, P, Rt>
+    for ConstantPool<'s, A, ObjectId, P, Rt>
 where
-    A: Allocator<ObjectId, P, Rt>,
+    A: Allocator<'s, ObjectId, P, Rt>,
     P: UsizeId + 'static,
 {
-    fn handle<'a, 'b, 'c, 'd, 's, 'i>(
+    fn handle<'a, 'b, 'c, 'd, 'i>(
         &'a mut self,
         machine: planning::MachineHandle<'b, 's, ObjectId, P>,
         aux: &'c mut AuxiliaryInfo<'i, Rt>,
@@ -211,7 +208,7 @@ where
         })
     }
 
-    fn realizer<'a, 'b, 'c, 'd, 's, 'i>(
+    fn realizer<'a, 'b, 'c, 'd, 'i>(
         &'a mut self,
         machine: realization::MachineHandle<'b, 's, P>,
         aux: &'c mut AuxiliaryInfo<'i, Rt>,

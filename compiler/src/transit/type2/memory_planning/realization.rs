@@ -6,7 +6,7 @@ pub use machine::{Machine, MachineHandle, MemoryBlock, RealizationResponse};
 
 pub fn realize<'s, 'a, T, Rt: RuntimeType>(
     ops: OperationSeq<'s, T, Pointer>,
-    mut allocators_x: AllocatorCollection<'a, T, Pointer, Rt>,
+    mut allocators_x: AllocatorCollection<'a, 's, T, Pointer, Rt>,
     libs: Libs,
     object_id_allocator: IdAllocator<ObjectId>,
     obj_inf: &object_info::Info<Rt>,

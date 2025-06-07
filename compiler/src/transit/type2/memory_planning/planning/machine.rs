@@ -209,23 +209,23 @@ impl<'m, 's, T, P> MachineHandle<'m, 's, T, P> {
     }
 }
 
-impl<'f, 's, P, Rt: RuntimeType>
-    Continuation<'f, Machine<'s, ObjectId, P>, ObjectId, P, Result<(), super::super::Error<'s>>, Rt>
+impl<'s, P, Rt: RuntimeType>
+    Continuation<'s, Machine<'s, ObjectId, P>, ObjectId, P, Result<(), super::super::Error<'s>>, Rt>
 where
     P: 'static,
 {
     /// Creates a simple continuation that let some device receive ejection of whole token `t` from `from_device`.
     /// `from_device` must be planning.
     ///
-    /// Assuming that all needed operations on `from_device` has been done.
+    /// It does not modify state of `from_device`
     pub fn simple_eject(
         from_device: Device,
         from_pointer: P,
         object: ObjectId,
         size: Size,
     ) -> Self {
-        let f = move |allocators: &mut AllocatorCollection<ObjectId, P, Rt>,
-                      machine: &mut Machine<ObjectId, P>,
+        let f = move |allocators: &mut AllocatorCollection<'_, 's, ObjectId, P, Rt>,
+                      machine: &mut Machine<'s, ObjectId, P>,
                       aux: &mut AuxiliaryInfo<Rt>| {
             assert!(aux.is_planning(from_device));
 
@@ -237,7 +237,7 @@ where
                     object, from_device
                 );
 
-                return Response::Complete(Ok(()));
+                return Ok(());
             }
 
             // If the object is alive elsewhere, no ejection is needed
@@ -256,7 +256,7 @@ where
                     object, alive_on, from_device
                 );
 
-                return Response::Complete(Ok(()));
+                return Ok(());
             }
 
             // Otherwise, we eject the object to direct parent device
@@ -277,21 +277,17 @@ where
                 object, from_device, to_device
             );
 
-            Response::Continue(Continuation::simple_receive(
-                from_device,
-                from_pointer,
-                to_device,
-                size,
-                object,
-            ))
+            let c =
+                Continuation::simple_receive(from_device, from_pointer, to_device, size, object);
+            allocators.apply_continuation(c, machine, aux)
         };
 
         Continuation::new(f)
     }
 }
 
-impl<'f, 's, T, P, Rt: RuntimeType>
-    Continuation<'f, Machine<'s, T, P>, T, P, Result<(), super::super::Error<'s>>, Rt>
+impl<'s, T, P, Rt: RuntimeType>
+    Continuation<'s, Machine<'s, T, P>, T, P, Result<(), super::super::Error<'s>>, Rt>
 where
     T: Clone + 'static,
     P: 'static,
@@ -313,7 +309,7 @@ where
     where
         T: std::fmt::Debug,
     {
-        let f = move |allocators: &mut AllocatorCollection<T, P, Rt>,
+        let f = move |allocators: &mut AllocatorCollection<'_, 's, T, P, Rt>,
                       machine: &mut Machine<'s, T, P>,
                       aux: &mut AuxiliaryInfo<Rt>| {
             assert!(aux.is_planning(from_device) || aux.is_planned(from_device));
@@ -328,7 +324,7 @@ where
                     .allocate(size, &t);
                 let to_pointer = match allocators.run(resp, machine, aux) {
                     Ok(p) => p,
-                    Err(e) => return Response::Complete(Err(e)),
+                    Err(e) => return Err(e),
                 };
 
                 // fixme
@@ -342,7 +338,7 @@ where
                     panic!("to_device {:?} must be planning or unplanned", to_device);
                 }
             }
-            Response::Complete(Ok(()))
+            Ok(())
         };
 
         Continuation::new(f)
@@ -358,8 +354,8 @@ where
     where
         T: std::fmt::Debug,
     {
-        let f = move |allocators: &mut AllocatorCollection<T, P, Rt>,
-                      machine: &mut Machine<T, P>,
+        let f = move |allocators: &mut AllocatorCollection<'_, 's, T, P, Rt>,
+                      machine: &mut Machine<'s, T, P>,
                       aux: &mut AuxiliaryInfo<Rt>| {
             if aux.is_planning(from_device) {
                 let from_pointer = allocators
@@ -389,7 +385,7 @@ where
                     machine.reclaim(to_device, to_pointer, t, from_device);
                 }
             }
-            Response::Complete(Ok(()))
+            Ok(())
         };
 
         Continuation::new(f)
@@ -405,7 +401,7 @@ where
     where
         T: std::fmt::Debug,
     {
-        let f = move |allocators: &mut AllocatorCollection<T, P, Rt>,
+        let f = move |allocators: &mut AllocatorCollection<'_, 's, T, P, Rt>,
                       machine: &mut Machine<'s, T, P>,
                       aux: &mut AuxiliaryInfo<Rt>| {
             if allocators
@@ -413,14 +409,14 @@ where
                 .access(&t)
                 .is_some()
             {
-                Response::Complete(Ok(()))
+                Ok(())
             } else {
                 let resp = allocators
                     .handle(to_device, machine, aux)
                     .allocate(size, &t);
                 let to_pointer = match resp.commit(allocators, machine, aux) {
                     Ok(to_pointer) => to_pointer,
-                    Err(e) => return Response::Complete(Err(e)),
+                    Err(e) => return Err(e),
                 };
                 {
                     if aux.is_planning(from_device) {
@@ -437,9 +433,20 @@ where
                         }
                     }
 
-                    Response::Complete(Ok(()))
+                    Ok(())
                 }
             }
+        };
+
+        Continuation::new(f)
+    }
+
+    pub fn procedure(device: Device, procedure: allocator::ProcedureId) -> Self {
+        let f = move |allocators: &mut AllocatorCollection<'_, 's, T, P, Rt>,
+                      machine: &mut Machine<'s, T, P>,
+                      aux: &mut AuxiliaryInfo<Rt>| {
+            allocators.handle(device, machine, aux).evoke(procedure);
+            Ok(())
         };
 
         Continuation::new(f)

@@ -2,7 +2,20 @@ use super::{regretting_integral, smithereens_allocator, OffsettedAddrMapping};
 use crate::transit::type2::memory_planning::prelude::*;
 use planning::machine::*;
 
-pub struct GpuAllocator<P> {
+pub type Procedure<'f, P, Rt: RuntimeType> = Box<
+    dyn for<'a, 's, 'm, 'au, 'i> FnOnce(
+            &mut Handle<'a, 'm, 's, 'au, 'i, P, Rt>,
+        ) -> PlanningResponse<
+            'f,
+            's,
+            ObjectId,
+            P,
+            Result<(), Error<'s>>,
+            Rt,
+        > + 'f,
+>;
+
+pub struct GpuAllocator<'f, P, Rt: RuntimeType> {
     mapping: AddrMapping,
     /// Associate each object with its residence.
     /// Don't forget to update this mapping.
@@ -13,6 +26,8 @@ pub struct GpuAllocator<P> {
     integral_capacity: u64,
     smithereen_allocator: smithereens_allocator::Allocator,
     integral_allocator: regretting_integral::Allocator,
+    procedures: BTreeMap<allocator::ProcedureId, Procedure<'f, P, Rt>>,
+    procedure_id_allocator: IdAllocator<allocator::ProcedureId>,
     _phantom: PhantomData<P>,
 }
 
@@ -56,7 +71,7 @@ pub fn collect_integral_sizes(sizes: impl Iterator<Item = Size>) -> Vec<Integral
     integral_sizes.into_iter().collect()
 }
 
-impl<P> GpuAllocator<P> {
+impl<'f, P, Rt: RuntimeType> GpuAllocator<'f, P, Rt> {
     pub fn new(total_capacity: u64, smithereen_capacity: u64, lbss: Vec<IntegralSize>) -> Self {
         Self {
             mapping: AddrMapping::new(),
@@ -70,6 +85,8 @@ impl<P> GpuAllocator<P> {
                 total_capacity - smithereen_capacity,
                 lbss,
             ),
+            procedures: BTreeMap::new(),
+            procedure_id_allocator: IdAllocator::new(),
             _phantom: PhantomData,
         }
     }
@@ -77,7 +94,7 @@ impl<P> GpuAllocator<P> {
 
 /// All sizes entering the allocator must be normalized first.
 pub struct Handle<'a, 'm, 's, 'au, 'i, P, Rt: RuntimeType> {
-    allocator: &'a mut GpuAllocator<P>,
+    allocator: &'a mut GpuAllocator<'s, P, Rt>,
     machine: MachineHandle<'m, 's, ObjectId, P>,
     aux: &'au mut AuxiliaryInfo<'i, Rt>,
 }
@@ -114,6 +131,16 @@ where
         let pc = self.aux.pc();
         self.allocator.integral_allocator.tick(pc);
     }
+
+    fn add_procedure(
+        &mut self,
+        procedure: Procedure<'s, P, Rt>,
+    ) -> Continuation<'s, planning::Machine<'s, ObjectId, P>, ObjectId, P, Result<(), Error<'s>>, Rt>
+    {
+        let pid = self.allocator.procedure_id_allocator.alloc();
+        self.allocator.procedures.insert(pid, procedure);
+        Continuation::procedure(self.machine.device(), pid)
+    }
 }
 
 impl<'a, 'm, 's, 'au, 'i, P, Rt: RuntimeType> AllocatorHandle<'s, ObjectId, P, Rt>
@@ -126,6 +153,9 @@ where
 
         let addr = self.allocator.objects_at.get_forward(t).copied();
 
+        // fixme
+        println!("GPU access {:?} got {:?}", t, addr);
+
         if let Some(addr) = addr {
             self.try_update_next_use(addr, updated_next_use);
         }
@@ -133,22 +163,19 @@ where
         addr.map(p)
     }
 
-    fn allocate<'f>(
+    fn allocate(
         &mut self,
         size: Size,
         t: &ObjectId,
-    ) -> Response<'f, planning::Machine<'s, ObjectId, P>, ObjectId, P, Result<P, Error<'s>>, Rt>
-    where
-        's: 'f,
-    {
+    ) -> allocator::AResp<'s, ObjectId, P, P, Rt> {
+        println!("GPU allocating {:?}", t);
+
         if self.allocator.objects_at.get_forward(t).is_some() {
             panic!("object {:?} already allocated", t);
         }
 
         self.tick();
 
-        // We need no calling `machine.allocate` here, as there is no structions needed for actual
-        // allocating space.
         let size = normalize_size(size);
         let resp = match size {
             Size::Smithereen(ss) => {
@@ -181,7 +208,6 @@ where
                             .objects_at
                             .remove_backward(&from)
                             .expect("expected object on device to reallocate it");
-                        self.machine.allocate(object, p(to));
                         self.machine
                             .transfer(self.device(), p(to), object, self.device(), p(from));
                         self.allocator.objects_at.insert_checked(object, to);
@@ -207,25 +233,30 @@ where
                                     .clone()
                             })
                             .collect::<Vec<_>>();
-                        objects
-                            .iter()
-                            .zip(victims.iter())
-                            .for_each(|(obj, victim_addr)| {
-                                self.machine.deallocate(*obj, p(*victim_addr))
-                            });
-                        for victim in victims.iter() {
-                            self.allocator.objects_at.remove_backward(victim);
-                        }
-
                         let sizes = victims
                             .iter()
                             .map(|victim| self.allocator.mapping[*victim].1)
                             .collect::<Vec<_>>();
-                        self.allocator.objects_at.insert_checked(*t, addr);
 
                         let this_device = self.device();
 
-                        todo!("fix: deallocation now occurs before ejection, which is wrong");
+                        let after_ejection = objects
+                            .iter()
+                            .copied()
+                            .map(|obj| {
+                                self.add_procedure(Box::new(move |handle| {
+                                    handle.allocator.objects_at.remove_forward(&obj);
+                                    Response::Complete(Ok(()))
+                                }))
+                            })
+                            .collect::<Vec<_>>();
+
+                        let t = t.clone();
+
+                        let after_all_ejection = self.add_procedure(Box::new(move |handle| {
+                            handle.allocator.objects_at.insert(t, addr);
+                            Response::Complete(Ok(()))
+                        }));
 
                         Response::Continue(
                             Continuation::collect_result(
@@ -233,10 +264,13 @@ where
                                     .into_iter()
                                     .zip(victims.into_iter().map(p))
                                     .zip(sizes.into_iter())
-                                    .map(move |((object, p), size)| {
+                                    .zip(after_ejection.into_iter())
+                                    .map(move |(((object, p), size), dc)| {
                                         Continuation::simple_eject(this_device, p, object, size)
+                                            .bind_result(move |_| dc)
                                     }),
                             )
+                            .bind_result(move |_| after_all_ejection)
                             .bind_result(move |_| Continuation::return_(Ok(p(addr)))),
                         )
                     } else {
@@ -254,19 +288,13 @@ where
                       machine: &mut Machine<ObjectId, P>,
                       _aux: &mut AuxiliaryInfo<Rt>| {
                     machine.handle(this_device).allocate(t, p);
-                    Response::Complete(Ok(p))
+                    Ok(p)
                 },
             )
         })
     }
 
-    fn deallocate<'f>(
-        &mut self,
-        t: &ObjectId,
-    ) -> Response<'f, planning::Machine<'s, ObjectId, P>, ObjectId, P, (), Rt>
-    where
-        's: 'f,
-    {
+    fn deallocate(&mut self, t: &ObjectId) -> allocator::AResp<'s, ObjectId, P, (), Rt> {
         self.tick();
 
         // fixme
@@ -290,7 +318,7 @@ where
 
         self.machine.deallocate(*t, p(addr_id));
 
-        Response::Complete(())
+        Response::Complete(Ok(()))
     }
 
     fn completeness(&mut self, object: ObjectId) -> Completeness {
@@ -305,7 +333,6 @@ where
     }
 
     fn reuse(&mut self, new_object: ObjectId, old_object: ObjectId) {
-
         // fixme
         println!("GPU reuse {:?} from {:?}", new_object, old_object);
 
@@ -318,18 +345,20 @@ where
         let next_use = self.aux.query_next_use(new_object, self.device());
         self.try_update_next_use(addr_id, next_use);
 
-        self.allocator.objects_at.insert_checked(new_object, addr_id);
+        self.allocator
+            .objects_at
+            .insert_checked(new_object, addr_id);
     }
 
-    fn claim<'f>(
+    fn claim(
         &mut self,
         t: &ObjectId,
         size: Size,
         from: Device,
-    ) -> Response<'f, planning::Machine<'s, ObjectId, P>, ObjectId, P, Result<(), Error<'s>>, Rt>
-    where
-        's: 'f,
-    {
+    ) -> allocator::AResp<'s, ObjectId, P, (), Rt> {
+        // fixme
+        println!("GPU claim {:?} from {:?}", t, from);
+
         if self.allocator.objects_at.get_forward(t).is_some() {
             return Response::Complete(Ok(()));
         }
@@ -337,19 +366,31 @@ where
         let this_device = self.device();
         let object = t.clone();
 
-        self.allocate(size, t)
-            .bind_result(move |p| Continuation::simple_provide(this_device, p, from, object))
+        let resp = self.allocate(size, t);
+        resp.bind_result(move |p| Continuation::simple_provide(this_device, p, from, object))
+    }
+
+    fn evoke(
+        &mut self,
+        procedure: allocator::ProcedureId,
+    ) -> allocator::AResp<'s, ObjectId, P, (), Rt> {
+        let p = self
+            .allocator
+            .procedures
+            .remove(&procedure)
+            .expect("expected procedure to be present");
+        p(self)
     }
 }
 
-pub struct Realizer<'a, 'm, 's, 'au, 'i, P, Rt: RuntimeType> {
-    allocator: &'a mut GpuAllocator<P>,
+pub struct Realizer<'a, 'm, 's, 'au, 'i, 'f, P, Rt: RuntimeType> {
+    allocator: &'a mut GpuAllocator<'f, P, Rt>,
     machine: realization::MachineHandle<'m, 's, P>,
     aux: &'au AuxiliaryInfo<'i, Rt>,
 }
 
-impl<'a, 'm, 's, 'au, 'i, P: UsizeId + 'static, Rt: RuntimeType>
-    AllocatorRealizer<'s, ObjectId, P, Rt> for Realizer<'a, 'm, 's, 'au, 'i, P, Rt>
+impl<'a, 'm, 's, 'au, 'i, 'f, P: UsizeId + 'static, Rt: RuntimeType>
+    AllocatorRealizer<'s, ObjectId, P, Rt> for Realizer<'a, 'm, 's, 'au, 'i, 'f, P, Rt>
 {
     fn allocate(&mut self, t: &ObjectId, pointer: &P) {
         // fixme
@@ -380,13 +421,13 @@ impl<'a, 'm, 's, 'au, 'i, P: UsizeId + 'static, Rt: RuntimeType>
         self.machine.gpu_deallocate(&rv);
     }
 
-    fn transfer<'f>(
+    fn transfer(
         &mut self,
         t: &ObjectId,
         from_pointer: &P,
         to_device: Device,
         to_pointer: &P,
-    ) -> realization::RealizationResponse<'f, 's, ObjectId, P, Result<(), Error<'s>>, Rt> {
+    ) -> realization::RealizationResponse<'s, ObjectId, P, Result<(), Error<'s>>, Rt> {
         Response::Continue(Continuation::transfer_object(
             self.machine.device(),
             *from_pointer,
@@ -397,18 +438,19 @@ impl<'a, 'm, 's, 'au, 'i, P: UsizeId + 'static, Rt: RuntimeType>
     }
 }
 
-impl<P: UsizeId + 'static, Rt: RuntimeType> Allocator<ObjectId, P, Rt> for GpuAllocator<P> {
-    fn handle<'a, 'b, 'c, 'd, 's, 'i>(
-        &'a mut self,
-        machine: MachineHandle<'b, 's, ObjectId, P>,
-        aux: &'c mut AuxiliaryInfo<'i, Rt>,
-    ) -> Box<dyn AllocatorHandle<'s, ObjectId, P, Rt> + 'd>
-    where
-        'a: 'd,
-        'b: 'd,
-        'c: 'd,
-        'i: 'd,
-    {
+impl<'s, P: UsizeId + 'static, Rt: RuntimeType> Allocator<'s, ObjectId, P, Rt>
+    for GpuAllocator<'s, P, Rt>
+{
+    fn handle<'a, 'b, 'c, 'd, 'i>(
+            &'a mut self,
+            machine: planning::MachineHandle<'b, 's, ObjectId, P>,
+            aux: &'c mut AuxiliaryInfo<'i, Rt>,
+        ) -> Box<dyn AllocatorHandle<'s, ObjectId, P, Rt> + 'd>
+        where
+            'a: 'd,
+            'b: 'd,
+            'c: 'd,
+            'i: 'd {
         Box::new(Handle {
             allocator: self,
             machine,
@@ -416,7 +458,7 @@ impl<P: UsizeId + 'static, Rt: RuntimeType> Allocator<ObjectId, P, Rt> for GpuAl
         })
     }
 
-    fn realizer<'a, 'b, 'c, 'd, 's, 'i>(
+    fn realizer<'a, 'b, 'c, 'd, 'i>(
         &'a mut self,
         machine: realization::MachineHandle<'b, 's, P>,
         aux: &'c mut AuxiliaryInfo<'i, Rt>,

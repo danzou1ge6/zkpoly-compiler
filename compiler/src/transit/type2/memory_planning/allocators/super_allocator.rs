@@ -1,20 +1,22 @@
 use crate::transit::type2::memory_planning::prelude::*;
 use planning::machine::*;
 
-pub struct SuperAllocator<P> {
+pub struct SuperAllocator<'f, P> {
     mapping: BTreeMap<ObjectId, P>,
     p_allocator: IdAllocator<P>,
     /// If `physical` is false, then this allocator will not instruct machine for allocation or deallocation.
     /// That is used in case when the underlying device is unplanned.
     physical: bool,
+    _phantom: PhantomData<&'f u32>,
 }
 
-impl<P> SuperAllocator<P> {
+impl<'f, P> SuperAllocator<'f, P> {
     pub fn for_unplanned() -> Self {
         Self {
             mapping: BTreeMap::new(),
             p_allocator: IdAllocator::new(),
             physical: false,
+            _phantom: PhantomData,
         }
     }
 
@@ -23,12 +25,13 @@ impl<P> SuperAllocator<P> {
             mapping: BTreeMap::new(),
             p_allocator,
             physical: true,
+            _phantom: PhantomData,
         }
     }
 }
 
 pub struct Handle<'s, 'a, 'm, P> {
-    allocator: &'a mut SuperAllocator<P>,
+    allocator: &'a mut SuperAllocator<'s, P>,
     machine: MachineHandle<'m, 's, ObjectId, P>,
 }
 
@@ -44,11 +47,7 @@ where
         self.allocator.mapping.get(&t).cloned()
     }
 
-    fn allocate<'f>(
-        &mut self,
-        _size: Size,
-        t: &ObjectId,
-    ) -> PlanningResponse<'f, 's, ObjectId, P, Result<P, Error<'s>>, Rt> {
+    fn allocate(&mut self, _size: Size, t: &ObjectId) -> allocator::AResp<'s, ObjectId, P, P, Rt> {
         if self.allocator.mapping.contains_key(t) {
             panic!("{:?} already allocated on {:?}", t, self.machine.device());
         }
@@ -63,10 +62,10 @@ where
             self.machine.allocate(t.clone(), p);
         }
 
-        Response::Complete(Ok(p))
+        Response::ok(p)
     }
 
-    fn deallocate<'f>(&mut self, t: &ObjectId) -> PlanningResponse<'f, 's, ObjectId, P, (), Rt> {
+    fn deallocate(&mut self, t: &ObjectId) -> allocator::AResp<'s, ObjectId, P, (), Rt> {
         let p = self
             .allocator
             .mapping
@@ -77,15 +76,15 @@ where
             self.machine.deallocate(t.clone(), p);
         }
 
-        Response::Complete(())
+        Response::ok(())
     }
 
-    fn claim<'f>(
+    fn claim(
         &mut self,
         t: &ObjectId,
         _size: Size,
         from: Device,
-    ) -> PlanningResponse<'f, 's, ObjectId, P, Result<(), Error<'s>>, Rt> {
+    ) -> allocator::AResp<'s, ObjectId, P, (), Rt> {
         if self.allocator.mapping.contains_key(t) {
             return Response::Complete(Ok(()));
         }
@@ -124,15 +123,22 @@ where
 
         self.allocator.mapping.insert(new_object.clone(), p);
     }
+
+    fn evoke(
+        &mut self,
+        _procedure: allocator::ProcedureId,
+    ) -> allocator::AResp<'s, ObjectId, P, (), Rt> {
+        panic!("this allocator does not produce continuation that evokes procedures")
+    }
 }
 
 pub struct Realizer<'a, 'm, 's, 'au, 'i, P, Rt: RuntimeType> {
-    allocator: &'a mut SuperAllocator<P>,
+    allocator: &'a mut SuperAllocator<'s, P>,
     machine: realization::MachineHandle<'m, 's, P>,
     aux: &'au AuxiliaryInfo<'i, Rt>,
 }
 
-impl<'a, 'm, 's, 'au, 'i, P, Rt: RuntimeType> AllocatorRealizer<'s, ObjectId, P, Rt>
+impl<'a, 'm, 's, 'au, 'i, 'f, P, Rt: RuntimeType> AllocatorRealizer<'s, ObjectId, P, Rt>
     for Realizer<'a, 'm, 's, 'au, 'i, P, Rt>
 where
     P: UsizeId + 'static,
@@ -150,13 +156,13 @@ where
         self.machine.cpu_deallocate(&rv);
     }
 
-    fn transfer<'f>(
+    fn transfer(
         &mut self,
         t: &ObjectId,
         from_pointer: &P,
         to_device: Device,
         to_pointer: &P,
-    ) -> RealizationResponse<'f, 's, ObjectId, P, Result<(), Error<'s>>, Rt> {
+    ) -> RealizationResponse<'s, ObjectId, P, Result<(), Error<'s>>, Rt> {
         Response::Continue(Continuation::transfer_object(
             self.machine.device(),
             *from_pointer,
@@ -167,11 +173,11 @@ where
     }
 }
 
-impl<P, Rt: RuntimeType> Allocator<ObjectId, P, Rt> for SuperAllocator<P>
+impl<'s, P, Rt: RuntimeType> Allocator<'s, ObjectId, P, Rt> for SuperAllocator<'s, P>
 where
     P: UsizeId + 'static,
 {
-    fn handle<'a: 'd, 'b: 'd, 'c: 'd, 'd, 's, 'i: 'd>(
+    fn handle<'a: 'd, 'b: 'd, 'c: 'd, 'd, 'i: 'd>(
         &'a mut self,
         machine: MachineHandle<'b, 's, ObjectId, P>,
         _aux: &'c mut AuxiliaryInfo<'i, Rt>,
@@ -182,7 +188,7 @@ where
         })
     }
 
-    fn realizer<'a, 'b, 'c, 'd, 's, 'i: 'd>(
+    fn realizer<'a, 'b, 'c, 'd, 'i: 'd>(
         &'a mut self,
         machine: realization::MachineHandle<'b, 's, P>,
         aux: &'c mut AuxiliaryInfo<'i, Rt>,

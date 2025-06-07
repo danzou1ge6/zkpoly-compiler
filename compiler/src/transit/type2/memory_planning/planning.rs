@@ -11,7 +11,7 @@ fn prepare_input<'s, 'a, 'i, P, Rt: RuntimeType>(
     planning_devices: &BTreeSet<Device>,
     unplanned_devices: &BTreeSet<Device>,
     obj_info: &object_info::Info<Rt>,
-    allocators: &mut AllocatorCollection<'a, ObjectId, P, Rt>,
+    allocators: &mut AllocatorCollection<'a, 's, ObjectId, P, Rt>,
     machine: &mut Machine<'s, ObjectId, P>,
     info: &mut AuxiliaryInfo<'i, Rt>
 ) -> Result<(), Error<'s>> where P: std::fmt::Debug
@@ -111,7 +111,7 @@ fn plan_devices<'s, 'a, P, Rt: RuntimeType>(
     planned_devices: &BTreeSet<Device>,
     planning_devices: &BTreeSet<Device>,
     unplanned_devices: &BTreeSet<Device>,
-    allocators_x: AllocatorCollection<'a, ObjectId, P, Rt>,
+    allocators_x: AllocatorCollection<'a, 's, ObjectId, P, Rt>,
     hd_info: &HardwareInfo,
 ) -> Result<OperationSeq<'s, ObjectId, P>, Error<'s>>
 where
@@ -126,7 +126,7 @@ where
         hd_info.n_gpus(),
     );
 
-    let mut unplanned_allocators: BTreeMap<_, _> = unplanned_devices
+    let mut unplanned_allocators: BTreeMap<_, SuperAllocator<'s, P>> = unplanned_devices
         .iter()
         .map(|d| (*d, SuperAllocator::for_unplanned()))
         .collect();
@@ -144,7 +144,7 @@ where
 
     // Include allocators for both planning devices and unplanned devices,
     // where unplanned devices' allocators are super allocators with unlimited space.
-    let mut allocators_x = unplanned_allocators.iter_mut().fold(allocators_x, |acc, (d, a )| acc.insert(*d, a as &mut (dyn Allocator<ObjectId, P, Rt> + 'static)) );
+    let mut allocators_x = unplanned_allocators.iter_mut().fold(allocators_x, |acc, (d, a)| acc.insert(*d, a as &mut (dyn Allocator<'s, ObjectId, P, Rt> + 's)) );
 
     let mut machine_x = Machine::new();
 
@@ -592,7 +592,7 @@ where
                         let resp = allocators
                             .handle(*d, machine, aux)
                             .deallocate(&object);
-                        resp.commit(allocators, machine, aux);
+                        resp.commit(allocators, machine, aux)?;
                     }
                 }
             }
@@ -612,8 +612,8 @@ pub fn transform_ops<'s, P, Rt: RuntimeType, Ca, Ga> (
 ) -> Result<OperationSeq<'s, ObjectId, P>, Error<'s>>
 where
     P: UsizeId + 'static,
-    Ca: Allocator<ObjectId, P, Rt> +'static,
-    Ga: Allocator<ObjectId, P, Rt> +'static,
+    Ca: Allocator<'s, ObjectId, P, Rt> + 's,
+    Ga: Allocator<'s, ObjectId, P, Rt> + 's,
 {
     let plan_phases: Vec<BTreeSet<Device>> = vec![
         (0..hd_info.n_gpus()).map(|i| Device::Gpu(i)).collect(),

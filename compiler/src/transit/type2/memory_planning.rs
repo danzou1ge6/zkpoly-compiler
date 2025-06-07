@@ -37,7 +37,7 @@ mod prelude {
     pub(super) use super::{
         address::{Addr, AddrId, AddrMapping},
         allocator::{
-            Allocator, AllocatorCollection, AllocatorHandle, AllocatorRealizer, Completeness,
+            self, Allocator, AllocatorCollection, AllocatorHandle, AllocatorRealizer, Completeness,
         },
         allocators,
         auxiliary::AuxiliaryInfo,
@@ -115,7 +115,7 @@ pub fn plan<'s, Rt: RuntimeType>(
     use allocators::{ConstantPool, CpuAllocator, GpuAllocator};
 
     let lbss = allocators::gpu_allocator::collect_integral_sizes(obj_info.sizes());
-    let mut gpu_allocators: Vec<GpuAllocator<Pointer>> = hd_info
+    let mut gpu_allocators: Vec<GpuAllocator<Pointer, Rt>> = hd_info
         .gpus()
         .map(|gpu| GpuAllocator::new(gpu.gpu_memory_limit, gpu.gpu_smithereen_space, lbss.clone()))
         .collect();

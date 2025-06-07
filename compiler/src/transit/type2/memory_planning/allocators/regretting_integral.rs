@@ -3,7 +3,7 @@ use crate::transit::type2::memory_planning::prelude::*;
 
 type Instant = Index;
 
-static DEBUG: bool = false;
+static DEBUG: bool = true;
 
 #[derive(Clone, Debug)]
 pub struct Transfer {
@@ -701,6 +701,10 @@ impl Allocator {
         append: &mut impl FnMut(AddrId, AddrId),
         new_addr_id: bool,
     ) {
+        if DEBUG {
+            println!("Reallocating Recursively ({:?}, {:?}) -> {:?}, new_addr_id = {}", lbs, addr, new_addr, new_addr_id);
+        }
+
         let (descend, nu) = {
             let mut block = self.blocks.get_mut(&lbs).unwrap().remove(&addr).unwrap();
 
@@ -818,7 +822,7 @@ impl Allocator {
             self.update_next_use_in_parent(addr, lbs, usize::from(next_use));
 
             if DEBUG {
-                println!("Decided victim at {:?}", mapping.get(addr_id));
+                println!("Decided victim at {:?}({:?})", addr_id, mapping.get(addr_id));
                 println!("{:#?}", self)
             }
 

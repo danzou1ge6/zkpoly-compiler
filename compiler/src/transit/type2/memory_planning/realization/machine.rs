@@ -442,11 +442,11 @@ where
     }
 }
 
-pub type RealizationResponse<'f, 's, T, P, R, Rt: RuntimeType> =
-    Response<'f, Machine<'s, P>, T, P, R, Rt>;
+pub type RealizationResponse<'s, T, P, R, Rt: RuntimeType> =
+    Response<'s, Machine<'s, P>, T, P, R, Rt>;
 
-impl<'f, 's, T, P, Rt: RuntimeType>
-    continuations::Continuation<'f, Machine<'s, P>, T, P, Result<(), Error<'s>>, Rt>
+impl<'s, T, P, Rt: RuntimeType>
+    continuations::Continuation<'s, Machine<'s, P>, T, P, Result<(), Error<'s>>, Rt>
 {
     pub fn transfer_object(
         from_device: Device,
@@ -467,7 +467,7 @@ impl<'f, 's, T, P, Rt: RuntimeType>
             let rv_from = ResidentalValue::new(Value::new(object, from_device, vn), from_pointer);
 
             machine.transfer_object(rv_to, rv_from);
-            Response::Complete(Ok(()))
+            Ok(())
         };
 
         continuations::Continuation::new(f)

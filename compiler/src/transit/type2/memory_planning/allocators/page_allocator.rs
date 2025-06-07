@@ -97,15 +97,30 @@ mod pages {
 
 use pages::{PageId, Pages};
 
-pub struct PageAllocator<P> {
+pub type Procedure<'f, P, Rt: RuntimeType> = Box<
+    dyn for<'a, 's, 'm, 'au, 'i> FnOnce(
+            &mut Handle<'a, 'm, 's, 'au, 'i, P, Rt>,
+        ) -> PlanningResponse<
+            'f,
+            's,
+            ObjectId,
+            P,
+            Result<(), Error<'s>>,
+            Rt,
+        > + 'f,
+>;
+
+pub struct PageAllocator<'f, P, Rt: RuntimeType> {
     page_size: u64,
     pages: Pages,
     living_objects: BTreeMap<ObjectId, (P, Size)>,
     page_mapping: Heap<P, Vec<PageId>>,
     page_objects: Heap<PageId, Option<ObjectId>>,
+    _procedures: BTreeMap<allocator::ProcedureId, Procedure<'f, P, Rt>>,
+    _procedure_id_allocator: IdAllocator<allocator::ProcedureId>,
 }
 
-impl<P> PageAllocator<P> {
+impl<'f, P, Rt: RuntimeType> PageAllocator<'f, P, Rt> {
     pub fn new(number_pages: usize, page_size: u64) -> Self {
         Self {
             page_size,
@@ -113,12 +128,14 @@ impl<P> PageAllocator<P> {
             living_objects: BTreeMap::new(),
             page_mapping: Heap::new(),
             page_objects: Heap::repeat(None, number_pages),
+            _procedures: BTreeMap::new(),
+            _procedure_id_allocator: IdAllocator::new(),
         }
     }
 }
 
 pub struct Handle<'a, 'm, 's, 'au, 'i, P, Rt: RuntimeType> {
-    allocator: &'a mut PageAllocator<P>,
+    allocator: &'a mut PageAllocator<'s, P, Rt>,
     machine: planning::MachineHandle<'m, 's, ObjectId, P>,
     aux: &'au mut AuxiliaryInfo<'i, Rt>,
 }
@@ -146,6 +163,7 @@ where
         let p = self.allocator.page_mapping.push(pages);
         self.allocator.living_objects.insert(object, (p, size));
 
+        self.machine.allocate(object, p);
         p
     }
 
@@ -161,6 +179,8 @@ where
             self.allocator.pages.free(*page);
             self.allocator.page_objects[*page] = None;
         });
+
+        self.machine.deallocate(victim_object, victim_pointer);
 
         (victim_pointer, victim_size)
     }
@@ -179,14 +199,7 @@ where
             .cloned()
     }
 
-    fn allocate<'f>(
-        &mut self,
-        size: Size,
-        t: &ObjectId,
-    ) -> Response<'f, planning::Machine<'s, ObjectId, P>, ObjectId, P, Result<P, Error<'s>>, Rt>
-    where
-        's: 'f,
-    {
+    fn allocate(&mut self, size: Size, t: &ObjectId) -> allocator::AResp<'s, ObjectId, P, P, Rt> {
         if let Some(_) = self.allocator.living_objects.get(t) {
             panic!("{:?} already allocated", t);
         }
@@ -200,7 +213,6 @@ where
 
         if let Some(pages) = self.allocator.pages.try_find_free_pages(number) {
             let p = self.allocate_pages(pages, *t, next_use, size);
-            self.machine.allocate(*t, p);
             Response::Complete(Ok(p))
         } else {
             let victim_page = self
@@ -210,8 +222,13 @@ where
                 .expect("since there are occupied pages, a victim page must can be found");
             let victim_object = self.allocator.page_objects[victim_page]
                 .expect("an occupied page must belong to some object");
-            let (victim_pointer, victim_size) = self.deallocate_pages(victim_object);
 
+            let (victim_pointer, victim_size) = self
+                .allocator
+                .living_objects
+                .get(&victim_object)
+                .cloned()
+                .unwrap_or_else(|| panic!("object {:?} not allocated", victim_object));
             let t = *t;
             let this_device = self.device();
 
@@ -224,22 +241,26 @@ where
                 )
                 .bind_result(move |_| {
                     Continuation::new(move |allocators, machine, aux| {
-                        allocators
+                        let resp = allocators
                             .handle(this_device, machine, aux)
-                            .allocate(size, &t)
+                            .deallocate(&victim_object);
+                        resp.commit(allocators, machine, aux)?;
+
+                        let resp = allocators
+                            .handle(this_device, machine, aux)
+                            .allocate(size, &t);
+                        resp.commit(allocators, machine, aux)
                     })
                 }),
             )
         }
     }
-    fn claim<'f>(
+    fn claim(
         &mut self,
         t: &ObjectId,
         size: Size,
         from: Device,
-    ) -> Response<'f, planning::Machine<'s, ObjectId, P>, ObjectId, P, Result<(), Error<'s>>, Rt>
-    where
-        's: 'f,
+    ) -> allocator::AResp<'s, ObjectId, P, (), Rt>
     {
         if self.allocator.living_objects.contains_key(t) {
             return Response::Complete(Ok(()));
@@ -260,16 +281,10 @@ where
         }
     }
 
-    fn deallocate<'f>(
-        &mut self,
-        t: &ObjectId,
-    ) -> Response<'f, planning::Machine<'s, ObjectId, P>, ObjectId, P, (), Rt>
-    where
-        's: 'f,
+    fn deallocate(&mut self, t: &ObjectId) -> allocator::AResp<'s, ObjectId, P, (), Rt>
     {
-        let (victim_pointer, _) = self.deallocate_pages(*t);
-        self.machine.deallocate(*t, victim_pointer);
-        Response::Complete(())
+        let _ = self.deallocate_pages(*t);
+        Response::ok(())
     }
 
     fn device(&self) -> Device {
@@ -282,5 +297,12 @@ where
         } else {
             panic!("object {:?} not allocated", old_object)
         }
+    }
+
+    fn evoke(
+        &mut self,
+        _procedure: allocator::ProcedureId,
+    ) -> allocator::AResp<'s, ObjectId, P, (), Rt> {
+        panic!("this allocator does not produce any procedures")
     }
 }
