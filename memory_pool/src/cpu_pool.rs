@@ -1,4 +1,4 @@
-use super::memory_pool::MemoryPool; // Assuming MemoryPool is pub in lib.rs or its module
+use super::buddy_memory_pool::MemoryPool; // Assuming MemoryPool is pub in lib.rs or its module
 use std::ffi::c_void; // For NonNull<c_void> from MemoryPool
 use std::mem;
 use std::ptr::NonNull;

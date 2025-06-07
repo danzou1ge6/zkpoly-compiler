@@ -4,7 +4,14 @@ use zkpoly_common::devices::DeviceType;
 
 use crate::{
     bindings::{
-        cuInit, cuMemAddressFree, cuMemAddressReserve, cuMemCreate, cuMemGetAllocationGranularity, cuMemMap, cuMemRelease, cuMemSetAccess, cuMemUnmap, CUdeviceptr, CUmemAccessDesc, CUmemAccess_flags_enum_CU_MEM_ACCESS_FLAGS_PROT_READWRITE, CUmemAllocationGranularity_flags_enum_CU_MEM_ALLOC_GRANULARITY_MINIMUM, CUmemAllocationProp, CUmemAllocationType_enum_CU_MEM_ALLOCATION_TYPE_PINNED, CUmemGenericAllocationHandle, CUmemLocation, CUmemLocationType_enum_CU_MEM_LOCATION_TYPE_DEVICE, CUmemLocationType_enum_CU_MEM_LOCATION_TYPE_HOST_NUMA
+        cuInit, cuMemAddressFree, cuMemAddressReserve, cuMemCreate, cuMemGetAllocationGranularity,
+        cuMemMap, cuMemRelease, cuMemSetAccess, cuMemUnmap, CUdeviceptr, CUmemAccessDesc,
+        CUmemAccess_flags_enum_CU_MEM_ACCESS_FLAGS_PROT_READWRITE,
+        CUmemAllocationGranularity_flags_enum_CU_MEM_ALLOC_GRANULARITY_MINIMUM,
+        CUmemAllocationProp, CUmemAllocationType_enum_CU_MEM_ALLOCATION_TYPE_PINNED,
+        CUmemGenericAllocationHandle, CUmemLocation,
+        CUmemLocationType_enum_CU_MEM_LOCATION_TYPE_DEVICE,
+        CUmemLocationType_enum_CU_MEM_LOCATION_TYPE_HOST_NUMA,
     },
     cuda_driver_check,
 };
@@ -13,6 +20,7 @@ pub struct CudaPageAllocator {
     device: DeviceType,
     page_size: usize,
     page_table: Vec<CUmemGenericAllocationHandle>, // handle for physical memory
+    page_table_ptr: Vec<CUdeviceptr>, // pointers to the allocated pages, used for moving pages around
 }
 
 fn get_location(device: &DeviceType) -> CUmemLocation {
@@ -65,12 +73,27 @@ impl CudaPageAllocator {
             );
 
             // now we start to allocate the page table
-            let page_table = (0..page_num)
+            let (page_table, page_table_ptr) = (0..page_num)
                 .into_iter()
                 .map(|_| {
                     let mut handle: CUmemGenericAllocationHandle = std::mem::zeroed();
                     cuda_driver_check!(cuMemCreate(&mut handle, page_size, &prop, 0));
-                    handle
+                    let mut va: CUdeviceptr = std::mem::zeroed();
+
+                    // allocate the virtual address space
+                    cuda_driver_check!(cuMemAddressReserve(&mut va, page_size, page_size, 0, 0));
+                    let access_desc = get_access_desc(&device);
+
+                    // map the pages to the virtual address space
+                    cuda_driver_check!(cuMemMap(
+                        va, page_size, 0, // must be 0
+                        handle, 0 // must be 0
+                    ));
+
+                    // set the access permission
+                    cuda_driver_check!(cuMemSetAccess(va, page_size, &access_desc, 1));
+
+                    (handle, va)
                 })
                 .collect();
 
@@ -78,11 +101,18 @@ impl CudaPageAllocator {
                 device,
                 page_size,
                 page_table,
+                page_table_ptr,
             }
         }
     }
 
-    pub fn allocate<T: Sized>(&self, va_size: usize, page_ids: Vec<usize>) -> *mut T {
+    pub fn get_page<T: Sized>(&self, page_id: usize) -> *mut T {
+        // get the virtual address of the page
+        assert!(page_id < self.page_table.len(), "page_id out of bounds");
+        self.page_table_ptr[page_id] as *mut T
+    }
+
+    pub fn allocate<T: Sized>(&self, va_size: usize, page_ids: &Vec<usize>) -> *mut T {
         // allocate a virtual address space, and map the pages to it
         // check the virtual address space size is larger than the page size
         assert!(va_size >= self.page_size * page_ids.len());
@@ -161,6 +191,7 @@ impl CudaPageAllocator {
                 cuda_driver_check!(cuMemUnmap(va + offset, self.page_size));
                 offset += self.page_size as u64;
             }
+            println!("va_size: {}, va: {}", va_size, va);
             // release the virtual address space
             cuda_driver_check!(cuMemAddressFree(va, va_size));
         }
@@ -196,7 +227,7 @@ mod tests {
         let va_size = page_size * num_pages_to_alloc * 2; // Reserve more VA than needed for the mapping
         let page_ids_to_alloc = vec![0, 1];
 
-        let ptr = allocator.allocate::<u8>(va_size, page_ids_to_alloc.clone());
+        let ptr = allocator.allocate::<u8>(va_size, &page_ids_to_alloc);
         assert!(!ptr.is_null());
 
         println!("Preparing data to write...");
@@ -226,7 +257,7 @@ mod tests {
             assert_eq!(host_data_write, host_data_read);
         }
         println!("Deallocating memory...");
-        allocator.deallocate(ptr, va_size,  num_pages_to_alloc);
+        allocator.deallocate(ptr, va_size, num_pages_to_alloc);
     }
 
     #[test]
@@ -244,7 +275,7 @@ mod tests {
         // VA size must be large enough for the sum of initial and extended pages.
         let va_size = page_size * (initial_pages_count + 3 + 2); // e.g., for 7 pages total if extending by 3
 
-        let ptr = allocator.allocate::<u8>(va_size, initial_page_ids.clone());
+        let ptr = allocator.allocate::<u8>(va_size, &initial_page_ids);
         assert!(!ptr.is_null());
 
         let initial_data_size = page_size * initial_pages_count;
@@ -356,7 +387,7 @@ mod tests {
         let page_ids_to_alloc = vec![0, 1]; // Requesting 2 pages (total size: page_size * 2)
         let insufficient_va_size = page_size * 1; // VA reserved for only 1 page
                                                   // This should panic because va_size is not enough for page_ids_to_alloc.len() pages.
-        allocator.allocate::<u8>(insufficient_va_size, page_ids_to_alloc);
+        allocator.allocate::<u8>(insufficient_va_size, &page_ids_to_alloc);
     }
 
     #[test]
@@ -372,7 +403,7 @@ mod tests {
         // Reserve VA for only 2 pages initially.
         let va_size_allocated_initially = page_size * 2;
 
-        let ptr = allocator.allocate::<u8>(va_size_allocated_initially, initial_page_ids);
+        let ptr = allocator.allocate::<u8>(va_size_allocated_initially, &initial_page_ids);
         assert!(!ptr.is_null());
 
         // Try to extend by 2 more pages. Total required: 1 (initial) + 2 (extend) = 3 pages.
@@ -422,7 +453,7 @@ mod tests {
         let va_size = page_size * num_pages_to_alloc * 2; // Reserve more VA
         let page_ids_to_alloc = vec![0, 1];
 
-        let ptr = allocator.allocate::<u8>(va_size, page_ids_to_alloc.clone());
+        let ptr = allocator.allocate::<u8>(va_size, &page_ids_to_alloc);
         assert!(!ptr.is_null());
 
         let data_size = page_size * num_pages_to_alloc;

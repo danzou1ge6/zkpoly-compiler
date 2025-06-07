@@ -1,7 +1,7 @@
 use std::ffi::c_void;
 use std::mem;
 use std::ptr::NonNull;
-use zkpoly_memory_pool::memory_pool::MemoryPool; // Use the crate name from Cargo.toml
+use zkpoly_memory_pool::buddy_memory_pool::MemoryPool; // Use the crate name from Cargo.toml
 
 // For test_complex, ensure rand crate is added to Cargo.toml dev-dependencies
 // e.g., rand = "0.8" (already present as per user's Cargo.toml)
