@@ -4,6 +4,7 @@ use crate::transit::type2::memory_planning::prelude::*;
 type Instant = Index;
 
 static DEBUG: bool = true;
+static DEBUG_SLABS: bool = false;
 
 #[derive(Clone, Debug)]
 pub struct Transfer {
@@ -341,7 +342,7 @@ impl Allocator {
             .update_next_use(usize::from(next_use));
         self.update_next_use_in_parent(addr, lbs, usize::from(next_use));
 
-        if DEBUG {
+        if DEBUG && DEBUG_SLABS {
             println!("{:#?}", self);
         }
     }
@@ -687,7 +688,9 @@ impl Allocator {
             } else {
                 println!("Allocation failed");
             }
-            println!("{:#?}", self);
+            if DEBUG_SLABS {
+                println!("{:#?}", self);
+            }
         }
         r
     }
@@ -823,7 +826,9 @@ impl Allocator {
 
             if DEBUG {
                 println!("Decided victim at {:?}({:?})", addr_id, mapping.get(addr_id));
-                println!("{:#?}", self)
+                if DEBUG_SLABS {
+                    println!("{:#?}", self)
+                }
             }
 
             return Some((addr_id, occupied_blocks));
@@ -902,7 +907,7 @@ impl Allocator {
 
         self._deallocate::<true>(addr, lbs.0);
 
-        if DEBUG {
+        if DEBUG && DEBUG_SLABS {
             println!("{:#?}", self);
         }
     }

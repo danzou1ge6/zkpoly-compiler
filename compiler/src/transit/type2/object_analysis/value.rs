@@ -118,7 +118,7 @@ impl Value {
         match &self.node {
             Typ::ScalarArray { len, meta } => {
                 if meta.len() == *len as u64 {
-                    let offset = (meta.begin() as i64 + delta as i64) % *len as i64;
+                    let offset = (meta.begin() as i64 + delta as i64).rem_euclid(*len as i64);
                     Some(self.with_node(Typ::ScalarArray {
                         len: *len,
                         meta: Slice::new(offset as u64, meta.len()),
@@ -152,7 +152,9 @@ impl Value {
     /// Check if the value is a sliced polynomial
     pub fn is_sliced(&self) -> bool {
         match &self.node {
-            Typ::ScalarArray { len: deg, meta } => *deg as usize != meta.len() as usize,
+            Typ::ScalarArray { len: deg, meta } => {
+                *deg as usize != meta.len() as usize || meta.begin() != 0
+            }
             _ => false,
         }
     }

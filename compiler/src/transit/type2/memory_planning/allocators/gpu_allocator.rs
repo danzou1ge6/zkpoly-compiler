@@ -163,11 +163,7 @@ where
         addr.map(p)
     }
 
-    fn allocate(
-        &mut self,
-        size: Size,
-        t: &ObjectId,
-    ) -> allocator::AResp<'s, ObjectId, P, P, Rt> {
+    fn allocate(&mut self, size: Size, t: &ObjectId) -> allocator::AResp<'s, ObjectId, P, P, Rt> {
         println!("GPU allocating {:?}", t);
 
         if self.allocator.objects_at.get_forward(t).is_some() {
@@ -177,7 +173,7 @@ where
         self.tick();
 
         let size = normalize_size(size);
-        let resp = match size {
+        match size {
             Size::Smithereen(ss) => {
                 if let Some(addr_id) = self.allocator.smithereen_allocator.allocate(
                     ss,
@@ -187,6 +183,7 @@ where
                     ),
                 ) {
                     self.allocator.objects_at.insert_checked(*t, addr_id);
+                    self.machine.allocate(*t, p(addr_id));
                     Response::Complete(Ok(p(addr_id)))
                 } else {
                     Response::Complete(Err(Error::InsufficientSmithereenSpace))
@@ -208,12 +205,15 @@ where
                             .objects_at
                             .remove_backward(&from)
                             .expect("expected object on device to reallocate it");
+                        self.machine.allocate(object, p(to));
                         self.machine
                             .transfer(self.device(), p(to), object, self.device(), p(from));
+                        self.machine.deallocate(object, p(from));
                         self.allocator.objects_at.insert_checked(object, to);
                     }
 
                     self.allocator.objects_at.insert_checked(*t, addr);
+                    self.machine.allocate(*t, p(addr));
                     Response::Complete(Ok(p(addr)))
                 } else {
                     if let Some((addr, victims)) =
@@ -243,20 +243,17 @@ where
                         let after_ejection = objects
                             .iter()
                             .copied()
-                            .map(|obj| {
+                            .zip(victims.iter().copied())
+                            .map(|(obj, victim_addr)| {
                                 self.add_procedure(Box::new(move |handle| {
                                     handle.allocator.objects_at.remove_forward(&obj);
+                                    handle.machine.deallocate(obj, p(victim_addr));
                                     Response::Complete(Ok(()))
                                 }))
                             })
                             .collect::<Vec<_>>();
 
                         let t = t.clone();
-
-                        let after_all_ejection = self.add_procedure(Box::new(move |handle| {
-                            handle.allocator.objects_at.insert(t, addr);
-                            Response::Complete(Ok(()))
-                        }));
 
                         Response::Continue(
                             Continuation::collect_result(
@@ -267,10 +264,20 @@ where
                                     .zip(after_ejection.into_iter())
                                     .map(move |(((object, p), size), dc)| {
                                         Continuation::simple_eject(this_device, p, object, size)
-                                            .bind_result(move |_| dc)
+                                            .bind_result({
+                                                move |_| dc
+                                            })
                                     }),
                             )
-                            .bind_result(move |_| after_all_ejection)
+                            .bind_result({
+                                let after_all_ejection =
+                                    self.add_procedure(Box::new(move |handle| {
+                                        handle.allocator.objects_at.insert(t, addr);
+                                        handle.machine.allocate(t, p(addr));
+                                        Response::Complete(Ok(()))
+                                    }));
+                                move |_| after_all_ejection
+                            })
                             .bind_result(move |_| Continuation::return_(Ok(p(addr)))),
                         )
                     } else {
@@ -278,20 +285,7 @@ where
                     }
                 }
             }
-        };
-
-        let this_device = self.device();
-        let t = *t;
-        resp.bind_result(move |p| {
-            Continuation::new(
-                move |_allocators: &mut AllocatorCollection<ObjectId, P, Rt>,
-                      machine: &mut Machine<ObjectId, P>,
-                      _aux: &mut AuxiliaryInfo<Rt>| {
-                    machine.handle(this_device).allocate(t, p);
-                    Ok(p)
-                },
-            )
-        })
+        }
     }
 
     fn deallocate(&mut self, t: &ObjectId) -> allocator::AResp<'s, ObjectId, P, (), Rt> {
@@ -442,15 +436,16 @@ impl<'s, P: UsizeId + 'static, Rt: RuntimeType> Allocator<'s, ObjectId, P, Rt>
     for GpuAllocator<'s, P, Rt>
 {
     fn handle<'a, 'b, 'c, 'd, 'i>(
-            &'a mut self,
-            machine: planning::MachineHandle<'b, 's, ObjectId, P>,
-            aux: &'c mut AuxiliaryInfo<'i, Rt>,
-        ) -> Box<dyn AllocatorHandle<'s, ObjectId, P, Rt> + 'd>
-        where
-            'a: 'd,
-            'b: 'd,
-            'c: 'd,
-            'i: 'd {
+        &'a mut self,
+        machine: planning::MachineHandle<'b, 's, ObjectId, P>,
+        aux: &'c mut AuxiliaryInfo<'i, Rt>,
+    ) -> Box<dyn AllocatorHandle<'s, ObjectId, P, Rt> + 'd>
+    where
+        'a: 'd,
+        'b: 'd,
+        'c: 'd,
+        'i: 'd,
+    {
         Box::new(Handle {
             allocator: self,
             machine,

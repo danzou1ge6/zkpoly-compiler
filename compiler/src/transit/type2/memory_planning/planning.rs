@@ -575,6 +575,11 @@ where
                             obj_info.size(object)
                         );
                         allocators.apply_continuation(c, machine, aux)?;
+
+                        let resp = allocators
+                            .handle(d, machine, aux)
+                            .deallocate(&object);
+                        resp.commit(allocators, machine, aux)?;
                     }
                 }
             }

@@ -76,7 +76,7 @@ impl<P> RegisterValue<P> {
 pub struct RegBooking<P> {
     /// [`RegisterId`]'s are allocated from this mapping.
     values: Heap<RegisterId, RegisterValue<P>>,
-    /// Mapping from each (object, device) pair to register.
+    /// Mapping from each (pointer, device) pair to register.
     p2reg: BTreeMap<(P, Device), BTreeSet<RegisterId>>,
 }
 

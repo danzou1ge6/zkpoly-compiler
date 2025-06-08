@@ -17,7 +17,9 @@ fn values_for_transfer<Rt: RuntimeType>(
         let (o2_deg, _) = obj_info.typ(from_object).unwrap_poly();
 
         assert!(slice.len() <= o2_deg as u64);
-        assert!(slice.begin() <= o2_deg as u64);
+        if !(slice.begin() <= o2_deg as u64) {
+            panic!("assertion failed for sliced transfer from {:?} to {:?}: from_object has degree {}, got slice {:?}", from_device, to_object, o2_deg, slice);
+        }
         assert!(obj_info.typ(to_object).unwrap_poly().0 == slice.len() as usize);
 
         (
