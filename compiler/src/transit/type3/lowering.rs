@@ -158,7 +158,7 @@ impl From<super::Device> for DeviceType {
     fn from(value: super::Device) -> Self {
         match value {
             super::Device::Cpu => DeviceType::CPU,
-            super::Device::Gpu => DeviceType::GPU { device_id: 0 },
+            super::Device::Gpu(i) => DeviceType::GPU { device_id: i as i32 },
             super::Device::Stack => DeviceType::CPU,
         }
     }
@@ -281,11 +281,11 @@ impl PrimaryThread {
     pub fn for_track(track: Track) -> Self {
         match track {
             Track::CoProcess => PrimaryThread::Gpu,
-            Track::Gpu => PrimaryThread::Gpu,
+            Track::Gpu(_) => PrimaryThread::Gpu,
             Track::MemoryManagement => PrimaryThread::MemoryManagement,
             Track::ToGpu => PrimaryThread::MemoryManagement,
             Track::FromGpu => PrimaryThread::MemoryManagement,
-            Track::GpuMemory => PrimaryThread::MemoryManagement,
+            Track::GpuMemory(_) => PrimaryThread::MemoryManagement,
             Track::Cpu => PrimaryThread::Cpu,
         }
     }
@@ -294,10 +294,10 @@ impl PrimaryThread {
 impl Stream {
     pub fn of_track(track: Track) -> Option<Self> {
         match track {
-            Track::Gpu => Some(Stream::Gpu),
+            Track::Gpu(_) => Some(Stream::Gpu),
             Track::ToGpu => Some(Stream::ToGpu),
             Track::FromGpu => Some(Stream::FromGpu),
-            Track::GpuMemory => Some(Stream::GpuMemory),
+            Track::GpuMemory(_) => Some(Stream::GpuMemory),
             _ => None,
         }
     }
@@ -411,16 +411,14 @@ fn lower_instruction<'s, Rt: RuntimeType>(
                 }
             }
         }
-        super::InstructionNode::GpuMalloc { id, addr } => {
+        super::InstructionNode::GpuMalloc { id, addr, .. } => {
             let var_id = reg_id2var_id(*id);
-
-            let physical_addr = t3chunk.gpu_addr_mapping[*addr].0 .0;
 
             emit(Instruction::Allocate {
                 device: DeviceType::from(t3chunk.register_devices[id]),
                 typ: t3chunk.register_types[*id].erase_p(),
                 id: var_id,
-                gpu_alloc: Some(zkpoly_runtime::instructions::GpuAlloc::Offset(physical_addr as usize)),
+                gpu_alloc: Some(zkpoly_runtime::instructions::GpuAlloc::Offset(addr.get() as usize)),
             });
         }
         super::InstructionNode::GpuFree { id } => emit(Instruction::Deallocate {

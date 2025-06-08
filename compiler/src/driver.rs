@@ -37,7 +37,6 @@ pub struct DebugOptions {
     debug_graph_scheduling: bool,
     debug_obj_def_use: bool,
     debug_obj_liveness: bool,
-    debug_obj_gpu_next_use: bool,
     debug_fresh_type3: bool,
     debug_extend_rewriting: bool,
     debug_track_splitting: bool,
@@ -66,7 +65,6 @@ impl DebugOptions {
             debug_obj_liveness: true,
             debug_cse: true,
             debug_arith_decide_mutable: true,
-            debug_obj_gpu_next_use: true,
             debug_fresh_type3: true,
             debug_extend_rewriting: true,
             debug_track_splitting: true,
@@ -93,7 +91,6 @@ impl DebugOptions {
             debug_graph_scheduling: false,
             debug_obj_def_use: false,
             debug_obj_liveness: false,
-            debug_obj_gpu_next_use: false,
             debug_fresh_type3: false,
             debug_extend_rewriting: false,
             debug_track_splitting: false,
@@ -101,6 +98,18 @@ impl DebugOptions {
             debug_instructions: false,
             type2_visualizer: Type2DebugVisualizer::Graphviz,
             log: false,
+        }
+    }
+
+    pub fn minimal(debug_dir: PathBuf) -> Self {
+        let r = Self::none(debug_dir);
+        Self {
+            debug_user_function_table: true,
+            debug_obj_def_use: true,
+            debug_obj_liveness: true,
+            debug_extend_rewriting: true,
+            debug_instructions: true,
+            ..r
         }
     }
 
@@ -144,9 +153,56 @@ impl DebugOptions {
 }
 
 #[derive(Debug, Clone)]
+pub struct GpuInfo {
+    pub(crate) gpu_memory_limit: u64,
+    pub(crate) gpu_smithereen_space: u64,
+}
+
+impl GpuInfo {
+    pub fn new(gpu_memory_limit: u64, gpu_smithereen_space: u64) -> Self {
+        Self {
+            gpu_memory_limit,
+            gpu_smithereen_space,
+        }
+    }
+
+    pub fn memory_limit(&self) -> u64 {
+        self.gpu_memory_limit
+    }
+
+    pub fn smithereen_space(&self) -> u64 {
+        self.gpu_smithereen_space
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct HardwareInfo {
-    pub gpu_memory_limit: u64,
-    pub gpu_smithereen_space: u64,
+    gpus: Vec<GpuInfo>
+}
+
+impl HardwareInfo {
+    pub fn n_gpus(&self) -> usize {
+        self.gpus.len()
+    }
+
+    pub fn gpus(&self) -> impl Iterator<Item = &GpuInfo> {
+        self.gpus.iter()
+    }
+
+    pub fn smallest_gpu_memory_integral_limit(&self) -> u64 {
+        self.gpus().map(|gpu| gpu.gpu_memory_limit - gpu.gpu_smithereen_space).min().expect("no GPU")
+    }
+
+    pub fn new() -> Self {
+        Self {
+            gpus: Vec::new()
+        }
+    }
+
+    pub fn with_gpu(mut self, gpu: GpuInfo) -> Self {
+        self.gpus.push(gpu);
+        self
+    }
 }
 
 static GRAPHVIZ_INTERACTIVE_HTML_1: &'static str = r#"
@@ -223,8 +279,7 @@ fn debug_type2_def_use<'s, Rt: std::fmt::Debug + RuntimeType>(
     g: &Digraph<type2::VertexId, type2::Vertex<'s, Rt>>,
     devices: &BTreeMap<type2::VertexId, type2::Device>,
     seq: &[type2::VertexId],
-    obj_def: &type2::object_analysis::ObjectsDef,
-    vertex_inputs: &type2::object_analysis::ObjectUse,
+    obj_def_use: &type2::object_analysis::cg_def_use::DefUse,
     visualizer: Type2DebugVisualizer,
 ) -> Option<JoinHandle<()>> {
     let fpath = match visualizer {
@@ -250,16 +305,13 @@ fn debug_type2_def_use<'s, Rt: std::fmt::Debug + RuntimeType>(
         true,
         |vid, _| match devices[&vid] {
             type2::Device::Cpu => Some("#FFFFFF"),
-            type2::Device::Gpu => Some("#A5D6A7"),
-            type2::Device::PreferGpu => {
-                panic!("PreferGpu should has been resolved during deciding device")
-            }
+            type2::Device::Gpu(_) => Some("#A5D6A7"),
         },
-        |vid, _| Some(format!("{:?}", &obj_def.values[&vid])),
+        |vid, _| Some(format!("{:?}", &obj_def_use.value(vid))),
         |vid, v| {
             Some(
                 v.uses()
-                    .zip(vertex_inputs.input_of(vid).map(|vv| format!("{:?}", vv)))
+                    .zip(obj_def_use.input_of(vid).map(|vv| format!("{:?}", vv)))
                     .collect(),
             )
         },

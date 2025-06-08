@@ -531,7 +531,7 @@ cudaError_t ssip_ntt(PolyPtr x, const u32 *twiddle, u32 log_len, cudaStream_t st
         
         u32 shared_size = (sizeof(u32) * ((1 << deg) + 1) * WORDS) * group_num;
         auto kernel = ssip_ntt_stage1_warp_no_twiddle<Field>;
-        CUDA_CHECK(cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, shared_size));
+        // CUDA_CHECK(cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, shared_size));
 
         kernel <<< block_num, block_sz, shared_size, stream >>>(x_iter, log_len, log_stride, deg, 1 << (deg - 1), twiddle);
         CUDA_CHECK(cudaGetLastError());

@@ -1,7 +1,9 @@
 use std::{collections::BTreeMap, marker::PhantomData};
 
-use crate::transit::{self, type2};
-use crate::utils::{log2, log2_ceil};
+use crate::transit::{
+    self,
+    type2::{self, memory_planning::MemoryBlock},
+};
 use zkpoly_common::{
     arith, define_usize_id,
     heap::{Heap, IdAllocator, RoHeap},
@@ -9,161 +11,45 @@ use zkpoly_common::{
 };
 use zkpoly_runtime::args::RuntimeType;
 
-use super::type2::memory_planning::MemoryBlock;
 use super::type2::object_analysis::ObjectId;
 
-define_usize_id!(AddrId);
-
-pub type AddrMapping = Heap<AddrId, (Addr, Size)>;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct IntegralSize(pub u32);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct SmithereenSize(pub u64);
-
-impl IntegralSize {
-    pub fn double(self) -> Self {
-        Self(self.0 + 1)
-    }
-}
-impl From<IntegralSize> for SmithereenSize {
-    fn from(size: IntegralSize) -> Self {
-        Self(2u64.pow(size.0))
-    }
-}
-
-impl TryFrom<SmithereenSize> for IntegralSize {
-    type Error = ();
-    fn try_from(value: SmithereenSize) -> Result<Self, Self::Error> {
-        if let Some(l) = value.0.checked_ilog2() {
-            if 2u64.pow(l) == value.0 {
-                Ok(IntegralSize(l))
-            } else {
-                Err(())
-            }
-        } else {
-            Err(())
-        }
-    }
-}
-
-impl TryFrom<Size> for IntegralSize {
-    type Error = ();
-    fn try_from(value: Size) -> Result<Self, Self::Error> {
-        match value {
-            Size::Integral(size) => Ok(size),
-            Size::Smithereen(ss) => ss.try_into(),
-        }
-    }
-}
-
-impl IntegralSize {
-    pub fn ceiling(size: SmithereenSize) -> Self {
-        Self(log2_ceil(size.0))
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Size {
-    Integral(IntegralSize),
-    Smithereen(SmithereenSize),
-}
-
-impl std::fmt::Display for Size {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Size::Integral(size) => write!(f, "2^{}", size.0),
-            Size::Smithereen(size) => write!(f, "{}", size.0),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Addr(pub(crate) u64);
-
-impl Addr {
-    pub fn offset(self, x: u64) -> Addr {
-        Addr(self.0 + x)
-    }
-
-    pub fn unoffset(self, x: u64) -> Addr {
-        Addr(self.0 - x)
-    }
-}
-
-impl Size {
-    pub fn new(s: u64) -> Self {
-        let ss = SmithereenSize(s);
-        if let Ok(is) = IntegralSize::try_from(ss) {
-            Self::Integral(is)
-        } else {
-            Self::Smithereen(ss)
-        }
-    }
-
-    pub fn unwrap_integral(self) -> IntegralSize {
-        match self {
-            Size::Integral(size) => size,
-            Size::Smithereen(..) => panic!("unwrap_integral on Size::Smithereen"),
-        }
-    }
-}
-
-impl From<u64> for Size {
-    fn from(size: u64) -> Self {
-        Self::new(size)
-    }
-}
-
-impl std::ops::Div<u64> for Size {
-    type Output = Size;
-    fn div(self, rhs: u64) -> Self::Output {
-        match self {
-            Size::Integral(IntegralSize(is)) => {
-                if let Some(log) = log2(rhs) {
-                    Self::Integral(IntegralSize(is - log))
-                } else {
-                    panic!("can only divide by power of 2")
-                }
-            }
-            Size::Smithereen(SmithereenSize(ss)) => Self::Smithereen(SmithereenSize(ss / rhs)),
-        }
-    }
-}
-
-impl std::ops::Mul<u64> for Size {
-    type Output = Size;
-    fn mul(self, rhs: u64) -> Self::Output {
-        match self {
-            Size::Integral(IntegralSize(is)) => {
-                if let Some(log) = log2(rhs) {
-                    Self::Integral(IntegralSize(is + log))
-                } else {
-                    panic!("can only multiply by power of 2")
-                }
-            }
-            Size::Smithereen(SmithereenSize(ss)) => Self::Smithereen(SmithereenSize(ss * rhs)),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Device {
-    Gpu,
+    Gpu(usize),
     Cpu,
     Stack,
 }
 
 impl Device {
-    pub fn iter() -> impl Iterator<Item = Device> {
-        [Device::Gpu, Device::Cpu, Device::Stack].into_iter()
+    pub fn iter(n_gpus: usize) -> impl Iterator<Item = Device> {
+        (0..n_gpus)
+            .map(Self::Gpu)
+            .chain([Device::Cpu, Device::Stack].into_iter())
+    }
+
+    /// Returns the parent memory device of current one, if any.
+    /// Cold objects are rejected to a memory device's parent device.
+    pub fn parent(self) -> Option<Self> {
+        use Device::*;
+        match self {
+            Gpu(..) => Some(Cpu),
+            Cpu => None,
+            Stack => None,
+        }
+    }
+
+    pub fn for_execution_on(device: type2::Device) -> Self {
+        use type2::Device::*;
+        match device {
+            Gpu(i) => Device::Gpu(i),
+            Cpu => Device::Cpu,
+        }
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct DeviceSpecific<T> {
-    pub gpu: T,
+    pub gpu: Vec<T>,
     pub cpu: T,
     pub stack: T,
 }
@@ -171,7 +57,7 @@ pub struct DeviceSpecific<T> {
 impl<T> DeviceSpecific<T> {
     pub fn get_device(&self, device: Device) -> &T {
         match device {
-            Device::Gpu => &self.gpu,
+            Device::Gpu(i) => &self.gpu[i],
             Device::Cpu => &self.cpu,
             Device::Stack => &self.stack,
         }
@@ -179,9 +65,25 @@ impl<T> DeviceSpecific<T> {
 
     pub fn get_device_mut(&mut self, device: Device) -> &mut T {
         match device {
-            Device::Gpu => &mut self.gpu,
+            Device::Gpu(i) => &mut self.gpu[i],
             Device::Cpu => &mut self.cpu,
             Device::Stack => &mut self.stack,
+        }
+    }
+
+    pub fn map<U>(self, mut f: impl FnMut(T) -> U) -> DeviceSpecific<U> {
+        DeviceSpecific {
+            gpu: self.gpu.into_iter().map(&mut f).collect(),
+            cpu: (&mut f)(self.cpu),
+            stack: f(self.stack),
+        }
+    }
+
+    pub fn default(n_gpus: usize) -> Self where T: Default {
+        DeviceSpecific {
+            gpu: (0..n_gpus).map(|_| Default::default()).collect(),
+            cpu: T::default(),
+            stack: T::default(),
         }
     }
 }
@@ -190,7 +92,12 @@ impl std::ops::Sub<Self> for DeviceSpecific<bool> {
     type Output = Self;
     fn sub(self, rhs: Self::Output) -> Self::Output {
         DeviceSpecific {
-            gpu: self.gpu && !rhs.gpu,
+            gpu: self
+                .gpu
+                .into_iter()
+                .zip(rhs.gpu)
+                .map(|(a, b)| a && !b)
+                .collect(),
             cpu: self.cpu && !rhs.cpu,
             stack: self.stack && !rhs.stack,
         }
@@ -204,10 +111,28 @@ pub mod template {
 
     use crate::{ast::PolyInit, transit::type2};
 
-    use super::Size;
+    use type2::object_analysis::size::Size;
 
     #[derive(Debug, Clone)]
-    pub enum InstructionNode<I, A, V> {
+    pub struct PhysicalAddr(usize);
+
+    #[derive(Debug, Clone)]
+    pub struct VirtualAddr(usize);
+
+    impl From<u64> for VirtualAddr {
+        fn from(value: u64) -> Self {
+            Self(value as usize)
+        }
+    }
+
+    impl VirtualAddr {
+        pub fn get(&self) -> usize {
+            self.0
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    pub enum InstructionNode<I, V> {
         Type2 {
             /// (a, Some(b)) says that a use b inplace, so we need move b to a when lowering this to
             /// runtime instruction.
@@ -219,7 +144,8 @@ pub mod template {
         },
         GpuMalloc {
             id: I,
-            addr: A,
+            addr: VirtualAddr,
+            size: u64
         },
         GpuFree {
             id: I,
@@ -264,7 +190,7 @@ pub mod template {
         },
     }
 
-    impl<I, A, V> InstructionNode<I, A, V>
+    impl<I, V> InstructionNode<I, V>
     where
         I: Copy,
     {
@@ -349,7 +275,7 @@ pub type VertexNode = type2::template::VertexNode<
     type2::user_function::Id,
 >;
 
-pub type InstructionNode = template::InstructionNode<RegisterId, AddrId, VertexNode>;
+pub type InstructionNode = template::InstructionNode<RegisterId, VertexNode>;
 
 #[derive(Debug, Clone)]
 pub struct Instruction<'s> {
@@ -373,11 +299,11 @@ impl<'s> Instruction<'s> {
 pub enum Track {
     MemoryManagement,
     CoProcess,
-    Gpu,
+    Gpu(usize),
     Cpu,
     ToGpu,
     FromGpu,
-    GpuMemory,
+    GpuMemory(usize),
 }
 
 impl Track {
@@ -390,28 +316,40 @@ impl Track {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct TrackSpecific<T> {
     pub(crate) memory_management: T,
     pub(crate) co_process: T,
-    pub(crate) gpu: T,
+    pub(crate) gpu: Vec<T>,
     pub(crate) cpu: T,
     pub(crate) to_gpu: T,
     pub(crate) from_gpu: T,
-    pub(crate) gpu_memory: T,
+    pub(crate) gpu_memory: Vec<T>,
 }
 
 impl<T> TrackSpecific<T> {
+    pub fn default(n_gpus: usize) -> Self where T: Default {
+        Self {
+            memory_management: T::default(),
+            co_process: T::default(),
+            gpu: (0..n_gpus).map(|_| T::default()).collect(),
+            cpu: T::default(),
+            to_gpu: T::default(),
+            from_gpu: T::default(),
+            gpu_memory: (0..n_gpus).map(|_| T::default()).collect(),
+        }
+    }
+
     pub fn get_track(&self, track: Track) -> &T {
         use Track::*;
         match track {
             MemoryManagement => &self.memory_management,
             CoProcess => &self.co_process,
-            Gpu => &self.gpu,
+            Gpu(i) => &self.gpu[i],
             Cpu => &self.cpu,
             ToGpu => &self.to_gpu,
             FromGpu => &self.from_gpu,
-            GpuMemory => &self.gpu_memory,
+            GpuMemory(i) => &self.gpu_memory[i],
         }
     }
 
@@ -420,40 +358,40 @@ impl<T> TrackSpecific<T> {
         match track {
             MemoryManagement => &mut self.memory_management,
             CoProcess => &mut self.co_process,
-            Gpu => &mut self.gpu,
+            Gpu(i) => &mut self.gpu[i],
             Cpu => &mut self.cpu,
             ToGpu => &mut self.to_gpu,
             FromGpu => &mut self.from_gpu,
-            GpuMemory => &mut self.gpu_memory,
+            GpuMemory(i) => &mut self.gpu_memory[i],
         }
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (Track, &T)> {
+    pub fn iter(&self, n_gpus: usize) -> impl Iterator<Item = (Track, &T)> {
         use Track::*;
         vec![
             (MemoryManagement, &self.memory_management),
             (CoProcess, &self.co_process),
-            (Gpu, &self.gpu),
             (Cpu, &self.cpu),
             (ToGpu, &self.to_gpu),
             (FromGpu, &self.from_gpu),
-            (GpuMemory, &self.gpu_memory),
         ]
         .into_iter()
+        .chain((0..n_gpus).map(|i| (Gpu(i), &self.gpu[i])))
+        .chain((0..n_gpus).map(|i| (GpuMemory(i), &self.gpu_memory[i])))
     }
 
-    pub fn new(t: T) -> Self
+    pub fn new(t: T, n_gpus: usize) -> Self
     where
         T: Clone,
     {
         Self {
             memory_management: t.clone(),
             co_process: t.clone(),
-            gpu: t.clone(),
+            gpu: vec![t.clone(); n_gpus],
             cpu: t.clone(),
             to_gpu: t.clone(),
             from_gpu: t.clone(),
-            gpu_memory: t,
+            gpu_memory: vec![t.clone(); n_gpus],
         }
     }
 }
@@ -462,9 +400,8 @@ impl Track {
     pub fn on_device(device: type2::Device) -> Track {
         use type2::Device::*;
         match device {
-            Gpu => Track::Gpu,
+            Gpu(i) => Track::Gpu(i),
             Cpu => Track::Cpu,
-            PreferGpu => panic!("PreferGpu should have been resolved"),
         }
     }
 }
@@ -472,13 +409,14 @@ impl Track {
 fn determine_transfer_track(from: Device, to: Device) -> Track {
     use Device::*;
     match (from, to) {
-        (Gpu, Cpu) => Track::FromGpu,
-        (Gpu, Stack) => Track::FromGpu,
-        (Gpu, Gpu) => Track::GpuMemory,
-        (Cpu, Gpu) => Track::ToGpu,
+        (Gpu(..), Cpu) => Track::FromGpu,
+        (Gpu(..), Stack) => Track::FromGpu,
+        (Gpu(i), Gpu(j)) if (i == j) => Track::GpuMemory(i),
+        (Gpu(_), Gpu(_)) => Track::ToGpu,
+        (Cpu, Gpu(..)) => Track::ToGpu,
         (Cpu, Stack) => panic!("Cpu cannot transfer to Stack"),
         (Cpu, Cpu) => Track::Cpu,
-        (Stack, Gpu) => Track::ToGpu,
+        (Stack, Gpu(..)) => Track::ToGpu,
         (Stack, Cpu) => panic!("Stack cannot transfer to Cpu"),
         (Stack, Stack) => Track::Cpu,
     }
@@ -491,10 +429,11 @@ impl<'s> Instruction<'s> {
 
         let executor_of = |md| match md {
             Device::Cpu | Device::Stack => type2::Device::Cpu,
-            Device::Gpu => type2::Device::Gpu,
+            Device::Gpu(i) => type2::Device::Gpu(i),
         };
 
         match &self.node {
+            Type2 { vertex: type2::template::VertexNode::Return(..), ..} => MemoryManagement,
             Type2 { vertex, ids, .. } => vertex.track(executor_of(devices(ids[0].0))),
             GpuMalloc { .. } => MemoryManagement,
             GpuFree { .. } => MemoryManagement,
@@ -559,6 +498,8 @@ impl<'s> Instruction<'s> {
     }
 }
 define_usize_id!(InstructionIndex);
+
+pub use template::VirtualAddr;
 
 pub struct RegisterAllocator {
     register_types: Heap<RegisterId, typ::Typ>,
@@ -630,7 +571,6 @@ pub struct Chunk<'s, Rt: RuntimeType> {
     pub(crate) instructions: Vec<Instruction<'s>>,
     pub(crate) register_types: RoHeap<RegisterId, typ::Typ>,
     pub(crate) register_devices: BTreeMap<RegisterId, Device>,
-    pub(crate) gpu_addr_mapping: AddrMapping,
     pub(crate) reg_id_allocator: IdAllocator<RegisterId>,
     pub(crate) reg_memory_blocks: BTreeMap<RegisterId, MemoryBlock>,
     pub(crate) obj_id_allocator: IdAllocator<ObjectId>,

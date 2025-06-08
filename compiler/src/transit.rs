@@ -28,10 +28,19 @@ impl From<std::panic::Location<'static>> for Location<'static> {
     }
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Clone, serde::Serialize)]
 pub struct SourceInfo<'s> {
     location: Vec<Location<'s>>,
     name: Option<String>,
+}
+
+impl<'s> std::fmt::Debug for SourceInfo<'s> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SourceInfo")
+            .field("location", &self.location[0])
+            .field("name", &self.name)
+            .finish()
+    }
 }
 
 mod source_info_deserilize {

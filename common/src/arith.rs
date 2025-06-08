@@ -126,13 +126,17 @@ pub enum Arith<Index> {
 
 impl<I> Arith<I>
 where
-    I: Copy,
+    I: Clone,
 {
-    pub fn uses<'s>(&'s self) -> Box<dyn Iterator<Item = I> + 's> {
+    pub fn uses_ref<'s>(&'s self) -> Box<dyn Iterator<Item = &'s I> + 's> {
         match self {
-            Arith::Bin(_, lhs, rhs) => Box::new([*lhs, *rhs].into_iter()),
-            Arith::Unr(_, rhs) => Box::new([*rhs].into_iter()),
+            Arith::Bin(_, lhs, rhs) => Box::new([lhs, rhs].into_iter()),
+            Arith::Unr(_, rhs) => Box::new([rhs].into_iter()),
         }
+    }
+
+    pub fn uses<'s>(&'s self) -> impl Iterator<Item = I> + 's {
+        self.uses_ref().cloned()
     }
 
     pub fn uses_mut<'a>(&'a mut self) -> Box<dyn Iterator<Item = &'a mut I> + 'a> {
@@ -144,9 +148,21 @@ where
 
     pub fn relabeled<I2>(&self, f: &mut impl FnMut(I) -> I2) -> Arith<I2> {
         match self {
-            Arith::Bin(op, lhs, rhs) => Arith::Bin(op.clone(), f(*lhs), f(*rhs)),
-            Arith::Unr(op, rhs) => Arith::Unr(op.clone(), f(*rhs)),
+            Arith::Bin(op, lhs, rhs) => Arith::Bin(op.clone(), f(lhs.clone()), f(rhs.clone())),
+            Arith::Unr(op, rhs) => Arith::Unr(op.clone(), f(rhs.clone())),
         }
+    }
+
+    pub fn try_relabeled<I2, Er>(
+        &self,
+        f: &mut impl FnMut(I) -> Result<I2, Er>,
+    ) -> Result<Arith<I2>, Er> {
+        let r = match self {
+            Arith::Bin(op, lhs, rhs) => Arith::Bin(op.clone(), f(lhs.clone())?, f(rhs.clone())?),
+            Arith::Unr(op, rhs) => Arith::Unr(op.clone(), f(rhs.clone())?),
+        };
+
+        Ok(r)
     }
 }
 
@@ -263,7 +279,7 @@ where
 {
     pub fn uses<'s>(&'s self) -> Box<dyn Iterator<Item = ArithIndex> + 's> {
         match &self.op {
-            Operation::Arith(a) => a.uses(),
+            Operation::Arith(a) => Box::new(a.uses()),
             Operation::Output {
                 store_node,
                 in_node,
@@ -317,7 +333,7 @@ pub struct ArithGraph<OuterId, ArithIndex> {
 impl<OuterId, ArithIndex> ArithGraph<OuterId, ArithIndex>
 where
     ArithIndex: UsizeId,
-    OuterId: Copy,
+    OuterId: Clone,
 {
     pub fn decide_chunking<T: Sized>(&mut self, usable_size: u64) -> Option<u64> {
         let (inputs_space, outputs_space) = self.space_needed::<T>();
@@ -481,6 +497,12 @@ where
             .map(|&i| self.g.vertex(i).op.unwrap_input_outerid().clone())
     }
 
+    pub fn uses_ref<'s>(&'s self) -> impl Iterator<Item = &'s OuterId> + 's {
+        self.inputs
+            .iter()
+            .map(|&i| self.g.vertex(i).op.unwrap_input_outerid())
+    }
+
     pub fn mutable_uses<'a>(&'a self) -> Box<dyn Iterator<Item = OuterId> + 'a> {
         let mut results = Vec::new();
         self.g.0 .0.iter().for_each(|v| {
@@ -491,7 +513,7 @@ where
             } = &v.op
             {
                 if *mutability == Mutability::Mut {
-                    results.push(*outer_id);
+                    results.push(outer_id.clone());
                 }
             }
         });
@@ -521,7 +543,7 @@ where
             .iter()
             .map(|output_id| {
                 if let Operation::Output { in_node, .. } = &self.g.vertex(*output_id).op {
-                    in_node.map(|in_id| *self.g.vertex(in_id).op.unwrap_input_outerid())
+                    in_node.map(|in_id| self.g.vertex(in_id).op.unwrap_input_outerid().clone())
                 } else {
                     panic!("output nodes should have op Output")
                 }
@@ -540,55 +562,66 @@ where
         });
         Box::new(results.into_iter())
     }
-    pub fn relabeled<I2: Default + Ord + std::fmt::Debug>(
+
+    pub fn try_relabeled<I2: Default + Ord + std::fmt::Debug, Er>(
         &self,
-        mut mapping: impl FnMut(OuterId) -> I2,
-    ) -> ArithGraph<I2, ArithIndex> {
+        mut mapping: impl FnMut(OuterId) -> Result<I2, Er>,
+    ) -> Result<ArithGraph<I2, ArithIndex>, Er> {
         let mut used_outer_ids = BTreeSet::new(); // as we have done CSE, outer ids should be unique
-        let heap = self.g.map_by_ref(&mut |_, v| {
-            let op = match &v.op {
-                Operation::Input {
-                    outer_id,
-                    typ,
-                    mutability,
-                } => {
-                    let new_outer_id = mapping(*outer_id);
-                    if used_outer_ids.contains(&new_outer_id) {
-                        panic!("duplicated outer id {:?}", new_outer_id)
-                    }
-                    used_outer_ids.insert(new_outer_id);
+        let heap = self
+            .g
+            .map_by_ref_result(&mut |_, v: &ArithVertex<OuterId, ArithIndex>| {
+                let op = match &v.op {
                     Operation::Input {
-                        outer_id: mapping(*outer_id),
-                        typ: typ.clone(),
-                        mutability: mutability.clone(),
+                        outer_id,
+                        typ,
+                        mutability,
+                    } => {
+                        let new_outer_id = mapping(outer_id.clone())?;
+                        if used_outer_ids.contains(&new_outer_id) {
+                            panic!("duplicated outer id {:?}", new_outer_id)
+                        }
+                        used_outer_ids.insert(new_outer_id);
+                        Operation::Input {
+                            outer_id: mapping(outer_id.clone())?,
+                            typ: typ.clone(),
+                            mutability: mutability.clone(),
+                        }
                     }
-                }
-                Operation::Arith(arith) => Operation::Arith(arith.clone()),
-                Operation::Output {
-                    typ,
-                    store_node,
-                    in_node,
-                    ..
-                } => Operation::Output {
-                    // This field is meaningless before kernel generation
-                    outer_id: I2::default(),
-                    typ: typ.clone(),
-                    store_node: *store_node,
-                    in_node: in_node.clone(),
-                },
-                Operation::Todo => Operation::Todo,
-            };
+                    Operation::Arith(arith) => Operation::Arith(arith.clone()),
+                    Operation::Output {
+                        typ,
+                        store_node,
+                        in_node,
+                        ..
+                    } => Operation::Output {
+                        // This field is meaningless before kernel generation
+                        outer_id: I2::default(),
+                        typ: typ.clone(),
+                        store_node: *store_node,
+                        in_node: in_node.clone(),
+                    },
+                    Operation::Todo => Operation::Todo,
+                };
 
-            ArithVertex { op }
-        });
+                Ok(ArithVertex { op })
+            })?;
 
-        ArithGraph {
+        Ok(ArithGraph {
             outputs: self.outputs.clone(),
             inputs: self.inputs.clone(),
             g: heap,
             poly_repr: self.poly_repr.clone(),
             poly_degree: self.poly_degree,
-        }
+        })
+    }
+
+    pub fn relabeled<I2: Default + Ord + std::fmt::Debug>(
+        &self,
+        mut mapping: impl FnMut(OuterId) -> I2,
+    ) -> ArithGraph<I2, ArithIndex> {
+        self.try_relabeled::<_, ()>(|outer_id| Ok(mapping(outer_id)))
+            .unwrap()
     }
 }
 

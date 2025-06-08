@@ -144,10 +144,11 @@ pub fn write_graph_with_optional_seq<'s, Ty: Debug>(
         let (color, style) = if let Some(color) = override_color(vid, vertex) {
             (vis::Color::new(color), vis::BorderStyle::Solid)
         } else {
+            use super::DevicePreference::*;
             let style = match vertex.node().device() {
-                Device::Gpu => vis::BorderStyle::Solid,
-                Device::Cpu => vis::BorderStyle::Dotted,
-                Device::PreferGpu => vis::BorderStyle::Dashed,
+                Gpu => vis::BorderStyle::Solid,
+                Cpu => vis::BorderStyle::Dotted,
+                PreferGpu => vis::BorderStyle::Dashed,
             };
             (vis::Color::new(get_node_color(vertex.node())), style)
         };

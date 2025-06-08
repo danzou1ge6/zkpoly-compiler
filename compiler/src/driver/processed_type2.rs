@@ -1,14 +1,13 @@
 use crate::transit::type3;
 
 use super::fresh_type3::FreshType3;
-use std::io::Write;
 use zkpoly_common::load_dynamic::Libs;
 use zkpoly_memory_pool::CpuMemoryPool;
 use zkpoly_runtime::args::{self, RuntimeType};
 
 use super::{
-    ast, check_type2_dag, debug_partial_typed_type2, debug_type2, debug_type2_def_use,
-    debug_type2_with_seq, type2, DebugOptions, Error, HardwareInfo, PanicJoinHandler, SubDigraph,
+    debug_type2, debug_type2_def_use, debug_type2_with_seq, type2, DebugOptions, Error,
+    HardwareInfo, PanicJoinHandler, SubDigraph,
 };
 
 pub struct ProcessedType2<'s, Rt: RuntimeType> {
@@ -61,30 +60,21 @@ impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
         )?;
 
         // - Object Analysis
-        let (mut obj_def, mut obj_id_allocator) = options.log_suround(
+        let (obj_def_use, _) = options.log_suround(
             "Analyzing object definitions (before deciding arith inputs)",
             || {
-                Ok(type2::object_analysis::analyze_def(&g, &seq, |vid| {
-                    devices[&vid]
-                }))
+                Ok(type2::object_analysis::cg_def_use::DefUse::analyze(
+                    &g,
+                    &t2uf_tab,
+                    &seq,
+                    t2cg.output,
+                    |vid| devices[&vid],
+                    hardware_info,
+                ))
             },
             "Done.",
         )?;
 
-        let vertex_inputs = options.log_suround(
-            "Planning vertex inputs (before deciding arith inputs)",
-            || {
-                Ok(type2::object_analysis::plan_vertex_inputs(
-                    &g,
-                    &mut obj_def,
-                    |vid| devices[&vid],
-                    &mut obj_id_allocator,
-                ))
-            },
-            "Done",
-        )?;
-
-        let obj_def = obj_def;
         if options.debug_obj_def_use {
             let fpath = options
                 .debug_dir
@@ -94,35 +84,17 @@ impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
                 &t2cg.g,
                 &devices,
                 &seq,
-                &obj_def,
-                &vertex_inputs,
+                &obj_def_use,
                 options.type2_visualizer,
             ));
         }
-
-        let obj_dies_after = options.log_suround(
-            "Analyzing object lifetimes (before deciding arith inputs)",
-            || {
-                let d = type2::object_analysis::analyze_die_after(
-                    &g,
-                    &seq,
-                    &obj_def,
-                    &vertex_inputs,
-                    &vertex_inputs,
-                );
-                Ok(d)
-            },
-            "Done",
-        )?;
 
         if options.debug_obj_liveness {
             let fpath = options
                 .debug_dir
                 .join("type2_object_liveness_before_arith_decide_mutable.txt");
             let mut f = std::fs::File::create(&fpath).unwrap();
-            obj_dies_after.iter().for_each(|(d, m)| {
-                write!(f, "{:?}\n{:?}\n", d, m).unwrap();
-            });
+            obj_def_use.debug_dies_after(&mut f).unwrap();
         }
 
         // - Decide inplace inputs of arithmetic subgraphs
@@ -131,8 +103,9 @@ impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
             || {
                 Ok(type2::arith_decide_mutable::decide_mutable(
                     t2cg,
-                    &obj_def,
-                    &obj_dies_after,
+                    &seq,
+                    &obj_def_use,
+                    |vid| devices[&vid],
                 ))
             },
             "Done",
@@ -151,30 +124,21 @@ impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
         // - Object Analysis Again (since the mutable decision might have changed the value definition)
         let g = SubDigraph::new(&t2cg.g, t2cg.g.connected_component(t2cg.output));
 
-        let (mut obj_def, mut obj_id_allocator) = options.log_suround(
+        let (obj_def_use, _obj_id_allocator) = options.log_suround(
             "Analyzing object definitions",
             || {
-                Ok(type2::object_analysis::analyze_def(&g, &seq, |vid| {
-                    devices[&vid]
-                }))
+                Ok(type2::object_analysis::cg_def_use::DefUse::analyze(
+                    &g,
+                    &t2uf_tab,
+                    &seq,
+                    t2cg.output,
+                    |vid| devices[&vid],
+                    hardware_info,
+                ))
             },
             "Done.",
         )?;
 
-        let vertex_inputs = options.log_suround(
-            "Planning vertex inputs",
-            || {
-                Ok(type2::object_analysis::plan_vertex_inputs(
-                    &g,
-                    &mut obj_def,
-                    |vid| devices[&vid],
-                    &mut obj_id_allocator,
-                ))
-            },
-            "Done",
-        )?;
-
-        let obj_def = obj_def;
         if options.debug_obj_def_use {
             let fpath = options.debug_dir.join("type2_object_def_use.dot");
             ctx.add(debug_type2_def_use(
@@ -182,84 +146,24 @@ impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
                 &t2cg.g,
                 &devices,
                 &seq,
-                &obj_def,
-                &vertex_inputs,
+                &obj_def_use,
                 options.type2_visualizer,
             ));
         }
 
-        let (obj_dies_after, obj_dies_after_reversed) = options.log_suround(
-            "Analyzing object lifetimes",
-            || {
-                let d = type2::object_analysis::analyze_die_after(
-                    &g,
-                    &seq,
-                    &obj_def,
-                    &vertex_inputs,
-                    &vertex_inputs,
-                );
-                let r = d.reversed();
-                Ok((d, r))
-            },
-            "Done",
-        )?;
-
-        if options.debug_obj_liveness {
-            let fpath = options.debug_dir.join("type2_object_liveness.txt");
-            let mut f = std::fs::File::create(&fpath).unwrap();
-            obj_dies_after.iter().for_each(|(d, m)| {
-                write!(f, "{:?}\n{:?}\n", d, m).unwrap();
-            });
-        }
-
-        // - Analysis Object Use Chain for Cache Planning
-        let (obj_used_by, obj_gpu_next_use) = options.log_suround(
-            "Analyzing next uses of objects on GPU",
-            || {
-                let obj_used_by = type2::object_analysis::analyze_used_by(&seq, &vertex_inputs);
-                let obj_gpu_next_use = type2::object_analysis::analyze_gpu_next_use(
-                    &g,
-                    &seq,
-                    &obj_def,
-                    &vertex_inputs,
-                    &obj_used_by,
-                );
-
-                Ok((obj_used_by, obj_gpu_next_use))
-            },
-            "Done",
-        )?;
-
-        if options.debug_obj_gpu_next_use {
-            let fpath = options.debug_dir.join("type2_object_gpu_next_use.txt");
-            let mut f = std::fs::File::create(&fpath).unwrap();
-            write!(f, "{:?}\n", &obj_used_by).unwrap();
-            write!(f, "{:?}\n", &obj_gpu_next_use).unwrap();
-        }
-
-        if hardware_info.gpu_smithereen_space > hardware_info.gpu_memory_limit {
-            panic!("you cannot have a smithereen space larger than the gpu memory limit");
-        }
-
         // To Type3 through Memory Planning
         let g = SubDigraph::new(&t2cg.g, t2cg.g.connected_component(t2cg.output));
+
         let t3chunk = options.log_suround(
             "Planning memory",
             || {
                 Ok(type2::memory_planning::plan(
-                    hardware_info.gpu_memory_limit,
-                    hardware_info.gpu_smithereen_space,
                     &t2cg,
                     &g,
                     &seq,
-                    &obj_dies_after,
-                    &obj_dies_after_reversed,
-                    &obj_def,
-                    &obj_gpu_next_use,
-                    &vertex_inputs,
-                    &devices,
+                    |vid| devices[&vid],
                     &t2uf_tab,
-                    obj_id_allocator,
+                    hardware_info,
                     libs,
                 )
                 .expect("memory plan failed"))
@@ -297,5 +201,24 @@ impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
         ct_header.dump_entries_data(&self.constant_table, &mut ct_f)?;
 
         Ok(())
+    }
+}
+
+fn _human_readable_size(size: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = KB * 1024;
+    const GB: u64 = MB * 1024;
+    const TB: u64 = GB * 1024;
+
+    if size >= TB {
+        format!("{:.2} TB", size as f64 / TB as f64)
+    } else if size >= GB {
+        format!("{:.2} GB", size as f64 / GB as f64)
+    } else if size >= MB {
+        format!("{:.2} MB", size as f64 / MB as f64)
+    } else if size >= KB {
+        format!("{:.2} KB", size as f64 / KB as f64)
+    } else {
+        format!("{} B", size)
     }
 }

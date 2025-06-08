@@ -193,9 +193,8 @@ fn format_inst_label<'s, Rt: RuntimeType>(inst: &Instruction<'s>, chunk: &Chunk<
             usize::from(*vid),
             type2::pretty_print::format_node_label(vertex)
         ),
-        GpuMalloc { addr: aid, .. } => {
-            let (addr, size) = chunk.gpu_addr_mapping[*aid];
-            format!("GpuMalloc({:?}={},{})", aid, addr.0, size)
+        GpuMalloc { addr, size, .. } => {
+            format!("GpuMalloc({:?},{})", addr, size)
         }
         GpuFree { .. } => "GpuFree".to_string(),
         CpuMalloc { .. } => "CpuMalloc".to_string(),

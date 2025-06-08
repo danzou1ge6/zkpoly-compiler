@@ -1,6 +1,8 @@
 use serde::{ser::SerializeTuple, Deserialize, Serialize};
 use std::any;
 
+/// A slice that is allowed to wrap around the sliced array.
+/// `.0` is the offset of the slice, and `.1` is the length of the slice.
 #[derive(Debug, Clone, PartialEq, Eq, Copy, PartialOrd, Ord)]
 pub struct Slice(u64, u64);
 
@@ -30,29 +32,7 @@ pub enum PolyType {
     Lagrange,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum PolyMeta {
-    Sliced(Slice),
-    Rotated(i32),
-}
-
-impl PolyMeta {
-    pub fn plain() -> Self {
-        PolyMeta::Rotated(0)
-    }
-
-    pub fn offset_and_len(&self, deg: u64) -> (u64, u64) {
-        use PolyMeta::*;
-        match self {
-            Sliced(Slice(start, len)) => (*start, *len),
-            Rotated(rot) => (((deg as i64 + *rot as i64) % (deg as i64)) as u64, deg),
-        }
-    }
-
-    pub fn len(&self, deg: u64) -> u64 {
-        self.offset_and_len(deg).1
-    }
-}
+pub type PolyMeta = Slice;
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct AnyTypeId {
@@ -129,9 +109,10 @@ impl<'de> Deserialize<'de> for AnyTypeId {
 
 pub mod template {
     use super::AnyTypeId;
+    use pasta_curves::{arithmetic::CurveAffine, group::ff::Field};
     use serde::{Deserialize, Serialize};
 
-    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord)]
     pub enum Typ<P> {
         ScalarArray { len: usize, meta: P },
         PointBase { len: usize },
@@ -163,6 +144,31 @@ pub mod template {
                 _ => panic!("expected ScalarArray"),
             }
         }
+
+        pub fn size<F: Field, C: CurveAffine>(&self) -> usize {
+            use Typ::*;
+            let fs = std::mem::size_of::<F>();
+            let es = std::mem::size_of::<C>();
+            match self {
+                ScalarArray { len, .. } => fs * *len,
+                PointBase { len } => es * *len,
+                Scalar => fs,
+                Transcript => fs,
+                Point => es,
+                Tuple => panic!("size of Tuple is not defined"),
+                Any(_, len) => *len,
+                Stream => panic!("size of Stream is not defined"),
+                GpuBuffer(len) => *len,
+            }
+        }
+
+        pub fn is_gpu_buffer(&self) -> bool {
+            use Typ::*;
+            match self {
+                GpuBuffer(_) => true,
+                _ => false,
+            }
+        }
     }
 }
 
@@ -172,6 +178,24 @@ impl template::Typ<()> {
     pub fn scalar_array(len: usize) -> Self {
         template::Typ::ScalarArray { len, meta: () }
     }
+
+    pub fn with_normalized_p(&self) -> template::Typ<PolyMeta> {
+        use template::Typ::*;
+        match self {
+            ScalarArray { len, .. } => ScalarArray {
+                len: *len,
+                meta: Slice::new(0, *len as u64),
+            },
+            PointBase { len } => PointBase { len: *len },
+            Scalar => Scalar,
+            Transcript => Transcript,
+            Point => Point,
+            Tuple => Tuple,
+            Any(tid, len) => Any(*tid, *len),
+            Stream => Stream,
+            GpuBuffer(len) => GpuBuffer(*len),
+        }
+    }
 }
 
 impl template::Typ<PolyMeta> {
@@ -179,7 +203,7 @@ impl template::Typ<PolyMeta> {
         match self {
             Self::ScalarArray { len, .. } => Self::ScalarArray {
                 len: *len,
-                meta: PolyMeta::Rotated(0),
+                meta: Slice::new(0, *len as u64),
             },
             otherwise => otherwise.clone(),
         }
@@ -200,6 +224,13 @@ impl template::Typ<PolyMeta> {
             Any(tid, len) => Any(*tid, *len),
             Stream => Stream,
             GpuBuffer(len) => GpuBuffer(*len),
+        }
+    }
+
+    pub fn plain_scalar_array(len: usize) -> Self {
+        Self::ScalarArray {
+            len,
+            meta: Slice::new(0, len as u64),
         }
     }
 }
