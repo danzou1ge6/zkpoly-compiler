@@ -122,7 +122,7 @@ impl Allocator {
         self.capacity
     }
 
-    pub fn allocate(
+    pub(super) fn allocate(
         &mut self,
         payload_size: SmithereenSize,
         mapping: &mut impl AddrMappingHandler,
@@ -189,7 +189,7 @@ impl Allocator {
         ));
     }
 
-    pub fn deallocate(&mut self, addr: AddrId, mapping: &mut impl AddrMappingHandler) {
+    pub(super) fn deallocate(&mut self, addr: AddrId, mapping: &mut impl AddrMappingHandler) {
         let (Addr(aligned_addr), _) = mapping.get(addr);
         let addr = self.aligned_addr2chunk_addr.remove(&aligned_addr).unwrap();
 

@@ -1,5 +1,3 @@
-static DEBUG: bool = true;
-
 mod prelude {
     pub(super) use std::{
         collections::{BTreeMap, BTreeSet},
@@ -153,5 +151,13 @@ pub fn plan<'s, Rt: RuntimeType>(
         )))
         .collect();
 
-    realization::realize(ops, allocators, libs, obj_id_allocator, &obj_info, hd_info)
+    let chunk = realization::realize(ops, allocators, libs, obj_id_allocator, &obj_info, hd_info)?;
+
+    // fixme
+    println!(
+        "CPU peak memory usage is {}",
+        cpu_allocator.unwrap().peak_memory_usage()
+    );
+
+    Ok(chunk)
 }

@@ -2,7 +2,9 @@ use crate::transit::type2::memory_planning::prelude::*;
 use planning::machine::*;
 
 pub struct SuperAllocator<'f, P> {
-    mapping: BTreeMap<ObjectId, P>,
+    mapping: BTreeMap<ObjectId, (P, Size)>,
+    peak_memory_usage: u64,
+    current_memory_usage: u64,
     p_allocator: IdAllocator<P>,
     /// If `physical` is false, then this allocator will not instruct machine for allocation or deallocation.
     /// That is used in case when the underlying device is unplanned.
@@ -15,6 +17,8 @@ impl<'f, P> SuperAllocator<'f, P> {
         Self {
             mapping: BTreeMap::new(),
             p_allocator: IdAllocator::new(),
+            peak_memory_usage: 0,
+            current_memory_usage: 0,
             physical: false,
             _phantom: PhantomData,
         }
@@ -24,9 +28,24 @@ impl<'f, P> SuperAllocator<'f, P> {
         Self {
             mapping: BTreeMap::new(),
             p_allocator,
+            peak_memory_usage: 0,
+            current_memory_usage: 0,
             physical: true,
             _phantom: PhantomData,
         }
+    }
+
+    pub fn record_allocated(&mut self, size: Size) {
+        self.current_memory_usage += u64::from(size);
+        self.peak_memory_usage = self.peak_memory_usage.max(self.current_memory_usage);
+    }
+
+    pub fn record_deallocated(&mut self, size: Size) {
+        self.current_memory_usage -= u64::from(size);
+    }
+
+    pub fn peak_memory_usage(&self) -> u64 {
+        self.peak_memory_usage
     }
 }
 
@@ -44,29 +63,31 @@ where
     }
 
     fn access(&mut self, t: &ObjectId) -> Option<P> {
-        self.allocator.mapping.get(&t).cloned()
+        self.allocator.mapping.get(&t).map(|(p, _)| p).cloned()
     }
 
-    fn allocate(&mut self, _size: Size, t: &ObjectId) -> allocator::AResp<'s, ObjectId, P, P, Rt> {
+    fn allocate(&mut self, size: Size, t: &ObjectId) -> allocator::AResp<'s, ObjectId, P, P, Rt> {
         if self.allocator.mapping.contains_key(t) {
             panic!("{:?} already allocated on {:?}", t, self.machine.device());
         }
 
-        let p = *self
+        let (p, _) = *self
             .allocator
             .mapping
             .entry(t.clone())
-            .or_insert_with(|| self.allocator.p_allocator.alloc());
+            .or_insert_with(|| (self.allocator.p_allocator.alloc(), size));
 
         if self.allocator.physical {
             self.machine.allocate(t.clone(), p);
         }
 
+        self.allocator.record_allocated(size);
+
         Response::ok(p)
     }
 
     fn deallocate(&mut self, t: &ObjectId) -> allocator::AResp<'s, ObjectId, P, (), Rt> {
-        let p = self
+        let (p, size) = self
             .allocator
             .mapping
             .remove(t)
@@ -76,13 +97,15 @@ where
             self.machine.deallocate(t.clone(), p);
         }
 
+        self.allocator.record_deallocated(size);
+
         Response::ok(())
     }
 
     fn claim(
         &mut self,
         t: &ObjectId,
-        _size: Size,
+        size: Size,
         from: Device,
     ) -> allocator::AResp<'s, ObjectId, P, (), Rt> {
         if self.allocator.mapping.contains_key(t) {
@@ -93,7 +116,9 @@ where
         println!("claim object {:?} from {:?}", t, from);
 
         let p = self.allocator.p_allocator.alloc();
-        self.allocator.mapping.insert(t.clone(), p);
+        self.allocator.mapping.insert(t.clone(), (p, size));
+
+        self.allocator.record_allocated(size);
 
         Response::Continue(Continuation::simple_provide(
             self.machine.device(),
@@ -133,7 +158,7 @@ where
 }
 
 pub struct Realizer<'a, 'm, 's, 'au, 'i, P, Rt: RuntimeType> {
-    allocator: &'a mut SuperAllocator<'s, P>,
+    _allocator: &'a mut SuperAllocator<'s, P>,
     machine: realization::MachineHandle<'m, 's, P>,
     aux: &'au AuxiliaryInfo<'i, Rt>,
 }
@@ -199,7 +224,7 @@ where
         'c: 'd,
     {
         Box::new(Realizer {
-            allocator: self,
+            _allocator: self,
             machine,
             aux,
         })

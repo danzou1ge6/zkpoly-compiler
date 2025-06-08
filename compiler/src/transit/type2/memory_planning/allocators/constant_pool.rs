@@ -24,6 +24,10 @@ where
             _phantom: PhantomData,
         }
     }
+
+    pub fn unwrap(self) -> A {
+        self.inner
+    }
 }
 
 pub struct Handle<'a, 'm, 's, 'i, 'au, A, T, P, Rt: RuntimeType> {

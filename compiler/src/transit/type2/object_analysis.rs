@@ -5,24 +5,18 @@ use std::{
 };
 
 use cg_def_use::{DefUse, Die};
-use template::ResidentalValue;
 use zkpoly_common::{
-    arith::Mutability,
     define_usize_id,
     digraph::internal::SubDigraph,
     heap::{Heap, IdAllocator, UsizeId},
     load_dynamic::Libs,
-    typ::{PolyMeta, Slice},
+    typ::Slice,
 };
 use zkpoly_runtime::args::RuntimeType;
 
-use crate::transit::{
-    type2,
-    type3::{typ::Slice as SliceRange, Device, DeviceSpecific},
-    SourceInfo,
-};
+use crate::transit::{type2, type3::Device, SourceInfo};
 
-use super::{Cg, Typ, VertexId};
+use super::{Cg, VertexId};
 
 pub mod value;
 pub use value::{ObjectId, Value, ValueNode, VertexInput, VertexOutput};
@@ -30,11 +24,9 @@ pub use value::{ObjectId, Value, ValueNode, VertexInput, VertexOutput};
 pub type VertexNode = type2::alt_label::VertexNode<VertexInput<Value>>;
 
 pub mod template {
-    use zkpoly_common::heap::UsizeId;
 
     use super::{
-        define_usize_id, Device, Heap, ObjectId, Slice, SourceInfo, Value, ValueNode, VertexId,
-        VertexInput,
+        define_usize_id, Device, Heap, ObjectId, Slice, SourceInfo, Value, VertexId, VertexInput,
     };
     use crate::transit::type2;
 
@@ -210,7 +202,7 @@ pub mod template {
         pub fn ready_for_type3(&self) -> bool {
             use Operation::*;
             match self {
-                Type2(_, outputs, node, temps, src) => {
+                Type2(_, outputs, node, temps, _src) => {
                     outputs.iter().all(|(rv, _)| rv.pointer().is_some())
                         && node
                             .uses_ref()

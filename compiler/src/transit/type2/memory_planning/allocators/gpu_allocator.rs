@@ -22,8 +22,8 @@ pub struct GpuAllocator<'f, P, Rt: RuntimeType> {
     objects_at: Bijection<ObjectId, AddrId>,
     smithereen_offset: u64,
     integral_offset: u64,
-    smithereen_capacity: u64,
-    integral_capacity: u64,
+    _smithereen_capacity: u64,
+    _integral_capacity: u64,
     smithereen_allocator: smithereens_allocator::Allocator,
     integral_allocator: regretting_integral::Allocator,
     procedures: BTreeMap<allocator::ProcedureId, Procedure<'f, P, Rt>>,
@@ -31,7 +31,6 @@ pub struct GpuAllocator<'f, P, Rt: RuntimeType> {
     _phantom: PhantomData<P>,
 }
 
-const MIN_SMITHEREEN_SPACE: u64 = 2u64.pow(26);
 const SMITHEREEN_CEIL_TO_INTEGRAL_THRESHOLD: u64 = 2u64.pow(16);
 const LOG_MIN_INTEGRAL_SIZE: u32 = 10;
 
@@ -78,8 +77,8 @@ impl<'f, P, Rt: RuntimeType> GpuAllocator<'f, P, Rt> {
             objects_at: Bijection::new(),
             smithereen_offset: 0,
             integral_offset: smithereen_capacity,
-            smithereen_capacity: smithereen_capacity,
-            integral_capacity: total_capacity - smithereen_capacity,
+            _smithereen_capacity: smithereen_capacity,
+            _integral_capacity: total_capacity - smithereen_capacity,
             smithereen_allocator: smithereens_allocator::Allocator::new(smithereen_capacity),
             integral_allocator: regretting_integral::Allocator::new(
                 total_capacity - smithereen_capacity,

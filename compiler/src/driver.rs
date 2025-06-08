@@ -37,7 +37,6 @@ pub struct DebugOptions {
     debug_graph_scheduling: bool,
     debug_obj_def_use: bool,
     debug_obj_liveness: bool,
-    debug_obj_gpu_next_use: bool,
     debug_fresh_type3: bool,
     debug_extend_rewriting: bool,
     debug_track_splitting: bool,
@@ -66,7 +65,6 @@ impl DebugOptions {
             debug_obj_liveness: true,
             debug_cse: true,
             debug_arith_decide_mutable: true,
-            debug_obj_gpu_next_use: true,
             debug_fresh_type3: true,
             debug_extend_rewriting: true,
             debug_track_splitting: true,
@@ -93,7 +91,6 @@ impl DebugOptions {
             debug_graph_scheduling: false,
             debug_obj_def_use: false,
             debug_obj_liveness: false,
-            debug_obj_gpu_next_use: false,
             debug_fresh_type3: false,
             debug_extend_rewriting: false,
             debug_track_splitting: false,
@@ -101,6 +98,18 @@ impl DebugOptions {
             debug_instructions: false,
             type2_visualizer: Type2DebugVisualizer::Graphviz,
             log: false,
+        }
+    }
+
+    pub fn minimal(debug_dir: PathBuf) -> Self {
+        let r = Self::none(debug_dir);
+        Self {
+            debug_user_function_table: true,
+            debug_obj_def_use: true,
+            debug_obj_liveness: true,
+            debug_extend_rewriting: true,
+            debug_instructions: true,
+            ..r
         }
     }
 

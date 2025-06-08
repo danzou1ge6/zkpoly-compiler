@@ -34,14 +34,6 @@ impl BlockStatus {
         }
     }
 
-    pub fn unwrap_splitted_mut(&mut self) -> &mut MmHeap<u64, usize> {
-        match self {
-            BlockStatus::Free(..) => panic!("free block does not have splitted"),
-            BlockStatus::Splitted(_, heap) => heap,
-            BlockStatus::Occupied(..) => panic!("occupied block does not have splitted"),
-        }
-    }
-
     pub fn nonfree_child_addrs<'a>(&'a self) -> impl Iterator<Item = u64> + 'a {
         match self {
             BlockStatus::Splitted(_, heap) => heap.keys().copied(),

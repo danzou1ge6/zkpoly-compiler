@@ -1,5 +1,5 @@
 use crate::transit::type2::VertexId;
-use crate::transit::type3::{self, Device};
+use crate::transit::type3::Device;
 use zkpoly_common::arith::Mutability;
 use zkpoly_common::define_usize_id;
 use zkpoly_common::typ::{template::Typ, Slice};

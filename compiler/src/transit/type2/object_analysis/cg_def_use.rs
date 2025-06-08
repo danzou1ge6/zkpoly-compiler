@@ -458,7 +458,7 @@ impl DefUse {
         g: &SubDigraph<'_, VertexId, type2::Vertex<'s, Rt>>,
         uf_table: &type2::user_function::Table<Rt>,
         seq: &[VertexId],
-        return_vid: VertexId,
+        _return_vid: VertexId,
         execution_device: impl Fn(VertexId) -> type2::Device,
         hd_info: &HardwareInfo,
     ) -> (Self, IdAllocator<ObjectId>) {
