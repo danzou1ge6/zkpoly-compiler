@@ -9,7 +9,7 @@ use libloading::Symbol;
 use zkpoly_common::get_project_root::get_project_root;
 use zkpoly_common::load_dynamic::Libs;
 use zkpoly_common::msm_config::MsmConfig;
-use zkpoly_cuda_api::bindings::{cudaError_cudaSuccess, cudaError_t, cudaGetErrorString};
+use zkpoly_cuda_api::bindings::cudaError_t;
 use zkpoly_cuda_api::cuda_check;
 use zkpoly_runtime::args::{RuntimeType, Variable};
 use zkpoly_runtime::error::RuntimeError;

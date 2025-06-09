@@ -1,9 +1,12 @@
-use memmap2::{Mmap, MmapMut, MmapOptions};
-use tempfile::TempDir;
-use zkpoly_common::get_project_root::get_project_root;
-use std::{collections::HashMap, fs::{File, OpenOptions}};
+use memmap2::{MmapMut, MmapOptions};
 use std::ffi::c_void;
 use std::ptr::NonNull;
+use std::{
+    collections::HashMap,
+    fs::{File, OpenOptions},
+};
+use tempfile::TempDir;
+use zkpoly_common::get_project_root::get_project_root;
 use zkpoly_cuda_api::bindings::{cudaError_cudaSuccess, cudaFreeHost, cudaMallocHost};
 
 #[derive(Debug)]
@@ -40,17 +43,15 @@ impl MmapInfo {
             .truncate(true)
             .open(&file_path)
             .expect("Failed to create file for memory mapping");
-        file.set_len(size as u64).expect("Failed to set file size for memory mapping");
+        file.set_len(size as u64)
+            .expect("Failed to set file size for memory mapping");
         let mmap_handle = unsafe {
             MmapOptions::new()
                 .len(size)
                 .map_mut(&file)
                 .expect("Failed to create memory map")
         };
-        MmapInfo {
-            mmap_handle,
-            file,
-        }
+        MmapInfo { mmap_handle, file }
     }
 }
 
@@ -168,7 +169,10 @@ impl MemoryPool {
             "Cannot change to mmap after slabs are allocated"
         );
         self.use_mmap = true;
-        self._tmp_dir_handle = Some(TempDir::new_in(get_project_root()).expect("Failed to create temporary directory for mmap"));
+        self._tmp_dir_handle = Some(
+            TempDir::new_in(get_project_root())
+                .expect("Failed to create temporary directory for mmap"),
+        );
     }
 
     /// Gets a new or recycled `SlabInfo` index and initializes the `SlabInfo` struct.
@@ -404,7 +408,11 @@ impl MemoryPool {
                 // let mut mmap_handle = MmapOptions::new().len(slab_actual_size).map_anon().unwrap();
                 // let mmap_ptr = NonNull::new(mmap_handle.as_mut_ptr() as *mut c_void)
                 //     .ok_or_else(|| "mmap reported success but returned null pointer".to_string())?;
-                let mut mmap_info = MmapInfo::new(self._tmp_dir_handle.as_ref().unwrap(), slab_actual_size, &format!("chunk_{}", self.slabs.len()));
+                let mut mmap_info = MmapInfo::new(
+                    self._tmp_dir_handle.as_ref().unwrap(),
+                    slab_actual_size,
+                    &format!("chunk_{}", self.slabs.len()),
+                );
                 let mmap_ptr = NonNull::new(mmap_info.mmap_handle.as_mut_ptr() as *mut c_void)
                     .ok_or_else(|| "mmap reported success but returned null pointer".to_string())?;
                 self.slabs[new_slab_idx].location = Some(mmap_ptr);

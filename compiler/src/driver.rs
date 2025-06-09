@@ -8,16 +8,9 @@ use std::{
     thread::JoinHandle,
 };
 
-use zkpoly_common::{
-    digraph::internal::{Digraph, SubDigraph},
-    load_dynamic::Libs,
-};
-use zkpoly_cuda_api::{
-    bindings::{cudaDeviceSynchronize, cudaError_cudaSuccess, cudaGetErrorString},
-    cuda_check,
-};
-use zkpoly_memory_pool::CpuMemoryPool;
-use zkpoly_runtime::args::{self, RuntimeType};
+use zkpoly_common::digraph::internal::{Digraph, SubDigraph};
+use zkpoly_cuda_api::{bindings::cudaDeviceSynchronize, cuda_check};
+use zkpoly_runtime::args::RuntimeType;
 
 use crate::{
     ast,
@@ -177,7 +170,7 @@ impl GpuInfo {
 
 #[derive(Debug, Clone)]
 pub struct HardwareInfo {
-    gpus: Vec<GpuInfo>
+    gpus: Vec<GpuInfo>,
 }
 
 impl HardwareInfo {
@@ -190,13 +183,14 @@ impl HardwareInfo {
     }
 
     pub fn smallest_gpu_memory_integral_limit(&self) -> u64 {
-        self.gpus().map(|gpu| gpu.gpu_memory_limit - gpu.gpu_smithereen_space).min().expect("no GPU")
+        self.gpus()
+            .map(|gpu| gpu.gpu_memory_limit - gpu.gpu_smithereen_space)
+            .min()
+            .expect("no GPU")
     }
 
     pub fn new() -> Self {
-        Self {
-            gpus: Vec::new()
-        }
+        Self { gpus: Vec::new() }
     }
 
     pub fn with_gpu(mut self, gpu: GpuInfo) -> Self {

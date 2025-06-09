@@ -162,7 +162,8 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                         .iter_mut()
                         .zip(poly.disk_pos.iter())
                         .for_each(|(disk_pool, (_, offset))| {
-                            disk_pool.deallocate(*offset, bytes);
+                            disk_pool.deallocate(*offset, bytes)
+                                .expect("deallocation failed");
                         });
                 }
             },
@@ -206,7 +207,6 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                 let device_id = gpu_buffer.device.unwrap_gpu();
                 gpu_allocator.as_mut().unwrap()[device_id as usize].free(gpu_buffer.ptr);
             }
-            _ => {}
         }
     }
 }

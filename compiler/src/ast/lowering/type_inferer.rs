@@ -331,7 +331,7 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
 
                 type2::Typ::Poly((PolyType::Coef, *deg))
             }
-            Msm { polys, points, alg } => {
+            Msm { polys, points, .. } => {
                 if points.len() != 1 {
                     panic!("MSM from AST should only have one set of base points");
                 }
@@ -506,7 +506,7 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
         Ok(typ)
     }
 
-    pub fn max_poly_deg(&self) -> u64 {
+    pub fn _max_poly_deg(&self) -> u64 {
         self.max_poly_deg
     }
 }

@@ -1,7 +1,5 @@
 //! Common data structures for Transit IR's
 
-use std::collections::BTreeSet;
-
 use zkpoly_common::digraph::internal::Digraph;
 
 use crate::ast;

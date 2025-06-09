@@ -1,13 +1,11 @@
-use super::{artifect::Artifect, fresh_type3::FreshType3};
+use super::artifect::Artifect;
 use std::io::Write;
-use zkpoly_common::load_dynamic::Libs;
 use zkpoly_memory_pool::CpuMemoryPool;
 use zkpoly_runtime::args::RuntimeType;
 
 use super::{
-    ast, check_type2_dag, cudaDeviceSynchronize, cuda_check, debug_partial_typed_type2,
-    debug_type2, debug_type2_def_use, debug_type2_with_seq, type2, type3, DebugOptions, Error,
-    HardwareInfo, PanicJoinHandler, SubDigraph,
+    cudaDeviceSynchronize, cuda_check, type2, type3, DebugOptions, Error, HardwareInfo,
+    PanicJoinHandler,
 };
 
 pub struct ProcessedType3<'s, Rt: RuntimeType> {

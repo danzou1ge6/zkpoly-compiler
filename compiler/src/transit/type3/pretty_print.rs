@@ -185,7 +185,7 @@ fn format_src_info(inst: &Instruction) -> String {
     }
 }
 
-fn format_inst_label<'s, Rt: RuntimeType>(inst: &Instruction<'s>, chunk: &Chunk<'s, Rt>) -> String {
+fn format_inst_label<'s, Rt: RuntimeType>(inst: &Instruction<'s>, _chunk: &Chunk<'s, Rt>) -> String {
     use template::InstructionNode::*;
     match &inst.node {
         Type2 { vertex, vid, .. } => format!(

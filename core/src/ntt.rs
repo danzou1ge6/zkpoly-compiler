@@ -18,9 +18,7 @@ use zkpoly_runtime::functions::{
     FuncMeta, Function, FunctionValue, KernelType, RegisteredFunction,
 };
 
-use zkpoly_cuda_api::bindings::{
-    cudaError_cudaSuccess, cudaError_t, cudaGetErrorString, cudaSetDevice, cudaStream_t,
-};
+use zkpoly_cuda_api::bindings::{cudaError_t, cudaSetDevice, cudaStream_t};
 
 static LIB_NAME: &str = "libntt.so";
 

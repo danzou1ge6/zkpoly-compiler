@@ -5,7 +5,7 @@ use serde::{ser::SerializeStruct, Deserialize, Serialize};
 use zkpoly_common::{heap::Heap, load_dynamic::Libs};
 use zkpoly_runtime::{
     args::RuntimeType,
-    devices::{Event, EventTypeTable},
+    devices::EventTypeTable,
     functions::{FunctionId, KernelType},
     instructions::Instruction,
 };

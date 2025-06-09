@@ -21,9 +21,13 @@ use crate::{
     instructions::Instruction,
 };
 
-use zkpoly_cuda_api::{bindings::cudaDeviceSynchronize, cuda_check, mem::{page_allocator::{self, CudaPageAllocator}, CudaAllocator}};
+use zkpoly_cuda_api::{
+    bindings::cudaDeviceSynchronize,
+    cuda_check,
+    mem::{page_allocator::CudaPageAllocator, CudaAllocator},
+};
 
-use zkpoly_memory_pool::{CpuMemoryPool, BuddyDiskPool};
+use zkpoly_memory_pool::{BuddyDiskPool, CpuMemoryPool};
 
 pub mod alloc;
 pub mod assert_eq;
@@ -164,6 +168,7 @@ unsafe impl<T: RuntimeType> Send for RuntimeInfo<T> {}
 unsafe impl<T: RuntimeType> Sync for RuntimeInfo<T> {}
 
 impl<T: RuntimeType> RuntimeInfo<T> {
+    #[allow(dangerous_implicit_autorefs)]
     pub unsafe fn run(
         &self,
         instructions: Vec<Instruction>,
@@ -228,7 +233,13 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     assert!(self.main_thread);
                     let guard = &mut (*self.variable)[id];
                     if let Some(var) = guard.as_mut() {
-                        self.deallocate(var, id, &mut mem_allocator, &mut gpu_allocator, &mut disk_allocator);
+                        self.deallocate(
+                            var,
+                            id,
+                            &mut mem_allocator,
+                            &mut gpu_allocator,
+                            &mut disk_allocator,
+                        );
                         *guard = None;
                     } else {
                         panic!("deallocate a non-existing variable");

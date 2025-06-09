@@ -12,9 +12,7 @@ use group::ff::Field;
 
 use libloading::Symbol;
 use zkpoly_cuda_api::{
-    bindings::{
-        cudaError_cudaSuccess, cudaError_t, cudaGetErrorString, cudaSetDevice, cudaStream_t,
-    },
+    bindings::{cudaError_t, cudaSetDevice, cudaStream_t},
     cuda_check,
 };
 

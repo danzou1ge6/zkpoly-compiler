@@ -1,16 +1,11 @@
 //! This module provides common utilities, traits and structures for group,
 //! field and polynomial arithmetic.
 //! copied from halo2 for testing purposes
+//!
+#![allow(unused)]
 
 mod multicore {
-    pub use rayon::{
-        current_num_threads,
-        iter::{IndexedParallelIterator, IntoParallelRefIterator},
-        iter::{IntoParallelIterator, IntoParallelRefMutIterator, ParallelIterator},
-        join, scope,
-        slice::ParallelSliceMut,
-        Scope,
-    };
+    pub use rayon::{current_num_threads, iter::ParallelIterator, join, scope};
 
     pub trait TryFoldAndReduce<T, E> {
         /// Implements `iter.try_fold().try_reduce()` for `rayon::iter::ParallelIterator`,
@@ -48,7 +43,7 @@ use group::{
     Curve, Group, GroupOpsOwned, ScalarMulOwned,
 };
 
-pub use halo2curves::{CurveAffine, CurveExt};
+pub use halo2curves::CurveAffine;
 
 /// This represents an element of a group with basic operations that can be
 /// performed. This allows an FFT implementation (for example) to operate

@@ -1,17 +1,10 @@
-use super::fresh_type3::FreshType3;
-use std::io::Write;
-use zkpoly_common::load_dynamic::Libs;
 use zkpoly_memory_pool::CpuMemoryPool;
 use zkpoly_runtime::{
     args::{self, RuntimeType},
     devices::instantizate_event_table,
 };
 
-use super::{
-    ast, check_type2_dag, debug_partial_typed_type2, debug_type2, debug_type2_def_use,
-    debug_type2_with_seq, type2, type3, DebugOptions, Error, HardwareInfo, PanicJoinHandler,
-    SubDigraph,
-};
+use super::type3;
 
 pub struct Artifect<Rt: RuntimeType> {
     pub(super) chunk: type3::lowering::Chunk<Rt>,
