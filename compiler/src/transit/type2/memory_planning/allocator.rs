@@ -24,8 +24,6 @@ impl Completeness {
     }
 }
 
-define_usize_id!(ProcedureId);
-
 pub type AResp<'s, T, P, R, Rt: RuntimeType> =
     Response<'s, planning::Machine<'s, T, P>, T, P, Result<R, Error<'s>>, Rt>;
 
@@ -65,7 +63,7 @@ pub trait AllocatorHandle<'s, T, P, Rt: RuntimeType> {
     /// and ejects by pages.
     fn completeness(&mut self, object: ObjectId) -> Completeness;
 
-    fn evoke(&mut self, procedure: ProcedureId) -> AResp<'s, T, P, (), Rt>;
+    fn typeid(&self) -> typeid::ConstTypeId;
 }
 
 pub trait AllocatorRealizer<'s, T, P, Rt: RuntimeType> {
@@ -125,12 +123,34 @@ pub trait Allocator<'s, T, P, Rt: RuntimeType> {
         'i: 'd;
 }
 
+pub fn downcast_mut_then<'s, 'a, A, T, P, R, Rt: RuntimeType>(
+    handle: &'a mut dyn AllocatorHandle<'s, T, P, Rt>,
+    f: impl FnOnce(&mut A) -> R + 'static
+) -> R
+where
+    A: AllocatorHandle<'s, T, P, Rt>,
+    R: 's
+{
+    if typeid::ConstTypeId::of::<A>() == handle.typeid() {
+        // safe here because the return value does not contain any references that lives longer then `'s`
+        unsafe {
+            let handle = &mut *(handle as *mut dyn AllocatorHandle<'s, T, P, Rt> as *mut A);
+            f(handle)
+        }
+    } else {
+        panic!(
+            "downcast type mismatch, got {:?}, casting to {:?}",
+            handle.typeid(),
+            typeid::ConstTypeId::of::<A>()
+        )
+    }
+}
+
 pub struct AllocatorCollection<'a, 's, T, P, Rt: RuntimeType>(
     BTreeMap<Device, &'a mut (dyn Allocator<'s, T, P, Rt> + 's)>,
 );
 
-impl<'a, 's, T, P, Rt: RuntimeType> AllocatorCollection<'a, 's, T, P, Rt>
-{
+impl<'a, 's, T, P, Rt: RuntimeType> AllocatorCollection<'a, 's, T, P, Rt> {
     pub fn get(&mut self, device: Device) -> &mut dyn Allocator<'s, T, P, Rt> {
         *self.0.get_mut(&device).unwrap()
     }
@@ -204,9 +224,7 @@ impl<'a, 's, T, P, Rt: RuntimeType>
     FromIterator<(Device, &'a mut (dyn Allocator<'s, T, P, Rt> + 's))>
     for AllocatorCollection<'a, 's, T, P, Rt>
 {
-    fn from_iter<
-        It: IntoIterator<Item = (Device, &'a mut (dyn Allocator<'s, T, P, Rt> + 's))>,
-    >(
+    fn from_iter<It: IntoIterator<Item = (Device, &'a mut (dyn Allocator<'s, T, P, Rt> + 's))>>(
         iter: It,
     ) -> Self {
         Self(iter.into_iter().collect())

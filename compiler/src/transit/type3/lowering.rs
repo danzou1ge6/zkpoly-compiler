@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::transit::type2;
 
+use super::template::GpuAddr;
 use super::track_splitting::TrackTasks;
 use super::{Track, VertexNode};
 use kernel_gen::GeneratedFunctions;
@@ -13,7 +14,7 @@ use zkpoly_common::typ::Typ;
 use zkpoly_runtime::args::{RuntimeType, VariableId};
 use zkpoly_runtime::devices::{EventId, EventType, EventTypeTable, ThreadId};
 use zkpoly_runtime::functions::FunctionTable;
-use zkpoly_runtime::instructions::Instruction;
+use zkpoly_runtime::instructions::{GpuAlloc, Instruction};
 
 mod emit_func;
 mod kernel_gen;
@@ -413,16 +414,20 @@ fn lower_instruction<'s, Rt: RuntimeType>(
                 }
             }
         }
-        super::InstructionNode::GpuMalloc { id, addr, .. } => {
+        super::InstructionNode::GpuMalloc { id, addr, size } => {
             let var_id = reg_id2var_id(*id);
 
             emit(Instruction::Allocate {
                 device: DeviceType::from(t3chunk.register_devices[id]),
                 typ: t3chunk.register_types[*id].erase_p(),
                 id: var_id,
-                gpu_alloc: Some(zkpoly_runtime::instructions::GpuAlloc::Offset(
-                    addr.get() as usize
-                )),
+                gpu_alloc: Some(match addr.clone() {
+                    GpuAddr::Offset(va) => GpuAlloc::Offset(va.get()),
+                    GpuAddr::Paged(pas) => GpuAlloc::PageInfo {
+                        va_size: *size as usize,
+                        pa: pas.into_iter().map(|pa| pa.get()).collect(),
+                    },
+                }),
             });
         }
         super::InstructionNode::GpuFree { id } => emit(Instruction::Deallocate {

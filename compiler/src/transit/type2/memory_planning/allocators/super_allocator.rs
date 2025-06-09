@@ -149,11 +149,8 @@ where
         self.allocator.mapping.insert(new_object.clone(), p);
     }
 
-    fn evoke(
-        &mut self,
-        _procedure: allocator::ProcedureId,
-    ) -> allocator::AResp<'s, ObjectId, P, (), Rt> {
-        panic!("this allocator does not produce continuation that evokes procedures")
+    fn typeid(&self) -> typeid::ConstTypeId {
+        typeid::ConstTypeId::of::<Self>()
     }
 }
 

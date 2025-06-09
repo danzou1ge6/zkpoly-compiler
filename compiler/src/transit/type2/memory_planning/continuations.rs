@@ -29,7 +29,7 @@ impl<'s, 'f, M, T, P, R, Rt: RuntimeType> Response<'f, M, T, P, Result<R, Error<
 
     pub fn bind_result<R1>(
         self,
-        f: impl Fn(R) -> Continuation<'f, M, T, P, Result<R1, Error<'s>>, Rt> + 'f,
+        f: impl FnOnce(R) -> Continuation<'f, M, T, P, Result<R1, Error<'s>>, Rt> + 'f,
     ) -> Response<'f, M, T, P, Result<R1, Error<'s>>, Rt>
     where
         R1: 'f,

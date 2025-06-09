@@ -1,4 +1,4 @@
-use super::{regretting_integral, smithereens_allocator, OffsettedAddrMapping};
+use super::{normalize_size, regretting_integral, smithereens_allocator, OffsettedAddrMapping};
 use crate::transit::type2::memory_planning::prelude::*;
 use planning::machine::*;
 
@@ -26,48 +26,7 @@ pub struct GpuAllocator<'f, P, Rt: RuntimeType> {
     _integral_capacity: u64,
     smithereen_allocator: smithereens_allocator::Allocator,
     integral_allocator: regretting_integral::Allocator,
-    procedures: BTreeMap<allocator::ProcedureId, Procedure<'f, P, Rt>>,
-    procedure_id_allocator: IdAllocator<allocator::ProcedureId>,
-    _phantom: PhantomData<P>,
-}
-
-const SMITHEREEN_CEIL_TO_INTEGRAL_THRESHOLD: u64 = 2u64.pow(16);
-const LOG_MIN_INTEGRAL_SIZE: u32 = 10;
-
-fn normalize_size(size: Size) -> Size {
-    match size {
-        Size::Integral(is) => {
-            if is.0 < LOG_MIN_INTEGRAL_SIZE {
-                Size::Smithereen(SmithereenSize(2u64.pow(is.0)))
-            } else {
-                Size::Integral(is)
-            }
-        }
-        Size::Smithereen(ss) => {
-            if let Ok(is) = IntegralSize::try_from(ss) {
-                if is.0 < LOG_MIN_INTEGRAL_SIZE {
-                    Size::Smithereen(SmithereenSize(2u64.pow(is.0)))
-                } else {
-                    Size::Integral(is)
-                }
-            } else if ss.0 >= SMITHEREEN_CEIL_TO_INTEGRAL_THRESHOLD {
-                Size::Integral(IntegralSize::ceiling(ss))
-            } else {
-                Size::Smithereen(ss)
-            }
-        }
-    }
-}
-
-pub fn collect_integral_sizes(sizes: impl Iterator<Item = Size>) -> Vec<IntegralSize> {
-    let mut integral_sizes = BTreeSet::<IntegralSize>::new();
-    for size in sizes {
-        if let Size::Integral(is) = normalize_size(size) {
-            integral_sizes.insert(is);
-        }
-    }
-
-    integral_sizes.into_iter().collect()
+    _phantom: PhantomData<(&'f P, Rt)>,
 }
 
 impl<'f, P, Rt: RuntimeType> GpuAllocator<'f, P, Rt> {
@@ -84,8 +43,6 @@ impl<'f, P, Rt: RuntimeType> GpuAllocator<'f, P, Rt> {
                 total_capacity - smithereen_capacity,
                 lbss,
             ),
-            procedures: BTreeMap::new(),
-            procedure_id_allocator: IdAllocator::new(),
             _phantom: PhantomData,
         }
     }
@@ -129,16 +86,6 @@ where
     fn tick(&mut self) {
         let pc = self.aux.pc();
         self.allocator.integral_allocator.tick(pc);
-    }
-
-    fn add_procedure(
-        &mut self,
-        procedure: Procedure<'s, P, Rt>,
-    ) -> Continuation<'s, planning::Machine<'s, ObjectId, P>, ObjectId, P, Result<(), Error<'s>>, Rt>
-    {
-        let pid = self.allocator.procedure_id_allocator.alloc();
-        self.allocator.procedures.insert(pid, procedure);
-        Continuation::procedure(self.machine.device(), pid)
     }
 }
 
@@ -244,11 +191,11 @@ where
                             .copied()
                             .zip(victims.iter().copied())
                             .map(|(obj, victim_addr)| {
-                                self.add_procedure(Box::new(move |handle| {
+                                Continuation::on_allocator(this_device, move |handle: &mut Self| {
                                     handle.allocator.objects_at.remove_forward(&obj);
                                     handle.machine.deallocate(obj, p(victim_addr));
-                                    Response::Complete(Ok(()))
-                                }))
+                                    Ok(())
+                                })
                             })
                             .collect::<Vec<_>>();
 
@@ -263,18 +210,18 @@ where
                                     .zip(after_ejection.into_iter())
                                     .map(move |(((object, p), size), dc)| {
                                         Continuation::simple_eject(this_device, p, object, size)
-                                            .bind_result({
-                                                move |_| dc
-                                            })
+                                            .bind_result(move |_| dc)
                                     }),
                             )
                             .bind_result({
-                                let after_all_ejection =
-                                    self.add_procedure(Box::new(move |handle| {
+                                let after_all_ejection = Continuation::on_allocator(
+                                    this_device,
+                                    move |handle: &mut Self| {
                                         handle.allocator.objects_at.insert(t, addr);
                                         handle.machine.allocate(t, p(addr));
-                                        Response::Complete(Ok(()))
-                                    }));
+                                        Ok(())
+                                    },
+                                );
                                 move |_| after_all_ejection
                             })
                             .bind_result(move |_| Continuation::return_(Ok(p(addr)))),
@@ -363,16 +310,8 @@ where
         resp.bind_result(move |p| Continuation::simple_provide(this_device, p, from, object))
     }
 
-    fn evoke(
-        &mut self,
-        procedure: allocator::ProcedureId,
-    ) -> allocator::AResp<'s, ObjectId, P, (), Rt> {
-        let p = self
-            .allocator
-            .procedures
-            .remove(&procedure)
-            .expect("expected procedure to be present");
-        p(self)
+    fn typeid(&self) -> typeid::ConstTypeId {
+        typeid::ConstTypeId::of::<Self>()
     }
 }
 
@@ -397,7 +336,7 @@ impl<'a, 'm, 's, 'au, 'i, 'f, P: UsizeId + 'static, Rt: RuntimeType>
         let (addr, size) = self.allocator.mapping[p_inv(*pointer)];
         let vn = self.aux.obj_info().typ(*t).with_normalized_p();
         let rv = ResidentalValue::new(Value::new(*t, self.machine.device(), vn), *pointer);
-        self.machine.gpu_allocate(addr.get().into(), size, rv);
+        self.machine.gpu_allocate_offsetted(addr.into(), size, rv);
     }
 
     fn deallocate(&mut self, t: &ObjectId, pointer: &P) {
