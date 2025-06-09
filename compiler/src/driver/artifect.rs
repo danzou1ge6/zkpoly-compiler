@@ -2,7 +2,10 @@ use super::fresh_type3::FreshType3;
 use std::io::Write;
 use zkpoly_common::load_dynamic::Libs;
 use zkpoly_memory_pool::CpuMemoryPool;
-use zkpoly_runtime::args::{self, RuntimeType};
+use zkpoly_runtime::{
+    args::{self, RuntimeType},
+    devices::instantizate_event_table,
+};
 
 use super::{
     ast, check_type2_dag, debug_partial_typed_type2, debug_type2, debug_type2_def_use,
@@ -43,7 +46,7 @@ impl<Rt: RuntimeType> Artifect<Rt> {
             self.chunk.n_variables,
             self.constant_table,
             self.chunk.f_table,
-            self.chunk.event_table,
+            instantizate_event_table(self.chunk.event_table),
             self.chunk.n_threads,
             self.allocator,
             gpu_allocator,

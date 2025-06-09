@@ -6,6 +6,7 @@ use zkpoly_cuda_api::stream::CudaEvent;
 zkpoly_common::define_usize_id!(EventId);
 zkpoly_common::define_usize_id!(ThreadId);
 
+pub type EventTypeTable = heap::Heap<EventId, EventType>;
 pub type EventTable = heap::Heap<EventId, Event>;
 pub type ThreadTable = heap::Heap<ThreadId, Option<Receiver<i32>>>;
 
@@ -19,20 +20,26 @@ pub enum EventType {
     ThreadEvent,
 }
 
+impl EventType {
+    pub fn new_gpu() -> Self {
+        Self::GpuEvent
+    }
+
+    pub fn new_thread() -> Self {
+        Self::ThreadEvent
+    }
+}
+
+pub fn instantizate_event_table(ett: EventTypeTable) -> EventTable {
+    ett.map(&mut |_, typ| Event::new_from_typ(typ))
+}
+
 pub enum Event {
     GpuEvent(CudaEvent),
     ThreadEvent(CpuEvent),
 }
 
 impl Event {
-    pub fn new_gpu() -> Self {
-        Self::GpuEvent(CudaEvent::new())
-    }
-
-    pub fn new_thread() -> Self {
-        Self::ThreadEvent(CpuEvent::new())
-    }
-
     pub fn typ(&self) -> EventType {
         match self {
             Event::GpuEvent(_) => EventType::GpuEvent,

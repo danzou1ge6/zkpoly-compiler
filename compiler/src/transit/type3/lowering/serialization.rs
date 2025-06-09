@@ -5,7 +5,7 @@ use serde::{ser::SerializeStruct, Deserialize, Serialize};
 use zkpoly_common::{heap::Heap, load_dynamic::Libs};
 use zkpoly_runtime::{
     args::RuntimeType,
-    devices::EventTable,
+    devices::{Event, EventTypeTable},
     functions::{FunctionId, KernelType},
     instructions::Instruction,
 };
@@ -14,7 +14,7 @@ use zkpoly_runtime::{
 pub struct ChunkDeserializer {
     pub(crate) instructions: Vec<Instruction>,
     pub(crate) f_table: Heap<FunctionId, KernelType>,
-    pub(crate) event_table: EventTable,
+    pub(crate) event_table: EventTypeTable,
     pub(crate) n_variables: usize,
     pub(crate) n_threads: usize,
 }
