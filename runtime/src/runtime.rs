@@ -106,7 +106,7 @@ impl<T: RuntimeType> Runtime<T> {
 
     pub fn run(
         &mut self,
-        input_table: &mut EntryTable<T>,
+        input_table: &EntryTable<T>,
         debug_opt: RuntimeDebug,
     ) -> (Option<Variable<T>>, RuntimeInfo<T>) {
         let bench_start = if RuntimeDebug::RecordTime == debug_opt {
@@ -123,7 +123,7 @@ impl<T: RuntimeType> Runtime<T> {
         let info = RuntimeInfo {
             variable: &mut self.variable as *mut VariableTable<T>,
             constant: &self.constant as *const ConstantTable<T>,
-            inputs: input_table as *mut EntryTable<T>,
+            inputs: input_table as *const EntryTable<T>,
             funcs: &mut self.funcs as *mut FunctionTable<T>,
             events: &self.events as *const EventTable,
             threads: &mut self.threads as *mut ThreadTable,
@@ -147,53 +147,13 @@ impl<T: RuntimeType> Runtime<T> {
         };
         (r, info)
     }
-
-    /// Adjusts the GPU device IDs in all instructions by a given offset.
-    /// Relative GPU IDs in instructions will be converted to absolute IDs.
-    pub fn adjust_gpu_device_ids(&mut self, gpu_offset: i32) {
-        for instruction in self.instructions.iter_mut() {
-            Runtime::<T>::_adjust_instruction_gpu_ids(instruction, gpu_offset);
-        }
-    }
-
-    /// Helper function to adjust GPU device IDs for a single instruction.
-    fn _adjust_instruction_gpu_ids(instruction: &mut Instruction, gpu_offset: i32) {
-        match instruction {
-            Instruction::Allocate { device, .. } => {
-                if let DeviceType::GPU { device_id } = device {
-                    *device_id += gpu_offset;
-                }
-            }
-            Instruction::Transfer { src_device, dst_device, .. } => {
-                if let DeviceType::GPU { device_id } = src_device {
-                    *device_id += gpu_offset;
-                }
-                if let DeviceType::GPU { device_id } = dst_device {
-                    *device_id += gpu_offset;
-                }
-            }
-            Instruction::Wait { slave, .. } => {
-                if let DeviceType::GPU { device_id } = slave {
-                    *device_id += gpu_offset;
-                }
-            }
-            Instruction::Fork { instructions: nested_instructions, .. } => {
-                for nested_instr in nested_instructions.iter_mut() {
-                    Runtime::<T>::_adjust_instruction_gpu_ids(nested_instr, gpu_offset);
-                }
-            }
-            // Other instructions do not have top-level DeviceType fields that represent
-            // assignable GPU resources in the same way, or their devices are implicitly handled.
-            _ => {}
-        }
-    }
 }
 
 #[derive(Clone)]
 pub struct RuntimeInfo<T: RuntimeType> {
     pub variable: *mut VariableTable<T>,
     pub constant: *const ConstantTable<T>,
-    pub inputs: *mut EntryTable<T>,
+    pub inputs: *const EntryTable<T>,
     pub funcs: *mut FunctionTable<T>,
     pub events: *const EventTable,
     pub threads: *mut ThreadTable,
@@ -534,11 +494,11 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     }
                 }
                 Instruction::LoadInput { src, dst } => {
-                    let input_guard = &mut (*self.inputs)[src];
+                    let input_guard = &(*self.inputs)[src];
                     let input = input_guard.clone();
                     let guard = &mut (*self.variable)[dst];
                     assert!(guard.is_none());
-                    *guard = Some(input);
+                    *guard = Some(input); // the compiled instructions will ensure that the input is not modified
                 }
                 Instruction::MoveRegister { src, dst } => {
                     if src == dst {

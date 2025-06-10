@@ -8,4 +8,5 @@ members = [
     "cuda_api",
     "core",
     "cytoscape_visualizer",
+    "scheduler",
 ]

@@ -1,0 +1,12 @@
+[package]
+name = "zkpoly_scheduler"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+zkpoly_common = { path = "../common" }
+zkpoly_memory_pool = { path = "../memory_pool" }
+zkpoly_cuda_api = { path = "../cuda_api" }
+zkpoly_compiler = { path = "../compiler" }
+zkpoly_runtime = { path = "../runtime" }
+crossbeam-channel = { version = "0.5.14"}

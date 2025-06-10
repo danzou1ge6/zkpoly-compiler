@@ -30,10 +30,12 @@ impl<Rt: RuntimeType> Artifect<Rt> {
     }
 
     pub fn prepare_dispatcher(
-        self,
+        mut self,
         gpu_allocator: Vec<zkpoly_cuda_api::mem::CudaAllocator>,
         rng: zkpoly_runtime::async_rng::AsyncRng,
+        gpu_offset: i32,
     ) -> zkpoly_runtime::runtime::Runtime<Rt> {
+        self.chunk = self.chunk.adjust_gpu_device_ids(gpu_offset);
         zkpoly_runtime::runtime::Runtime::new(
             self.chunk.instructions,
             self.chunk.n_variables,

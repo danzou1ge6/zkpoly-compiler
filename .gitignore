@@ -3,5 +3,5 @@ Cargo.lock
 /.vscode
 **/build
 /.xmake
-**/lib
+lib/*.so
 *.input
