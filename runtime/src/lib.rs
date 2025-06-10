@@ -9,4 +9,5 @@ pub mod instructions;
 pub mod point;
 pub mod runtime;
 pub mod scalar;
+pub mod scheduler;
 pub mod transcript;
