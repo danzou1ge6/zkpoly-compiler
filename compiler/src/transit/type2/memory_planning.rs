@@ -112,7 +112,7 @@ pub fn plan<'s, Rt: RuntimeType>(
 
     use allocators::{ConstantPool, CpuAllocator, GpuAllocator};
 
-    let lbss = allocators::gpu_allocator::collect_integral_sizes(obj_info.sizes());
+    let lbss = allocators::collect_integral_sizes(obj_info.sizes());
     let mut gpu_allocators: Vec<GpuAllocator<Pointer, Rt>> = hd_info
         .gpus()
         .map(|gpu| GpuAllocator::new(gpu.gpu_memory_limit, gpu.gpu_smithereen_space, lbss.clone()))

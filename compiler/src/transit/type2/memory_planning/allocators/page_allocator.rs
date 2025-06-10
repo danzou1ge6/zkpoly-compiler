@@ -116,8 +116,7 @@ pub struct PageAllocator<'f, P, Rt: RuntimeType> {
     living_objects: BTreeMap<ObjectId, (P, Size)>,
     page_mapping: Heap<P, Vec<PageId>>,
     page_objects: Heap<PageId, Option<ObjectId>>,
-    _procedures: BTreeMap<allocator::ProcedureId, Procedure<'f, P, Rt>>,
-    _procedure_id_allocator: IdAllocator<allocator::ProcedureId>,
+    _phantom: PhantomData<&'f Rt>
 }
 
 impl<'f, P, Rt: RuntimeType> PageAllocator<'f, P, Rt> {
@@ -128,8 +127,7 @@ impl<'f, P, Rt: RuntimeType> PageAllocator<'f, P, Rt> {
             living_objects: BTreeMap::new(),
             page_mapping: Heap::new(),
             page_objects: Heap::repeat(None, number_pages),
-            _procedures: BTreeMap::new(),
-            _procedure_id_allocator: IdAllocator::new(),
+            _phantom: PhantomData
         }
     }
 }
@@ -299,10 +297,7 @@ where
         }
     }
 
-    fn evoke(
-        &mut self,
-        _procedure: allocator::ProcedureId,
-    ) -> allocator::AResp<'s, ObjectId, P, (), Rt> {
-        panic!("this allocator does not produce any procedures")
+    fn typeid(&self) -> typeid::ConstTypeId {
+        typeid::ConstTypeId::of::<Self>()
     }
 }

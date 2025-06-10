@@ -79,7 +79,10 @@ impl<T> DeviceSpecific<T> {
         }
     }
 
-    pub fn default(n_gpus: usize) -> Self where T: Default {
+    pub fn default(n_gpus: usize) -> Self
+    where
+        T: Default,
+    {
         DeviceSpecific {
             gpu: (0..n_gpus).map(|_| Default::default()).collect(),
             cpu: T::default(),
@@ -116,6 +119,18 @@ pub mod template {
     #[derive(Debug, Clone)]
     pub struct PhysicalAddr(usize);
 
+    impl From<u64> for PhysicalAddr {
+        fn from(value: u64) -> Self {
+            Self(value as usize)
+        }
+    }
+
+    impl PhysicalAddr {
+        pub fn get(&self) -> usize {
+            self.0
+        }
+    }
+
     #[derive(Debug, Clone)]
     pub struct VirtualAddr(usize);
 
@@ -132,6 +147,12 @@ pub mod template {
     }
 
     #[derive(Debug, Clone)]
+    pub enum GpuAddr {
+        Offset(VirtualAddr),
+        Paged(Vec<PhysicalAddr>),
+    }
+
+    #[derive(Debug, Clone)]
     pub enum InstructionNode<I, V> {
         Type2 {
             /// (a, Some(b)) says that a use b inplace, so we need move b to a when lowering this to
@@ -144,8 +165,8 @@ pub mod template {
         },
         GpuMalloc {
             id: I,
-            addr: VirtualAddr,
-            size: u64
+            addr: GpuAddr,
+            size: u64,
         },
         GpuFree {
             id: I,
@@ -328,7 +349,10 @@ pub struct TrackSpecific<T> {
 }
 
 impl<T> TrackSpecific<T> {
-    pub fn default(n_gpus: usize) -> Self where T: Default {
+    pub fn default(n_gpus: usize) -> Self
+    where
+        T: Default,
+    {
         Self {
             memory_management: T::default(),
             co_process: T::default(),
@@ -433,7 +457,10 @@ impl<'s> Instruction<'s> {
         };
 
         match &self.node {
-            Type2 { vertex: type2::template::VertexNode::Return(..), ..} => MemoryManagement,
+            Type2 {
+                vertex: type2::template::VertexNode::Return(..),
+                ..
+            } => MemoryManagement,
             Type2 { vertex, ids, .. } => vertex.track(executor_of(devices(ids[0].0))),
             GpuMalloc { .. } => MemoryManagement,
             GpuFree { .. } => MemoryManagement,

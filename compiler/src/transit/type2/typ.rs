@@ -7,7 +7,7 @@ pub mod template {
     use zkpoly_runtime::args::Variable;
 
     use super::RuntimeType;
-    use std::{any, fmt::Debug, marker::PhantomData};
+    use std::{fmt::Debug, marker::PhantomData};
 
     #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
     pub enum Typ<Rt: RuntimeType, P> {
@@ -152,7 +152,7 @@ impl Size {
         }
     }
 
-    pub fn iter<'s>(&'s self) -> Box<dyn Iterator<Item = &u64> + 's> {
+    pub fn iter<'s>(&'s self) -> Box<dyn Iterator<Item = &'s u64> + 's> {
         use Size::*;
         match self {
             Single(s) => Box::new(std::iter::once(s)),

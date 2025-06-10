@@ -1,13 +1,8 @@
 use super::{processed_type3::ProcessedType3, type3};
-use std::io::Write;
-use zkpoly_common::load_dynamic::Libs;
 use zkpoly_memory_pool::CpuMemoryPool;
 use zkpoly_runtime::args::RuntimeType;
 
-use super::{
-    ast, check_type2_dag, debug_partial_typed_type2, debug_type2, processed_type2::ProcessedType2,
-    type2, DebugOptions, Error, HardwareInfo, PanicJoinHandler,
-};
+use super::{type2, DebugOptions, Error};
 
 pub struct FreshType3<'s, Rt: RuntimeType> {
     pub(super) chunk: type3::Chunk<'s, Rt>,

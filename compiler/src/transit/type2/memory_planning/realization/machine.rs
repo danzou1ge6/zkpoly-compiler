@@ -1,4 +1,4 @@
-use crate::transit::type2::memory_planning::prelude::*;
+use crate::transit::{type2::memory_planning::prelude::*, type3::template::GpuAddr};
 use type3::{Instruction, InstructionNode};
 
 /// A register's status progresses from [`Undefined`] to [`Defined`] to [`Freed`].
@@ -382,9 +382,9 @@ where
     P: UsizeId,
 {
     /// Emit a GpuMalloc instruction at `va`, for object, type and pointer specified in `rv`.
-    pub fn gpu_allocate(
+    pub fn gpu_allocate_offsetted(
         &mut self,
-        va: type3::VirtualAddr,
+        addr: GpuAddr,
         size: Size,
         rv: ResidentalValue<P>,
     ) -> RegisterId {
@@ -394,7 +394,7 @@ where
         self.machine
             .emit(Instruction::new_no_src(InstructionNode::GpuMalloc {
                 id: reg,
-                addr: va,
+                addr,
                 size: size.into(),
             }));
         reg

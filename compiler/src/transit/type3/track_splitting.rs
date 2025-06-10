@@ -4,7 +4,7 @@ use zkpoly_runtime::args::RuntimeType;
 
 use crate::{driver, transit::type2::memory_planning::MemoryBlock};
 
-use super::{Chunk, InstructionIndex, RegisterId, Track, TrackSpecific};
+use super::{Chunk, InstructionIndex, Track, TrackSpecific};
 
 #[derive(Debug, Clone)]
 pub struct TrackTasks {

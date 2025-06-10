@@ -55,6 +55,7 @@ macro_rules! match_transfer_stream {
 }
 
 impl<T: RuntimeType> RuntimeInfo<T> {
+    #[allow(dangerous_implicit_autorefs)]
     pub(super) unsafe fn transfer(
         &self,
         src: &Variable<T>,

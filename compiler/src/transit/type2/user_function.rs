@@ -4,7 +4,8 @@ use zkpoly_runtime::args::RuntimeType;
 
 #[derive(Debug, Clone)]
 pub struct FunctionType {
-    pub(crate) args: Vec<Mutability>,
+    /// Currently we are assuming all immutable.
+    pub(crate) _args: Vec<Mutability>,
     pub(crate) ret_inplace: Vec<Option<usize>>,
 }
 

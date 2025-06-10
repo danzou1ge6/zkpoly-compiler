@@ -120,11 +120,8 @@ where
         self.inner_handle().reuse(new_object, old_object)
     }
 
-    fn evoke(
-        &mut self,
-        procedure: allocator::ProcedureId,
-    ) -> allocator::AResp<'s, ObjectId, P, (), Rt> {
-        self.inner_handle().evoke(procedure)
+    fn typeid(&self) -> typeid::ConstTypeId {
+        typeid::ConstTypeId::of::<Self>()
     }
 }
 

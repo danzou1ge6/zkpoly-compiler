@@ -2,9 +2,6 @@ use std::collections::BTreeMap;
 
 #[derive(Debug, Default)]
 pub struct Bijection<T1, T2>
-where
-    T1: Ord + Clone,
-    T2: Ord + Clone,
 {
     forward: BTreeMap<T1, T2>,
     backward: BTreeMap<T2, T1>,

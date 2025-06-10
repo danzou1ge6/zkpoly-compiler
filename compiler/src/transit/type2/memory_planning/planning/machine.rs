@@ -288,6 +288,31 @@ where
     }
 }
 
+impl<'s, T, P, R, Rt: RuntimeType>
+    Continuation<'s, Machine<'s, T, P>, T, P, Result<R, super::super::Error<'s>>, Rt>
+where
+    T: Clone + 'static,
+    P: 'static,
+{
+    pub fn on_allocator<A>(
+        device: Device,
+        f: impl FnOnce(&mut A) -> Result<R, super::super::Error<'s>> + 'static,
+    ) -> Self
+    where
+        A: AllocatorHandle<'s, T, P, Rt>,
+        R: 'static
+    {
+        let f = move |allocators: &mut AllocatorCollection<'_, 's, T, P, Rt>,
+                      machine: &mut Machine<'s, T, P>,
+                      aux: &mut AuxiliaryInfo<Rt>| {
+            let mut handle = allocators.handle(device, machine, aux);
+            allocator::downcast_mut_then(handle.as_mut(), f)
+        };
+
+        Continuation::new(f)
+    }
+}
+
 impl<'s, T, P, Rt: RuntimeType>
     Continuation<'s, Machine<'s, T, P>, T, P, Result<(), super::super::Error<'s>>, Rt>
 where
@@ -438,17 +463,6 @@ where
                     Ok(())
                 }
             }
-        };
-
-        Continuation::new(f)
-    }
-
-    pub fn procedure(device: Device, procedure: allocator::ProcedureId) -> Self {
-        let f = move |allocators: &mut AllocatorCollection<'_, 's, T, P, Rt>,
-                      machine: &mut Machine<'s, T, P>,
-                      aux: &mut AuxiliaryInfo<Rt>| {
-            allocators.handle(device, machine, aux).evoke(procedure);
-            Ok(())
         };
 
         Continuation::new(f)

@@ -1,12 +1,9 @@
 use std::collections::BTreeMap;
 
-use zkpoly_common::{
-    heap::IdAllocator,
-    typ::{PolyMeta, PolyType, Slice},
-};
+use zkpoly_common::typ::{PolyType, Slice};
 use zkpoly_runtime::args::RuntimeType;
 
-use crate::{ast::PolyInit, transit::type2::object_analysis::ObjectId};
+use crate::ast::PolyInit;
 
 use super::{Chunk, Instruction, InstructionNode, VertexNode};
 

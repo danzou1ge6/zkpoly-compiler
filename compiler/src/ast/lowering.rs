@@ -6,7 +6,6 @@ use zkpoly_common::{
     typ::PolyType,
 };
 use zkpoly_memory_pool::CpuMemoryPool;
-use zkpoly_runtime as rt;
 pub use zkpoly_runtime::args::ConstantId;
 use zkpoly_runtime::args::{RuntimeType, Variable};
 
@@ -187,7 +186,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
                 let uf_table: Heap<UserFunctionId, _> =
                     self.user_function_table.map(&mut |_, f| {
                         let typ = type2::user_function::FunctionType {
-                            args: vec![type2::user_function::Mutability::Immutable; f.n_args],
+                            _args: vec![type2::user_function::Mutability::Immutable; f.n_args],
                             ret_inplace: f.ret_typ.iter().map(|_| None).collect(),
                         };
                         type2::user_function::Function { typ, f }

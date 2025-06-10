@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::transit::type2;
 
+use super::template::GpuAddr;
 use super::track_splitting::TrackTasks;
 use super::{Track, VertexNode};
 use kernel_gen::GeneratedFunctions;
@@ -10,10 +11,10 @@ use zkpoly_common::devices::DeviceType;
 use zkpoly_common::heap::{Heap, IdAllocator};
 use zkpoly_common::load_dynamic::Libs;
 use zkpoly_common::typ::Typ;
-use zkpoly_runtime::args::{Constant, ConstantTable, RuntimeType, VariableId};
-use zkpoly_runtime::devices::{Event, EventId, EventTable, ThreadId};
+use zkpoly_runtime::args::{RuntimeType, VariableId};
+use zkpoly_runtime::devices::{EventId, EventType, EventTypeTable, ThreadId};
 use zkpoly_runtime::functions::FunctionTable;
-use zkpoly_runtime::instructions::Instruction;
+use zkpoly_runtime::instructions::{GpuAlloc, Instruction};
 
 mod emit_func;
 mod kernel_gen;
@@ -158,7 +159,9 @@ impl From<super::Device> for DeviceType {
     fn from(value: super::Device) -> Self {
         match value {
             super::Device::Cpu => DeviceType::CPU,
-            super::Device::Gpu(i) => DeviceType::GPU { device_id: i as i32 },
+            super::Device::Gpu(i) => DeviceType::GPU {
+                device_id: i as i32,
+            },
             super::Device::Stack => DeviceType::CPU,
         }
     }
@@ -411,14 +414,20 @@ fn lower_instruction<'s, Rt: RuntimeType>(
                 }
             }
         }
-        super::InstructionNode::GpuMalloc { id, addr, .. } => {
+        super::InstructionNode::GpuMalloc { id, addr, size } => {
             let var_id = reg_id2var_id(*id);
 
             emit(Instruction::Allocate {
                 device: DeviceType::from(t3chunk.register_devices[id]),
                 typ: t3chunk.register_types[*id].erase_p(),
                 id: var_id,
-                gpu_alloc: Some(zkpoly_runtime::instructions::GpuAlloc::Offset(addr.get() as usize)),
+                gpu_alloc: Some(match addr.clone() {
+                    GpuAddr::Offset(va) => GpuAlloc::Offset(va.get()),
+                    GpuAddr::Paged(pas) => GpuAlloc::PageInfo {
+                        va_size: *size as usize,
+                        pa: pas.into_iter().map(|pa| pa.get()).collect(),
+                    },
+                }),
             });
         }
         super::InstructionNode::GpuFree { id } => emit(Instruction::Deallocate {
@@ -509,7 +518,7 @@ fn lower_cpu_waits_any(
     thread: ThreadId,
     depended_track: Track,
     stream2variable_id: &StreamSpecific<VariableId>,
-    event_table: &mut EventTable,
+    event_table: &mut EventTypeTable,
     chunk: &mut MultithreadChunk,
     instruct2cpu_event: &mut BTreeMap<super::InstructionIndex, EventId>,
     instruct2gpu_event: &mut BTreeMap<super::InstructionIndex, EventId>,
@@ -520,7 +529,7 @@ fn lower_cpu_waits_any(
                 .get(&depended_t3idx)
                 .copied()
                 .unwrap_or_else(|| {
-                    let event_id = event_table.push(Event::new_gpu());
+                    let event_id = event_table.push(EventType::new_gpu());
                     instruct2gpu_event.insert(depended_t3idx, event_id);
 
                     chunk.append_at(
@@ -547,7 +556,7 @@ fn lower_cpu_waits_any(
                 .get(&depended_t3idx)
                 .copied()
                 .unwrap_or_else(|| {
-                    let event_id = event_table.push(Event::new_thread());
+                    let event_id = event_table.push(EventType::new_thread());
                     instruct2cpu_event.insert(depended_t3idx, event_id);
 
                     chunk.append_at(
@@ -580,7 +589,7 @@ fn lower_gpu_waits_gpu(
     stream: Stream,
     depended_track: Track,
     stream2variable_id: &StreamSpecific<VariableId>,
-    event_table: &mut EventTable,
+    event_table: &mut EventTypeTable,
     chunk: &mut MultithreadChunk,
     instruct2gpu_event: &mut BTreeMap<super::InstructionIndex, EventId>,
 ) {
@@ -588,7 +597,7 @@ fn lower_gpu_waits_gpu(
         .get(&depended_t3idx)
         .copied()
         .unwrap_or_else(|| {
-            let event_id = event_table.push(Event::new_gpu());
+            let event_id = event_table.push(EventType::new_gpu());
             instruct2gpu_event.insert(depended_t3idx, event_id);
 
             chunk.append_at(
@@ -619,7 +628,7 @@ fn lower_dependency(
     track: Track,
     depended_track: Track,
     stream2variable_id: &StreamSpecific<VariableId>,
-    event_table: &mut EventTable,
+    event_table: &mut EventTypeTable,
     chunk: &mut MultithreadChunk,
     instruct2cpu_event: &mut BTreeMap<super::InstructionIndex, EventId>,
     instruct2gpu_event: &mut BTreeMap<super::InstructionIndex, EventId>,
@@ -656,7 +665,7 @@ fn lower_dependency(
 pub struct Chunk<Rt: RuntimeType> {
     pub(crate) instructions: Vec<Instruction>,
     pub(crate) f_table: FunctionTable<Rt>,
-    pub(crate) event_table: EventTable,
+    pub(crate) event_table: EventTypeTable,
     pub(crate) n_variables: usize,
     pub(crate) n_threads: usize,
     pub(crate) libs: Libs,
@@ -669,12 +678,12 @@ pub fn emit_multithread_instructions<'s, Rt: RuntimeType>(
 ) -> (
     MultithreadChunk,
     FunctionTable<Rt>,
-    EventTable,
+    EventTypeTable,
     StreamSpecific<VariableId>,
     IdAllocator<VariableId>,
     Libs,
 ) {
-    let mut event_table = EventTable::new();
+    let mut event_table = EventTypeTable::new();
     let mut f_table = FunctionTable::<Rt>::new();
     let (mut variable_id_allcoator, reg_id2var_id) = t3chunk.take_reg_id_allocator().decompose();
     let mut libs = t3chunk.take_libs();
@@ -823,7 +832,7 @@ pub fn emit_multithread_instructions<'s, Rt: RuntimeType>(
 pub fn lower<'s, Rt: RuntimeType>(
     mut mt_chunk: MultithreadChunk,
     f_table: FunctionTable<Rt>,
-    event_table: EventTable,
+    event_table: EventTypeTable,
     stream2variable_id: StreamSpecific<VariableId>,
     variable_id_allocator: IdAllocator<VariableId>,
     libs: Libs,

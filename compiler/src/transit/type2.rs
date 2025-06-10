@@ -12,7 +12,6 @@
 use crate::ast;
 use crate::transit::{self, PolyInit, SourceInfo};
 pub use ast::lowering::{Constant, ConstantId, ConstantTable};
-use serde::{Deserialize, Serialize};
 pub use typ::Typ;
 use zkpoly_common::arith::{self, ArithUnrOp, UnrOp};
 use zkpoly_common::digraph;
@@ -148,7 +147,7 @@ pub mod template {
     use zkpoly_common::msm_config::MsmConfig;
     use zkpoly_runtime::args::EntryId;
 
-    use super::{arith, transit, Device, DevicePreference, NttAlgorithm, PolyInit, PolyType};
+    use super::{arith, transit, DevicePreference, NttAlgorithm, PolyInit, PolyType};
 
     #[derive(
         Debug, Clone, Eq, PartialEq, Ord, PartialOrd, serde::Serialize, serde::Deserialize,

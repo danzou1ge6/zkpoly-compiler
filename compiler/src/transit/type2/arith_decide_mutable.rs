@@ -1,20 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::{
-    driver,
-    transit::{
-        type2::{Cg, VertexNode},
-        type3::Device,
-    },
-};
-use zkpoly_common::{
-    arith::{ArithGraph, FusedType, Mutability, Operation},
-    digraph::internal::SubDigraph,
-    heap::{Heap, UsizeId},
-};
+use crate::transit::type2::{Cg, VertexNode};
+use zkpoly_common::arith::{FusedType, Mutability};
 use zkpoly_runtime::args::RuntimeType;
 
-use super::{object_analysis::{self, cg_def_use}, VertexId};
+use super::{
+    object_analysis::{self, cg_def_use},
+    VertexId,
+};
 
 pub fn decide_mutable<'s, Rt: RuntimeType>(
     mut cg: Cg<'s, Rt>,
