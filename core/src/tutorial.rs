@@ -1,6 +1,6 @@
 // this file is used to show how to insert a new function into the runtime
 
-use std::{any::type_name, marker::PhantomData, os::raw::c_uint};
+use std::{any::type_name, marker::PhantomData, os::raw::c_uint, sync::Arc};
 
 use libloading::Symbol;
 
@@ -10,7 +10,7 @@ use zkpoly_runtime::{
     functions::{FuncMeta, KernelType},
 };
 
-use zkpoly_runtime::functions::{Function, FunctionValue, RegisteredFunction};
+use zkpoly_runtime::functions::{Function, RegisteredFunction};
 
 use super::build_func::{resolve_type, xmake_run};
 
@@ -69,7 +69,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for SimpleFunc<T> {
         };
         Function {
             meta: FuncMeta::new("simple_add".to_string(), KernelType::Other),
-            f: FunctionValue::Fn(Box::new(rust_func)),
+            f: Arc::new(rust_func),
         }
     }
 }

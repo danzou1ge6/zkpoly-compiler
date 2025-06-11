@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::args::{RuntimeType, Variable};
 use crate::error::RuntimeError;
 use serde::{Deserialize, Serialize};
@@ -13,38 +15,15 @@ pub trait RegisteredFunction<T: RuntimeType> {
     fn get_fn(&self) -> Function<T>;
 }
 
-pub enum FunctionValue<T: RuntimeType> {
-    FnOnce(
-        Option<
-            Box<
-                dyn FnOnce(Vec<&mut Variable<T>>, Vec<&Variable<T>>) -> Result<(), RuntimeError>
-                    + Sync
-                    + Send
-                    + 'static,
-            >,
-        >,
-    ),
-    FnMut(
-        Box<
-            dyn FnMut(Vec<&mut Variable<T>>, Vec<&Variable<T>>) -> Result<(), RuntimeError>
-                + Sync
-                + Send
-                + 'static,
-        >,
-    ),
-    Fn(
-        Box<
-            dyn Fn(Vec<&mut Variable<T>>, Vec<&Variable<T>>) -> Result<(), RuntimeError>
-                + Sync
-                + Send
-                + 'static,
-        >,
-    ),
-}
-
+#[derive(Clone)]
 pub struct Function<T: RuntimeType> {
     pub meta: FuncMeta,
-    pub f: FunctionValue<T>,
+    pub f: Arc<
+        dyn Fn(Vec<&mut Variable<T>>, Vec<&Variable<T>>) -> Result<(), RuntimeError>
+            + Sync
+            + Send
+            + 'static,
+    >,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, PartialOrd, Eq, Ord)]
@@ -107,59 +86,20 @@ impl FuncMeta {
 impl<T: RuntimeType> std::fmt::Debug for Function<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut st = f.debug_struct("Function");
-
-        if let FunctionValue::FnOnce(_) = &self.f {
-            st.field("mutability", &"FnOnce");
-        } else {
-            st.field("mutability", &"FnMut");
-        }
         st.finish()
     }
 }
 
 impl<T: RuntimeType> Function<T> {
-    pub fn new_once(
-        meta: FuncMeta,
-        f: Box<
-            dyn FnOnce(Vec<&mut Variable<T>>, Vec<&Variable<T>>) -> Result<(), RuntimeError>
-                + Sync
-                + Send
-                + 'static,
-        >,
-    ) -> Self {
-        Self {
-            meta,
-            f: FunctionValue::FnOnce(Some(f)),
-        }
-    }
-
-    pub fn new_mut(
-        meta: FuncMeta,
-        f: Box<
-            dyn FnMut(Vec<&mut Variable<T>>, Vec<&Variable<T>>) -> Result<(), RuntimeError>
-                + Sync
-                + Send
-                + 'static,
-        >,
-    ) -> Self {
-        Self {
-            meta,
-            f: FunctionValue::FnMut(f),
-        }
-    }
-
     pub fn new(
         meta: FuncMeta,
-        f: Box<
+        f: Arc<
             dyn Fn(Vec<&mut Variable<T>>, Vec<&Variable<T>>) -> Result<(), RuntimeError>
                 + Sync
                 + Send
                 + 'static,
         >,
     ) -> Self {
-        Self {
-            meta,
-            f: FunctionValue::Fn(f),
-        }
+        Self { meta, f }
     }
 }

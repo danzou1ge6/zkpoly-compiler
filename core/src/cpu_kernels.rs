@@ -1,12 +1,12 @@
 // functions in this file is mainly copied from halo2, we only provide a wrapper for the runtime
 
-use std::ptr;
+use std::{ptr, sync::Arc};
 
 use group::ff::{BatchInvert, Field};
 use zkpoly_runtime::{
     args::{RuntimeType, Variable},
     error::RuntimeError,
-    functions::{FuncMeta, Function, FunctionValue, KernelType, RegisteredFunction},
+    functions::{FuncMeta, Function, KernelType, RegisteredFunction},
     scalar::ScalarArray,
     transcript::{ChallengeScalarUnit, Transcript, TranscriptWrite},
 };
@@ -116,7 +116,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for InterpolateKernel<T> {
         };
         Function {
             meta: FuncMeta::new("interpolate".to_string(), KernelType::Interpolate),
-            f: FunctionValue::Fn(Box::new(rust_func)),
+            f: Arc::new(rust_func),
         }
     }
 }
@@ -136,7 +136,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for AssmblePoly<T> {
         };
         Function {
             meta: FuncMeta::new("assmble_poly".to_string(), KernelType::AssmblePoly),
-            f: FunctionValue::Fn(Box::new(rust_func)),
+            f: Arc::new(rust_func),
         }
     }
 }
@@ -167,7 +167,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for HashTranscript<T> {
         };
         Function {
             meta: FuncMeta::new("hash_transcript".to_string(), KernelType::HashTranscript),
-            f: FunctionValue::Fn(Box::new(rust_func)),
+            f: Arc::new(rust_func),
         }
     }
 }
@@ -201,7 +201,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for HashTranscriptWrite<T> {
                 "hash_transcript_write".to_string(),
                 KernelType::HashTranscriptWrite,
             ),
-            f: FunctionValue::Fn(Box::new(rust_func)),
+            f: Arc::new(rust_func),
         }
     }
 }
@@ -222,7 +222,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for SqueezeScalar<T> {
         };
         Function {
             meta: FuncMeta::new("squeeze_scalar".to_string(), KernelType::SqueezeScalar),
-            f: FunctionValue::Fn(Box::new(rust_func)),
+            f: Arc::new(rust_func),
         }
     }
 }

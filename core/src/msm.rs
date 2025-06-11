@@ -4,6 +4,7 @@ use std::marker::PhantomData;
 use std::os::raw::{c_long, c_uint, c_ulonglong, c_void};
 use std::process::{Command, Stdio};
 use std::ptr::{null, null_mut};
+use std::sync::Arc;
 
 use libloading::Symbol;
 use zkpoly_common::get_project_root::get_project_root;
@@ -13,9 +14,7 @@ use zkpoly_cuda_api::bindings::cudaError_t;
 use zkpoly_cuda_api::cuda_check;
 use zkpoly_runtime::args::{RuntimeType, Variable};
 use zkpoly_runtime::error::RuntimeError;
-use zkpoly_runtime::functions::{
-    FuncMeta, Function, FunctionValue, KernelType, RegisteredFunction,
-};
+use zkpoly_runtime::functions::{FuncMeta, Function, KernelType, RegisteredFunction};
 use zkpoly_runtime::point::PointArray;
 
 use crate::build_func::{make_run, resolve_curve};
@@ -288,7 +287,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for MSM<T> {
 
         Function {
             meta: FuncMeta::new("msm".to_string(), KernelType::Msm(self.config.clone())),
-            f: FunctionValue::Fn(Box::new(rust_func)),
+            f: Arc::new(rust_func),
         }
     }
 }

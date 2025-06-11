@@ -14,10 +14,7 @@ use crate::{
     args::{new_variable_table, ConstantTable, EntryTable, RuntimeType, Variable, VariableTable},
     async_rng::AsyncRng,
     devices::{new_thread_table, Event, EventTable, ThreadTable},
-    functions::{
-        FuncMeta, FunctionTable,
-        FunctionValue::{Fn, FnMut, FnOnce},
-    },
+    functions::{FuncMeta, FunctionTable},
     instructions::Instruction,
 };
 
@@ -301,19 +298,8 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                             continue;
                         }
                     }
-                    let target = &mut (*self.funcs)[func_id].f;
-                    match target {
-                        FnOnce(f_guard) => {
-                            let f = f_guard.take().unwrap();
-                            f(args_mut, args).unwrap();
-                        }
-                        FnMut(f_guard) => {
-                            f_guard(args_mut, args).unwrap();
-                        }
-                        Fn(f) => {
-                            f(args_mut, args).unwrap();
-                        }
-                    }
+                    let f = &mut (*self.funcs)[func_id].f;
+                    f(args_mut, args).unwrap();
                 }
                 Instruction::Wait {
                     slave,

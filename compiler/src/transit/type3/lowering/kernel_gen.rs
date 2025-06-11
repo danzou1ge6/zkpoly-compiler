@@ -1,4 +1,5 @@
 use std::fmt::Write;
+use std::sync::Arc;
 
 use crate::ast::lowering::UserFunctionId;
 use crate::ast::{self, PolyInit};
@@ -195,69 +196,25 @@ fn convert_to_runtime_func<Rt: RuntimeType>(
         _ => false,
     };
     let ret_type = func.ret_typ.clone();
-    match func.value {
-        ast::user_function::Value::Mut(mut fn_mut) => {
-            let rust_func = move |mut mut_var: Vec<&mut Variable<Rt>>,
-                                  var: Vec<&Variable<Rt>>|
-                  -> Result<(), RuntimeError> {
-                assert_eq!(var.len(), n_args);
-                if need_assemble {
-                    let mut ret = assemble_tuple(mut_var);
-                    ret_type.match_arg(&ret);
-                    fn_mut(&mut ret, var)
-                } else {
-                    assert_eq!(mut_var.len(), 1);
-                    ret_type.match_arg(&mut_var[0]);
-                    fn_mut(mut_var[0], var)
-                }
-            };
-            zkpoly_runtime::functions::Function::new_once(
-                FuncMeta::new(name, KernelType::UserFunction(id)),
-                Box::new(rust_func),
-            )
+    let f = func.value;
+    let rust_func = move |mut mut_var: Vec<&mut Variable<Rt>>,
+                          var: Vec<&Variable<Rt>>|
+          -> Result<(), RuntimeError> {
+        assert_eq!(var.len(), n_args);
+        if need_assemble {
+            let mut ret = assemble_tuple(mut_var);
+            ret_type.match_arg(&ret);
+            f(&mut ret, var)
+        } else {
+            assert_eq!(mut_var.len(), 1);
+            ret_type.match_arg(&mut_var[0]);
+            f(mut_var[0], var)
         }
-        ast::user_function::Value::Once(fn_once) => {
-            let rust_func = move |mut mut_var: Vec<&mut Variable<Rt>>,
-                                  var: Vec<&Variable<Rt>>|
-                  -> Result<(), RuntimeError> {
-                assert_eq!(var.len(), n_args);
-                if need_assemble {
-                    let mut ret = assemble_tuple(mut_var);
-                    ret_type.match_arg(&ret);
-                    fn_once(&mut ret, var)
-                } else {
-                    assert_eq!(mut_var.len(), 1);
-                    ret_type.match_arg(&mut_var[0]);
-                    fn_once(mut_var[0], var)
-                }
-            };
-
-            zkpoly_runtime::functions::Function::new_once(
-                FuncMeta::new(name, KernelType::UserFunction(id)),
-                Box::new(rust_func),
-            )
-        }
-        ast::user_function::Value::Fn(f) => {
-            let rust_func = move |mut mut_var: Vec<&mut Variable<Rt>>,
-                                  var: Vec<&Variable<Rt>>|
-                  -> Result<(), RuntimeError> {
-                assert_eq!(var.len(), n_args);
-                if need_assemble {
-                    let mut ret = assemble_tuple(mut_var);
-                    ret_type.match_arg(&ret);
-                    f(&mut ret, var)
-                } else {
-                    assert_eq!(mut_var.len(), 1);
-                    ret_type.match_arg(&mut_var[0]);
-                    f(mut_var[0], var)
-                }
-            };
-            zkpoly_runtime::functions::Function::new(
-                FuncMeta::new(name, KernelType::UserFunction(id)),
-                Box::new(rust_func),
-            )
-        }
-    }
+    };
+    zkpoly_runtime::functions::Function::new(
+        FuncMeta::new(name, KernelType::UserFunction(id)),
+        Arc::new(rust_func),
+    )
 }
 
 pub fn get_function_id<'s, Rt: RuntimeType>(

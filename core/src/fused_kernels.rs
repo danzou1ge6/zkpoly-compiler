@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::ffi::c_void;
 use std::ptr::null_mut;
+use std::sync::Arc;
 use std::{
     any::type_name,
     marker::PhantomData,
@@ -23,7 +24,7 @@ use zkpoly_runtime::scalar::{Scalar, ScalarArray};
 use zkpoly_runtime::{
     args::{RuntimeType, Variable},
     error::RuntimeError,
-    functions::{FuncMeta, Function, FunctionValue, KernelType, RegisteredFunction},
+    functions::{FuncMeta, Function, KernelType, RegisteredFunction},
 };
 
 use crate::{
@@ -185,7 +186,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for FusedKernel<T> {
                 self.meta.name.clone(),
                 KernelType::FusedArith(self.meta.clone()),
             ),
-            f: FunctionValue::Fn(Box::new(rust_func)),
+            f: Arc::new(rust_func),
         }
     }
 }
@@ -498,7 +499,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                 self.kernel.meta.name.clone(),
                 KernelType::FusedArith(self.kernel.meta.clone()),
             ),
-            f: FunctionValue::Fn(Box::new(rust_func)),
+            f: Arc::new(rust_func),
         }
     }
 }
