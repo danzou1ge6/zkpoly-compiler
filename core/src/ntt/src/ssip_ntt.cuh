@@ -1,7 +1,10 @@
 #pragma once
 #include "common.cuh"
+#include <mutex>
 
 namespace detail {
+
+std::mutex ntt_launch_mutex;
 
 template <typename Field>
 __global__ void ssip_ntt_stage1_warp_no_twiddle (SliceIterator<Field> x, u32 log_len, u32 log_stride, u32 deg, u32 group_sz, const u32 * roots) {
@@ -531,9 +534,13 @@ cudaError_t ssip_ntt(PolyPtr x, const u32 *twiddle, u32 log_len, cudaStream_t st
         
         u32 shared_size = (sizeof(u32) * ((1 << deg) + 1) * WORDS) * group_num;
         auto kernel = ssip_ntt_stage1_warp_no_twiddle<Field>;
-        // CUDA_CHECK(cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, shared_size));
 
-        kernel <<< block_num, block_sz, shared_size, stream >>>(x_iter, log_len, log_stride, deg, 1 << (deg - 1), twiddle);
+        {
+            std::unique_lock<std::mutex> lock(ntt_launch_mutex);
+            CUDA_CHECK(cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, shared_size));
+
+            kernel <<< block_num, block_sz, shared_size, stream >>>(x_iter, log_len, log_stride, deg, 1 << (deg - 1), twiddle);
+        }
         CUDA_CHECK(cudaGetLastError());
 
         log_stride -= deg;
