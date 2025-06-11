@@ -14,10 +14,7 @@ use crate::{
     args::{new_variable_table, ConstantTable, EntryTable, RuntimeType, Variable, VariableTable},
     async_rng::AsyncRng,
     devices::{new_thread_table, Event, EventTable, ThreadTable},
-    functions::{
-        FuncMeta, FunctionTable,
-        FunctionValue::{Fn, FnMut, FnOnce},
-    },
+    functions::{FuncMeta, FunctionTable},
     instructions::Instruction,
 };
 
@@ -106,7 +103,7 @@ impl<T: RuntimeType> Runtime<T> {
 
     pub fn run(
         &mut self,
-        input_table: &mut EntryTable<T>,
+        input_table: &EntryTable<T>,
         debug_opt: RuntimeDebug,
     ) -> (Option<Variable<T>>, RuntimeInfo<T>) {
         let bench_start = if RuntimeDebug::RecordTime == debug_opt {
@@ -123,7 +120,7 @@ impl<T: RuntimeType> Runtime<T> {
         let info = RuntimeInfo {
             variable: &mut self.variable as *mut VariableTable<T>,
             constant: &self.constant as *const ConstantTable<T>,
-            inputs: input_table as *mut EntryTable<T>,
+            inputs: input_table as *const EntryTable<T>,
             funcs: &mut self.funcs as *mut FunctionTable<T>,
             events: &self.events as *const EventTable,
             threads: &mut self.threads as *mut ThreadTable,
@@ -153,7 +150,7 @@ impl<T: RuntimeType> Runtime<T> {
 pub struct RuntimeInfo<T: RuntimeType> {
     pub variable: *mut VariableTable<T>,
     pub constant: *const ConstantTable<T>,
-    pub inputs: *mut EntryTable<T>,
+    pub inputs: *const EntryTable<T>,
     pub funcs: *mut FunctionTable<T>,
     pub events: *const EventTable,
     pub threads: *mut ThreadTable,
@@ -301,19 +298,8 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                             continue;
                         }
                     }
-                    let target = &mut (*self.funcs)[func_id].f;
-                    match target {
-                        FnOnce(f_guard) => {
-                            let f = f_guard.take().unwrap();
-                            f(args_mut, args).unwrap();
-                        }
-                        FnMut(f_guard) => {
-                            f_guard(args_mut, args).unwrap();
-                        }
-                        Fn(f) => {
-                            f(args_mut, args).unwrap();
-                        }
-                    }
+                    let f = &mut (*self.funcs)[func_id].f;
+                    f(args_mut, args).unwrap();
                 }
                 Instruction::Wait {
                     slave,
@@ -494,11 +480,11 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     }
                 }
                 Instruction::LoadInput { src, dst } => {
-                    let input_guard = &mut (*self.inputs)[src];
+                    let input_guard = &(*self.inputs)[src];
                     let input = input_guard.clone();
                     let guard = &mut (*self.variable)[dst];
                     assert!(guard.is_none());
-                    *guard = Some(input);
+                    *guard = Some(input); // the compiled instructions will ensure that the input is not modified
                 }
                 Instruction::MoveRegister { src, dst } => {
                     if src == dst {

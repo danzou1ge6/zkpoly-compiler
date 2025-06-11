@@ -16,13 +16,13 @@ pub fn new_thread_table(len: usize) -> ThreadTable {
 
 #[derive(Serialize, Deserialize)]
 pub enum EventType {
-    GpuEvent,
+    GpuEvent(i32),
     ThreadEvent,
 }
 
 impl EventType {
-    pub fn new_gpu() -> Self {
-        Self::GpuEvent
+    pub fn new_gpu(device_id: i32) -> Self {
+        Self::GpuEvent(device_id)
     }
 
     pub fn new_thread() -> Self {
@@ -42,14 +42,14 @@ pub enum Event {
 impl Event {
     pub fn typ(&self) -> EventType {
         match self {
-            Event::GpuEvent(_) => EventType::GpuEvent,
+            Event::GpuEvent(event) => EventType::GpuEvent(event.get_device()),
             Event::ThreadEvent(_) => EventType::ThreadEvent,
         }
     }
 
     pub fn new_from_typ(typ: EventType) -> Self {
         match typ {
-            EventType::GpuEvent => Self::GpuEvent(CudaEvent::new()),
+            EventType::GpuEvent(device_id) => Self::GpuEvent(CudaEvent::new(device_id)),
             EventType::ThreadEvent => Self::ThreadEvent(CpuEvent::new()),
         }
     }
@@ -72,26 +72,4 @@ impl<'de> Deserialize<'de> for Event {
         let typ = EventType::deserialize(deserializer)?;
         Ok(Event::new_from_typ(typ))
     }
-}
-
-#[test]
-fn test_threadpool() {
-    use std::sync::mpsc::channel;
-    use threadpool::ThreadPool;
-
-    let n_workers = 4;
-    let n_jobs = 8;
-    let pool = ThreadPool::new(n_workers);
-
-    let (tx, rx) = channel();
-    for _ in 0..n_jobs {
-        let tx = tx.clone();
-        pool.execute(move || {
-            println!("Hello, world!");
-            tx.send(1)
-                .expect("channel will be there waiting for the pool");
-        });
-    }
-
-    assert_eq!(rx.iter().take(n_jobs).fold(0, |a, b| a + b), 8);
 }

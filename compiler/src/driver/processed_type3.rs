@@ -21,7 +21,7 @@ impl<'s, Rt: RuntimeType> ProcessedType3<'s, Rt> {
         options: &DebugOptions,
         hardware_info: &HardwareInfo,
         _ctx: &PanicJoinHandler,
-    ) -> Result<Artifect<Rt>, Error<'s, Rt>> {
+    ) -> Result<(Artifect<Rt>, CpuMemoryPool), Error<'s, Rt>> {
         let Self {
             chunk: t3chunk,
             uf_table: t2uf_tab,
@@ -90,10 +90,9 @@ impl<'s, Rt: RuntimeType> ProcessedType3<'s, Rt> {
             cuda_check!(cudaDeviceSynchronize());
         }
 
-        Ok(Artifect {
+        Ok((Artifect {
             chunk: rt_chunk,
             constant_table: t2const_tab,
-            allocator,
-        })
+        }, allocator))
     }
 }

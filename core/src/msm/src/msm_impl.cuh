@@ -6,6 +6,7 @@
 #include <cub/cub.cuh>
 #include <iostream>
 #include <thread>
+#include <mutex>
 #include "../../common/error/src/check.cuh"
 
 #ifdef __CUDA_ARCH__
@@ -17,7 +18,7 @@
 #endif 
 
 namespace detail {
-
+    std::mutex msm_launch_mutex;
     template <u32 windows, u32 bits_per_window>
     __host__ __device__ __forceinline__ void signed_digit(int (&r)[windows]) {
         static_assert(bits_per_window < 32, "bits_per_window must be less than 32");
@@ -512,17 +513,20 @@ namespace detail {
 
                 auto sum_kernel = bucket_sum<Config, warp_num, Point, PointAffine>;
 
-                CUDA_CHECK(cudaFuncSetAttribute(sum_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, shared_size));
+                {
+                    std::unique_lock<std::mutex> lock(msm_launch_mutex);
+                    CUDA_CHECK(cudaFuncSetAttribute(sum_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, shared_size));
 
-                sum_kernel<<<grid_size, block_size, shared_size, stream>>>(
-                    cur_len * Config::actual_windows,
-                    cnt_zero,
-                    indexs,
-                    points[stage_point],
-                    mutex,
-                    initialized[j],
-                    buckets_sum[j]
-                );
+                    sum_kernel<<<grid_size, block_size, shared_size, stream>>>(
+                        cur_len * Config::actual_windows,
+                        cnt_zero,
+                        indexs,
+                        points[stage_point],
+                        mutex,
+                        initialized[j],
+                        buckets_sum[j]
+                    );
+                }
                 CUDA_CHECK(cudaGetLastError());
 
                 if constexpr (Config::debug) {

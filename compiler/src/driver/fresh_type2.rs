@@ -210,7 +210,7 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
             || {
                 Ok(type2::kernel_fusion::fuse_arith(
                     t2cg,
-                    hardware_info.smallest_gpu_memory_integral_limit()
+                    hardware_info.smallest_gpu_memory_integral_limit(),
                 ))
             },
             "Done.",
@@ -246,7 +246,7 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
     pub fn load_artifect(
         mut self,
         dir: impl AsRef<std::path::Path>,
-    ) -> std::io::Result<Artifect<Rt>> {
+    ) -> std::io::Result<(Artifect<Rt>, CpuMemoryPool)> {
         let mut chunk_f = std::fs::File::open(dir.as_ref().join("chunk.json"))?;
         let rt_chunk_deserializer: type3::lowering::serialization::ChunkDeserializer =
             serde_json::from_reader(&mut chunk_f)?;
@@ -259,11 +259,13 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
         let mut allocator = self.prog.memory_pool;
         ct_header.load_constant_table(&mut self.prog.consant_table, &mut ct_f, &mut allocator)?;
 
-        Ok(Artifect {
-            chunk: rt_chunk,
-            constant_table: self.prog.consant_table,
+        Ok((
+            Artifect {
+                chunk: rt_chunk,
+                constant_table: self.prog.consant_table,
+            },
             allocator,
-        })
+        ))
     }
 
     pub fn load_processed_type2<'de>(
@@ -299,7 +301,7 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
         options: &DebugOptions,
         hardware_info: &HardwareInfo,
         ctx: &PanicJoinHandler,
-    ) -> Result<Artifect<Rt>, Error<'s, Rt>> {
+    ) -> Result<(Artifect<Rt>, CpuMemoryPool), Error<'s, Rt>> {
         self.apply_passes(options, hardware_info, ctx)?
             .to_type3(options, hardware_info, ctx)?
             .apply_passes(options)?

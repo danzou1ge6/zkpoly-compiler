@@ -1,7 +1,9 @@
 #pragma once
 #include "common.cuh"
+#include <mutex>
 
 namespace detail {
+    std::mutex recompute_ntt_launch_mutex;
     template <typename Field>
     __forceinline__ __device__ Field pow_lookup_constant(u32 exponent, const u32 *omegas) {
         static const usize WORDS = Field::LIMBS;
@@ -396,10 +398,12 @@ namespace detail {
             auto kernel = ssip_ntt_stage1_warp_recompute <Field, io_group>;
 
             u32 shared_size = (sizeof(u32) * ((1 << deg) + 1) * WORDS) * group_num;
+            {
+                std::unique_lock<std::mutex> lock(recompute_ntt_launch_mutex);
+                CUDA_CHECK(cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, shared_size));
 
-            CUDA_CHECK(cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, shared_size));
-
-            kernel <<< grid, block, shared_size, stream >>>(x_iter, pq_d, log_len, log_stride, deg, pq_deg, 1 << (deg - 1), omegas_d);
+                kernel <<< grid, block, shared_size, stream >>>(x_iter, pq_d, log_len, log_stride, deg, pq_deg, 1 << (deg - 1), omegas_d);
+            }
             CUDA_CHECK(cudaGetLastError());                
 
             log_stride -= deg;

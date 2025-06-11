@@ -6,6 +6,7 @@ use std::{
     marker::PhantomData,
     os::raw::{c_uint, c_void},
     ptr::null_mut,
+    sync::Arc,
 };
 
 use group::ff::Field;
@@ -27,7 +28,7 @@ use super::build_func::{resolve_type, xmake_config, xmake_run};
 
 use zkpoly_common::{devices::DeviceType, load_dynamic::Libs};
 
-use zkpoly_runtime::functions::{Function, FunctionValue, RegisteredFunction};
+use zkpoly_runtime::functions::{Function, RegisteredFunction};
 
 use crate::poly_ptr::{ConstPolyPtr, PolyPtr};
 
@@ -254,7 +255,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyPermute<T> {
         };
         Function {
             meta: FuncMeta::new("poly_permute".to_string(), KernelType::PolyPermute),
-            f: FunctionValue::Fn(Box::new(rust_func)),
+            f: Arc::new(rust_func),
         }
     }
 }
@@ -321,7 +322,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for ScalarPow<T> {
         };
         Function {
             meta: FuncMeta::new("scalar_pow".to_string(), KernelType::ScalarPow(exp)),
-            f: FunctionValue::Fn(Box::new(rust_func)),
+            f: Arc::new(rust_func),
         }
     }
 }
@@ -352,7 +353,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for ScalarInv<T> {
         };
         Function {
             meta: FuncMeta::new("scalar_inv".to_string(), KernelType::ScalarInvert),
-            f: FunctionValue::Fn(Box::new(rust_func)),
+            f: Arc::new(rust_func),
         }
     }
 }
@@ -400,7 +401,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyInvert<T> {
         };
         Function {
             meta: FuncMeta::new("batched_invert".to_string(), KernelType::BatchedInvert),
-            f: FunctionValue::Fn(Box::new(rust_func)),
+            f: Arc::new(rust_func),
         }
     }
 }
@@ -456,7 +457,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyScan<T> {
         };
         Function {
             meta: FuncMeta::new("scan_mul".to_string(), KernelType::ScanMul),
-            f: FunctionValue::Fn(Box::new(rust_func)),
+            f: Arc::new(rust_func),
         }
     }
 }
@@ -487,7 +488,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyOneLagrange<T> {
 
         Function {
             meta: FuncMeta::new("poly_one_lagrange".to_string(), KernelType::NewOneLagrange),
-            f: FunctionValue::Fn(Box::new(rust_func)),
+            f: Arc::new(rust_func),
         }
     }
 }
@@ -522,7 +523,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyOneCoef<T> {
 
         Function {
             meta: FuncMeta::new("poly_one_coef".to_string(), KernelType::NewOneCoef),
-            f: FunctionValue::Fn(Box::new(rust_func)),
+            f: Arc::new(rust_func),
         }
     }
 }
@@ -553,7 +554,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyZero<T> {
 
         Function {
             meta: FuncMeta::new("poly_zero".to_string(), KernelType::NewZero),
-            f: FunctionValue::Fn(Box::new(rust_func)),
+            f: Arc::new(rust_func),
         }
     }
 }
@@ -613,7 +614,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for KateDivision<T> {
 
         Function {
             meta: FuncMeta::new("kate_division".to_string(), KernelType::KateDivision),
-            f: FunctionValue::Fn(Box::new(rust_func)),
+            f: Arc::new(rust_func),
         }
     }
 }
@@ -665,7 +666,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyEval<T> {
         };
         Function {
             meta: FuncMeta::new("poly_eval".to_string(), KernelType::EvaluatePoly),
-            f: FunctionValue::Fn(Box::new(rust_func)),
+            f: Arc::new(rust_func),
         }
     }
 }
@@ -697,7 +698,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyAdd<T> {
         };
         Function {
             meta: FuncMeta::new("poly_add".to_string(), KernelType::PolyAdd),
-            f: FunctionValue::Fn(Box::new(rust_func)),
+            f: Arc::new(rust_func),
         }
     }
 }
@@ -729,7 +730,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolySub<T> {
         };
         Function {
             meta: FuncMeta::new("poly_sub".to_string(), KernelType::PolySub),
-            f: FunctionValue::Fn(Box::new(rust_func)),
+            f: Arc::new(rust_func),
         }
     }
 }
@@ -764,7 +765,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyMul<T> {
                 "poly_mul".to_string(),
                 KernelType::Other, // not used in practice
             ),
-            f: FunctionValue::Fn(Box::new(rust_func)),
+            f: Arc::new(rust_func),
         }
     }
 }

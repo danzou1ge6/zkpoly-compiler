@@ -10,21 +10,28 @@ use crate::cuda_check;
 pub struct CudaEvent {
     event: cudaEvent_t,
     event_ready: CpuEvent,
+    device_id: i32,
 }
 
 impl CudaEvent {
+    pub fn get_device(&self) -> i32 {
+        self.device_id
+    }
+
     pub fn reset(&mut self) {
         self.event_ready.reset();
     }
 
-    pub fn new() -> Self {
+    pub fn new(device_id: i32) -> Self {
         let mut event: cudaEvent_t = std::ptr::null_mut();
         unsafe {
+            cuda_check!(cudaSetDevice(device_id));
             cuda_check!(cudaEventCreateWithFlags(&mut event, cudaEventBlockingSync));
         }
         Self {
             event,
             event_ready: CpuEvent::new(),
+            device_id,
         }
     }
 
@@ -34,6 +41,7 @@ impl CudaEvent {
 
     pub fn record(&self, stream: &CudaStream) {
         unsafe {
+            cuda_check!(cudaSetDevice(self.device_id));
             cuda_check!(cudaEventRecord(self.event, stream.raw()));
         }
         self.event_ready.notify();
@@ -42,6 +50,7 @@ impl CudaEvent {
     pub fn sync(&self) {
         self.wait_ready();
         unsafe {
+            cuda_check!(cudaSetDevice(self.device_id));
             cuda_check!(cudaEventSynchronize(self.event));
         }
     }
@@ -53,6 +62,7 @@ impl CudaEvent {
     pub fn elapsed(&self, other: &CudaEvent) -> f32 {
         let mut elapsed: f32 = 0.0;
         unsafe {
+            cuda_check!(cudaSetDevice(self.device_id));
             cuda_check!(cudaEventElapsedTime(&mut elapsed, self.event, other.event));
         }
         elapsed
@@ -62,11 +72,13 @@ impl CudaEvent {
 impl Drop for CudaEvent {
     fn drop(&mut self) {
         unsafe {
+            cuda_check!(cudaSetDevice(self.device_id));
             cuda_check!(cudaEventDestroy(self.event));
         }
     }
 }
 
+// Assume the event is recorded on the current device, so we don't need to set the device again
 pub struct CudaEventRaw {
     event: cudaEvent_t,
 }
@@ -248,7 +260,7 @@ unsafe impl Sync for CudaEvent {}
 #[test]
 fn test_cuda_stream() {
     let stream = CudaStream::new(0);
-    let event = CudaEvent::new();
+    let event = CudaEvent::new(0);
     stream.record(&event);
     stream.wait(&event);
     stream.sync();

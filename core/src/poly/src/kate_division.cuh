@@ -1,7 +1,8 @@
 #include "common.cuh"
+#include <mutex>
 
 namespace detail {
-
+std::mutex kate_launch_mutex;
 template <typename Field>
 __global__ void kate_kernel(SliceIterator<const Field> p, SliceIterator<Field> q, const Field *pow_b, const Field *b, u32 len_p, u32 deg) {
     u32 index = blockIdx.x * blockDim.x + threadIdx.x;
@@ -66,11 +67,12 @@ cudaError_t kate_division(void *temp_buffer, usize *buffer_size, u32 log_p, Cons
     u32 log_threads = 8;
     u32 threads = 1 << log_threads;
     u32 blocks = (len_p / 2 + threads - 1) / threads;
+    {
+        std::unique_lock<std::mutex> lock(kate_launch_mutex);
+        CUDA_CHECK(cudaFuncSetAttribute(local_kate_kernel<Field>, cudaFuncAttributeMaxDynamicSharedMemorySize, 2 * threads * sizeof(Field)));
 
-    CUDA_CHECK(cudaFuncSetAttribute(local_kate_kernel<Field>, cudaFuncAttributeMaxDynamicSharedMemorySize, 2 * threads * sizeof(Field)));
-
-    local_kate_kernel<Field> <<<blocks, threads, threads * 2 * sizeof(Field), stream >>> (iter_p, iter_q, reinterpret_cast<Field *>(pow_b), b, len_p, std::min(log_threads + 1, log_p));
-
+        local_kate_kernel<Field> <<<blocks, threads, threads * 2 * sizeof(Field), stream >>> (iter_p, iter_q, reinterpret_cast<Field *>(pow_b), b, len_p, std::min(log_threads + 1, log_p));
+    }
     CUDA_CHECK(cudaGetLastError());
 
     for (int deg = log_threads + 1; deg < log_p; deg++) {        
