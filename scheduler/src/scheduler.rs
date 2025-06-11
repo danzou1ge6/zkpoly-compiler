@@ -4,6 +4,7 @@ use zkpoly_compiler::driver::{Artifect, HardwareInfo};
 use zkpoly_runtime::args::{EntryTable, RuntimeType, Variable};
 use zkpoly_runtime::async_rng::AsyncRng;
 use zkpoly_runtime::runtime::{RuntimeDebug, RuntimeInfo};
+use zkpoly_memory_pool::CpuMemoryPool;
 
 // 任务状态
 #[derive(Debug)]
@@ -58,6 +59,8 @@ impl<Rt: RuntimeType> Scheduler<Rt> {
                     }; // 更新任务状态为运行中，并记录已分配的卡片
                     drop(status); // 释放锁
 
+                    let cpu_allocator = CpuMemoryPool::new(30, 32);
+
                     let gpu_allocator = task
                         .hardware_info
                         .gpus()
@@ -73,7 +76,7 @@ impl<Rt: RuntimeType> Scheduler<Rt> {
 
                     let result = task
                         .artifect
-                        .prepare_dispatcher(gpu_allocator, task.rng, cur_cards[0] as i32) // currently, cur_cards are continuous
+                        .prepare_dispatcher(cpu_allocator, gpu_allocator, task.rng, cur_cards[0] as i32) // currently, cur_cards are continuous
                         .run(&task.inputs, task.debug_opt);
 
                     task.result_sender

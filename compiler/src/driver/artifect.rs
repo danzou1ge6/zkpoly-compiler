@@ -9,7 +9,6 @@ use super::type3;
 pub struct Artifect<Rt: RuntimeType> {
     pub(super) chunk: type3::lowering::Chunk<Rt>,
     pub(super) constant_table: args::ConstantTable<Rt>,
-    pub(super) allocator: CpuMemoryPool,
 }
 
 impl<Rt: RuntimeType> Artifect<Rt> {
@@ -31,6 +30,7 @@ impl<Rt: RuntimeType> Artifect<Rt> {
 
     pub fn prepare_dispatcher(
         mut self,
+        cpu_allocator: CpuMemoryPool,
         gpu_allocator: Vec<zkpoly_cuda_api::mem::CudaAllocator>,
         rng: zkpoly_runtime::async_rng::AsyncRng,
         gpu_offset: i32,
@@ -43,16 +43,12 @@ impl<Rt: RuntimeType> Artifect<Rt> {
             self.chunk.f_table,
             instantizate_event_table(self.chunk.event_table),
             self.chunk.n_threads,
-            self.allocator,
+            cpu_allocator,
             gpu_allocator,
             vec![], // TODO: disk allocators
             vec![], // TODO: page allocators
             rng,
             self.chunk.libs,
         )
-    }
-
-    pub fn allocator(&mut self) -> &mut CpuMemoryPool {
-        &mut self.allocator
     }
 }
