@@ -1,3 +1,5 @@
+use std::{collections::HashMap, sync::Arc};
+
 use zkpoly_memory_pool::CpuMemoryPool;
 use zkpoly_runtime::{
     args::{self, RuntimeType},
@@ -6,6 +8,7 @@ use zkpoly_runtime::{
 
 use super::type3;
 
+#[derive(Clone)]
 pub struct Artifect<Rt: RuntimeType> {
     pub(super) chunk: type3::lowering::Chunk<Rt>,
     pub(super) constant_table: args::ConstantTable<Rt>,
@@ -29,25 +32,26 @@ impl<Rt: RuntimeType> Artifect<Rt> {
     }
 
     pub fn prepare_dispatcher(
-        mut self,
+        self,
         cpu_allocator: CpuMemoryPool,
-        gpu_allocator: Vec<zkpoly_cuda_api::mem::CudaAllocator>,
+        gpu_allocator: HashMap<i32, zkpoly_cuda_api::mem::CudaAllocator>,
         rng: zkpoly_runtime::async_rng::AsyncRng,
-        gpu_offset: i32,
+        gpu_mapping: Arc<dyn Fn(i32) -> i32 + Send + Sync>,
     ) -> zkpoly_runtime::runtime::Runtime<Rt> {
-        self.chunk = self.chunk.adjust_gpu_device_ids(gpu_offset);
+        // self.chunk = self.chunk.adjust_gpu_device_ids(gpu_offset);
         zkpoly_runtime::runtime::Runtime::new(
             self.chunk.instructions,
             self.chunk.n_variables,
             self.constant_table,
             self.chunk.f_table,
-            instantizate_event_table(self.chunk.event_table),
+            instantizate_event_table(self.chunk.event_table, gpu_mapping.clone()),
             self.chunk.n_threads,
             cpu_allocator,
             gpu_allocator,
             vec![], // TODO: disk allocators
             vec![], // TODO: page allocators
             rng,
+            gpu_mapping,
             self.chunk.libs,
         )
     }

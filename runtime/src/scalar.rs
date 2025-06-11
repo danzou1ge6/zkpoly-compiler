@@ -619,7 +619,8 @@ impl<F: Field> Transfer for ScalarArray<F> {
             target.device
                 == DeviceType::GPU {
                     device_id: stream.get_device()
-                }
+                },
+            "target device {:?} is not GPU with stream device {}", target.device, stream.get_device()
         );
 
         let shift = self.get_shift(target);

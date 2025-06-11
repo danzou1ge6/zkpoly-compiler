@@ -55,6 +55,7 @@ macro_rules! match_transfer_stream {
 }
 
 impl<T: RuntimeType> RuntimeInfo<T> {
+    /// Here we don't need the gpu_mapping, because the transfer is done according to the stream device.
     #[allow(dangerous_implicit_autorefs)]
     pub(super) unsafe fn transfer(
         &self,

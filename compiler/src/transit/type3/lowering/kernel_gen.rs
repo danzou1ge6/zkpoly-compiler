@@ -198,7 +198,8 @@ fn convert_to_runtime_func<Rt: RuntimeType>(
     let ret_type = func.ret_typ.clone();
     let f = func.value;
     let rust_func = move |mut mut_var: Vec<&mut Variable<Rt>>,
-                          var: Vec<&Variable<Rt>>|
+                          var: Vec<&Variable<Rt>>,
+                          _: Arc<dyn Fn(i32) -> i32 + Send + Sync>|
           -> Result<(), RuntimeError> {
         assert_eq!(var.len(), n_args);
         if need_assemble {

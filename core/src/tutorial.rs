@@ -51,7 +51,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for SimpleFunc<T> {
 
         // define the rust side wrapper function
         let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
-                              var: Vec<&Variable<T>>|
+                              var: Vec<&Variable<T>>,
+                              _: Arc<dyn Fn(i32) -> i32 + Send + Sync>|
               -> Result<(), RuntimeError> {
             assert!(mut_var.len() == 1);
             assert!(var.len() == 2);

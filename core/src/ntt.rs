@@ -120,7 +120,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for DistributePowers<T> {
     fn get_fn(&self) -> Function<T> {
         let c_func = self.c_func.clone();
         let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
-                              var: Vec<&Variable<T>>|
+                              var: Vec<&Variable<T>>,
+                              _: Arc<dyn Fn(i32) -> i32 + Send + Sync>|
               -> Result<(), RuntimeError> {
             assert!(mut_var.len() == 1);
             assert!(var.len() == 2);
@@ -166,7 +167,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for SsipNtt<T> {
         let c_func = self.c_func.clone();
 
         let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
-                              var: Vec<&Variable<T>>|
+                              var: Vec<&Variable<T>>,
+                              _: Arc<dyn Fn(i32) -> i32 + Send + Sync>|
               -> Result<(), RuntimeError> {
             assert!(mut_var.len() == 1);
             assert!(var.len() == 2);
@@ -250,7 +252,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for RecomputeNtt<T> {
         let c_func = self.c_func.clone();
 
         let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
-                              var: Vec<&Variable<T>>|
+                              var: Vec<&Variable<T>>,
+                              _: Arc<dyn Fn(i32) -> i32 + Send + Sync>|
               -> Result<(), RuntimeError> {
             assert!(mut_var.len() == 1);
             assert!(var.len() == 3);

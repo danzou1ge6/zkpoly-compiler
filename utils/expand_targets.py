@@ -77,7 +77,7 @@ def generate_makefile(targets, output_file="Makefile.msm", cuda_path="/usr/local
     
     for target_config in targets:
         target_name = target_config["name"]
-        all_targets.append(f"lib{target_name}.so")
+        all_targets.append(f"{target_name}")
         
         # 设置变量
         curve_name = target_config["defines"]["MSM_CURVE"]
@@ -175,7 +175,7 @@ parser.add_argument("--no-debug", action="store_true", help="Generate only non-d
 parser.add_argument("--output", default="Makefile.msm", help="Output makefile name")
 parser.add_argument("--arch", default=cuda_arch, help="CUDA architecture (default: 80)")
 parser.add_argument("--cuda-path", default='/usr/local/cuda', help="Path to CUDA installation")
-parser.add_argument("--cppc", default='usr/bin/g++', help="Path to C++ compiler")
+parser.add_argument("--cppc", default='/usr/bin/g++', help="Path to C++ compiler")
 
 args = parser.parse_args()
 

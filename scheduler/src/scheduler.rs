@@ -1,10 +1,11 @@
+use std::collections::HashMap;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use zkpoly_compiler::driver::{Artifect, HardwareInfo};
+use zkpoly_memory_pool::CpuMemoryPool;
 use zkpoly_runtime::args::{EntryTable, RuntimeType, Variable};
 use zkpoly_runtime::async_rng::AsyncRng;
 use zkpoly_runtime::runtime::{RuntimeDebug, RuntimeInfo};
-use zkpoly_memory_pool::CpuMemoryPool;
 
 // 任务状态
 #[derive(Debug)]
@@ -29,7 +30,7 @@ pub struct Scheduler<Rt: RuntimeType> {
     pub cards_per_request: usize,
     pub total_cards: usize,
     sender: crossbeam_channel::Sender<Task<Rt>>,
-    scheduler_threads: Vec<thread::JoinHandle<()>>,
+    _scheduler_threads: Vec<thread::JoinHandle<()>>,
 }
 
 impl<Rt: RuntimeType> Scheduler<Rt> {
@@ -48,6 +49,11 @@ impl<Rt: RuntimeType> Scheduler<Rt> {
                 .into_iter()
                 .collect::<Vec<usize>>();
             scheduler_threads.push(thread::spawn(move || {
+                let mut cpu_allocator = CpuMemoryPool::new(20, 32);
+                let cur_cards_clone = cur_cards.clone();
+                let gpu_mapping = Arc::new(move |x: i32| {
+                    cur_cards_clone[x as usize] as i32
+                });
                 while let Ok(task) = receiver.recv() {
                     let mut status = task.status.lock().unwrap();
                     assert!(
@@ -59,25 +65,46 @@ impl<Rt: RuntimeType> Scheduler<Rt> {
                     }; // 更新任务状态为运行中，并记录已分配的卡片
                     drop(status); // 释放锁
 
-                    let cpu_allocator = CpuMemoryPool::new(30, 32);
-
                     let gpu_allocator = task
                         .hardware_info
                         .gpus()
                         .enumerate()
                         .map(|(id, gpu)| {
-                            zkpoly_cuda_api::mem::CudaAllocator::new(
+                            (
                                 cur_cards[id] as i32,
-                                gpu.memory_limit() as usize,
-                                true,
+                                zkpoly_cuda_api::mem::CudaAllocator::new(
+                                    cur_cards[id] as i32,
+                                    gpu.memory_limit() as usize,
+                                    false,
+                                ),
                             )
                         })
-                        .collect::<Vec<_>>();
+                        .collect::<HashMap<_, _>>();
 
-                    let result = task
+                    let result: (Option<Variable<Rt>>, RuntimeInfo<Rt>);
+                    let mut runtime = task
                         .artifect
-                        .prepare_dispatcher(cpu_allocator, gpu_allocator, task.rng, cur_cards[0] as i32) // currently, cur_cards are continuous
-                        .run(&task.inputs, task.debug_opt);
+                        .prepare_dispatcher(
+                            cpu_allocator,
+                            gpu_allocator,
+                            task.rng,
+                            gpu_mapping.clone(),
+                        );
+
+                    let start = std::time::Instant::now();
+                    (result, cpu_allocator) = runtime.run(&task.inputs, task.debug_opt);
+                    let elapsed = start.elapsed();
+
+                    // 更新任务状态为已完成
+                    let mut status = task.status.lock().unwrap();
+                    *status = TaskStatus::Completed;
+                    drop(status); // 释放锁
+                    println!(
+                        "Scheduler thread {} completed task with GPUs {:?} in {:?}",
+                        i / cards_per_request,
+                        cur_cards,
+                        elapsed
+                    );
 
                     task.result_sender
                         .send(result)
@@ -90,12 +117,12 @@ impl<Rt: RuntimeType> Scheduler<Rt> {
             cards_per_request,
             total_cards,
             sender,
-            scheduler_threads,
+            _scheduler_threads: scheduler_threads,
         }
     }
 
     pub fn add_request(
-        &mut self,
+        &self,
         request: Artifect<Rt>,
         hd_info: HardwareInfo,
         rng: AsyncRng,

@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::sync::mpsc::Receiver;
+use std::sync::{mpsc::Receiver, Arc};
 use zkpoly_common::{cpu_event::CpuEvent, heap};
 use zkpoly_cuda_api::stream::CudaEvent;
 
@@ -14,7 +14,7 @@ pub fn new_thread_table(len: usize) -> ThreadTable {
     heap::Heap::repeat_with(|| (None), len)
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub enum EventType {
     GpuEvent(i32),
     ThreadEvent,
@@ -30,8 +30,16 @@ impl EventType {
     }
 }
 
-pub fn instantizate_event_table(ett: EventTypeTable) -> EventTable {
-    ett.map(&mut |_, typ| Event::new_from_typ(typ))
+pub fn instantizate_event_table(
+    ett: EventTypeTable,
+    gpu_mapping: Arc<dyn Fn(i32) -> i32>,
+) -> EventTable {
+    ett.map(&mut |_, mut typ| {
+        if let EventType::GpuEvent(device_id) = &mut typ {
+            *device_id = gpu_mapping(*device_id)
+        }
+        Event::new_from_typ(typ)
+    })
 }
 
 pub enum Event {

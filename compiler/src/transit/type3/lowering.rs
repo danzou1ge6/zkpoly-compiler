@@ -662,6 +662,7 @@ fn lower_dependency(
     }
 }
 
+#[derive(Clone)]
 pub struct Chunk<Rt: RuntimeType> {
     pub(crate) instructions: Vec<Instruction>,
     pub(crate) f_table: FunctionTable<Rt>,
@@ -672,60 +673,61 @@ pub struct Chunk<Rt: RuntimeType> {
 }
 
 impl<Rt: RuntimeType> Chunk<Rt> {
-    /// Adjusts the GPU device IDs by a given offset.
-    /// Relative GPU IDs in instructions will be converted to absolute IDs.
-    pub fn adjust_gpu_device_ids(mut self, gpu_offset: i32) -> Self {
-        // Adjust the GPU device IDs in the chunk's instructions
-        for instruction in self.instructions.iter_mut() {
-            Self::_adjust_instruction_gpu_ids(instruction, gpu_offset);
-        }
-        // Adjust the GPU device IDs in the event table
-        for event in self.event_table.iter_mut() {
-            if let EventType::GpuEvent(device_id) = event {
-                *device_id += gpu_offset;
-            }
-        }
-        self
-    }
+    // currently, we do this in runtime, so this function is commented out
+    // /// Adjusts the GPU device IDs by a given offset.
+    // /// Relative GPU IDs in instructions will be converted to absolute IDs.
+    // pub fn adjust_gpu_device_ids(mut self, gpu_mapping: i32) -> Self {
+    //     // // Adjust the GPU device IDs in the chunk's instructions
+    //     // for instruction in self.instructions.iter_mut() {
+    //     //     Self::_adjust_instruction_gpu_ids(instruction, gpu_offset);
+    //     // }
+    //     // Adjust the GPU device IDs in the event table
+    //     for event in self.event_table.iter_mut() {
+    //         if let EventType::GpuEvent(device_id) = event {
+    //             *device_id += gpu_offset;
+    //         }
+    //     }
+    //     self
+    // }
 
-    /// Helper function to adjust GPU device IDs for a single instruction.
-    fn _adjust_instruction_gpu_ids(instruction: &mut Instruction, gpu_offset: i32) {
-        match instruction {
-            Instruction::Allocate { device, .. } => {
-                if let DeviceType::GPU { device_id } = device {
-                    *device_id += gpu_offset;
-                }
-            }
-            Instruction::Transfer {
-                src_device,
-                dst_device,
-                ..
-            } => {
-                if let DeviceType::GPU { device_id } = src_device {
-                    *device_id += gpu_offset;
-                }
-                if let DeviceType::GPU { device_id } = dst_device {
-                    *device_id += gpu_offset;
-                }
-            }
-            Instruction::Wait { slave, .. } => {
-                if let DeviceType::GPU { device_id } = slave {
-                    *device_id += gpu_offset;
-                }
-            }
-            Instruction::Fork {
-                instructions: nested_instructions,
-                ..
-            } => {
-                for nested_instr in nested_instructions.iter_mut() {
-                    Self::_adjust_instruction_gpu_ids(nested_instr, gpu_offset);
-                }
-            }
-            // Other instructions do not have top-level DeviceType fields that represent
-            // assignable GPU resources in the same way, or their devices are implicitly handled.
-            _ => {}
-        }
-    }
+    // /// Helper function to adjust GPU device IDs for a single instruction.
+    // fn _adjust_instruction_gpu_ids(instruction: &mut Instruction, gpu_offset: i32) {
+    //     match instruction {
+    //         Instruction::Allocate { device, .. } => {
+    //             if let DeviceType::GPU { device_id } = device {
+    //                 *device_id += gpu_offset;
+    //             }
+    //         }
+    //         Instruction::Transfer {
+    //             src_device,
+    //             dst_device,
+    //             ..
+    //         } => {
+    //             if let DeviceType::GPU { device_id } = src_device {
+    //                 *device_id += gpu_offset;
+    //             }
+    //             if let DeviceType::GPU { device_id } = dst_device {
+    //                 *device_id += gpu_offset;
+    //             }
+    //         }
+    //         Instruction::Wait { slave, .. } => {
+    //             if let DeviceType::GPU { device_id } = slave {
+    //                 *device_id += gpu_offset;
+    //             }
+    //         }
+    //         Instruction::Fork {
+    //             instructions: nested_instructions,
+    //             ..
+    //         } => {
+    //             for nested_instr in nested_instructions.iter_mut() {
+    //                 Self::_adjust_instruction_gpu_ids(nested_instr, gpu_offset);
+    //             }
+    //         }
+    //         // Other instructions do not have top-level DeviceType fields that represent
+    //         // assignable GPU resources in the same way, or their devices are implicitly handled.
+    //         _ => {}
+    //     }
+    // }
 }
 
 pub fn emit_multithread_instructions<'s, Rt: RuntimeType>(

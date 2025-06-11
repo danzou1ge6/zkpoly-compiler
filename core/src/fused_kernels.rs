@@ -97,7 +97,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for FusedKernel<T> {
         let c_func = self.c_func.clone();
         let meta = self.meta.clone();
         let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
-                              var: Vec<&Variable<T>>|
+                              var: Vec<&Variable<T>>,
+                              _: Arc<dyn Fn(i32) -> i32 + Send + Sync>|
               -> Result<(), RuntimeError> {
             let mut len = 0;
             assert_eq!(meta.num_vars, var.len() - 1);
@@ -221,7 +222,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
         the first q are scalars, next m are polys, next q are scalar buffers, the next 2m are the gpu polys (double buffer, one load, one compute)
          */
         let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
-                              var: Vec<&Variable<T>>|
+                              var: Vec<&Variable<T>>,
+                              _: Arc<dyn Fn(i32) -> i32 + Send + Sync>|
               -> Result<(), RuntimeError> {
             // the first of mut_var is the buffer for the arguments
             let (tmp_buffers, mut_var) = mut_var.split_at_mut(2);

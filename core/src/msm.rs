@@ -236,7 +236,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for MSM<T> {
         let n_precompute = config.get_precompute();
 
         let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
-                              var: Vec<&Variable<T>>|
+                              var: Vec<&Variable<T>>,
+                              gpu_mapping: Arc<dyn Fn(i32) -> i32 + Send + Sync>|
               -> Result<(), RuntimeError> {
             let batches: u32 = var.len() as u32 - n_precompute;
             assert_eq!(mut_var.len(), batches as usize + config.cards.len());
@@ -265,6 +266,12 @@ impl<T: RuntimeType> RegisteredFunction<T> for MSM<T> {
                 .map(|v| v.unwrap_point_mut().as_mut() as *mut T::PointAffine as *mut c_uint)
                 .collect::<Vec<*mut c_uint>>();
 
+            let cards = config
+                .cards
+                .iter()
+                .map(|&c| gpu_mapping(c as i32) as u32)
+                .collect::<Vec<_>>();
+
             unsafe {
                 cuda_check!(c_func(
                     buffers.as_ptr() as *const *mut c_void,
@@ -274,8 +281,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for MSM<T> {
                     config.parts,
                     config.stage_scalars,
                     config.stage_points,
-                    config.cards.len().try_into().unwrap(),
-                    config.cards.as_ptr(),
+                    cards.len().try_into().unwrap(),
+                    cards.as_ptr(),
                     h_points.as_ptr(),
                     batches,
                     h_scaler_batch.as_ptr(),

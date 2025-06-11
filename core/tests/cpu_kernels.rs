@@ -1,4 +1,6 @@
 mod common;
+use std::sync::Arc;
+
 use common::*;
 
 static K: u32 = 5;
@@ -13,20 +15,13 @@ use zkpoly_common::devices::DeviceType;
 use zkpoly_memory_pool::CpuMemoryPool;
 use zkpoly_runtime::args::Variable;
 use zkpoly_runtime::functions::RegisteredFunction;
-use zkpoly_runtime::functions::*;
 use zkpoly_runtime::scalar::{Scalar, ScalarArray};
 
 #[test]
 fn test_interpolate() {
     let inter = InterpolateKernel::<MyRuntimeType>::new();
     let func = inter.get_fn();
-    let f = match func {
-        Function {
-            f: FunctionValue::Fn(func),
-            ..
-        } => func,
-        _ => panic!("expected Fn"),
-    };
+    let f = func.f;
     let mut cpu_pool = CpuMemoryPool::new(K, size_of::<MyField>());
     let len = 1 << K;
     let mut a = (0..len)
@@ -64,7 +59,7 @@ fn test_interpolate() {
         vars.push(&b[i]);
     }
 
-    f(vec![&mut res], vars).unwrap();
+    f(vec![&mut res], vars, Arc::new(|x: i32| x)).unwrap();
 
     let truth = lagrange_interpolate(&a_t, &b_t);
 

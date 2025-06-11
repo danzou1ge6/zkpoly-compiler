@@ -4,7 +4,7 @@ use libloading::Library;
 
 use crate::get_project_root::get_project_root;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Libs {
     libs: HashMap<String, &'static Library>,
 }

@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeSet, HashMap},
     sync::{mpsc::Sender, Arc, Mutex},
     thread,
     time::Instant,
@@ -32,13 +32,14 @@ pub mod transfer;
 
 pub struct Runtime<T: RuntimeType> {
     instructions: Vec<Instruction>,
+    gpu_mapping: Arc<dyn Fn(i32) -> i32 + Send + Sync>,
     variable: VariableTable<T>,
     constant: ConstantTable<T>,
     funcs: FunctionTable<T>,
     events: EventTable,
     threads: ThreadTable,
     pub mem_allocator: Option<CpuMemoryPool>,
-    gpu_allocator: Vec<CudaAllocator>,
+    gpu_allocator: HashMap<i32, CudaAllocator>,
     disk_allocator: Vec<BuddyDiskPool>,
     page_allocator: Vec<CudaPageAllocator>,
     rng: AsyncRng,
@@ -66,10 +67,11 @@ impl<T: RuntimeType> Runtime<T> {
         events: EventTable,
         n_threads: usize,
         mem_allocator: CpuMemoryPool,
-        gpu_allocator: Vec<CudaAllocator>,
+        gpu_allocator: HashMap<i32, CudaAllocator>,
         disk_allocator: Vec<BuddyDiskPool>,
         page_allocator: Vec<CudaPageAllocator>,
         rng: AsyncRng,
+        gpu_mapping: Arc<dyn Fn(i32) -> i32 + Send + Sync>,
         libs: Libs,
     ) -> Self {
         Self {
@@ -83,6 +85,7 @@ impl<T: RuntimeType> Runtime<T> {
             gpu_allocator,
             disk_allocator,
             page_allocator,
+            gpu_mapping,
             rng,
             _libs: libs,
         }
@@ -105,7 +108,7 @@ impl<T: RuntimeType> Runtime<T> {
         &mut self,
         input_table: &EntryTable<T>,
         debug_opt: RuntimeDebug,
-    ) -> (Option<Variable<T>>, RuntimeInfo<T>) {
+    ) -> ((Option<Variable<T>>, RuntimeInfo<T>), CpuMemoryPool) {
         let bench_start = if RuntimeDebug::RecordTime == debug_opt {
             Some(Instant::now())
         } else {
@@ -118,6 +121,7 @@ impl<T: RuntimeType> Runtime<T> {
         };
         let debug_instruction = RuntimeDebug::DebugInstruction == debug_opt;
         let info = RuntimeInfo {
+            gpu_mapping: self.gpu_mapping.clone(),
             variable: &mut self.variable as *mut VariableTable<T>,
             constant: &self.constant as *const ConstantTable<T>,
             inputs: input_table as *const EntryTable<T>,
@@ -142,12 +146,13 @@ impl<T: RuntimeType> Runtime<T> {
                 Arc::new(std::sync::Mutex::new(())),
             )
         };
-        (r, info)
+        ((r, info), self.mem_allocator.take().unwrap())
     }
 }
 
 #[derive(Clone)]
 pub struct RuntimeInfo<T: RuntimeType> {
+    pub gpu_mapping: Arc<dyn Fn(i32) -> i32 + Send + Sync>,
     pub variable: *mut VariableTable<T>,
     pub constant: *const ConstantTable<T>,
     pub inputs: *const EntryTable<T>,
@@ -170,7 +175,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         &self,
         instructions: Vec<Instruction>,
         mut mem_allocator: Option<&mut CpuMemoryPool>,
-        mut gpu_allocator: Option<&mut Vec<CudaAllocator>>,
+        mut gpu_allocator: Option<&mut HashMap<i32, CudaAllocator>>,
         mut disk_allocator: Option<&mut Vec<BuddyDiskPool>>,
         mut page_allocator: Option<&mut Vec<CudaPageAllocator>>,
         epilogue: Option<Sender<i32>>,
@@ -299,7 +304,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                         }
                     }
                     let f = &mut (*self.funcs)[func_id].f;
-                    f(args_mut, args).unwrap();
+                    f(args_mut, args, self.gpu_mapping.clone()).unwrap();
                 }
                 Instruction::Wait {
                     slave,

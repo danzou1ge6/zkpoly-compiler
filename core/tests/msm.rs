@@ -1,5 +1,5 @@
 mod common;
-use std::os::raw::c_void;
+use std::{os::raw::c_void, sync::Arc};
 use std::ptr::null_mut;
 use std::time::SystemTime;
 
@@ -130,13 +130,7 @@ fn test_msm() {
         let msm = MSM::<MyRuntimeType>::new(&mut libs, msm_config.clone());
         let msm_precompute = MSMPrecompute::<MyRuntimeType>::new(&mut libs, msm_config.clone());
 
-        let msm_fn = match msm.get_fn() {
-            Function {
-                f: FunctionValue::Fn(func),
-                ..
-            } => func,
-            _ => panic!("expected Fn"),
-        };
+        let msm_fn = msm.get_fn().f;
 
         let precompute_fn = msm_precompute.get_fn();
 
@@ -218,6 +212,7 @@ fn test_msm() {
         msm_fn(
             mut_var.iter_mut().map(|v| v).collect::<Vec<_>>(),
             var.iter().map(|v| v).collect::<Vec<_>>(),
+            Arc::new(|x| x),
         )
         .unwrap();
 

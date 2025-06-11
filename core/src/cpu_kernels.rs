@@ -97,7 +97,8 @@ pub fn lagrange_interpolate<F: Field>(points: &Vec<F>, evals: &Vec<F>, res: &mut
 impl<T: RuntimeType> RegisteredFunction<T> for InterpolateKernel<T> {
     fn get_fn(&self) -> Function<T> {
         let rust_func = |mut mut_var: Vec<&mut Variable<T>>,
-                         var: Vec<&Variable<T>>|
+                         var: Vec<&Variable<T>>,
+                         _: Arc<dyn Fn(i32) -> i32 + Send + Sync>|
          -> Result<(), RuntimeError> {
             assert_eq!(mut_var.len(), 1);
             let res = mut_var[0].unwrap_scalar_array_mut();
@@ -124,7 +125,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for InterpolateKernel<T> {
 impl<T: RuntimeType> RegisteredFunction<T> for AssmblePoly<T> {
     fn get_fn(&self) -> Function<T> {
         let rust_func = |mut mut_var: Vec<&mut Variable<T>>,
-                         var: Vec<&Variable<T>>|
+                         var: Vec<&Variable<T>>,
+                         _: Arc<dyn Fn(i32) -> i32 + Send + Sync>|
          -> Result<(), RuntimeError> {
             assert_eq!(mut_var.len(), 1);
             let res = mut_var[0].unwrap_scalar_array_mut();
@@ -144,7 +146,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for AssmblePoly<T> {
 impl<T: RuntimeType> RegisteredFunction<T> for HashTranscript<T> {
     fn get_fn(&self) -> Function<T> {
         let rust_func = |mut mut_var: Vec<&mut Variable<T>>,
-                         var: Vec<&Variable<T>>|
+                         var: Vec<&Variable<T>>,
+                         _: Arc<dyn Fn(i32) -> i32 + Send + Sync>|
          -> Result<(), RuntimeError> {
             assert_eq!(mut_var.len(), 1);
             assert_eq!(var.len(), 1);
@@ -175,7 +178,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for HashTranscript<T> {
 impl<T: RuntimeType> RegisteredFunction<T> for HashTranscriptWrite<T> {
     fn get_fn(&self) -> Function<T> {
         let rust_func = |mut mut_var: Vec<&mut Variable<T>>,
-                         var: Vec<&Variable<T>>|
+                         var: Vec<&Variable<T>>,
+                         _: Arc<dyn Fn(i32) -> i32 + Send + Sync>|
          -> Result<(), RuntimeError> {
             assert_eq!(mut_var.len(), 1);
             assert_eq!(var.len(), 1);
@@ -209,7 +213,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for HashTranscriptWrite<T> {
 impl<T: RuntimeType> RegisteredFunction<T> for SqueezeScalar<T> {
     fn get_fn(&self) -> Function<T> {
         let rust_func = |mut mut_var: Vec<&mut Variable<T>>,
-                         var: Vec<&Variable<T>>|
+                         var: Vec<&Variable<T>>,
+                         _: Arc<dyn Fn(i32) -> i32 + Send + Sync>|
          -> Result<(), RuntimeError> {
             assert_eq!(mut_var.len(), 2);
             assert_eq!(var.len(), 0);

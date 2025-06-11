@@ -223,7 +223,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyPermute<T> {
     fn get_fn(&self) -> Function<T> {
         let c_func = self.c_func.clone();
         let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
-                              var: Vec<&Variable<T>>|
+                              var: Vec<&Variable<T>>,
+                              _: Arc<dyn Fn(i32) -> i32 + Send + Sync>|
               -> Result<(), RuntimeError> {
             assert_eq!(mut_var.len(), 3);
             assert_eq!(var.len(), 3);
@@ -301,7 +302,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for ScalarPow<T> {
         let c_func = self.c_func.clone();
         let exp = self.exp.clone();
         let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
-                              var: Vec<&Variable<T>>|
+                              var: Vec<&Variable<T>>,
+                              _: Arc<dyn Fn(i32) -> i32 + Send + Sync>|
               -> Result<(), RuntimeError> {
             assert_eq!(mut_var.len(), 1);
             if var.len() == 0 {
@@ -331,7 +333,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for ScalarInv<T> {
     fn get_fn(&self) -> Function<T> {
         let c_func = self.c_func.clone();
         let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
-                              var: Vec<&Variable<T>>|
+                              var: Vec<&Variable<T>>,
+                              _: Arc<dyn Fn(i32) -> i32 + Send + Sync>|
               -> Result<(), RuntimeError> {
             assert_eq!(mut_var.len(), 1);
             let scalar = mut_var[0].unwrap_scalar_mut();
@@ -377,7 +380,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyInvert<T> {
     fn get_fn(&self) -> Function<T> {
         let c_func = self.c_func.clone();
         let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
-                              var: Vec<&Variable<T>>|
+                              var: Vec<&Variable<T>>,
+                              _: Arc<dyn Fn(i32) -> i32 + Send + Sync>|
               -> Result<(), RuntimeError> {
             assert_eq!(mut_var.len(), 2);
             assert_eq!(var.len(), 1);
@@ -425,7 +429,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyScan<T> {
     fn get_fn(&self) -> Function<T> {
         let c_func = self.c_func.clone();
         let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
-                              var: Vec<&Variable<T>>|
+                              var: Vec<&Variable<T>>,
+                              _: Arc<dyn Fn(i32) -> i32 + Send + Sync>|
               -> Result<(), RuntimeError> {
             assert_eq!(mut_var.len(), 2);
             assert_eq!(var.len(), 3);
@@ -466,7 +471,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyOneLagrange<T> {
     fn get_fn(&self) -> Function<T> {
         let c_func = self.c_func.clone();
         let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
-                              var: Vec<&Variable<T>>|
+                              var: Vec<&Variable<T>>,
+                              _: Arc<dyn Fn(i32) -> i32 + Send + Sync>|
               -> Result<(), RuntimeError> {
             assert_eq!(mut_var.len(), 1);
             let target = mut_var[0].unwrap_scalar_array_mut();
@@ -497,7 +503,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyOneCoef<T> {
     fn get_fn(&self) -> Function<T> {
         let c_func = self.c_func.clone();
         let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
-                              var: Vec<&Variable<T>>|
+                              var: Vec<&Variable<T>>,
+                              _: Arc<dyn Fn(i32) -> i32 + Send + Sync>|
               -> Result<(), RuntimeError> {
             assert_eq!(mut_var.len(), 1);
             let target = mut_var[0].unwrap_scalar_array_mut();
@@ -532,7 +539,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyZero<T> {
     fn get_fn(&self) -> Function<T> {
         let c_func = self.c_func.clone();
         let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
-                              var: Vec<&Variable<T>>|
+                              var: Vec<&Variable<T>>,
+                              _: Arc<dyn Fn(i32) -> i32 + Send + Sync>|
               -> Result<(), RuntimeError> {
             assert_eq!(mut_var.len(), 1);
             let target = mut_var[0].unwrap_scalar_array_mut();
@@ -581,7 +589,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for KateDivision<T> {
     fn get_fn(&self) -> Function<T> {
         let c_func = self.c_func.clone();
         let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
-                              var: Vec<&Variable<T>>|
+                              var: Vec<&Variable<T>>,
+                              _: Arc<dyn Fn(i32) -> i32 + Send + Sync>|
               -> Result<(), RuntimeError> {
             assert!(mut_var.len() == 2);
             assert!(var.len() == 3);
@@ -640,7 +649,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyEval<T> {
     fn get_fn(&self) -> Function<T> {
         let c_func = self.c_func.clone();
         let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
-                              var: Vec<&Variable<T>>|
+                              var: Vec<&Variable<T>>,
+                              _: Arc<dyn Fn(i32) -> i32 + Send + Sync>|
               -> Result<(), RuntimeError> {
             assert!(mut_var.len() == 2);
             assert!(var.len() == 3);
@@ -677,7 +687,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyAdd<T> {
 
         // define the rust side wrapper function
         let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
-                              var: Vec<&Variable<T>>|
+                              var: Vec<&Variable<T>>,
+                              _: Arc<dyn Fn(i32) -> i32 + Send + Sync>|
               -> Result<(), RuntimeError> {
             assert!(mut_var.len() == 1);
             assert!(var.len() == 3);
@@ -709,7 +720,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolySub<T> {
 
         // define the rust side wrapper function
         let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
-                              var: Vec<&Variable<T>>|
+                              var: Vec<&Variable<T>>,
+                              _: Arc<dyn Fn(i32) -> i32 + Send + Sync>|
               -> Result<(), RuntimeError> {
             assert!(mut_var.len() == 1);
             assert!(var.len() == 3);
@@ -741,7 +753,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for PolyMul<T> {
 
         // define the rust side wrapper function
         let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
-                              var: Vec<&Variable<T>>|
+                              var: Vec<&Variable<T>>,
+                              _: Arc<dyn Fn(i32) -> i32 + Send + Sync>|
               -> Result<(), RuntimeError> {
             assert!(mut_var.len() == 1);
             assert!(var.len() == 3);

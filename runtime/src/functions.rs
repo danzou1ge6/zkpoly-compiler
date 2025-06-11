@@ -19,7 +19,7 @@ pub trait RegisteredFunction<T: RuntimeType> {
 pub struct Function<T: RuntimeType> {
     pub meta: FuncMeta,
     pub f: Arc<
-        dyn Fn(Vec<&mut Variable<T>>, Vec<&Variable<T>>) -> Result<(), RuntimeError>
+        dyn Fn(Vec<&mut Variable<T>>, Vec<&Variable<T>>, Arc<dyn Fn(i32) -> i32 + Send + Sync>) -> Result<(), RuntimeError>
             + Sync
             + Send
             + 'static,
@@ -94,7 +94,7 @@ impl<T: RuntimeType> Function<T> {
     pub fn new(
         meta: FuncMeta,
         f: Arc<
-            dyn Fn(Vec<&mut Variable<T>>, Vec<&Variable<T>>) -> Result<(), RuntimeError>
+            dyn Fn(Vec<&mut Variable<T>>, Vec<&Variable<T>>, Arc<dyn Fn(i32) -> i32 + Send + Sync>) -> Result<(), RuntimeError>
                 + Sync
                 + Send
                 + 'static,
