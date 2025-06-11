@@ -1,9 +1,7 @@
 //! A module for planning memory for very small fragments using best-fit algorithm.
 
 use std::collections::BTreeMap;
-
-use super::super::{Addr, AddrId, Size, SmithereenSize};
-use super::AddrMappingHandler;
+use super::super::{SmithereenSize, Addr};
 
 static DEBUG: bool = false;
 
@@ -17,14 +15,14 @@ struct Chunk {
 }
 
 #[derive(Clone)]
-pub struct Allocator {
+pub struct Pool {
     chunks: BTreeMap<u64, Chunk>,
     last_chunk_addr: u64,
     aligned_addr2chunk_addr: BTreeMap<u64, u64>,
     capacity: u64,
 }
 
-struct ChunksDebugger<'a>(&'a Allocator);
+struct ChunksDebugger<'a>(&'a Pool);
 
 impl<'a> std::fmt::Debug for ChunksDebugger<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -67,7 +65,7 @@ impl<'a> std::fmt::Debug for ChunksDebugger<'a> {
     }
 }
 
-impl std::fmt::Debug for Allocator {
+impl std::fmt::Debug for Pool {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Allocator")
             .field("last_chunk_addr", &self.last_chunk_addr)
@@ -86,7 +84,7 @@ fn aligned_addr(addr: u64) -> u64 {
     }
 }
 
-impl Allocator {
+impl Pool {
     pub fn new(capacity: u64) -> Self {
         Self {
             chunks: [(
@@ -122,11 +120,7 @@ impl Allocator {
         self.capacity
     }
 
-    pub(super) fn allocate(
-        &mut self,
-        payload_size: SmithereenSize,
-        mapping: &mut impl AddrMappingHandler,
-    ) -> Option<AddrId> {
+    pub(super) fn allocate(&mut self, payload_size: SmithereenSize) -> Option<Addr> {
         if DEBUG {
             println!("Allocate Smithereen {}", payload_size.0);
         }
@@ -143,10 +137,7 @@ impl Allocator {
         if chunk.size == size {
             chunk.occupied = true;
             self.chunks.insert(addr, chunk);
-            return Some(mapping.add(
-                Addr(aligned_addr),
-                Size::Smithereen(SmithereenSize(payload_size)),
-            ));
+            return Some(Addr(aligned_addr));
         }
 
         let addr_splitted1 = addr;
@@ -183,14 +174,11 @@ impl Allocator {
             println!("{:#?}", self);
         }
 
-        return Some(mapping.add(
-            Addr(aligned_addr),
-            Size::Smithereen(SmithereenSize(payload_size)),
-        ));
+        return Some(Addr(aligned_addr));
     }
 
-    pub(super) fn deallocate(&mut self, addr: AddrId, mapping: &mut impl AddrMappingHandler) {
-        let (Addr(aligned_addr), _) = mapping.get(addr);
+    pub(super) fn deallocate(&mut self, aligned_addr: Addr) {
+        let Addr(aligned_addr) = aligned_addr;
         let addr = self.aligned_addr2chunk_addr.remove(&aligned_addr).unwrap();
 
         if DEBUG {

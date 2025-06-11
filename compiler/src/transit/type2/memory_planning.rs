@@ -33,9 +33,10 @@ mod prelude {
     };
 
     pub(super) use super::{
-        address::{Addr, AddrId, AddrMapping},
+        address::Addr,
         allocator::{
             self, Allocator, AllocatorCollection, AllocatorHandle, AllocatorRealizer, Completeness,
+            Cpu, DeviceMarker, Gpu,
         },
         allocators,
         auxiliary::AuxiliaryInfo,
@@ -110,12 +111,24 @@ pub fn plan<'s, Rt: RuntimeType>(
 
     let obj_info = object_info::Info::<Rt>::collect(&ops);
 
-    use allocators::{ConstantPool, CpuAllocator, GpuAllocator};
+    use allocators::{ConstantWrapper, SlabAllocator, SmithereenWrapper, SuperAllocator};
 
     let lbss = allocators::collect_integral_sizes(obj_info.sizes());
-    let mut gpu_allocators: Vec<GpuAllocator<Pointer, Rt>> = hd_info
+    let mut gpu_allocators: Vec<
+        SmithereenWrapper<SlabAllocator<Pointer, Rt, Gpu>, Pointer, Rt, Gpu>,
+    > = hd_info
         .gpus()
-        .map(|gpu| GpuAllocator::new(gpu.gpu_memory_limit, gpu.gpu_smithereen_space, lbss.clone()))
+        .map(|gpu| {
+            SmithereenWrapper::new(
+                SlabAllocator::new(
+                    gpu.memory_limit() - gpu.smithereen_space(),
+                    gpu.smithereen_space(),
+                    lbss.clone(),
+                ),
+                gpu.smithereen_space(),
+                0,
+            )
+        })
         .collect();
 
     let mut p_allocator = IdAllocator::new();
@@ -125,8 +138,9 @@ pub fn plan<'s, Rt: RuntimeType>(
         .copied()
         .map(|obj| (obj, p_allocator.alloc()))
         .collect::<Vec<_>>();
-    let cpu_allocator = CpuAllocator::<Pointer>::new(p_allocator);
-    let mut cpu_allocator = ConstantPool::new(cpu_allocator, constant_objects.into_iter());
+    let cpu_allocator = SuperAllocator::<Pointer, Cpu>::new(p_allocator);
+    let mut cpu_allocator =
+        ConstantWrapper::<_, _, _, _, Cpu>::new(cpu_allocator, constant_objects.into_iter());
 
     let ops = planning::transform_ops(
         ops,

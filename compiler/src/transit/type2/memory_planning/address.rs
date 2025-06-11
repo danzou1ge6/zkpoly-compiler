@@ -1,5 +1,3 @@
-use crate::transit::type2::memory_planning::prelude::*;
-
 use super::type3::template::GpuAddr;
 
 
@@ -25,7 +23,3 @@ impl From<Addr> for GpuAddr {
         GpuAddr::Offset(value.0.into())
     }
 }
-
-define_usize_id!(AddrId);
-
-pub type AddrMapping = Heap<AddrId, (Addr, Size)>;

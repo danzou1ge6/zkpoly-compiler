@@ -382,7 +382,7 @@ where
     P: UsizeId,
 {
     /// Emit a GpuMalloc instruction at `va`, for object, type and pointer specified in `rv`.
-    pub fn gpu_allocate_offsetted(
+    pub fn gpu_allocate(
         &mut self,
         addr: GpuAddr,
         size: Size,

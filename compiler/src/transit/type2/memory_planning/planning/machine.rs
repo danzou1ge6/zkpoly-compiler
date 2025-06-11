@@ -294,19 +294,36 @@ where
     T: Clone + 'static,
     P: 'static,
 {
-    pub fn on_allocator<A>(
+    pub fn on_allocator<H, D: DeviceMarker>(
         device: Device,
-        f: impl FnOnce(&mut A) -> Result<R, super::super::Error<'s>> + 'static,
+        f: impl FnOnce(&mut H) -> Result<R, super::super::Error<'s>> + 'static,
     ) -> Self
     where
-        A: AllocatorHandle<'s, T, P, Rt>,
-        R: 'static
+        H: AllocatorHandle<'s, T, P, Rt>,
     {
         let f = move |allocators: &mut AllocatorCollection<'_, 's, T, P, Rt>,
                       machine: &mut Machine<'s, T, P>,
                       aux: &mut AuxiliaryInfo<Rt>| {
-            let mut handle = allocators.handle(device, machine, aux);
-            allocator::downcast_mut_then(handle.as_mut(), f)
+            let mut allocator = allocators.get(device);
+
+            while allocator.handle(machine.handle(device), aux).typeid()
+                != typeid::ConstTypeId::of::<H>()
+            {
+                if let Some(inner) = allocator.inner() {
+                    allocator = inner;
+                } else {
+                    panic!("cannot cast to {:?}", typeid::ConstTypeId::of::<H>());
+                }
+            }
+
+            let handle = allocator.handle(machine.handle(device), aux);
+            // safety: we have checked that the handle is of correct type,
+            let handle = unsafe {
+                let raw = Box::into_raw(handle);
+                &mut *(raw as *mut H)
+            };
+
+            f(handle)
         };
 
         Continuation::new(f)

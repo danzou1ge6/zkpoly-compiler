@@ -5,13 +5,13 @@ use super::super::prelude::*;
 /// When allocating an object that is a constant object in this pool,
 /// allocation and deallocation is intercepted and skipped,
 /// while accesses to constant objects always return a valid pointer.
-pub struct ConstantPool<'f, A, T, P, Rt: RuntimeType> {
+pub struct Wrapper<'f, A, T, P, Rt: RuntimeType, D: DeviceMarker> {
     inner: A,
     objects: BTreeMap<ObjectId, P>,
-    _phantom: PhantomData<(&'f T, P, Rt)>,
+    _phantom: PhantomData<(&'f T, P, Rt, D)>,
 }
 
-impl<'f, A, T, P, Rt: RuntimeType> ConstantPool<'f, A, T, P, Rt>
+impl<'f, A, T, P, Rt: RuntimeType, D: DeviceMarker> Wrapper<'f, A, T, P, Rt, D>
 where
     A: Allocator<'f, T, P, Rt>,
 {
@@ -30,13 +30,14 @@ where
     }
 }
 
-pub struct Handle<'a, 'm, 's, 'i, 'au, A, T, P, Rt: RuntimeType> {
-    allocator: &'a mut ConstantPool<'s, A, T, P, Rt>,
+pub struct Handle<'a, 'm, 's, 'i, 'au, A, T, P, Rt: RuntimeType, D: DeviceMarker> {
+    allocator: &'a mut Wrapper<'s, A, T, P, Rt, D>,
     machine: planning::MachineHandle<'m, 's, T, P>,
     aux: &'au mut AuxiliaryInfo<'i, Rt>,
 }
 
-impl<'a, 'm, 's, 'i, 'au, 'f, A, P, Rt: RuntimeType> Handle<'a, 'm, 's, 'i, 'au, A, ObjectId, P, Rt>
+impl<'a, 'm, 's, 'i, 'au, 'f, A, P, Rt: RuntimeType, D: DeviceMarker>
+    Handle<'a, 'm, 's, 'i, 'au, A, ObjectId, P, Rt, D>
 where
     A: Allocator<'s, ObjectId, P, Rt>,
 {
@@ -59,8 +60,8 @@ where
     }
 }
 
-impl<'a, 'm, 's, 'i, 'au, A, P, Rt: RuntimeType> AllocatorHandle<'s, ObjectId, P, Rt>
-    for Handle<'a, 'm, 's, 'i, 'au, A, ObjectId, P, Rt>
+impl<'a, 'm, 's, 'i, 'au, A, P, Rt: RuntimeType, D: DeviceMarker>
+    AllocatorHandle<'s, ObjectId, P, Rt> for Handle<'a, 'm, 's, 'i, 'au, A, ObjectId, P, Rt, D>
 where
     A: Allocator<'s, ObjectId, P, Rt>,
     P: Clone,
@@ -74,8 +75,7 @@ where
         }
     }
 
-    fn allocate(&mut self, size: Size, t: &ObjectId) -> allocator::AResp<'s, ObjectId, P, P, Rt>
-    {
+    fn allocate(&mut self, size: Size, t: &ObjectId) -> allocator::AResp<'s, ObjectId, P, P, Rt> {
         if let Some(p) = self.allocator.objects.get(t) {
             Response::Complete(Ok(p.clone()))
         } else {
@@ -88,8 +88,7 @@ where
         t: &ObjectId,
         size: Size,
         from: Device,
-    ) -> allocator::AResp<'s, ObjectId, P, (), Rt>
-    {
+    ) -> allocator::AResp<'s, ObjectId, P, (), Rt> {
         self.check_is_not_constant(t, "claim");
         self.inner_handle().claim(t, size, from)
     }
@@ -102,8 +101,7 @@ where
         }
     }
 
-    fn deallocate(&mut self, t: &ObjectId) -> allocator::AResp<'s, ObjectId, P, (), Rt>
-    {
+    fn deallocate(&mut self, t: &ObjectId) -> allocator::AResp<'s, ObjectId, P, (), Rt> {
         if !self.allocator.objects.contains_key(t) {
             self.inner_handle().deallocate(t)
         } else {
@@ -125,13 +123,14 @@ where
     }
 }
 
-pub struct Realizer<'a, 'm, 's, 'au, 'i, A, P, Rt: RuntimeType> {
-    allocator: &'a mut ConstantPool<'s, A, ObjectId, P, Rt>,
+pub struct Realizer<'a, 'm, 's, 'au, 'i, A, P, Rt: RuntimeType, D: DeviceMarker> {
+    allocator: &'a mut Wrapper<'s, A, ObjectId, P, Rt, D>,
     machine: realization::MachineHandle<'m, 's, P>,
     aux: &'au mut AuxiliaryInfo<'i, Rt>,
 }
 
-impl<'a, 'm, 's, 'au, 'i, A, P, Rt: RuntimeType> Realizer<'a, 'm, 's, 'au, 'i, A, P, Rt>
+impl<'a, 'm, 's, 'au, 'i, A, P, Rt: RuntimeType, D: DeviceMarker>
+    Realizer<'a, 'm, 's, 'au, 'i, A, P, Rt, D>
 where
     A: Allocator<'s, ObjectId, P, Rt>,
     P: Clone,
@@ -150,8 +149,8 @@ where
     }
 }
 
-impl<'a, 'm, 's, 'au, 'i, A, P, Rt: RuntimeType> AllocatorRealizer<'s, ObjectId, P, Rt>
-    for Realizer<'a, 'm, 's, 'au, 'i, A, P, Rt>
+impl<'a, 'm, 's, 'au, 'i, A, P, Rt: RuntimeType, D: DeviceMarker>
+    AllocatorRealizer<'s, ObjectId, P, Rt> for Realizer<'a, 'm, 's, 'au, 'i, A, P, Rt, D>
 where
     A: Allocator<'s, ObjectId, P, Rt>,
     P: UsizeId + 'static,
@@ -186,7 +185,7 @@ where
 }
 
 impl<'s, P, A, Rt: RuntimeType> Allocator<'s, ObjectId, P, Rt>
-    for ConstantPool<'s, A, ObjectId, P, Rt>
+    for Wrapper<'s, A, ObjectId, P, Rt, Cpu>
 where
     A: Allocator<'s, ObjectId, P, Rt>,
     P: UsizeId + 'static,
@@ -225,5 +224,13 @@ where
             machine,
             aux,
         })
+    }
+
+    fn allcate_pointer(&mut self) -> P {
+        self.inner.allcate_pointer()
+    }
+
+    fn inner<'t>(&'t mut self) -> Option<&'t mut dyn Allocator<'s, ObjectId, P, Rt>> {
+        Some(&mut self.inner)
     }
 }

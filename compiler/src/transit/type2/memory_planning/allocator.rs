@@ -1,5 +1,13 @@
 use crate::transit::type2::memory_planning::prelude::*;
 
+pub struct Cpu;
+pub struct Gpu;
+
+pub trait DeviceMarker: 'static {}
+
+impl DeviceMarker for Cpu {}
+impl DeviceMarker for Gpu {}
+
 pub struct Completeness(u64, u64);
 
 impl Completeness {
@@ -121,29 +129,10 @@ pub trait Allocator<'s, T, P, Rt: RuntimeType> {
         'b: 'd,
         'c: 'd,
         'i: 'd;
-}
 
-pub fn downcast_mut_then<'s, 'a, A, T, P, R, Rt: RuntimeType>(
-    handle: &'a mut dyn AllocatorHandle<'s, T, P, Rt>,
-    f: impl FnOnce(&mut A) -> R + 'static
-) -> R
-where
-    A: AllocatorHandle<'s, T, P, Rt>,
-    R: 's
-{
-    if typeid::ConstTypeId::of::<A>() == handle.typeid() {
-        // safe here because the return value does not contain any references that lives longer then `'s`
-        unsafe {
-            let handle = &mut *(handle as *mut dyn AllocatorHandle<'s, T, P, Rt> as *mut A);
-            f(handle)
-        }
-    } else {
-        panic!(
-            "downcast type mismatch, got {:?}, casting to {:?}",
-            handle.typeid(),
-            typeid::ConstTypeId::of::<A>()
-        )
-    }
+    fn allcate_pointer(&mut self) -> P;
+
+    fn inner<'t>(&'t mut self) -> Option<&'t mut dyn Allocator<'s, T, P, Rt>>;
 }
 
 pub struct AllocatorCollection<'a, 's, T, P, Rt: RuntimeType>(

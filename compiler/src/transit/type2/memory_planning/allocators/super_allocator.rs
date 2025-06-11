@@ -1,7 +1,7 @@
 use crate::transit::type2::memory_planning::prelude::*;
 use planning::machine::*;
 
-pub struct SuperAllocator<'f, P> {
+pub struct SuperAllocator<'f, P, D: DeviceMarker> {
     mapping: BTreeMap<ObjectId, (P, Size)>,
     peak_memory_usage: u64,
     current_memory_usage: u64,
@@ -9,10 +9,10 @@ pub struct SuperAllocator<'f, P> {
     /// If `physical` is false, then this allocator will not instruct machine for allocation or deallocation.
     /// That is used in case when the underlying device is unplanned.
     physical: bool,
-    _phantom: PhantomData<&'f u32>,
+    _phantom: PhantomData<(&'f u32, D)>,
 }
 
-impl<'f, P> SuperAllocator<'f, P> {
+impl<'f, P, D: DeviceMarker> SuperAllocator<'f, P, D> {
     pub fn for_unplanned() -> Self {
         Self {
             mapping: BTreeMap::new(),
@@ -49,12 +49,13 @@ impl<'f, P> SuperAllocator<'f, P> {
     }
 }
 
-pub struct Handle<'s, 'a, 'm, P> {
-    allocator: &'a mut SuperAllocator<'s, P>,
+pub struct Handle<'s, 'a, 'm, P, D: DeviceMarker> {
+    allocator: &'a mut SuperAllocator<'s, P, D>,
     machine: MachineHandle<'m, 's, ObjectId, P>,
 }
 
-impl<'s, 'a, 'm, P, Rt: RuntimeType> AllocatorHandle<'s, ObjectId, P, Rt> for Handle<'s, 'a, 'm, P>
+impl<'s, 'a, 'm, P, Rt: RuntimeType, D: DeviceMarker> AllocatorHandle<'s, ObjectId, P, Rt>
+    for Handle<'s, 'a, 'm, P, D>
 where
     P: UsizeId + 'static,
 {
@@ -154,14 +155,14 @@ where
     }
 }
 
-pub struct Realizer<'a, 'm, 's, 'au, 'i, P, Rt: RuntimeType> {
-    _allocator: &'a mut SuperAllocator<'s, P>,
+pub struct Realizer<'a, 'm, 's, 'au, 'i, P, Rt: RuntimeType, D: DeviceMarker> {
+    _allocator: &'a mut SuperAllocator<'s, P, D>,
     machine: realization::MachineHandle<'m, 's, P>,
     aux: &'au AuxiliaryInfo<'i, Rt>,
 }
 
-impl<'a, 'm, 's, 'au, 'i, 'f, P, Rt: RuntimeType> AllocatorRealizer<'s, ObjectId, P, Rt>
-    for Realizer<'a, 'm, 's, 'au, 'i, P, Rt>
+impl<'a, 'm, 's, 'au, 'i, 'f, P, Rt: RuntimeType, D: DeviceMarker>
+    AllocatorRealizer<'s, ObjectId, P, Rt> for Realizer<'a, 'm, 's, 'au, 'i, P, Rt, D>
 where
     P: UsizeId + 'static,
 {
@@ -195,7 +196,7 @@ where
     }
 }
 
-impl<'s, P, Rt: RuntimeType> Allocator<'s, ObjectId, P, Rt> for SuperAllocator<'s, P>
+impl<'s, P, Rt: RuntimeType> Allocator<'s, ObjectId, P, Rt> for SuperAllocator<'s, P, Cpu>
 where
     P: UsizeId + 'static,
 {
@@ -225,5 +226,13 @@ where
             machine,
             aux,
         })
+    }
+
+    fn allcate_pointer(&mut self) -> P {
+        self.p_allocator.alloc()
+    }
+
+    fn inner<'t>(&'t mut self) -> Option<&'t mut dyn Allocator<'s, ObjectId, P, Rt>> {
+        None
     }
 }

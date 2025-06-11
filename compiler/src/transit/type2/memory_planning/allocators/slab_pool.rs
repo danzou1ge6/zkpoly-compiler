@@ -1,5 +1,12 @@
-use super::AddrMappingHandler;
 use crate::transit::type2::memory_planning::prelude::*;
+
+define_usize_id!(AddrId);
+
+pub trait AddrMappingHandler {
+    fn get(&self, id: AddrId) -> (Addr, IntegralSize);
+    fn update(&mut self, id: AddrId, addr: Addr, size: IntegralSize);
+    fn add(&mut self, addr: Addr, size: IntegralSize) -> AddrId;
+}
 
 type Instant = Index;
 
@@ -355,7 +362,7 @@ impl Allocator {
     }
 
     fn new_addr_id(addr: u64, lbs: u32, mapping: &mut impl AddrMappingHandler) -> AddrId {
-        mapping.add(Addr(addr), Size::Integral(IntegralSize(lbs)))
+        mapping.add(Addr(addr), IntegralSize(lbs))
     }
 
     fn addr_id_of(&self, addr: u64, lbs: u32) -> AddrId {
@@ -432,11 +439,7 @@ impl Allocator {
                 .remove(dest)
                 .unwrap();
 
-            mapping.update(
-                dest_block.addr,
-                Addr(*src),
-                Size::Integral(IntegralSize(child_lbs)),
-            );
+            mapping.update(dest_block.addr, Addr(*src), IntegralSize(child_lbs));
 
             // Dest must be free, so resetting src's children's addr_id mapping is enough
             self.reallocate_children_recursively(
@@ -697,7 +700,10 @@ impl Allocator {
         new_addr_id: bool,
     ) {
         if DEBUG {
-            println!("Reallocating Recursively ({:?}, {:?}) -> {:?}, new_addr_id = {}", lbs, addr, new_addr, new_addr_id);
+            println!(
+                "Reallocating Recursively ({:?}, {:?}) -> {:?}, new_addr_id = {}",
+                lbs, addr, new_addr, new_addr_id
+            );
         }
 
         let (descend, nu) = {
@@ -710,11 +716,7 @@ impl Allocator {
                 }
                 block.addr = new;
             } else {
-                mapping.update(
-                    block.addr,
-                    Addr(new_addr),
-                    Size::Integral(IntegralSize(lbs)),
-                );
+                mapping.update(block.addr, Addr(new_addr), IntegralSize(lbs));
             }
 
             let descend = matches!(&block.status, BlockStatus::Splitted(..));
@@ -817,7 +819,11 @@ impl Allocator {
             self.update_next_use_in_parent(addr, lbs, usize::from(next_use));
 
             if DEBUG {
-                println!("Decided victim at {:?}({:?})", addr_id, mapping.get(addr_id));
+                println!(
+                    "Decided victim at {:?}({:?})",
+                    addr_id,
+                    mapping.get(addr_id)
+                );
                 if DEBUG_SLABS {
                     println!("{:#?}", self)
                 }
@@ -910,7 +916,7 @@ mod test {
     use std::collections::BTreeSet;
 
     use super::{
-        super::{AddrMapping, OffsettedAddrMapping},
+        super::{slab_allocator::OffsettedAddrMapping, slab_allocator::AddrMapping},
         Instant, IntegralSize,
     };
 

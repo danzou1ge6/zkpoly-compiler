@@ -1,10 +1,18 @@
 use std::collections::BTreeMap;
 
 #[derive(Debug, Default)]
-pub struct Bijection<T1, T2>
-{
+pub struct Bijection<T1, T2> {
     forward: BTreeMap<T1, T2>,
     backward: BTreeMap<T2, T1>,
+}
+
+impl<T1, T2> Bijection<T1, T2> {
+    pub fn new() -> Self {
+        Self {
+            forward: BTreeMap::new(),
+            backward: BTreeMap::new(),
+        }
+    }
 }
 
 impl<T1, T2> Bijection<T1, T2>
@@ -12,13 +20,6 @@ where
     T1: Ord + Clone,
     T2: Ord + Clone,
 {
-    pub fn new() -> Self {
-        Self {
-            forward: BTreeMap::new(),
-            backward: BTreeMap::new(),
-        }
-    }
-
     pub fn insert_checked(&mut self, a: T1, b: T2)
     where
         T1: std::fmt::Debug,

@@ -126,7 +126,7 @@ where
         hd_info.n_gpus(),
     );
 
-    let mut unplanned_allocators: BTreeMap<_, SuperAllocator<'s, P>> = unplanned_devices
+    let mut unplanned_allocators: BTreeMap<_, SuperAllocator<'s, P, Cpu>> = unplanned_devices
         .iter()
         .map(|d| (*d, SuperAllocator::for_unplanned()))
         .collect();
