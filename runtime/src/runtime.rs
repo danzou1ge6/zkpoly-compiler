@@ -24,7 +24,7 @@ use zkpoly_cuda_api::{
     mem::{page_allocator::CudaPageAllocator, CudaAllocator},
 };
 
-use zkpoly_memory_pool::{BuddyDiskPool, CpuMemoryPool};
+use zkpoly_memory_pool::{static_allocator::CpuStaticAllocator, BuddyDiskPool};
 
 pub mod alloc;
 pub mod assert_eq;
@@ -38,7 +38,7 @@ pub struct Runtime<T: RuntimeType> {
     funcs: FunctionTable<T>,
     events: EventTable,
     threads: ThreadTable,
-    pub mem_allocator: Option<CpuMemoryPool>,
+    pub mem_allocator: Option<CpuStaticAllocator>,
     gpu_allocator: HashMap<i32, CudaAllocator>,
     disk_allocator: Vec<BuddyDiskPool>,
     page_allocator: Vec<CudaPageAllocator>,
@@ -66,7 +66,7 @@ impl<T: RuntimeType> Runtime<T> {
         funcs: FunctionTable<T>,
         events: EventTable,
         n_threads: usize,
-        mem_allocator: CpuMemoryPool,
+        mem_allocator: CpuStaticAllocator,
         gpu_allocator: HashMap<i32, CudaAllocator>,
         disk_allocator: Vec<BuddyDiskPool>,
         page_allocator: Vec<CudaPageAllocator>,
@@ -108,7 +108,7 @@ impl<T: RuntimeType> Runtime<T> {
         &mut self,
         input_table: &EntryTable<T>,
         debug_opt: RuntimeDebug,
-    ) -> ((Option<Variable<T>>, RuntimeInfo<T>), CpuMemoryPool) {
+    ) -> ((Option<Variable<T>>, RuntimeInfo<T>), CpuStaticAllocator) {
         let bench_start = if RuntimeDebug::RecordTime == debug_opt {
             Some(Instant::now())
         } else {
@@ -174,7 +174,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
     pub unsafe fn run(
         &self,
         instructions: Vec<Instruction>,
-        mut mem_allocator: Option<&mut CpuMemoryPool>,
+        mut mem_allocator: Option<&mut CpuStaticAllocator>,
         mut gpu_allocator: Option<&mut HashMap<i32, CudaAllocator>>,
         mut disk_allocator: Option<&mut Vec<BuddyDiskPool>>,
         mut page_allocator: Option<&mut Vec<CudaPageAllocator>>,
@@ -214,7 +214,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     device,
                     typ,
                     id,
-                    gpu_alloc,
+                    alloc_method: gpu_alloc,
                 } => {
                     // only main thread can allocate memory
                     assert!(self.main_thread);

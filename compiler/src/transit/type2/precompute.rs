@@ -79,13 +79,13 @@ pub fn precompute<'s, Rt: RuntimeType>(
                             let mut omega_array =
                                 ScalarArray::alloc_cpu((len / 2) as usize, allocator);
                             f(&mut omega_array, &omega).unwrap();
-                            let c_id = constant_tb.push(crate::ast::lowering::Constant {
-                                name: Some(format!(
+                            let c_id = constant_tb.push(crate::ast::lowering::Constant::on_cpu(
+                                Variable::ScalarArray(omega_array),
+                                Some(format!(
                                     "precompute twiddle factor for ntt k = {log_len}, inv: {inv}"
                                 )),
-                                value: Variable::ScalarArray(omega_array),
-                                typ: zkpoly_common::typ::Typ::scalar_array((len / 2) as usize),
-                            });
+                                zkpoly_common::typ::Typ::scalar_array((len / 2) as usize),
+                            ));
                             let load_c = cg.g.add_vertex(Vertex::new(
                                 VertexNode::Constant(c_id),
                                 Typ::Poly((PolyType::Coef, len / 2)),
@@ -104,18 +104,17 @@ pub fn precompute<'s, Rt: RuntimeType>(
                             let mut pq = ScalarArray::alloc_cpu(recompute_pq_len, allocator);
                             let mut omegas = ScalarArray::alloc_cpu(recompute_omega_len, allocator);
                             f(&mut pq, &mut omegas, *len as usize, &omega).unwrap();
-                            let pq_cid = constant_tb.push(crate::ast::lowering::Constant {
-                                name: Some(format!("pq for ntt k = {log_len}, inv: {inv}")),
-                                value: Variable::ScalarArray(pq),
-                                typ: zkpoly_common::typ::Typ::scalar_array(recompute_pq_len),
-                            });
-                            let omegas_cid = constant_tb.push(crate::ast::lowering::Constant {
-                                name: Some(format!(
-                                    "omega bases for ntt k = {log_len}, inv: {inv}"
-                                )),
-                                value: Variable::ScalarArray(omegas),
-                                typ: zkpoly_common::typ::Typ::scalar_array(recompute_omega_len),
-                            });
+                            let pq_cid = constant_tb.push(crate::ast::lowering::Constant::on_cpu(
+                                Variable::ScalarArray(pq),
+                                Some(format!("pq for ntt k = {log_len}, inv: {inv}")),
+                                zkpoly_common::typ::Typ::scalar_array(recompute_pq_len),
+                            ));
+                            let omegas_cid =
+                                constant_tb.push(crate::ast::lowering::Constant::on_cpu(
+                                    Variable::ScalarArray(omegas),
+                                    Some(format!("omega bases for ntt k = {log_len}, inv: {inv}")),
+                                    zkpoly_common::typ::Typ::scalar_array(recompute_omega_len),
+                                ));
                             let load_pq = cg.g.add_vertex(Vertex::new(
                                 VertexNode::Constant(pq_cid),
                                 Typ::Poly((PolyType::Coef, recompute_pq_len as u64)),
@@ -184,11 +183,11 @@ pub fn precompute<'s, Rt: RuntimeType>(
                         .into_iter()
                         .skip(1)
                         .map(|array| {
-                            constant_tb.push(Constant {
-                                name: Some("precompute points for msm".to_string()),
-                                value: Variable::PointArray(array),
-                                typ: zkpoly_common::typ::Typ::PointBase { len },
-                            })
+                            constant_tb.push(Constant::on_cpu(
+                                Variable::PointArray(array),
+                                Some("precompute points for msm".to_string()),
+                                zkpoly_common::typ::Typ::PointBase { len },
+                            ))
                         })
                         .collect::<Vec<_>>();
 

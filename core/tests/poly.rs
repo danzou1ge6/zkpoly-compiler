@@ -1,4 +1,6 @@
 mod common;
+use std::sync::Arc;
+
 use common::*;
 
 static K: u32 = 20;
@@ -32,11 +34,7 @@ fn test_binary(
     let poly_add = new(&mut libs);
     let func = poly_add.get_fn();
     let f = match func {
-        Function {
-            f: FunctionValue::Fn(func),
-            ..
-        } => func,
-        _ => panic!("expected Fn"),
+        Function { f: func, .. } => func,
     };
     let mut cpu_pool = CpuMemoryPool::new(K, size_of::<MyField>());
     let stream = Variable::Stream(CudaStream::new(0));
@@ -69,7 +67,7 @@ fn test_binary(
     res_d.unwrap_scalar_array_mut().rotate(3); // test rotation
     a.cpu2gpu(a_d.unwrap_scalar_array_mut(), stream.unwrap_stream());
     b.cpu2gpu(b_d.unwrap_scalar_array_mut(), stream.unwrap_stream());
-    f(vec![&mut res_d], vec![&a_d, &b_d, &stream]).unwrap();
+    f(vec![&mut res_d], vec![&a_d, &b_d, &stream], Arc::new(|x| x)).unwrap();
     res_d
         .unwrap_scalar_array_mut()
         .gpu2cpu(&mut res, stream.unwrap_stream());
@@ -124,11 +122,7 @@ fn test_eval() {
     let mut libs = Libs::new();
     let poly_eval = PolyEval::<MyRuntimeType>::new(&mut libs);
     let func = match poly_eval.get_fn() {
-        Function {
-            f: FunctionValue::Fn(func),
-            ..
-        } => func,
-        _ => unreachable!(),
+        Function { f: func, .. } => func,
     };
     let mut cpu_pool = CpuMemoryPool::new(K, size_of::<MyField>());
     let stream = Variable::Stream(CudaStream::new(0));
@@ -160,6 +154,7 @@ fn test_eval() {
     func(
         vec![&mut temp_buf, &mut res_d],
         vec![&poly_d, &x_d, &stream],
+        Arc::new(|x| x),
     )
     .unwrap();
     res_d
@@ -188,11 +183,7 @@ fn test_kate() {
     let mut libs = Libs::new();
     let kate = KateDivision::<MyRuntimeType>::new(&mut libs);
     let func = match kate.get_fn() {
-        Function {
-            f: FunctionValue::Fn(func),
-            ..
-        } => func,
-        _ => unreachable!(),
+        Function { f: func, .. } => func,
     };
     let mut cpu_pool = CpuMemoryPool::new(K, size_of::<MyField>());
     let stream = Variable::Stream(CudaStream::new(0));
@@ -229,6 +220,7 @@ fn test_kate() {
     func(
         vec![&mut temp_buf, &mut res_d],
         vec![&poly_d, &b_d, &stream],
+        Arc::new(|x| x),
     )
     .unwrap();
     res_d
@@ -258,11 +250,7 @@ fn test_zero_one() {
     let mut libs = Libs::new();
     let zero = PolyZero::<MyRuntimeType>::new(&mut libs);
     let func = match zero.get_fn() {
-        Function {
-            f: FunctionValue::Fn(func),
-            ..
-        } => func,
-        _ => unreachable!(),
+        Function { f: func, .. } => func,
     };
     let mut cpu_pool = CpuMemoryPool::new(K, size_of::<MyField>());
     let stream = Variable::Stream(CudaStream::new(0));
@@ -278,7 +266,7 @@ fn test_zero_one() {
         DeviceType::GPU { device_id: 0 },
     ));
 
-    func(vec![&mut poly_d], vec![&stream]).unwrap();
+    func(vec![&mut poly_d], vec![&stream], Arc::new(|x| x)).unwrap();
     poly_d
         .unwrap_scalar_array()
         .gpu2cpu(poly.unwrap_scalar_array_mut(), stream.unwrap_stream());
@@ -291,21 +279,17 @@ fn test_zero_one() {
     }
 
     // cpu ver
-    func(vec![&mut poly], vec![]).unwrap();
+    func(vec![&mut poly], vec![], Arc::new(|x| x)).unwrap();
     for i in 0..len {
         assert_eq!(poly.unwrap_scalar_array_mut()[i], truth[i]);
     }
 
     let one = PolyOneLagrange::<MyRuntimeType>::new(&mut libs);
     let func = match one.get_fn() {
-        Function {
-            f: FunctionValue::Fn(func),
-            ..
-        } => func,
-        _ => unreachable!(),
+        Function { f: func, .. } => func,
     };
 
-    func(vec![&mut poly_d], vec![&stream]).unwrap();
+    func(vec![&mut poly_d], vec![&stream], Arc::new(|x| x)).unwrap();
     poly_d
         .unwrap_scalar_array()
         .gpu2cpu(poly.unwrap_scalar_array_mut(), stream.unwrap_stream());
@@ -318,21 +302,17 @@ fn test_zero_one() {
     }
 
     // cpu ver
-    func(vec![&mut poly], vec![]).unwrap();
+    func(vec![&mut poly], vec![], Arc::new(|x| x)).unwrap();
     for i in 0..len {
         assert_eq!(poly.unwrap_scalar_array_mut()[i], truth[i]);
     }
 
     let one_coef = PolyOneCoef::<MyRuntimeType>::new(&mut libs);
     let func = match one_coef.get_fn() {
-        Function {
-            f: FunctionValue::Fn(func),
-            ..
-        } => func,
-        _ => unreachable!(),
+        Function { f: func, .. } => func,
     };
 
-    func(vec![&mut poly_d], vec![&stream]).unwrap();
+    func(vec![&mut poly_d], vec![&stream], Arc::new(|x| x)).unwrap();
     poly_d
         .unwrap_scalar_array()
         .gpu2cpu(poly.unwrap_scalar_array_mut(), stream.unwrap_stream());
@@ -346,7 +326,7 @@ fn test_zero_one() {
     }
 
     // cpu ver
-    func(vec![&mut poly], vec![]).unwrap();
+    func(vec![&mut poly], vec![], Arc::new(|x| x)).unwrap();
     for i in 0..len {
         assert_eq!(poly.unwrap_scalar_array_mut()[i], truth[i]);
     }
@@ -362,11 +342,7 @@ fn test_scan() {
     let mut libs = Libs::new();
     let scan = PolyScan::<MyRuntimeType>::new(&mut libs);
     let func = match scan.get_fn() {
-        Function {
-            f: FunctionValue::Fn(func),
-            ..
-        } => func,
-        _ => unreachable!(),
+        Function { f: func, .. } => func,
     };
     let mut cpu_pool = CpuMemoryPool::new(K, size_of::<MyField>());
     let stream = Variable::Stream(CudaStream::new(0));
@@ -401,12 +377,13 @@ fn test_scan() {
     poly.cpu2gpu(poly_d.unwrap_scalar_array_mut(), stream.unwrap_stream());
     x0.cpu2gpu(x0_d.unwrap_scalar_mut(), stream.unwrap_stream());
     // add timer
-    let start = CudaEvent::new();
-    let end = CudaEvent::new();
+    let start = CudaEvent::new(0);
+    let end = CudaEvent::new(0);
     stream.unwrap_stream().record(&start);
     func(
         vec![&mut temp_buf, &mut res_d],
         vec![&poly_d, &x0_d, &stream],
+        Arc::new(|x| x),
     )
     .unwrap();
     stream.unwrap_stream().record(&end);
@@ -440,11 +417,7 @@ fn test_invert() {
     let mut libs = Libs::new();
     let invert = PolyInvert::<MyRuntimeType>::new(&mut libs);
     let func = match invert.get_fn() {
-        Function {
-            f: FunctionValue::Fn(func),
-            ..
-        } => func,
-        _ => unreachable!(),
+        Function { f: func, .. } => func,
     };
     let mut cpu_pool = CpuMemoryPool::new(K, size_of::<MyField>());
     let stream = Variable::Stream(CudaStream::new(0));
@@ -472,7 +445,12 @@ fn test_invert() {
     ));
 
     poly.cpu2gpu(poly_d.unwrap_scalar_array_mut(), stream.unwrap_stream());
-    func(vec![&mut temp_buf, &mut poly_d], vec![&stream]).unwrap();
+    func(
+        vec![&mut temp_buf, &mut poly_d],
+        vec![&stream],
+        Arc::new(|x| x),
+    )
+    .unwrap();
     poly_d
         .unwrap_scalar_array()
         .gpu2cpu(&mut res, stream.unwrap_stream());
@@ -496,11 +474,7 @@ fn test_invert_scalar() {
     let mut libs = Libs::new();
     let invert = ScalarInv::<MyRuntimeType>::new(&mut libs);
     let f = match invert.get_fn() {
-        Function {
-            f: FunctionValue::Fn(func),
-            ..
-        } => func,
-        _ => panic!(),
+        Function { f: func, .. } => func,
     };
     let mut scalar = Variable::<MyRuntimeType>::Scalar(Scalar::new_cpu());
 
@@ -521,7 +495,7 @@ fn test_invert_scalar() {
 
     stream.sync();
 
-    f(vec![&mut scalar], vec![]).unwrap();
+    f(vec![&mut scalar], vec![], Arc::new(|x| x)).unwrap();
 
     assert_eq!(*scalar.unwrap_scalar().as_ref(), truth);
 
@@ -530,6 +504,7 @@ fn test_invert_scalar() {
     f(
         vec![&mut gpu_scalar],
         vec![&Variable::Stream(stream.clone())],
+        Arc::new(|x| x),
     )
     .unwrap();
 
@@ -548,11 +523,7 @@ fn test_pow_scalar() {
 
     let pow = ScalarPow::<MyRuntimeType>::new(&mut libs, exp_u64);
     let f = match pow.get_fn() {
-        Function {
-            f: FunctionValue::Fn(func),
-            ..
-        } => func,
-        _ => panic!(),
+        Function { f: func, .. } => func,
     };
     let mut scalar = Variable::<MyRuntimeType>::Scalar(Scalar::new_cpu());
     let mut rand_scalar = MyField::random(OsRng);
@@ -573,7 +544,7 @@ fn test_pow_scalar() {
 
     stream.sync();
 
-    f(vec![&mut scalar], vec![]).unwrap();
+    f(vec![&mut scalar], vec![], Arc::new(|x| x)).unwrap();
 
     assert_eq!(*scalar.unwrap_scalar().as_ref(), truth);
 
@@ -582,6 +553,7 @@ fn test_pow_scalar() {
     f(
         vec![&mut gpu_scalar],
         vec![&Variable::Stream(stream.clone())],
+        Arc::new(|x| x),
     )
     .unwrap();
 
@@ -607,11 +579,7 @@ fn test_poly_permute() {
     let mut libs = Libs::new();
     let poly_permute = PolyPermute::<MyRuntimeType>::new(&mut libs);
     let func = match poly_permute.get_fn() {
-        Function {
-            f: FunctionValue::Fn(func),
-            ..
-        } => func,
-        _ => unreachable!(),
+        Function { f: func, .. } => func,
     };
 
     let mut cpu_pool = CpuMemoryPool::new(k, size_of::<MyField>());
@@ -762,6 +730,7 @@ fn test_poly_permute() {
     func(
         vec![&mut permuted_input_d, &mut permuted_table_d, &mut temp_buf], // Outputs (mutable)
         vec![&input_d, &table_d, &stream],                                 // Inputs (immutable)
+        Arc::new(|x|x)
     )
     .expect("GPU function execution failed");
 

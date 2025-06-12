@@ -169,6 +169,15 @@ pub mod template {
                 _ => false,
             }
         }
+
+        pub fn can_on_disk(&self) -> bool {
+            use Typ::*;
+            match self {
+                ScalarArray { .. } => true,
+                PointBase { .. } => true,
+                _ => true,
+            }
+        }
     }
 }
 

@@ -1,13 +1,11 @@
 mod common;
+use std::sync::Arc;
+
 use common::*;
 use group::ff::Field;
 use zkpoly_common::load_dynamic::Libs;
 use zkpoly_core::tutorial::SimpleFunc;
-use zkpoly_runtime::{
-    args::Variable,
-    functions::{FunctionValue, RegisteredFunction},
-    scalar::Scalar,
-};
+use zkpoly_runtime::{args::Variable, functions::RegisteredFunction, scalar::Scalar};
 
 #[test]
 fn test_simple_func() {
@@ -19,10 +17,7 @@ fn test_simple_func() {
     let mut b = Variable::Scalar(Scalar::new_cpu());
     let mut c = Variable::Scalar(Scalar::new_cpu());
 
-    let f = match f.f {
-        FunctionValue::Fn(f) => f,
-        _ => unreachable!(),
-    };
+    let f = f.f;
 
     for _ in 0..100 {
         let a_in = MyField::random(rand_core::OsRng);
@@ -31,7 +26,7 @@ fn test_simple_func() {
         *a.unwrap_scalar_mut().as_mut() = a_in.clone();
         *b.unwrap_scalar_mut().as_mut() = b_in.clone();
 
-        f(vec![&mut c], vec![&a, &b]).unwrap();
+        f(vec![&mut c], vec![&a, &b], Arc::new(|x| x)).unwrap();
 
         assert_eq!(*c.unwrap_scalar().as_ref(), a_in + b_in);
     }

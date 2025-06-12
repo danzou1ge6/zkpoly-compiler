@@ -15,15 +15,17 @@ pub trait RegisteredFunction<T: RuntimeType> {
     fn get_fn(&self) -> Function<T>;
 }
 
+pub type Closure<T> = Arc<
+    dyn Fn(Vec<&mut Variable<T>>, Vec<&Variable<T>>, Arc<dyn Fn(i32) -> i32 + Send + Sync>) -> Result<(), RuntimeError>
+        + Sync
+        + Send
+        + 'static,
+>;
+
 #[derive(Clone)]
 pub struct Function<T: RuntimeType> {
     pub meta: FuncMeta,
-    pub f: Arc<
-        dyn Fn(Vec<&mut Variable<T>>, Vec<&Variable<T>>, Arc<dyn Fn(i32) -> i32 + Send + Sync>) -> Result<(), RuntimeError>
-            + Sync
-            + Send
-            + 'static,
-    >,
+    pub f: Closure<T>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, PartialOrd, Eq, Ord)]

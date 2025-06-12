@@ -146,31 +146,32 @@ impl DebugOptions {
 }
 
 #[derive(Debug, Clone)]
-pub struct GpuInfo {
-    pub(crate) gpu_memory_limit: u64,
-    pub(crate) gpu_smithereen_space: u64,
+pub struct MemoryInfo {
+    pub(crate) memory_limit: u64,
+    pub(crate) smithereen_space: u64,
 }
 
-impl GpuInfo {
+impl MemoryInfo {
     pub fn new(gpu_memory_limit: u64, gpu_smithereen_space: u64) -> Self {
         Self {
-            gpu_memory_limit,
-            gpu_smithereen_space,
+            memory_limit: gpu_memory_limit,
+            smithereen_space: gpu_smithereen_space,
         }
     }
 
     pub fn memory_limit(&self) -> u64 {
-        self.gpu_memory_limit
+        self.memory_limit
     }
 
     pub fn smithereen_space(&self) -> u64 {
-        self.gpu_smithereen_space
+        self.smithereen_space
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct HardwareInfo {
-    gpus: Vec<GpuInfo>,
+    gpus: Vec<MemoryInfo>,
+    cpu: MemoryInfo
 }
 
 impl HardwareInfo {
@@ -178,22 +179,26 @@ impl HardwareInfo {
         self.gpus.len()
     }
 
-    pub fn gpus(&self) -> impl Iterator<Item = &GpuInfo> {
+    pub fn gpus(&self) -> impl Iterator<Item = &MemoryInfo> {
         self.gpus.iter()
+    }
+
+    pub fn cpu(&self) -> &MemoryInfo {
+        &self.cpu
     }
 
     pub fn smallest_gpu_memory_integral_limit(&self) -> u64 {
         self.gpus()
-            .map(|gpu| gpu.gpu_memory_limit - gpu.gpu_smithereen_space)
+            .map(|gpu| gpu.memory_limit - gpu.smithereen_space)
             .min()
             .expect("no GPU")
     }
 
-    pub fn new() -> Self {
-        Self { gpus: Vec::new() }
+    pub fn new(cpu: MemoryInfo) -> Self {
+        Self { gpus: Vec::new(), cpu  }
     }
 
-    pub fn with_gpu(mut self, gpu: GpuInfo) -> Self {
+    pub fn with_gpu(mut self, gpu: MemoryInfo) -> Self {
         self.gpus.push(gpu);
         self
     }

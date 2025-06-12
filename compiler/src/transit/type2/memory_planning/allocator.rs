@@ -2,11 +2,13 @@ use crate::transit::type2::memory_planning::prelude::*;
 
 pub struct Cpu;
 pub struct Gpu;
+pub struct Disk;
 
 pub trait DeviceMarker: 'static {}
 
 impl DeviceMarker for Cpu {}
 impl DeviceMarker for Gpu {}
+impl DeviceMarker for Disk {}
 
 pub struct Completeness(u64, u64);
 

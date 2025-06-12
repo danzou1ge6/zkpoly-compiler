@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use zkpoly_memory_pool::CpuMemoryPool;
+use zkpoly_memory_pool::static_allocator::CpuStaticAllocator;
 use zkpoly_runtime::{
     args::{self, RuntimeType},
     devices::instantizate_event_table,
@@ -33,7 +33,7 @@ impl<Rt: RuntimeType> Artifect<Rt> {
 
     pub fn prepare_dispatcher(
         self,
-        cpu_allocator: CpuMemoryPool,
+        cpu_allocator: CpuStaticAllocator,
         gpu_allocator: HashMap<i32, zkpoly_cuda_api::mem::CudaAllocator>,
         rng: zkpoly_runtime::async_rng::AsyncRng,
         gpu_mapping: Arc<dyn Fn(i32) -> i32 + Send + Sync>,

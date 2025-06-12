@@ -80,6 +80,8 @@ struct SlabLayerInfo {
     head_free_idx: Option<usize>, // Index in BuddyDiskPool::slabs
 }
 
+pub type DiskMemoryPool = Vec<BuddyDiskPool>;
+
 pub struct BuddyDiskPool {
     file: File,
     file_path: PathBuf, // To aid in debugging or potential re-opening

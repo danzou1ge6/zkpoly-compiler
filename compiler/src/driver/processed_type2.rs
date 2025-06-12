@@ -1,4 +1,4 @@
-use crate::transit::type3;
+use crate::{ast, transit::type3};
 
 use super::fresh_type3::FreshType3;
 use zkpoly_common::load_dynamic::Libs;
@@ -32,6 +32,18 @@ impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
             libs,
             allocator,
         } = self;
+
+        // - Decide constants to be on disk or CPU:
+        //   If the constants take more than 1/4 CPU space, put big constants on disk.
+        let constants_on_disk =
+            ast::lowering::constant_size(&t2const_tab) * 4 > hardware_info.cpu().memory_limit();
+        let constants_device = t2const_tab.map_by_ref(&mut |_, c| {
+            if constants_on_disk && c.typ.can_on_disk() {
+                type3::Device::Disk
+            } else {
+                type3::Device::Cpu
+            }
+        });
 
         // - Graph Scheduling
         let (seq, _) = options.log_suround(
@@ -70,6 +82,7 @@ impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
                     t2cg.output,
                     |vid| devices[&vid],
                     hardware_info,
+                    &constants_device,
                 ))
             },
             "Done.",
@@ -124,7 +137,7 @@ impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
         // - Object Analysis Again (since the mutable decision might have changed the value definition)
         let g = SubDigraph::new(&t2cg.g, t2cg.g.connected_component(t2cg.output));
 
-        let (obj_def_use, _obj_id_allocator) = options.log_suround(
+        let (obj_def_use, obj_id_allocator) = options.log_suround(
             "Analyzing object definitions",
             || {
                 Ok(type2::object_analysis::cg_def_use::DefUse::analyze(
@@ -134,6 +147,7 @@ impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
                     t2cg.output,
                     |vid| devices[&vid],
                     hardware_info,
+                    &constants_device,
                 ))
             },
             "Done.",
@@ -161,8 +175,9 @@ impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
                     &t2cg,
                     &g,
                     &seq,
+                    &obj_def_use,
+                    obj_id_allocator,
                     |vid| devices[&vid],
-                    &t2uf_tab,
                     hardware_info,
                     libs,
                 )
@@ -173,7 +188,7 @@ impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
 
         if options.debug_fresh_type3 {
             let mut f = std::fs::File::create(options.debug_dir.join("type3_fresh.html")).unwrap();
-            type3::pretty_print::prettify(&t3chunk, &mut f).unwrap();
+            type3::pretty_print::prettify(&t3chunk, |vid| devices[&vid], &mut f).unwrap();
         }
 
         Ok(FreshType3 {
@@ -181,6 +196,8 @@ impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
             uf_table: t2uf_tab,
             constant_table: t2const_tab,
             allocator,
+            constants_device,
+            execution_devices: devices,
         })
     }
 

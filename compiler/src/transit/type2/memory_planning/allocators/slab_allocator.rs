@@ -212,15 +212,14 @@ where
                                     }),
                             )
                             .bind_result({
-                                let after_all_ejection =
-                                    Continuation::on_allocator::<_, D>(
-                                        this_device,
-                                        move |handle: &mut Handle<'_, '_, '_, '_, '_, P, Rt, D>| {
-                                            handle.allocator.objects_at.insert(t, addr);
-                                            handle.machine.allocate(t, p(addr));
-                                            Ok(())
-                                        },
-                                    );
+                                let after_all_ejection = Continuation::on_allocator::<_, D>(
+                                    this_device,
+                                    move |handle: &mut Handle<'_, '_, '_, '_, '_, P, Rt, D>| {
+                                        handle.allocator.objects_at.insert(t, addr);
+                                        handle.machine.allocate(t, p(addr));
+                                        Ok(())
+                                    },
+                                );
                                 move |_| after_all_ejection
                             })
                             .bind_result(move |_| Continuation::return_(Ok(p(addr)))),
@@ -329,7 +328,7 @@ impl<'a, 'm, 's, 'au, 'i, 'f, P: UsizeId + 'static, Rt: RuntimeType, D: DeviceMa
         let vn = self.aux.obj_info().typ(*t).with_normalized_p();
         let rv = ResidentalValue::new(Value::new(*t, self.machine.device(), vn), *pointer);
         self.machine
-            .gpu_allocate(addr.into(), Size::Integral(size), rv);
+            .allocate(AllocMethod::Offset(addr.get(), size.into()), rv);
     }
 
     fn deallocate(&mut self, t: &ObjectId, pointer: &P) {
@@ -343,7 +342,7 @@ impl<'a, 'm, 's, 'au, 'i, 'f, P: UsizeId + 'static, Rt: RuntimeType, D: DeviceMa
 
         let vn = self.aux.obj_info().typ(*t).with_normalized_p();
         let rv = ResidentalValue::new(Value::new(*t, self.machine.device(), vn), *pointer);
-        self.machine.gpu_deallocate(&rv);
+        self.machine.deallocate(&rv);
     }
 
     fn transfer(
@@ -416,8 +415,8 @@ impl<'s, P: UsizeId + 'static, Rt: RuntimeType> Allocator<'s, ObjectId, P, Rt>
 {
     fn handle<'a, 'b, 'c, 'd, 'i>(
         &'a mut self,
-        _machine: planning::MachineHandle<'b, 's, ObjectId, P>,
-        _aux: &'c mut AuxiliaryInfo<'i, Rt>,
+        machine: planning::MachineHandle<'b, 's, ObjectId, P>,
+        aux: &'c mut AuxiliaryInfo<'i, Rt>,
     ) -> Box<dyn AllocatorHandle<'s, ObjectId, P, Rt> + 'd>
     where
         'a: 'd,
@@ -425,13 +424,17 @@ impl<'s, P: UsizeId + 'static, Rt: RuntimeType> Allocator<'s, ObjectId, P, Rt>
         'c: 'd,
         'i: 'd,
     {
-        unimplemented!()
+        Box::new(Handle {
+            allocator: self,
+            machine,
+            aux,
+        })
     }
 
     fn realizer<'a, 'b, 'c, 'd, 'i>(
         &'a mut self,
-        _machine: realization::MachineHandle<'b, 's, P>,
-        _aux: &'c mut AuxiliaryInfo<'i, Rt>,
+        machine: realization::MachineHandle<'b, 's, P>,
+        aux: &'c mut AuxiliaryInfo<'i, Rt>,
     ) -> Box<dyn AllocatorRealizer<'s, ObjectId, P, Rt> + 'd>
     where
         'a: 'd,
@@ -439,15 +442,18 @@ impl<'s, P: UsizeId + 'static, Rt: RuntimeType> Allocator<'s, ObjectId, P, Rt>
         'c: 'd,
         'i: 'd,
     {
-        unimplemented!()
+        Box::new(Realizer {
+            allocator: self,
+            machine,
+            aux,
+        })
     }
 
     fn allcate_pointer(&mut self) -> P {
-        unimplemented!()
+        p(self.mapping.push((Addr(0), IntegralSize(0))))
     }
 
     fn inner<'t>(&'t mut self) -> Option<&'t mut dyn Allocator<'s, ObjectId, P, Rt>> {
         None
     }
 }
-

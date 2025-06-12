@@ -2,7 +2,6 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::transit::type2;
 
-use super::template::GpuAddr;
 use super::track_splitting::TrackTasks;
 use super::{Track, VertexNode};
 use kernel_gen::GeneratedFunctions;
@@ -14,7 +13,7 @@ use zkpoly_common::typ::Typ;
 use zkpoly_runtime::args::{RuntimeType, VariableId};
 use zkpoly_runtime::devices::{EventId, EventType, EventTypeTable, ThreadId};
 use zkpoly_runtime::functions::FunctionTable;
-use zkpoly_runtime::instructions::{GpuAlloc, Instruction};
+use zkpoly_runtime::instructions::{AllocMethod, Instruction};
 
 mod emit_func;
 mod kernel_gen;
@@ -163,6 +162,7 @@ impl From<super::Device> for DeviceType {
                 device_id: i as i32,
             },
             super::Device::Stack => DeviceType::CPU,
+            super::Device::Disk => DeviceType::Disk,
         }
     }
 }
@@ -172,6 +172,8 @@ pub enum PrimaryThread {
     MemoryManagement,
     Gpu,
     Cpu,
+    ToDisk,
+    FromDisk,
 }
 
 impl PrimaryThread {
@@ -185,6 +187,8 @@ pub struct ThreadSpecific<T> {
     memory_management: T,
     gpu: T,
     cpu: T,
+    to_disk: T,
+    from_disk: T,
 }
 
 impl<T> ThreadSpecific<T> {
@@ -193,6 +197,8 @@ impl<T> ThreadSpecific<T> {
             PrimaryThread::MemoryManagement => &self.memory_management,
             PrimaryThread::Gpu => &self.gpu,
             PrimaryThread::Cpu => &self.cpu,
+            PrimaryThread::FromDisk => &self.from_disk,
+            PrimaryThread::ToDisk => &self.to_disk,
         }
     }
 
@@ -201,6 +207,8 @@ impl<T> ThreadSpecific<T> {
             PrimaryThread::MemoryManagement => &mut self.memory_management,
             PrimaryThread::Gpu => &mut self.gpu,
             PrimaryThread::Cpu => &mut self.cpu,
+            PrimaryThread::FromDisk => &mut self.from_disk,
+            PrimaryThread::ToDisk => &mut self.to_disk,
         }
     }
 
@@ -218,6 +226,8 @@ impl<T> ThreadSpecific<T> {
             memory_management: f(),
             gpu: f(),
             cpu: f(),
+            to_disk: f(),
+            from_disk: f(),
         }
     }
 }
@@ -290,6 +300,8 @@ impl PrimaryThread {
             Track::FromGpu => PrimaryThread::MemoryManagement,
             Track::GpuMemory(_) => PrimaryThread::MemoryManagement,
             Track::Cpu => PrimaryThread::Cpu,
+            Track::FromDisk => PrimaryThread::FromDisk,
+            Track::ToDisk => PrimaryThread::ToDisk,
         }
     }
 }
@@ -414,36 +426,17 @@ fn lower_instruction<'s, Rt: RuntimeType>(
                 }
             }
         }
-        super::InstructionNode::GpuMalloc { id, addr, size } => {
+        super::InstructionNode::Malloc { id, addr, device  } => {
             let var_id = reg_id2var_id(*id);
 
             emit(Instruction::Allocate {
-                device: DeviceType::from(t3chunk.register_devices[id]),
+                device: DeviceType::from(device.clone()),
                 typ: t3chunk.register_types[*id].erase_p(),
                 id: var_id,
-                gpu_alloc: Some(match addr.clone() {
-                    GpuAddr::Offset(va) => GpuAlloc::Offset(va.get()),
-                    GpuAddr::Paged(pas) => GpuAlloc::PageInfo {
-                        va_size: *size as usize,
-                        pa: pas.into_iter().map(|pa| pa.get()).collect(),
-                    },
-                }),
+                alloc_method: addr.clone(),
             });
         }
-        super::InstructionNode::GpuFree { id } => emit(Instruction::Deallocate {
-            id: reg_id2var_id(*id),
-        }),
-        super::InstructionNode::CpuMalloc { id, .. } => {
-            let var_id = reg_id2var_id(*id);
-
-            emit(Instruction::Allocate {
-                device: DeviceType::CPU,
-                typ: t3chunk.register_types[*id].erase_p(),
-                id: var_id,
-                gpu_alloc: None,
-            });
-        }
-        super::InstructionNode::CpuFree { id } => emit(Instruction::Deallocate {
+        super::InstructionNode::Free { id, .. } => emit(Instruction::Deallocate {
             id: reg_id2var_id(*id),
         }),
         super::InstructionNode::Transfer { id, from } => emit(Instruction::Transfer {
@@ -904,7 +897,7 @@ pub fn lower<'s, Rt: RuntimeType>(
             device: DeviceType::GPU { device_id: 0 },
             typ: Typ::Stream,
             id: var_id,
-            gpu_alloc: None,
+            alloc_method: AllocMethod::default(),
         })
     });
 

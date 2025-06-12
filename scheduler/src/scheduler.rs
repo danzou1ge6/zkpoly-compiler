@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use zkpoly_compiler::driver::{Artifect, HardwareInfo};
-use zkpoly_memory_pool::CpuMemoryPool;
+use zkpoly_memory_pool::static_allocator::CpuStaticAllocator;
 use zkpoly_runtime::args::{EntryTable, RuntimeType, Variable};
 use zkpoly_runtime::async_rng::AsyncRng;
 use zkpoly_runtime::runtime::{RuntimeDebug, RuntimeInfo};
@@ -49,7 +49,6 @@ impl<Rt: RuntimeType> Scheduler<Rt> {
                 .into_iter()
                 .collect::<Vec<usize>>();
             scheduler_threads.push(thread::spawn(move || {
-                let mut cpu_allocator = CpuMemoryPool::new(20, 32);
                 let cur_cards_clone = cur_cards.clone();
                 let gpu_mapping = Arc::new(move |x: i32| {
                     cur_cards_clone[x as usize] as i32
@@ -81,6 +80,8 @@ impl<Rt: RuntimeType> Scheduler<Rt> {
                         })
                         .collect::<HashMap<_, _>>();
 
+                    let cpu_allocator = CpuStaticAllocator::new(task.hardware_info.cpu().memory_limit() as usize, true);
+
                     let result: (Option<Variable<Rt>>, RuntimeInfo<Rt>);
                     let mut runtime = task
                         .artifect
@@ -92,7 +93,7 @@ impl<Rt: RuntimeType> Scheduler<Rt> {
                         );
 
                     let start = std::time::Instant::now();
-                    (result, cpu_allocator) = runtime.run(&task.inputs, task.debug_opt);
+                    (result, _) = runtime.run(&task.inputs, task.debug_opt);
                     let elapsed = start.elapsed();
 
                     // 更新任务状态为已完成

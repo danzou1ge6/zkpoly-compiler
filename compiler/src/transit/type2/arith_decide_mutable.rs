@@ -1,6 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::transit::type2::{Cg, VertexNode};
+use crate::transit::{
+    type2::{Cg, VertexNode},
+    type3,
+};
 use zkpoly_common::arith::{FusedType, Mutability};
 use zkpoly_runtime::args::RuntimeType;
 
@@ -27,7 +30,8 @@ pub fn decide_mutable<'s, Rt: RuntimeType>(
                 })
                 .collect::<BTreeMap<_, _>>();
 
-            let device = cg_def_use::decide_device(execution_devices(vid));
+            // Device for constant does not matter here since constant objects are immortal
+            let device = cg_def_use::decide_device_for_non_constant(execution_devices(vid));
 
             let mut mutated_inputs = BTreeSet::new();
 

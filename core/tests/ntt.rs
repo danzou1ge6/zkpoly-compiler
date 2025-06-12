@@ -1,4 +1,6 @@
 mod common;
+use std::sync::Arc;
+
 use common::*;
 
 static MAX_K: u32 = 20;
@@ -26,11 +28,7 @@ fn test_ssip_ntt() {
     let ntt = SsipNtt::<MyRuntimeType>::new(&mut libs);
     let precompute = SsipPrecompute::<MyRuntimeType>::new(&mut libs);
     let ntt_fn = match ntt.get_fn() {
-        Function {
-            f: FunctionValue::Fn(func),
-            ..
-        } => func,
-        _ => panic!("expected Fn"),
+        Function { f: func, .. } => func,
     };
 
     let precompute_fn = precompute.get_fn();
@@ -96,7 +94,12 @@ fn test_ssip_ntt() {
             stream.unwrap_stream(),
         );
 
-        ntt_fn(vec![&mut poly_gpu_slice], vec![&twiddle_gpu, &stream]).unwrap();
+        ntt_fn(
+            vec![&mut poly_gpu_slice],
+            vec![&twiddle_gpu, &stream],
+            Arc::new(|x| x),
+        )
+        .unwrap();
 
         poly_gpu_slice
             .unwrap_scalar_array()
@@ -137,11 +140,7 @@ fn test_recompute_ntt() {
     let ntt = RecomputeNtt::<MyRuntimeType>::new(&mut libs);
     let precompute = GenPqOmegas::<MyRuntimeType>::new(&mut libs);
     let ntt_fn = match ntt.get_fn() {
-        Function {
-            f: FunctionValue::Fn(func),
-            ..
-        } => func,
-        _ => panic!("expected Fn"),
+        Function { f: func, .. } => func,
     };
 
     let precompute_fn = precompute.get_fn();
@@ -206,7 +205,12 @@ fn test_recompute_ntt() {
         pq.cpu2gpu(pq_gpu.unwrap_scalar_array_mut(), stream.unwrap_stream());
         omegas.cpu2gpu(omegas_gpu.unwrap_scalar_array_mut(), stream.unwrap_stream());
 
-        ntt_fn(vec![&mut poly_gpu], vec![&pq_gpu, &omegas_gpu, &stream]).unwrap();
+        ntt_fn(
+            vec![&mut poly_gpu],
+            vec![&pq_gpu, &omegas_gpu, &stream],
+            Arc::new(|x| x),
+        )
+        .unwrap();
 
         poly_gpu
             .unwrap_scalar_array()
@@ -237,18 +241,10 @@ fn test_distribute_zeta() {
     let precompute = GenPqOmegas::<MyRuntimeType>::new(&mut libs);
     let distribute = DistributePowers::<MyRuntimeType>::new(&mut libs);
     let ntt_fn = match ntt.get_fn() {
-        Function {
-            f: FunctionValue::Fn(func),
-            ..
-        } => func,
-        _ => panic!("expected Fn"),
+        Function { f: func, .. } => func,
     };
     let zeta_fn = match distribute.get_fn() {
-        Function {
-            f: FunctionValue::Fn(func),
-            ..
-        } => func,
-        _ => panic!("expected Fn"),
+        Function { f: func, .. } => func,
     };
 
     let precompute_fn = precompute.get_fn();
@@ -340,9 +336,9 @@ fn test_distribute_zeta() {
         omegas.cpu2gpu(omegas_gpu.unwrap_scalar_array_mut(), stream.unwrap_stream());
         zeta_cpu.cpu2gpu(zeta_gpu.unwrap_scalar_array_mut(), stream.unwrap_stream());
 
-        zeta_fn(vec![&mut poly_gpu], vec![&zeta_gpu, &stream]).unwrap();
+        zeta_fn(vec![&mut poly_gpu], vec![&zeta_gpu, &stream], Arc::new(|x|x)).unwrap();
 
-        ntt_fn(vec![&mut poly_gpu], vec![&pq_gpu, &omegas_gpu, &stream]).unwrap();
+        ntt_fn(vec![&mut poly_gpu], vec![&pq_gpu, &omegas_gpu, &stream], Arc::new(|x|x)).unwrap();
 
         poly_gpu
             .unwrap_scalar_array()

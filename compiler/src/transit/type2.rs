@@ -389,7 +389,7 @@ pub mod template {
             }
         }
 
-        pub fn immortal_on_cpu(&self) -> bool {
+        pub fn immortal(&self) -> bool {
             use VertexNode::*;
             match self {
                 Constant(..) => true,

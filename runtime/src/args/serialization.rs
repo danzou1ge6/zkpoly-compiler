@@ -200,11 +200,11 @@ impl Header {
             if let Some((offset, _size)) = entry.position {
                 reader.seek(io::SeekFrom::Start(offset as u64))?;
                 let val = Variable::load_binary(&entry.typ, reader, allocator)?;
-                let constant = Constant::new(val, entry.name.clone(), entry.typ.clone());
+                let constant = Constant::on_cpu(val, entry.name.clone(), entry.typ.clone());
 
                 while ct.len() <= i {
                     // Tuple(vec![]) is placeholder
-                    ct.push(Constant::new(
+                    ct.push(Constant::on_cpu(
                         Variable::Tuple(vec![]),
                         entry.name.clone(),
                         entry.typ.clone(),

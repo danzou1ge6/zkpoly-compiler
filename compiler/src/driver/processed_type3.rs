@@ -1,7 +1,9 @@
 use super::artifect::Artifect;
-use std::io::Write;
+use std::{collections::BTreeMap, io::Write};
+use zkpoly_common::{devices::DeviceType, heap::Heap};
+use zkpoly_memory_pool::buddy_disk_pool::DiskMemoryPool;
 use zkpoly_memory_pool::CpuMemoryPool;
-use zkpoly_runtime::args::RuntimeType;
+use zkpoly_runtime::args::{move_constant_table, ConstantId, RuntimeType};
 
 use super::{
     cudaDeviceSynchronize, cuda_check, type2, type3, DebugOptions, Error, HardwareInfo,
@@ -13,6 +15,8 @@ pub struct ProcessedType3<'s, Rt: RuntimeType> {
     pub(super) uf_table: type2::user_function::Table<Rt>,
     pub(super) constant_table: type2::ConstantTable<Rt>,
     pub(super) allocator: CpuMemoryPool,
+    pub(super) constants_device: Heap<ConstantId, type3::Device>,
+    pub(super) execution_devices: BTreeMap<type2::VertexId, type2::Device>,
 }
 
 impl<'s, Rt: RuntimeType> ProcessedType3<'s, Rt> {
@@ -20,19 +24,28 @@ impl<'s, Rt: RuntimeType> ProcessedType3<'s, Rt> {
         self,
         options: &DebugOptions,
         hardware_info: &HardwareInfo,
+        disk_allocator: &mut DiskMemoryPool,
         _ctx: &PanicJoinHandler,
     ) -> Result<(Artifect<Rt>, CpuMemoryPool), Error<'s, Rt>> {
         let Self {
             chunk: t3chunk,
             uf_table: t2uf_tab,
             constant_table: t2const_tab,
-            allocator,
+            mut allocator,
+            constants_device,
+            execution_devices,
         } = self;
 
         // - Track Splitting
         let track_tasks = options.log_suround(
             "Splitting tracks",
-            || Ok(type3::track_splitting::split(&t3chunk, hardware_info)),
+            || {
+                Ok(type3::track_splitting::split(
+                    &t3chunk,
+                    hardware_info,
+                    |vid| execution_devices[&vid],
+                ))
+            },
             "Done.",
         )?;
 
@@ -90,9 +103,20 @@ impl<'s, Rt: RuntimeType> ProcessedType3<'s, Rt> {
             cuda_check!(cudaDeviceSynchronize());
         }
 
-        Ok((Artifect {
-            chunk: rt_chunk,
-            constant_table: t2const_tab,
-        }, allocator))
+        // - Move Constants to where they should be
+        let constant_table = move_constant_table(
+            t2const_tab,
+            &constants_device.map_by_ref(&mut |_, t3t| DeviceType::from(t3t.clone())),
+            &mut allocator,
+            disk_allocator,
+        );
+
+        Ok((
+            Artifect {
+                chunk: rt_chunk,
+                constant_table,
+            },
+            allocator,
+        ))
     }
 }

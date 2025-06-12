@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use zkpoly_runtime::args::RuntimeType;
 
-use crate::{driver, transit::type2::memory_planning::MemoryBlock};
+use crate::{driver, transit::type2::{self, memory_planning::MemoryBlock}};
 
 use super::{Chunk, InstructionIndex, Track, TrackSpecific};
 
@@ -63,6 +63,7 @@ impl MemoryBlockRwWeb {
 pub fn split<'s, Rt: RuntimeType>(
     chunk: &Chunk<'s, Rt>,
     hd_info: &driver::HardwareInfo,
+    execution_devices: impl Fn(type2::VertexId) -> type2::Device
 ) -> TrackTasks {
     let assigned_at = chunk.assigned_at();
     let malloc_at = chunk.malloc_at();
@@ -72,7 +73,7 @@ pub fn split<'s, Rt: RuntimeType>(
     let mut track_tasks = TrackTasks::new();
 
     for (i, inst) in chunk.iter_instructions() {
-        let track = inst.track(|reg_id| chunk.register_devices[&reg_id]);
+        let track = inst.track(&execution_devices, |reg_id| chunk.register_devices[&reg_id]);
 
         // An instruction depends not only on its uses, but also on memory allocations of its defs
         let depended_instructions = inst
@@ -123,7 +124,7 @@ pub fn split<'s, Rt: RuntimeType>(
 
         for depended_inst in depended_instructions {
             let depended_track =
-                chunk[depended_inst].track(|reg_id| chunk.register_devices[&reg_id]);
+                chunk[depended_inst].track(&execution_devices, |reg_id| chunk.register_devices[&reg_id]);
 
             if depended_track.is_cpu() {
                 let last = depended_of_each_track

@@ -18,6 +18,7 @@ pub enum Device {
     Gpu(usize),
     Cpu,
     Stack,
+    Disk,
 }
 
 impl Device {
@@ -33,8 +34,9 @@ impl Device {
         use Device::*;
         match self {
             Gpu(..) => Some(Cpu),
-            Cpu => None,
+            Cpu => Some(Disk),
             Stack => None,
+            Disk => None,
         }
     }
 
@@ -52,6 +54,7 @@ pub struct DeviceSpecific<T> {
     pub gpu: Vec<T>,
     pub cpu: T,
     pub stack: T,
+    pub disk: T,
 }
 
 impl<T> DeviceSpecific<T> {
@@ -60,6 +63,7 @@ impl<T> DeviceSpecific<T> {
             Device::Gpu(i) => &self.gpu[i],
             Device::Cpu => &self.cpu,
             Device::Stack => &self.stack,
+            Device::Disk => &self.disk,
         }
     }
 
@@ -68,6 +72,7 @@ impl<T> DeviceSpecific<T> {
             Device::Gpu(i) => &mut self.gpu[i],
             Device::Cpu => &mut self.cpu,
             Device::Stack => &mut self.stack,
+            Device::Disk => &mut self.disk,
         }
     }
 
@@ -76,6 +81,7 @@ impl<T> DeviceSpecific<T> {
             gpu: self.gpu.into_iter().map(&mut f).collect(),
             cpu: (&mut f)(self.cpu),
             stack: f(self.stack),
+            disk: f(self.disk),
         }
     }
 
@@ -87,6 +93,7 @@ impl<T> DeviceSpecific<T> {
             gpu: (0..n_gpus).map(|_| Default::default()).collect(),
             cpu: T::default(),
             stack: T::default(),
+            disk: T::default(),
         }
     }
 }
@@ -103,6 +110,7 @@ impl std::ops::Sub<Self> for DeviceSpecific<bool> {
                 .collect(),
             cpu: self.cpu && !rhs.cpu,
             stack: self.stack && !rhs.stack,
+            disk: self.disk && !rhs.disk,
         }
     }
 }
@@ -111,46 +119,11 @@ define_usize_id!(RegisterId);
 
 pub mod template {
     use zkpoly_common::typ::PolyType;
+    use zkpoly_runtime::instructions::AllocMethod;
 
     use crate::{ast::PolyInit, transit::type2};
 
-    use type2::object_analysis::size::Size;
-
-    #[derive(Debug, Clone)]
-    pub struct PhysicalAddr(usize);
-
-    impl From<u64> for PhysicalAddr {
-        fn from(value: u64) -> Self {
-            Self(value as usize)
-        }
-    }
-
-    impl PhysicalAddr {
-        pub fn get(&self) -> usize {
-            self.0
-        }
-    }
-
-    #[derive(Debug, Clone)]
-    pub struct VirtualAddr(usize);
-
-    impl From<u64> for VirtualAddr {
-        fn from(value: u64) -> Self {
-            Self(value as usize)
-        }
-    }
-
-    impl VirtualAddr {
-        pub fn get(&self) -> usize {
-            self.0
-        }
-    }
-
-    #[derive(Debug, Clone)]
-    pub enum GpuAddr {
-        Offset(VirtualAddr),
-        Paged(Vec<PhysicalAddr>),
-    }
+    use super::Device;
 
     #[derive(Debug, Clone)]
     pub enum InstructionNode<I, V> {
@@ -163,20 +136,14 @@ pub mod template {
             vertex: V,
             vid: type2::VertexId,
         },
-        GpuMalloc {
+        Malloc {
             id: I,
-            addr: GpuAddr,
-            size: u64,
+            device: Device,
+            addr: AllocMethod,
         },
-        GpuFree {
+        Free {
             id: I,
-        },
-        CpuMalloc {
-            id: I,
-            size: Size,
-        },
-        CpuFree {
-            id: I,
+            device: Device,
         },
         StackFree {
             id: I,
@@ -219,10 +186,8 @@ pub mod template {
             use InstructionNode::*;
             match self {
                 Type2 { ids, .. } => Box::new(ids.iter().map(|(x, _)| *x)),
-                GpuMalloc { id, .. } => Box::new(std::iter::once(*id)),
-                GpuFree { .. } => Box::new(std::iter::empty()),
-                CpuMalloc { id, .. } => Box::new(std::iter::once(*id)),
-                CpuFree { .. } => Box::new(std::iter::empty()),
+                Malloc { id, .. } => Box::new(std::iter::once(*id)),
+                Free { .. } => Box::new(std::iter::empty()),
                 StackFree { .. } => Box::new(std::iter::empty()),
                 Tuple { id, .. } => Box::new(std::iter::once(*id)),
                 Transfer { id, .. } => Box::new(std::iter::once(*id)),
@@ -236,10 +201,8 @@ pub mod template {
             use InstructionNode::*;
             match self {
                 Type2 { ids, .. } => Box::new(ids.iter_mut().map(|(x, _)| x)),
-                GpuMalloc { id, .. } => Box::new(std::iter::once(id)),
-                GpuFree { .. } => Box::new(std::iter::empty()),
-                CpuMalloc { id, .. } => Box::new(std::iter::once(id)),
-                CpuFree { .. } => Box::new(std::iter::empty()),
+                Malloc { id, .. } => Box::new(std::iter::once(id)),
+                Free { .. } => Box::new(std::iter::empty()),
                 StackFree { .. } => Box::new(std::iter::empty()),
                 Tuple { id, .. } => Box::new(std::iter::once(id)),
                 TransferToDefed { id, .. } => Box::new(std::iter::once(id)),
@@ -255,10 +218,8 @@ pub mod template {
             use InstructionNode::*;
             match self {
                 Type2 { ids, .. } => Box::new(ids.iter().cloned()),
-                GpuMalloc { id, .. } => Box::new(std::iter::once((*id, None))),
-                GpuFree { .. } => Box::new(std::iter::empty()),
-                CpuMalloc { id, .. } => Box::new(std::iter::once((*id, None))),
-                CpuFree { .. } => Box::new(std::iter::empty()),
+                Malloc { id, .. } => Box::new(std::iter::once((*id, None))),
+                Free { .. } => Box::new(std::iter::empty()),
                 StackFree { .. } => Box::new(std::iter::empty()),
                 Tuple { id, .. } => Box::new(std::iter::once((*id, None))),
                 Transfer { id, .. } => Box::new(std::iter::once((*id, None))),
@@ -271,8 +232,7 @@ pub mod template {
         pub fn is_allloc(&self) -> bool {
             use InstructionNode::*;
             match self {
-                GpuMalloc { .. } => true,
-                CpuMalloc { .. } => true,
+                Malloc { .. } => true,
                 _ => false,
             }
         }
@@ -280,8 +240,7 @@ pub mod template {
         pub fn is_dealloc(&self) -> bool {
             use InstructionNode::*;
             match self {
-                GpuFree { .. } => true,
-                CpuFree { .. } => true,
+                Free { .. } => true,
                 StackFree { .. } => true,
                 _ => false,
             }
@@ -325,6 +284,8 @@ pub enum Track {
     ToGpu,
     FromGpu,
     GpuMemory(usize),
+    ToDisk,
+    FromDisk,
 }
 
 impl Track {
@@ -346,6 +307,8 @@ pub struct TrackSpecific<T> {
     pub(crate) to_gpu: T,
     pub(crate) from_gpu: T,
     pub(crate) gpu_memory: Vec<T>,
+    pub(crate) to_disk: T,
+    pub(crate) from_disk: T,
 }
 
 impl<T> TrackSpecific<T> {
@@ -361,6 +324,8 @@ impl<T> TrackSpecific<T> {
             to_gpu: T::default(),
             from_gpu: T::default(),
             gpu_memory: (0..n_gpus).map(|_| T::default()).collect(),
+            to_disk: T::default(),
+            from_disk: T::default(),
         }
     }
 
@@ -374,6 +339,8 @@ impl<T> TrackSpecific<T> {
             ToGpu => &self.to_gpu,
             FromGpu => &self.from_gpu,
             GpuMemory(i) => &self.gpu_memory[i],
+            ToDisk => &self.to_disk,
+            FromDisk => &self.from_disk,
         }
     }
 
@@ -387,6 +354,8 @@ impl<T> TrackSpecific<T> {
             ToGpu => &mut self.to_gpu,
             FromGpu => &mut self.from_gpu,
             GpuMemory(i) => &mut self.gpu_memory[i],
+            ToDisk => &mut self.to_disk,
+            FromDisk => &mut self.from_disk,
         }
     }
 
@@ -398,6 +367,8 @@ impl<T> TrackSpecific<T> {
             (Cpu, &self.cpu),
             (ToGpu, &self.to_gpu),
             (FromGpu, &self.from_gpu),
+            (ToDisk, &self.to_disk),
+            (FromDisk, &self.from_disk),
         ]
         .into_iter()
         .chain((0..n_gpus).map(|i| (Gpu(i), &self.gpu[i])))
@@ -416,6 +387,8 @@ impl<T> TrackSpecific<T> {
             to_gpu: t.clone(),
             from_gpu: t.clone(),
             gpu_memory: vec![t.clone(); n_gpus],
+            to_disk: t.clone(),
+            from_disk: t.clone(),
         }
     }
 }
@@ -443,36 +416,39 @@ fn determine_transfer_track(from: Device, to: Device) -> Track {
         (Stack, Gpu(..)) => Track::ToGpu,
         (Stack, Cpu) => panic!("Stack cannot transfer to Cpu"),
         (Stack, Stack) => Track::Cpu,
+        (_, Disk) => Track::ToDisk,
+        (Disk, _) => Track::FromDisk,
     }
 }
 
 impl<'s> Instruction<'s> {
-    pub fn track(&self, devices: impl Fn(RegisterId) -> Device) -> Track {
+    pub fn track(
+        &self,
+        execution_devices: impl Fn(type2::VertexId) -> type2::Device,
+        memory_devices: impl Fn(RegisterId) -> Device,
+    ) -> Track {
         use template::InstructionNode::*;
         use Track::*;
-
-        let executor_of = |md| match md {
-            Device::Cpu | Device::Stack => type2::Device::Cpu,
-            Device::Gpu(i) => type2::Device::Gpu(i),
-        };
 
         match &self.node {
             Type2 {
                 vertex: type2::template::VertexNode::Return(..),
                 ..
             } => MemoryManagement,
-            Type2 { vertex, ids, .. } => vertex.track(executor_of(devices(ids[0].0))),
-            GpuMalloc { .. } => MemoryManagement,
-            GpuFree { .. } => MemoryManagement,
-            CpuMalloc { .. } => MemoryManagement,
-            CpuFree { .. } => MemoryManagement,
+            Type2 { vertex, vid, .. } => vertex.track(execution_devices(*vid)),
+            Malloc { .. } => MemoryManagement,
+            Free { .. } => MemoryManagement,
             StackFree { .. } => MemoryManagement,
             Tuple { .. } => Cpu,
             Transfer { from, id: to, .. } | TransferToDefed { to, from, .. } => {
-                determine_transfer_track(devices(*from), devices(*to))
+                determine_transfer_track(memory_devices(*from), memory_devices(*to))
             }
             SetPolyMeta { .. } => Cpu,
-            FillPoly { id, .. } => Track::on_device(executor_of(devices(*id))),
+            FillPoly { id, .. } => Track::on_device(match memory_devices(*id) {
+                Device::Cpu => type2::Device::Cpu,
+                Device::Gpu(i) => type2::Device::Gpu(i),
+                _ => panic!("FillPoly should have its result on either GPU or CPU"),
+            }),
         }
     }
 
@@ -485,8 +461,7 @@ impl<'s> Instruction<'s> {
 
         match &self.node {
             Type2 { vertex, temp, .. } => Box::new(vertex.uses().chain(temp.iter().copied())),
-            GpuFree { id } => Box::new(std::iter::once(*id)),
-            CpuFree { id } => Box::new(std::iter::once(*id)),
+            Free { id, .. } => Box::new(std::iter::once(*id)),
             StackFree { id } => Box::new(std::iter::once(*id)),
             Tuple { oprands, .. } => Box::new(oprands.iter().copied()),
             Transfer { from, .. } => Box::new(std::iter::once(*from)),
@@ -525,8 +500,6 @@ impl<'s> Instruction<'s> {
     }
 }
 define_usize_id!(InstructionIndex);
-
-pub use template::VirtualAddr;
 
 pub struct RegisterAllocator {
     register_types: Heap<RegisterId, typ::Typ>,
@@ -669,10 +642,7 @@ impl<'s, Rt: RuntimeType> Chunk<'s, Rt> {
             .fold(BTreeMap::new(), |mut acc, (i, instr)| {
                 use template::InstructionNode::*;
                 match &instr.node {
-                    GpuMalloc { id, .. } => {
-                        acc.insert(*id, InstructionIndex(i));
-                    }
-                    CpuMalloc { id, .. } => {
+                    Malloc { id, .. } => {
                         acc.insert(*id, InstructionIndex(i));
                     }
                     _ => {}

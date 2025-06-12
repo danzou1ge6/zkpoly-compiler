@@ -95,6 +95,24 @@ impl From<Size> for u64 {
     }
 }
 
+impl From<Size> for usize {
+    fn from(value: Size) -> Self {
+        u64::from(value) as usize
+    }
+}
+
+impl From<IntegralSize> for u64 {
+    fn from(value: IntegralSize) -> Self {
+        2u64.pow(value.0)
+    }
+}
+
+impl From<IntegralSize> for usize {
+    fn from(value: IntegralSize) -> Self {
+        2usize.pow(value.0)
+    }
+}
+
 impl std::ops::Div<u64> for Size {
     type Output = Size;
     fn div(self, rhs: u64) -> Self::Output {
