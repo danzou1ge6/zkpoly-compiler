@@ -179,14 +179,14 @@ where
 {
     fn allocate(&mut self, t: &ObjectId, pointer: &P) {
         if let Some(addr) = self.allocator.mapping.get(pointer) {
-            let addr = type3::template::GpuAddr::Offset(
-                addr.offset(self.allocator.offset).get().into(),
-            );
             let size = self.aux.obj_info().size(*t);
+            let addr = AllocMethod::Offset(
+                addr.offset(self.allocator.offset).get().into(),
+                size.into()
+            );
             let vn = self.aux.obj_info().typ(*t).with_normalized_p();
             self.machine.gpu_allocate(
                 addr,
-                size,
                 ResidentalValue::new(Value::new(*t, self.machine.device(), vn), *pointer),
             );
         } else {

@@ -212,15 +212,14 @@ where
                                     }),
                             )
                             .bind_result({
-                                let after_all_ejection =
-                                    Continuation::on_allocator::<_, D>(
-                                        this_device,
-                                        move |handle: &mut Handle<'_, '_, '_, '_, '_, P, Rt, D>| {
-                                            handle.allocator.objects_at.insert(t, addr);
-                                            handle.machine.allocate(t, p(addr));
-                                            Ok(())
-                                        },
-                                    );
+                                let after_all_ejection = Continuation::on_allocator::<_, D>(
+                                    this_device,
+                                    move |handle: &mut Handle<'_, '_, '_, '_, '_, P, Rt, D>| {
+                                        handle.allocator.objects_at.insert(t, addr);
+                                        handle.machine.allocate(t, p(addr));
+                                        Ok(())
+                                    },
+                                );
                                 move |_| after_all_ejection
                             })
                             .bind_result(move |_| Continuation::return_(Ok(p(addr)))),
@@ -328,8 +327,10 @@ impl<'a, 'm, 's, 'au, 'i, 'f, P: UsizeId + 'static, Rt: RuntimeType, D: DeviceMa
         let (addr, size) = self.allocator.mapping[p_inv(*pointer)];
         let vn = self.aux.obj_info().typ(*t).with_normalized_p();
         let rv = ResidentalValue::new(Value::new(*t, self.machine.device(), vn), *pointer);
-        self.machine
-            .gpu_allocate(addr.into(), Size::Integral(size), rv);
+        self.machine.gpu_allocate(
+            AllocMethod::Offset(addr.get(), size.into()),
+            rv,
+        );
     }
 
     fn deallocate(&mut self, t: &ObjectId, pointer: &P) {
@@ -450,4 +451,3 @@ impl<'s, P: UsizeId + 'static, Rt: RuntimeType> Allocator<'s, ObjectId, P, Rt>
         None
     }
 }
-

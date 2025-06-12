@@ -185,7 +185,10 @@ fn format_src_info(inst: &Instruction) -> String {
     }
 }
 
-fn format_inst_label<'s, Rt: RuntimeType>(inst: &Instruction<'s>, _chunk: &Chunk<'s, Rt>) -> String {
+fn format_inst_label<'s, Rt: RuntimeType>(
+    inst: &Instruction<'s>,
+    _chunk: &Chunk<'s, Rt>,
+) -> String {
     use template::InstructionNode::*;
     match &inst.node {
         Type2 { vertex, vid, .. } => format!(
@@ -193,8 +196,8 @@ fn format_inst_label<'s, Rt: RuntimeType>(inst: &Instruction<'s>, _chunk: &Chunk
             usize::from(*vid),
             type2::pretty_print::format_node_label(vertex)
         ),
-        GpuMalloc { addr, size, .. } => {
-            format!("GpuMalloc({:?},{})", addr, size)
+        GpuMalloc { addr, .. } => {
+            format!("GpuMalloc({:?})", addr)
         }
         GpuFree { .. } => "GpuFree".to_string(),
         CpuMalloc { .. } => "CpuMalloc".to_string(),

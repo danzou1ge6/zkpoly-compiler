@@ -1,4 +1,4 @@
-use crate::transit::{type2::memory_planning::prelude::*, type3::template::GpuAddr};
+use crate::transit::type2::memory_planning::prelude::*;
 use type3::{Instruction, InstructionNode};
 
 /// A register's status progresses from [`Undefined`] to [`Defined`] to [`Freed`].
@@ -382,12 +382,7 @@ where
     P: UsizeId,
 {
     /// Emit a GpuMalloc instruction at `va`, for object, type and pointer specified in `rv`.
-    pub fn gpu_allocate(
-        &mut self,
-        addr: GpuAddr,
-        size: Size,
-        rv: ResidentalValue<P>,
-    ) -> RegisterId {
+    pub fn gpu_allocate(&mut self, addr: AllocMethod, rv: ResidentalValue<P>) -> RegisterId {
         assert!(rv.device() == self.device);
 
         let reg = self.machine.new_reg(rv);
@@ -395,7 +390,6 @@ where
             .emit(Instruction::new_no_src(InstructionNode::GpuMalloc {
                 id: reg,
                 addr,
-                size: size.into(),
             }));
         reg
     }
@@ -412,14 +406,14 @@ where
             .free_regs_to(*rv.pointer(), rv.object_id(), rv.device(), reg);
     }
 
-    pub fn cpu_allocate(&mut self, size: Size, rv: ResidentalValue<P>) -> RegisterId {
+    pub fn cpu_allocate(&mut self, addr: AllocMethod, rv: ResidentalValue<P>) -> RegisterId {
         assert!(rv.device() == self.device);
 
         let reg = self.machine.new_reg(rv);
         self.machine
             .emit(Instruction::new_no_src(InstructionNode::CpuMalloc {
                 id: reg,
-                size,
+                addr,
             }));
         reg
     }

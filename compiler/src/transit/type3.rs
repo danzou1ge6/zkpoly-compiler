@@ -111,46 +111,11 @@ define_usize_id!(RegisterId);
 
 pub mod template {
     use zkpoly_common::typ::PolyType;
+    use zkpoly_runtime::instructions::AllocMethod;
 
     use crate::{ast::PolyInit, transit::type2};
 
     use type2::object_analysis::size::Size;
-
-    #[derive(Debug, Clone)]
-    pub struct PhysicalAddr(usize);
-
-    impl From<u64> for PhysicalAddr {
-        fn from(value: u64) -> Self {
-            Self(value as usize)
-        }
-    }
-
-    impl PhysicalAddr {
-        pub fn get(&self) -> usize {
-            self.0
-        }
-    }
-
-    #[derive(Debug, Clone)]
-    pub struct VirtualAddr(usize);
-
-    impl From<u64> for VirtualAddr {
-        fn from(value: u64) -> Self {
-            Self(value as usize)
-        }
-    }
-
-    impl VirtualAddr {
-        pub fn get(&self) -> usize {
-            self.0
-        }
-    }
-
-    #[derive(Debug, Clone)]
-    pub enum GpuAddr {
-        Offset(VirtualAddr),
-        Paged(Vec<PhysicalAddr>),
-    }
 
     #[derive(Debug, Clone)]
     pub enum InstructionNode<I, V> {
@@ -165,15 +130,14 @@ pub mod template {
         },
         GpuMalloc {
             id: I,
-            addr: GpuAddr,
-            size: u64,
+            addr: AllocMethod,
         },
         GpuFree {
             id: I,
         },
         CpuMalloc {
             id: I,
-            size: Size,
+            addr: AllocMethod,
         },
         CpuFree {
             id: I,
@@ -525,8 +489,6 @@ impl<'s> Instruction<'s> {
     }
 }
 define_usize_id!(InstructionIndex);
-
-pub use template::VirtualAddr;
 
 pub struct RegisterAllocator {
     register_types: Heap<RegisterId, typ::Typ>,

@@ -170,7 +170,8 @@ where
         let vn = self.aux.obj_info().typ(*t).with_normalized_p();
         let size = self.aux.obj_info().size(*t);
         let rv = ResidentalValue::new(Value::new(*t, self.machine.device(), vn), *pointer);
-        self.machine.cpu_allocate(size, rv);
+        self.machine
+            .cpu_allocate(AllocMethod::Dynamic(size.into()), rv);
     }
 
     fn deallocate(&mut self, t: &ObjectId, pointer: &P) {

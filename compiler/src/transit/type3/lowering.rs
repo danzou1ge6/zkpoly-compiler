@@ -2,7 +2,6 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::transit::type2;
 
-use super::template::GpuAddr;
 use super::track_splitting::TrackTasks;
 use super::{Track, VertexNode};
 use kernel_gen::GeneratedFunctions;
@@ -14,7 +13,7 @@ use zkpoly_common::typ::Typ;
 use zkpoly_runtime::args::{RuntimeType, VariableId};
 use zkpoly_runtime::devices::{EventId, EventType, EventTypeTable, ThreadId};
 use zkpoly_runtime::functions::FunctionTable;
-use zkpoly_runtime::instructions::{GpuAlloc, Instruction};
+use zkpoly_runtime::instructions::{AllocMethod, Instruction};
 
 mod emit_func;
 mod kernel_gen;
@@ -414,33 +413,27 @@ fn lower_instruction<'s, Rt: RuntimeType>(
                 }
             }
         }
-        super::InstructionNode::GpuMalloc { id, addr, size } => {
+        super::InstructionNode::GpuMalloc { id, addr, .. } => {
             let var_id = reg_id2var_id(*id);
 
             emit(Instruction::Allocate {
                 device: DeviceType::from(t3chunk.register_devices[id]),
                 typ: t3chunk.register_types[*id].erase_p(),
                 id: var_id,
-                gpu_alloc: Some(match addr.clone() {
-                    GpuAddr::Offset(va) => GpuAlloc::Offset(va.get()),
-                    GpuAddr::Paged(pas) => GpuAlloc::PageInfo {
-                        va_size: *size as usize,
-                        pa: pas.into_iter().map(|pa| pa.get()).collect(),
-                    },
-                }),
+                alloc_method: addr.clone(),
             });
         }
         super::InstructionNode::GpuFree { id } => emit(Instruction::Deallocate {
             id: reg_id2var_id(*id),
         }),
-        super::InstructionNode::CpuMalloc { id, .. } => {
+        super::InstructionNode::CpuMalloc { id, addr, .. } => {
             let var_id = reg_id2var_id(*id);
 
             emit(Instruction::Allocate {
                 device: DeviceType::CPU,
                 typ: t3chunk.register_types[*id].erase_p(),
                 id: var_id,
-                gpu_alloc: None,
+                alloc_method: addr.clone(),
             });
         }
         super::InstructionNode::CpuFree { id } => emit(Instruction::Deallocate {
@@ -902,7 +895,7 @@ pub fn lower<'s, Rt: RuntimeType>(
             device: DeviceType::GPU { device_id: 0 },
             typ: Typ::Stream,
             id: var_id,
-            gpu_alloc: None,
+            alloc_method: AllocMethod::default()
         })
     });
 

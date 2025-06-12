@@ -1,6 +1,9 @@
 use std::{collections::BTreeMap, os::raw::c_void};
 
-use zkpoly_cuda_api::{bindings::{cudaFreeHost, cudaMallocHost}, cuda_check};
+use zkpoly_cuda_api::{
+    bindings::{cudaFreeHost, cudaMallocHost},
+    cuda_check,
+};
 
 struct SanityChecker {
     /// A mapping from start to end of allocated ranges.
@@ -42,19 +45,15 @@ impl SanityChecker {
     }
 }
 
-pub struct StaticAllocator {
+pub struct CpuStaticAllocator {
     capacity: usize,
     checker: Option<SanityChecker>,
     base_ptr: *mut u8,
 }
 
-
-
 fn allocate_pinned_memory(capacity: usize) -> *mut u8 {
     let mut ptr: *mut c_void = std::ptr::null_mut();
-    unsafe {
-        cuda_check!(cudaMallocHost(&mut ptr, capacity))
-    };
+    unsafe { cuda_check!(cudaMallocHost(&mut ptr, capacity)) };
 
     ptr as *mut u8
 }
@@ -65,7 +64,7 @@ fn free_pinned_memory(ptr: *mut u8) {
     }
 }
 
-impl StaticAllocator {
+impl CpuStaticAllocator {
     pub fn new(capacity: usize, check: bool) -> Self {
         Self {
             capacity,
@@ -102,7 +101,7 @@ impl StaticAllocator {
     }
 }
 
-impl Drop for StaticAllocator {
+impl Drop for CpuStaticAllocator {
     fn drop(&mut self) {
         free_pinned_memory(self.base_ptr);
     }

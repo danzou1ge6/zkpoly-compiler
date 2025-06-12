@@ -7,13 +7,36 @@ use serde::{Deserialize, Serialize};
 use zkpoly_common::devices::DeviceType;
 use zkpoly_common::typ::Typ;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum GpuAlloc {
-    PageInfo {
-        va_size: usize, // size of the virtual address space
-        pa: Vec<usize>, // ids of the physical pages
+#[derive(Clone, Serialize, Deserialize)]
+pub enum AllocMethod {
+    /// Allocate using page allocator
+    Paged {
+        /// size of the virtual address space
+        va_size: usize,
+        /// ids of the physical pages
+        pa: Vec<usize>,
     },
-    Offset(usize), // offset in the cuda memory pool
+    /// Allocate using offset and size
+    Offset(usize, usize),
+    /// Let the runtime decide the location
+    Dynamic(usize),
+}
+
+impl Default for AllocMethod {
+    fn default() -> Self {
+        Self::Dynamic(0)
+    }
+}
+
+impl std::fmt::Debug for AllocMethod {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use AllocMethod::*;
+        match self {
+            Paged { va_size, pa } => f.debug_tuple("Paged").field(va_size).field(&pa).finish(),
+            Offset(offset, size) => f.debug_tuple("Offset").field(offset).field(size).finish(),
+            Dynamic(size) => f.debug_tuple("Dynamic").field(size).finish(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,7 +45,7 @@ pub enum Instruction {
         device: DeviceType,
         typ: Typ,
         id: VariableId,
-        gpu_alloc: Option<GpuAlloc>, // for gpu allocation
+        alloc_method: AllocMethod,
     },
 
     Deallocate {
@@ -144,10 +167,7 @@ pub fn instruction_label<Rt: RuntimeType>(
 ) -> String {
     use Instruction::*;
     match inst {
-        Allocate { device, gpu_alloc, .. } => gpu_alloc.as_ref().map_or_else(
-            || format!("Allocate({:?})", device),
-            |_| format!("AllocateGpu"),
-        ),
+        Allocate { device, .. } => format!("Allocate({:?})", device),
         Deallocate { .. } => "Deallocate".to_string(),
         RemoveRegister { .. } => "RemoveRegister".to_string(),
         Transfer {
@@ -194,10 +214,9 @@ pub fn instruction_label<Rt: RuntimeType>(
 pub fn static_args(inst: &Instruction) -> Option<String> {
     use Instruction::*;
     match inst {
-        Allocate { typ, gpu_alloc, .. } => Some(gpu_alloc.as_ref().map_or_else(
-            || format!("{:?}", typ),
-            |gpu_alloc| format!("{:?}, {:?}", typ, gpu_alloc),
-        )),
+        Allocate {
+            typ, alloc_method, ..
+        } => Some(format!("{:?}, {:?}", typ, alloc_method)),
         Wait { event, slave, .. } => Some(format!("{:?}, {:?}", event, slave)),
         Record { event, .. } => Some(format!("{:?}", event)),
         Fork { new_thread, .. } => Some(format!("{:?}", new_thread)),

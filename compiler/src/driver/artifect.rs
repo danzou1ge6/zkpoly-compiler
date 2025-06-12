@@ -1,4 +1,4 @@
-use zkpoly_memory_pool::CpuMemoryPool;
+use zkpoly_memory_pool::static_allocator::CpuStaticAllocator;
 use zkpoly_runtime::{
     args::{self, RuntimeType},
     devices::instantizate_event_table,
@@ -30,7 +30,7 @@ impl<Rt: RuntimeType> Artifect<Rt> {
 
     pub fn prepare_dispatcher(
         mut self,
-        cpu_allocator: CpuMemoryPool,
+        cpu_allocator: CpuStaticAllocator,
         gpu_allocator: Vec<zkpoly_cuda_api::mem::CudaAllocator>,
         rng: zkpoly_runtime::async_rng::AsyncRng,
         gpu_offset: i32,
