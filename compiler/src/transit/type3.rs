@@ -18,6 +18,7 @@ pub enum Device {
     Gpu(usize),
     Cpu,
     Stack,
+    Disk
 }
 
 impl Device {
@@ -33,8 +34,9 @@ impl Device {
         use Device::*;
         match self {
             Gpu(..) => Some(Cpu),
-            Cpu => None,
+            Cpu => Some(Disk),
             Stack => None,
+            Disk => None,
         }
     }
 
@@ -52,6 +54,7 @@ pub struct DeviceSpecific<T> {
     pub gpu: Vec<T>,
     pub cpu: T,
     pub stack: T,
+    pub disk: T
 }
 
 impl<T> DeviceSpecific<T> {
@@ -60,6 +63,7 @@ impl<T> DeviceSpecific<T> {
             Device::Gpu(i) => &self.gpu[i],
             Device::Cpu => &self.cpu,
             Device::Stack => &self.stack,
+            Device::Disk => &self.disk,
         }
     }
 
@@ -68,6 +72,7 @@ impl<T> DeviceSpecific<T> {
             Device::Gpu(i) => &mut self.gpu[i],
             Device::Cpu => &mut self.cpu,
             Device::Stack => &mut self.stack,
+            Device::Disk => &mut self.disk,
         }
     }
 
@@ -76,6 +81,7 @@ impl<T> DeviceSpecific<T> {
             gpu: self.gpu.into_iter().map(&mut f).collect(),
             cpu: (&mut f)(self.cpu),
             stack: f(self.stack),
+            disk: f(self.disk),
         }
     }
 
@@ -87,6 +93,7 @@ impl<T> DeviceSpecific<T> {
             gpu: (0..n_gpus).map(|_| Default::default()).collect(),
             cpu: T::default(),
             stack: T::default(),
+            disk: T::default(),
         }
     }
 }
@@ -103,6 +110,7 @@ impl std::ops::Sub<Self> for DeviceSpecific<bool> {
                 .collect(),
             cpu: self.cpu && !rhs.cpu,
             stack: self.stack && !rhs.stack,
+            disk: self.disk &&!rhs.disk,
         }
     }
 }
@@ -114,8 +122,6 @@ pub mod template {
     use zkpoly_runtime::instructions::AllocMethod;
 
     use crate::{ast::PolyInit, transit::type2};
-
-    use type2::object_analysis::size::Size;
 
     #[derive(Debug, Clone)]
     pub enum InstructionNode<I, V> {
@@ -289,6 +295,8 @@ pub enum Track {
     ToGpu,
     FromGpu,
     GpuMemory(usize),
+    ToDisk,
+    FromDisk
 }
 
 impl Track {
@@ -310,6 +318,8 @@ pub struct TrackSpecific<T> {
     pub(crate) to_gpu: T,
     pub(crate) from_gpu: T,
     pub(crate) gpu_memory: Vec<T>,
+    pub(crate) to_disk: T,
+    pub(crate) from_disk: T,
 }
 
 impl<T> TrackSpecific<T> {
@@ -325,6 +335,8 @@ impl<T> TrackSpecific<T> {
             to_gpu: T::default(),
             from_gpu: T::default(),
             gpu_memory: (0..n_gpus).map(|_| T::default()).collect(),
+            to_disk: T::default(),
+            from_disk: T::default(),
         }
     }
 
@@ -338,6 +350,8 @@ impl<T> TrackSpecific<T> {
             ToGpu => &self.to_gpu,
             FromGpu => &self.from_gpu,
             GpuMemory(i) => &self.gpu_memory[i],
+            ToDisk => &self.to_disk,
+            FromDisk => &self.from_disk,
         }
     }
 
@@ -351,6 +365,8 @@ impl<T> TrackSpecific<T> {
             ToGpu => &mut self.to_gpu,
             FromGpu => &mut self.from_gpu,
             GpuMemory(i) => &mut self.gpu_memory[i],
+            ToDisk => &mut self.to_disk,
+            FromDisk => &mut self.from_disk,
         }
     }
 
@@ -362,6 +378,8 @@ impl<T> TrackSpecific<T> {
             (Cpu, &self.cpu),
             (ToGpu, &self.to_gpu),
             (FromGpu, &self.from_gpu),
+            (ToDisk, &self.to_disk),
+            (FromDisk, &self.from_disk),
         ]
         .into_iter()
         .chain((0..n_gpus).map(|i| (Gpu(i), &self.gpu[i])))
@@ -380,6 +398,8 @@ impl<T> TrackSpecific<T> {
             to_gpu: t.clone(),
             from_gpu: t.clone(),
             gpu_memory: vec![t.clone(); n_gpus],
+            to_disk: t.clone(),
+            from_disk: t.clone(),
         }
     }
 }
@@ -407,6 +427,8 @@ fn determine_transfer_track(from: Device, to: Device) -> Track {
         (Stack, Gpu(..)) => Track::ToGpu,
         (Stack, Cpu) => panic!("Stack cannot transfer to Cpu"),
         (Stack, Stack) => Track::Cpu,
+        (_, Disk) => Track::ToDisk,
+        (Disk, _) => Track::FromDisk
     }
 }
 
@@ -418,6 +440,7 @@ impl<'s> Instruction<'s> {
         let executor_of = |md| match md {
             Device::Cpu | Device::Stack => type2::Device::Cpu,
             Device::Gpu(i) => type2::Device::Gpu(i),
+            Device::Disk => panic!("nothing should be executed on Disk")
         };
 
         match &self.node {

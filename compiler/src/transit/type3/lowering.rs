@@ -162,6 +162,7 @@ impl From<super::Device> for DeviceType {
                 device_id: i as i32,
             },
             super::Device::Stack => DeviceType::CPU,
+            super::Device::Disk => DeviceType::Disk,
         }
     }
 }
@@ -171,6 +172,8 @@ pub enum PrimaryThread {
     MemoryManagement,
     Gpu,
     Cpu,
+    ToDisk,
+    FromDisk,
 }
 
 impl PrimaryThread {
@@ -184,6 +187,8 @@ pub struct ThreadSpecific<T> {
     memory_management: T,
     gpu: T,
     cpu: T,
+    to_disk: T,
+    from_disk: T,
 }
 
 impl<T> ThreadSpecific<T> {
@@ -192,6 +197,8 @@ impl<T> ThreadSpecific<T> {
             PrimaryThread::MemoryManagement => &self.memory_management,
             PrimaryThread::Gpu => &self.gpu,
             PrimaryThread::Cpu => &self.cpu,
+            PrimaryThread::FromDisk => &self.from_disk,
+            PrimaryThread::ToDisk => &self.to_disk,
         }
     }
 
@@ -200,6 +207,8 @@ impl<T> ThreadSpecific<T> {
             PrimaryThread::MemoryManagement => &mut self.memory_management,
             PrimaryThread::Gpu => &mut self.gpu,
             PrimaryThread::Cpu => &mut self.cpu,
+            PrimaryThread::FromDisk => &mut self.from_disk,
+            PrimaryThread::ToDisk => &mut self.to_disk,
         }
     }
 
@@ -217,6 +226,8 @@ impl<T> ThreadSpecific<T> {
             memory_management: f(),
             gpu: f(),
             cpu: f(),
+            to_disk: f(),
+            from_disk: f(),
         }
     }
 }
@@ -289,6 +300,8 @@ impl PrimaryThread {
             Track::FromGpu => PrimaryThread::MemoryManagement,
             Track::GpuMemory(_) => PrimaryThread::MemoryManagement,
             Track::Cpu => PrimaryThread::Cpu,
+            Track::FromDisk => PrimaryThread::FromDisk,
+            Track::ToDisk => PrimaryThread::ToDisk,
         }
     }
 }
@@ -895,7 +908,7 @@ pub fn lower<'s, Rt: RuntimeType>(
             device: DeviceType::GPU { device_id: 0 },
             typ: Typ::Stream,
             id: var_id,
-            alloc_method: AllocMethod::default()
+            alloc_method: AllocMethod::default(),
         })
     });
 
