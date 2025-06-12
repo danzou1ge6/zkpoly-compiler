@@ -1,6 +1,6 @@
-use std::{collections::BTreeMap, ffi::{CStr, OsStr}, os::raw::c_void};
+use std::{collections::BTreeMap, os::raw::c_void};
 
-use zkpoly_cuda_api::{bindings::{cudaError_cudaSuccess, cudaFreeHost, cudaGetErrorString, cudaMallocHost}, cuda_check};
+use zkpoly_cuda_api::{bindings::{cudaFreeHost, cudaMallocHost}, cuda_check};
 
 struct SanityChecker {
     /// A mapping from start to end of allocated ranges.

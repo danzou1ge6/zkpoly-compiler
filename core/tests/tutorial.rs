@@ -3,11 +3,7 @@ use common::*;
 use group::ff::Field;
 use zkpoly_common::load_dynamic::Libs;
 use zkpoly_core::tutorial::SimpleFunc;
-use zkpoly_runtime::{
-    args::Variable,
-    functions::{FunctionValue, RegisteredFunction},
-    scalar::Scalar,
-};
+use zkpoly_runtime::{args::Variable, functions::RegisteredFunction, scalar::Scalar};
 
 #[test]
 fn test_simple_func() {
@@ -19,10 +15,7 @@ fn test_simple_func() {
     let mut b = Variable::Scalar(Scalar::new_cpu());
     let mut c = Variable::Scalar(Scalar::new_cpu());
 
-    let f = match f.f {
-        FunctionValue::Fn(f) => f,
-        _ => unreachable!(),
-    };
+    let f = f.f;
 
     for _ in 0..100 {
         let a_in = MyField::random(rand_core::OsRng);

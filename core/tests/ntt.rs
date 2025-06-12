@@ -27,7 +27,7 @@ fn test_ssip_ntt() {
     let precompute = SsipPrecompute::<MyRuntimeType>::new(&mut libs);
     let ntt_fn = match ntt.get_fn() {
         Function {
-            f: FunctionValue::Fn(func),
+            f: func,
             ..
         } => func,
         _ => panic!("expected Fn"),
@@ -138,7 +138,7 @@ fn test_recompute_ntt() {
     let precompute = GenPqOmegas::<MyRuntimeType>::new(&mut libs);
     let ntt_fn = match ntt.get_fn() {
         Function {
-            f: FunctionValue::Fn(func),
+            f: func,
             ..
         } => func,
         _ => panic!("expected Fn"),
@@ -238,14 +238,14 @@ fn test_distribute_zeta() {
     let distribute = DistributePowers::<MyRuntimeType>::new(&mut libs);
     let ntt_fn = match ntt.get_fn() {
         Function {
-            f: FunctionValue::Fn(func),
+            f: func,
             ..
         } => func,
         _ => panic!("expected Fn"),
     };
     let zeta_fn = match distribute.get_fn() {
         Function {
-            f: FunctionValue::Fn(func),
+            f: func,
             ..
         } => func,
         _ => panic!("expected Fn"),

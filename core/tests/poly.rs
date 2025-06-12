@@ -33,7 +33,7 @@ fn test_binary(
     let func = poly_add.get_fn();
     let f = match func {
         Function {
-            f: FunctionValue::Fn(func),
+            f: func,
             ..
         } => func,
         _ => panic!("expected Fn"),
@@ -125,7 +125,7 @@ fn test_eval() {
     let poly_eval = PolyEval::<MyRuntimeType>::new(&mut libs);
     let func = match poly_eval.get_fn() {
         Function {
-            f: FunctionValue::Fn(func),
+            f: func,
             ..
         } => func,
         _ => unreachable!(),
@@ -189,7 +189,7 @@ fn test_kate() {
     let kate = KateDivision::<MyRuntimeType>::new(&mut libs);
     let func = match kate.get_fn() {
         Function {
-            f: FunctionValue::Fn(func),
+            f: func,
             ..
         } => func,
         _ => unreachable!(),
@@ -259,7 +259,7 @@ fn test_zero_one() {
     let zero = PolyZero::<MyRuntimeType>::new(&mut libs);
     let func = match zero.get_fn() {
         Function {
-            f: FunctionValue::Fn(func),
+            f: func,
             ..
         } => func,
         _ => unreachable!(),
@@ -299,7 +299,7 @@ fn test_zero_one() {
     let one = PolyOneLagrange::<MyRuntimeType>::new(&mut libs);
     let func = match one.get_fn() {
         Function {
-            f: FunctionValue::Fn(func),
+            f: func,
             ..
         } => func,
         _ => unreachable!(),
@@ -326,7 +326,7 @@ fn test_zero_one() {
     let one_coef = PolyOneCoef::<MyRuntimeType>::new(&mut libs);
     let func = match one_coef.get_fn() {
         Function {
-            f: FunctionValue::Fn(func),
+            f: func,
             ..
         } => func,
         _ => unreachable!(),
@@ -363,7 +363,7 @@ fn test_scan() {
     let scan = PolyScan::<MyRuntimeType>::new(&mut libs);
     let func = match scan.get_fn() {
         Function {
-            f: FunctionValue::Fn(func),
+            f: func,
             ..
         } => func,
         _ => unreachable!(),
@@ -401,8 +401,8 @@ fn test_scan() {
     poly.cpu2gpu(poly_d.unwrap_scalar_array_mut(), stream.unwrap_stream());
     x0.cpu2gpu(x0_d.unwrap_scalar_mut(), stream.unwrap_stream());
     // add timer
-    let start = CudaEvent::new();
-    let end = CudaEvent::new();
+    let start = CudaEvent::new(0);
+    let end = CudaEvent::new(0);
     stream.unwrap_stream().record(&start);
     func(
         vec![&mut temp_buf, &mut res_d],
@@ -441,7 +441,7 @@ fn test_invert() {
     let invert = PolyInvert::<MyRuntimeType>::new(&mut libs);
     let func = match invert.get_fn() {
         Function {
-            f: FunctionValue::Fn(func),
+            f: func,
             ..
         } => func,
         _ => unreachable!(),
@@ -497,7 +497,7 @@ fn test_invert_scalar() {
     let invert = ScalarInv::<MyRuntimeType>::new(&mut libs);
     let f = match invert.get_fn() {
         Function {
-            f: FunctionValue::Fn(func),
+            f: func,
             ..
         } => func,
         _ => panic!(),
@@ -549,7 +549,7 @@ fn test_pow_scalar() {
     let pow = ScalarPow::<MyRuntimeType>::new(&mut libs, exp_u64);
     let f = match pow.get_fn() {
         Function {
-            f: FunctionValue::Fn(func),
+            f: func,
             ..
         } => func,
         _ => panic!(),
@@ -608,7 +608,7 @@ fn test_poly_permute() {
     let poly_permute = PolyPermute::<MyRuntimeType>::new(&mut libs);
     let func = match poly_permute.get_fn() {
         Function {
-            f: FunctionValue::Fn(func),
+            f: func,
             ..
         } => func,
         _ => unreachable!(),

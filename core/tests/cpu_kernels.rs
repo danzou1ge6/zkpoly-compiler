@@ -22,7 +22,7 @@ fn test_interpolate() {
     let func = inter.get_fn();
     let f = match func {
         Function {
-            f: FunctionValue::Fn(func),
+            f: func,
             ..
         } => func,
         _ => panic!("expected Fn"),

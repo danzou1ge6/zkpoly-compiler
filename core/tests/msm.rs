@@ -132,7 +132,7 @@ fn test_msm() {
 
         let msm_fn = match msm.get_fn() {
             Function {
-                f: FunctionValue::Fn(func),
+                f: func,
                 ..
             } => func,
             _ => panic!("expected Fn"),
