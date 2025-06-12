@@ -426,30 +426,17 @@ fn lower_instruction<'s, Rt: RuntimeType>(
                 }
             }
         }
-        super::InstructionNode::GpuMalloc { id, addr, .. } => {
+        super::InstructionNode::Malloc { id, addr, device  } => {
             let var_id = reg_id2var_id(*id);
 
             emit(Instruction::Allocate {
-                device: DeviceType::from(t3chunk.register_devices[id]),
+                device: DeviceType::from(device.clone()),
                 typ: t3chunk.register_types[*id].erase_p(),
                 id: var_id,
                 alloc_method: addr.clone(),
             });
         }
-        super::InstructionNode::GpuFree { id } => emit(Instruction::Deallocate {
-            id: reg_id2var_id(*id),
-        }),
-        super::InstructionNode::CpuMalloc { id, addr, .. } => {
-            let var_id = reg_id2var_id(*id);
-
-            emit(Instruction::Allocate {
-                device: DeviceType::CPU,
-                typ: t3chunk.register_types[*id].erase_p(),
-                id: var_id,
-                alloc_method: addr.clone(),
-            });
-        }
-        super::InstructionNode::CpuFree { id } => emit(Instruction::Deallocate {
+        super::InstructionNode::Free { id, .. } => emit(Instruction::Deallocate {
             id: reg_id2var_id(*id),
         }),
         super::InstructionNode::Transfer { id, from } => emit(Instruction::Transfer {

@@ -1,7 +1,7 @@
 use crate::transit::type2::memory_planning::prelude::*;
 use planning::machine::*;
 
-pub struct SuperAllocator<'f, P, D: DeviceMarker> {
+pub struct SuperAllocator<'f, P, Rt: RuntimeType, D: DeviceMarker> {
     mapping: BTreeMap<ObjectId, (P, Size)>,
     peak_memory_usage: u64,
     current_memory_usage: u64,
@@ -9,10 +9,10 @@ pub struct SuperAllocator<'f, P, D: DeviceMarker> {
     /// If `physical` is false, then this allocator will not instruct machine for allocation or deallocation.
     /// That is used in case when the underlying device is unplanned.
     physical: bool,
-    _phantom: PhantomData<(&'f u32, D)>,
+    _phantom: PhantomData<(&'f u32, D, Rt)>,
 }
 
-impl<'f, P, D: DeviceMarker> SuperAllocator<'f, P, D> {
+impl<'f, P, Rt: RuntimeType, D: DeviceMarker> SuperAllocator<'f, P, Rt, D> {
     pub fn for_unplanned() -> Self {
         Self {
             mapping: BTreeMap::new(),
@@ -24,10 +24,10 @@ impl<'f, P, D: DeviceMarker> SuperAllocator<'f, P, D> {
         }
     }
 
-    pub fn new(p_allocator: IdAllocator<P>) -> Self {
+    pub fn new() -> Self {
         Self {
             mapping: BTreeMap::new(),
-            p_allocator,
+            p_allocator: IdAllocator::new(),
             peak_memory_usage: 0,
             current_memory_usage: 0,
             physical: true,
@@ -49,13 +49,13 @@ impl<'f, P, D: DeviceMarker> SuperAllocator<'f, P, D> {
     }
 }
 
-pub struct Handle<'s, 'a, 'm, P, D: DeviceMarker> {
-    allocator: &'a mut SuperAllocator<'s, P, D>,
+pub struct Handle<'s, 'a, 'm, P, Rt: RuntimeType, D: DeviceMarker> {
+    allocator: &'a mut SuperAllocator<'s, P, Rt, D>,
     machine: MachineHandle<'m, 's, ObjectId, P>,
 }
 
 impl<'s, 'a, 'm, P, Rt: RuntimeType, D: DeviceMarker> AllocatorHandle<'s, ObjectId, P, Rt>
-    for Handle<'s, 'a, 'm, P, D>
+    for Handle<'s, 'a, 'm, P, Rt, D>
 where
     P: UsizeId + 'static,
 {
@@ -156,7 +156,7 @@ where
 }
 
 pub struct Realizer<'a, 'm, 's, 'au, 'i, P, Rt: RuntimeType, D: DeviceMarker> {
-    _allocator: &'a mut SuperAllocator<'s, P, D>,
+    _allocator: &'a mut SuperAllocator<'s, P, Rt, D>,
     machine: realization::MachineHandle<'m, 's, P>,
     aux: &'au AuxiliaryInfo<'i, Rt>,
 }
@@ -170,14 +170,13 @@ where
         let vn = self.aux.obj_info().typ(*t).with_normalized_p();
         let size = self.aux.obj_info().size(*t);
         let rv = ResidentalValue::new(Value::new(*t, self.machine.device(), vn), *pointer);
-        self.machine
-            .cpu_allocate(AllocMethod::Dynamic(size.into()), rv);
+        self.machine.allocate(AllocMethod::Dynamic(size.into()), rv);
     }
 
     fn deallocate(&mut self, t: &ObjectId, pointer: &P) {
         let vn = self.aux.obj_info().typ(*t).with_normalized_p();
         let rv = ResidentalValue::new(Value::new(*t, self.machine.device(), vn), *pointer);
-        self.machine.cpu_deallocate(&rv);
+        self.machine.deallocate(&rv);
     }
 
     fn transfer(
@@ -197,7 +196,8 @@ where
     }
 }
 
-impl<'s, P, Rt: RuntimeType> Allocator<'s, ObjectId, P, Rt> for SuperAllocator<'s, P, Cpu>
+impl<'s, P, Rt: RuntimeType, D: DeviceMarker> Allocator<'s, ObjectId, P, Rt>
+    for SuperAllocator<'s, P, Rt, D>
 where
     P: UsizeId + 'static,
 {

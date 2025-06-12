@@ -15,10 +15,13 @@ use crate::transit::{
 };
 use value::{Value, VertexOutput};
 use zkpoly_common::{
-    arith::Mutability, bijection::Bijection, digraph::internal::SubDigraph, heap::IdAllocator,
+    arith::Mutability,
+    bijection::Bijection,
+    digraph::internal::SubDigraph,
+    heap::{Heap, IdAllocator},
     typ::Slice,
 };
-use zkpoly_runtime::args::RuntimeType;
+use zkpoly_runtime::args::{ConstantId, RuntimeType};
 
 type VertexInput = value::VertexInput<Value>;
 
@@ -60,8 +63,19 @@ pub struct DefUse {
 }
 
 /// Determine where outputs and inputs of a vertex are, based on where it is executed.
-pub fn decide_device(executed_on: type2::Device) -> Device {
-    match executed_on {
+fn decide_device<'s, Rt: RuntimeType>(
+    v: &type2::Vertex<'s, Rt>,
+    execution_device: type2::Device,
+    constants_device: &Heap<ConstantId, Device>,
+) -> Device {
+    match v.node() {
+        type2::VertexNode::Constant(cid) => constants_device[*cid],
+        _ => decide_device_for_non_constant(execution_device),
+    }
+}
+
+pub fn decide_device_for_non_constant(execution_device: type2::Device) -> Device {
+    match execution_device {
         type2::Device::Cpu => Device::Cpu,
         type2::Device::Gpu(i) => Device::Gpu(i),
     }
@@ -288,7 +302,7 @@ fn vertex_output_of<'s, Rt: RuntimeType>(
     value: &BTreeMap<VertexId, VertexOutput>,
     cloned_slices: &mut ClonedSliceRegistry,
     object_id_allocator: &mut IdAllocator<ObjectId>,
-    cpu_immortal_objects: &mut BTreeSet<ObjectId>,
+    immortal_objects: &mut BTreeSet<ObjectId>,
     def_at: &mut BTreeMap<ObjectId, VertexId>,
     def_on: &mut BTreeMap<ObjectId, Device>,
 ) -> VertexOutput {
@@ -399,8 +413,8 @@ fn vertex_output_of<'s, Rt: RuntimeType>(
                 def_at.insert(object_id, vid);
                 def_on.insert(object_id, memory_device);
 
-                if v.node().immortal_on_cpu() {
-                    cpu_immortal_objects.insert(object_id);
+                if v.node().immortal() {
+                    immortal_objects.insert(object_id);
                 }
             }
 
@@ -440,7 +454,7 @@ impl ClonedSliceRegistry {
 pub enum Die {
     After(VertexId),
     NeverUsed,
-    Never
+    Never,
 }
 
 impl Die {
@@ -461,6 +475,7 @@ impl DefUse {
         _return_vid: VertexId,
         execution_device: impl Fn(VertexId) -> type2::Device,
         hd_info: &HardwareInfo,
+        constants_device: &Heap<ConstantId, Device>
     ) -> (Self, IdAllocator<ObjectId>) {
         let mut object_id_allocator = IdAllocator::new();
 
@@ -483,7 +498,7 @@ impl DefUse {
 
             let v = g.vertex(vid);
             let execution_device = execution_device(vid);
-            let memory_device = decide_device(execution_device);
+            let memory_device = decide_device(v, execution_device, constants_device);
 
             // Invariant: `used_on` records all uses before this vertex
 
@@ -613,5 +628,9 @@ impl DefUse {
 
     pub fn immortal_objects(&self) -> &BTreeSet<ObjectId> {
         &self.immortal_objects
+    }
+
+    pub fn def_on(&self, object_id: ObjectId) -> Device {
+        self.def_on[&object_id]
     }
 }

@@ -1,7 +1,9 @@
 use std::io::{Read, Write};
 use zkpoly_common::load_dynamic::Libs;
-use zkpoly_memory_pool::CpuMemoryPool;
-use zkpoly_runtime::args::{self, RuntimeType};
+use zkpoly_memory_pool::{buddy_disk_pool::DiskMemoryPool, CpuMemoryPool};
+use zkpoly_runtime::args::{
+    self, move_constant_table, regularize_cosntant_table_device, RuntimeType,
+};
 
 use super::{
     artifect::Artifect, ast, check_type2_dag, debug_partial_typed_type2, debug_type2,
@@ -246,6 +248,7 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
     pub fn load_artifect(
         mut self,
         dir: impl AsRef<std::path::Path>,
+        disk_allocator: &mut DiskMemoryPool,
     ) -> std::io::Result<(Artifect<Rt>, CpuMemoryPool)> {
         let mut chunk_f = std::fs::File::open(dir.as_ref().join("chunk.json"))?;
         let rt_chunk_deserializer: type3::lowering::serialization::ChunkDeserializer =
@@ -259,10 +262,16 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
         let mut allocator = self.prog.memory_pool;
         ct_header.load_constant_table(&mut self.prog.consant_table, &mut ct_f, &mut allocator)?;
 
+        let constant_table = regularize_cosntant_table_device(
+            self.prog.consant_table,
+            &mut allocator,
+            disk_allocator,
+        );
+
         Ok((
             Artifect {
                 chunk: rt_chunk,
-                constant_table: self.prog.consant_table,
+                constant_table,
             },
             allocator,
         ))
@@ -300,11 +309,12 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
         self,
         options: &DebugOptions,
         hardware_info: &HardwareInfo,
+        disk_allocator: &mut DiskMemoryPool,
         ctx: &PanicJoinHandler,
     ) -> Result<(Artifect<Rt>, CpuMemoryPool), Error<'s, Rt>> {
         self.apply_passes(options, hardware_info, ctx)?
             .to_type3(options, hardware_info, ctx)?
             .apply_passes(options)?
-            .to_artifect(options, hardware_info, ctx)
+            .to_artifect(options, hardware_info, disk_allocator, ctx)
     }
 }

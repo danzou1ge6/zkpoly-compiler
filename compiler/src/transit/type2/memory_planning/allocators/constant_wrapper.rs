@@ -184,8 +184,8 @@ where
     }
 }
 
-impl<'s, P, A, Rt: RuntimeType> Allocator<'s, ObjectId, P, Rt>
-    for Wrapper<'s, A, ObjectId, P, Rt, Cpu>
+impl<'s, P, A, Rt: RuntimeType, D: DeviceMarker> Allocator<'s, ObjectId, P, Rt>
+    for Wrapper<'s, A, ObjectId, P, Rt, D>
 where
     A: Allocator<'s, ObjectId, P, Rt>,
     P: UsizeId + 'static,

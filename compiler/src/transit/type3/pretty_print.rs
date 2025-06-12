@@ -6,6 +6,7 @@ use zkpoly_runtime::args::RuntimeType;
 
 pub fn prettify<'s, Rt: RuntimeType>(
     chunk: &Chunk<'s, Rt>,
+    execution_devices: impl Fn(type2::VertexId) -> type2::Device,
     writer: &mut impl Write,
 ) -> std::io::Result<()> {
     let head = r#"
@@ -26,7 +27,7 @@ pub fn prettify<'s, Rt: RuntimeType>(
 
     chunk
         .iter_instructions()
-        .map(|(idx, inst)| prettify_inst(chunk, idx, inst, writer))
+        .map(|(idx, inst)| prettify_inst(chunk, idx, inst, &execution_devices, writer))
         .collect::<Result<Vec<_>, _>>()?;
 
     let tail = r#"
@@ -93,6 +94,7 @@ fn prettify_inst<'s, Rt: RuntimeType>(
     chunk: &Chunk<'s, Rt>,
     idx: InstructionIndex,
     inst: &Instruction<'s>,
+    execution_devices: impl Fn(type2::VertexId) -> type2::Device,
     writer: &mut impl Write,
 ) -> std::io::Result<()> {
     let def_rows: Vec<_> = inst
@@ -153,7 +155,7 @@ fn prettify_inst<'s, Rt: RuntimeType>(
         .collect::<Vec<_>>()
         .join(", ");
     let src_info = format_src_info(inst);
-    let track = inst.track(|r| chunk.register_devices[&r]);
+    let track = inst.track(execution_devices, |r| chunk.register_devices[&r]);
 
     writeln!(writer, "  <td>{}</td>", label)?;
     writeln!(writer, "  <td>{:?}</td>", track)?;
@@ -196,12 +198,10 @@ fn format_inst_label<'s, Rt: RuntimeType>(
             usize::from(*vid),
             type2::pretty_print::format_node_label(vertex)
         ),
-        GpuMalloc { addr, .. } => {
-            format!("GpuMalloc({:?})", addr)
+        Malloc { addr, .. } => {
+            format!("Malloc({:?})", addr)
         }
-        GpuFree { .. } => "GpuFree".to_string(),
-        CpuMalloc { .. } => "CpuMalloc".to_string(),
-        CpuFree { .. } => "CpuFree".to_string(),
+        Free { .. } => "Free".to_string(),
         StackFree { .. } => "StackFree".to_string(),
         Tuple { .. } => "Tuple".to_string(),
         Transfer { .. } => "Transfer".to_string(),
@@ -222,10 +222,8 @@ fn format_labeled_uses<'s>(inst: &Instruction<'s>) -> Vec<(RegisterId, String)> 
                     .map(|(i, t)| (*t, format!("temp{}", i))),
             )
             .collect(),
-        GpuMalloc { .. } => vec![],
-        GpuFree { id } => vec![(*id, "".to_string())],
-        CpuMalloc { .. } => vec![],
-        CpuFree { id } => vec![(*id, "".to_string())],
+        Malloc { .. } => vec![],
+        Free { id, .. } => vec![(*id, "".to_string())],
         StackFree { id } => vec![(*id, "".to_string())],
         Tuple { oprands, .. } => oprands
             .iter()

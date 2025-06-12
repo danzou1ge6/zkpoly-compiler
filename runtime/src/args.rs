@@ -6,9 +6,12 @@ use crate::transcript::{EncodedChallenge, TranscriptObject, TranscriptWrite};
 use group::ff::PrimeField;
 use halo2curves::CurveAffine;
 use std::fmt::Debug;
+use zkpoly_common::devices::DeviceType;
 use zkpoly_common::heap;
 use zkpoly_common::typ::Typ;
 use zkpoly_cuda_api::stream::CudaStream;
+use zkpoly_memory_pool::buddy_disk_pool::DiskMemoryPool;
+use zkpoly_memory_pool::{BuddyDiskPool, CpuMemoryPool};
 
 zkpoly_common::define_usize_id!(VariableId);
 zkpoly_common::define_usize_id!(ConstantId);
@@ -20,6 +23,52 @@ pub type EntryTable<T> = heap::Heap<EntryId, Variable<T>>;
 
 pub fn new_variable_table<T: RuntimeType>(len: usize) -> VariableTable<T> {
     heap::Heap::repeat_with(|| (None), len)
+}
+
+/// Since constructed during AST generation, all constants are on CPU,
+/// now we need move them to where they are assumed to be on during memory planning.
+pub fn move_constant_table<T: RuntimeType>(
+    table: ConstantTable<T>,
+    on_device: &heap::Heap<ConstantId, DeviceType>,
+    cpu_allocator: &mut CpuMemoryPool,
+    disk_allocator: &mut DiskMemoryPool,
+) -> ConstantTable<T> {
+    table.map(&mut |i, c| {
+        if c.device != DeviceType::CPU {
+            panic!("expected all newly constructed constants to be on CPU");
+        }
+
+        if c.device == on_device[i] {
+            c
+        } else {
+            if on_device[i] != DeviceType::Disk {
+                panic!("can only move constant to Disk");
+            }
+
+            todo!("move constant to disk and set c.device")
+        }
+    })
+}
+
+/// After loading constant table from disk, all constants actually are on CPU,
+/// but some constants' device field may be Disk,
+/// so we need to correct this.
+pub fn regularize_cosntant_table_device<T: RuntimeType>(
+    table: ConstantTable<T>,
+    cpu_allocator: &mut CpuMemoryPool,
+    disk_allocator: &mut DiskMemoryPool
+) -> ConstantTable<T> {
+    table.map(&mut |_, c| {
+        if c.device != DeviceType::CPU {
+            panic!("expected all newly constructed constants to be on CPU");
+        }
+
+        if c.device != DeviceType::Disk {
+            panic!("can only move constant to Disk");
+        }
+
+        todo!("move constant to disk")
+    })
 }
 
 pub fn add_entry<T: RuntimeType>(t: &mut EntryTable<T>, var: Variable<T>) {
@@ -164,14 +213,20 @@ impl<T: RuntimeType> Variable<T> {
 
 #[derive(Debug, Clone)]
 pub struct Constant<T: RuntimeType> {
+    pub device: DeviceType,
     pub name: Option<String>,
     pub value: Variable<T>,
     pub typ: Typ,
 }
 
 impl<Rt: RuntimeType> Constant<Rt> {
-    pub fn new(value: Variable<Rt>, name: Option<String>, typ: zkpoly_common::typ::Typ) -> Self {
-        Self { name, value, typ }
+    pub fn on_cpu(value: Variable<Rt>, name: Option<String>, typ: zkpoly_common::typ::Typ) -> Self {
+        Self {
+            name,
+            value,
+            typ,
+            device: DeviceType::CPU,
+        }
     }
 }
 

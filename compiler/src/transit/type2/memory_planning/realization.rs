@@ -101,7 +101,7 @@ where
                                 machine.new_reg(rv.clone().assume_pointed()),
                                 Some(inplace_reg)
                             )
-                        } else if node.immortal_on_cpu() {
+                        } else if node.immortal() {
                             (
                                 machine.new_reg(rv.clone().assume_pointed()),
                                 None

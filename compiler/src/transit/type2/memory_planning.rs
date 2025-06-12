@@ -15,10 +15,7 @@ mod prelude {
         typ::Slice,
     };
 
-    pub(super) use zkpoly_runtime::{
-        args::RuntimeType,
-        instructions::AllocMethod
-    };
+    pub(super) use zkpoly_runtime::{args::RuntimeType, instructions::AllocMethod};
 
     pub(super) use crate::driver::HardwareInfo;
     pub(super) use crate::transit::{
@@ -39,7 +36,7 @@ mod prelude {
         address::Addr,
         allocator::{
             self, Allocator, AllocatorCollection, AllocatorHandle, AllocatorRealizer, Completeness,
-            Cpu, DeviceMarker, Gpu,
+            Cpu, DeviceMarker, Disk, Gpu,
         },
         allocators,
         auxiliary::AuxiliaryInfo,
@@ -88,20 +85,12 @@ pub fn plan<'s, Rt: RuntimeType>(
     cg: &type2::Cg<'s, Rt>,
     g: &SubDigraph<type2::VertexId, type2::Vertex<'s, Rt>>,
     seq: &[VertexId],
+    def_use: &object_analysis::cg_def_use::DefUse,
+    mut obj_id_allocator: IdAllocator<ObjectId>,
     execution_device: impl Fn(VertexId) -> type2::Device,
-    uf_table: &type2::user_function::Table<Rt>,
     hd_info: &driver::HardwareInfo,
     mut libs: Libs,
 ) -> Result<type3::Chunk<'s, Rt>, Error<'s>> {
-    let (def_use, mut obj_id_allocator) = object_analysis::cg_def_use::DefUse::analyze(
-        g,
-        uf_table,
-        seq,
-        cg.output,
-        &execution_device,
-        hd_info,
-    );
-
     let ops: OperationSeq<'_, ObjectId, Pointer> = OperationSeq::construct(
         cg,
         g,
@@ -134,21 +123,50 @@ pub fn plan<'s, Rt: RuntimeType>(
         })
         .collect();
 
-    let mut p_allocator = IdAllocator::new();
-    let constant_objects = def_use
+    let mut cpu_allocator: SmithereenWrapper<
+        '_,
+        SlabAllocator<'_, Pointer, Rt, Cpu>,
+        Pointer,
+        Rt,
+        Cpu,
+    > = SmithereenWrapper::new(
+        SlabAllocator::new(
+            hd_info.cpu().memory_limit() - hd_info.cpu().smithereen_space(),
+            hd_info.cpu().smithereen_space(),
+            lbss.clone(),
+        ),
+        hd_info.cpu().smithereen_space(),
+        0,
+    );
+    let mut disk_allocator = SuperAllocator::<Pointer, Rt, Disk>::new();
+
+    let cpu_constant_objects = def_use
         .immortal_objects()
         .iter()
         .copied()
-        .map(|obj| (obj, p_allocator.alloc()))
+        .filter(|obj| def_use.def_on(*obj) == Device::Cpu)
+        .map(|obj| (obj, cpu_allocator.allcate_pointer()))
         .collect::<Vec<_>>();
-    let cpu_allocator = SuperAllocator::<Pointer, Cpu>::new(p_allocator);
+    let disk_constant_objects = def_use
+        .immortal_objects()
+        .iter()
+        .copied()
+        .filter(|obj| def_use.def_on(*obj) == Device::Disk)
+        .map(|obj| (obj, disk_allocator.allcate_pointer()))
+        .collect::<Vec<_>>();
+
     let mut cpu_allocator =
-        ConstantWrapper::<_, _, _, _, Cpu>::new(cpu_allocator, constant_objects.into_iter());
+        ConstantWrapper::<_, _, _, Rt, Cpu>::new(cpu_allocator, cpu_constant_objects.into_iter());
+    let mut disk_allocator = ConstantWrapper::<_, _, _, Rt, Disk>::new(
+        disk_allocator,
+        disk_constant_objects.into_iter(),
+    );
 
     let ops = planning::transform_ops(
         ops,
         &mut gpu_allocators,
         &mut cpu_allocator,
+        &mut disk_allocator,
         &obj_info,
         hd_info,
     )?;
@@ -172,8 +190,8 @@ pub fn plan<'s, Rt: RuntimeType>(
 
     // fixme
     println!(
-        "CPU peak memory usage is {}",
-        cpu_allocator.unwrap().peak_memory_usage()
+        "Disk peak memory usage is {}",
+        disk_allocator.unwrap().peak_memory_usage()
     );
 
     Ok(chunk)

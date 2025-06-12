@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use zkpoly_common::{
     arith::{Arith, BinOp, UnrOp},
+    devices::DeviceType,
     digraph::internal::Digraph,
     heap::Heap,
     typ::PolyType,
@@ -118,6 +119,12 @@ pub type UserFunctionTable<Rt: RuntimeType> = Heap<UserFunctionId, Function<Rt>>
 mod type_inferer;
 pub use type_inferer::{Error, ErrorNode};
 
+pub fn constant_size<Rt: RuntimeType>(tab: &ConstantTable<Rt>) -> u64 {
+    tab.iter()
+        .map(|constant| constant.typ.size::<Rt::Field, Rt::PointAffine>() as u64)
+        .sum()
+}
+
 pub struct Cg<'s, Rt: RuntimeType> {
     pub(crate) g: Digraph<VertexId, Vertex<'s, Rt>>,
     pub(crate) mapping: BTreeMap<*const u8, VertexId>,
@@ -150,7 +157,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
         name: Option<String>,
         typ: zkpoly_common::typ::Typ,
     ) -> ConstantId {
-        let id = self.constant_table.push(Constant { name, value, typ });
+        let id = self.constant_table.push(Constant::on_cpu(value, name, typ));
         id
     }
 
@@ -211,12 +218,12 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
 
     pub fn empty(allocator: CpuMemoryPool) -> Self {
         let mut constant_table = Heap::new();
-        let one = constant_table.push(Constant::new(
+        let one = constant_table.push(Constant::on_cpu(
             super::Scalar::to_variable(<Rt::Field as group::ff::Field>::ONE),
             Some("scalar_one".to_string()),
             zkpoly_common::typ::Typ::Scalar,
         ));
-        let zero = constant_table.push(Constant::new(
+        let zero = constant_table.push(Constant::on_cpu(
             super::Scalar::to_variable(<Rt::Field as group::ff::Field>::ZERO),
             Some("scalar_zero".to_string()),
             zkpoly_common::typ::Typ::Scalar,

@@ -180,12 +180,10 @@ where
     fn allocate(&mut self, t: &ObjectId, pointer: &P) {
         if let Some(addr) = self.allocator.mapping.get(pointer) {
             let size = self.aux.obj_info().size(*t);
-            let addr = AllocMethod::Offset(
-                addr.offset(self.allocator.offset).get().into(),
-                size.into()
-            );
+            let addr =
+                AllocMethod::Offset(addr.offset(self.allocator.offset).get().into(), size.into());
             let vn = self.aux.obj_info().typ(*t).with_normalized_p();
-            self.machine.gpu_allocate(
+            self.machine.allocate(
                 addr,
                 ResidentalValue::new(Value::new(*t, self.machine.device(), vn), *pointer),
             );
@@ -196,7 +194,7 @@ where
 
     fn deallocate(&mut self, t: &ObjectId, pointer: &P) {
         if let Some(..) = self.allocator.mapping.get(pointer) {
-            self.machine.gpu_deallocate(&ResidentalValue::new(
+            self.machine.deallocate(&ResidentalValue::new(
                 Value::new(
                     *t,
                     self.machine.device(),
@@ -223,6 +221,56 @@ where
             *to_pointer,
             *t,
         ))
+    }
+}
+
+impl<'s, A, P, Rt: RuntimeType> Allocator<'s, ObjectId, P, Rt> for Wrapper<'s, A, P, Rt, Cpu>
+where
+    A: Allocator<'s, ObjectId, P, Rt>,
+    P: UsizeId + 'static,
+{
+    fn allcate_pointer(&mut self) -> P {
+        self.inner.allcate_pointer()
+    }
+
+    fn handle<'a, 'b, 'c, 'd, 'i>(
+        &'a mut self,
+        machine: planning::MachineHandle<'b, 's, ObjectId, P>,
+        aux: &'c mut AuxiliaryInfo<'i, Rt>,
+    ) -> Box<dyn AllocatorHandle<'s, ObjectId, P, Rt> + 'd>
+    where
+        'a: 'd,
+        'b: 'd,
+        'c: 'd,
+        'i: 'd,
+    {
+        Box::new(Handle {
+            allocator: self,
+            machine,
+            aux,
+        })
+    }
+
+    fn realizer<'a, 'b, 'c, 'd, 'i>(
+        &'a mut self,
+        machine: realization::MachineHandle<'b, 's, P>,
+        aux: &'c mut AuxiliaryInfo<'i, Rt>,
+    ) -> Box<dyn AllocatorRealizer<'s, ObjectId, P, Rt> + 'd>
+    where
+        'a: 'd,
+        'b: 'd,
+        'c: 'd,
+        'i: 'd,
+    {
+        Box::new(Realizer {
+            allocator: self,
+            machine,
+            aux,
+        })
+    }
+
+    fn inner<'t>(&'t mut self) -> Option<&'t mut dyn Allocator<'s, ObjectId, P, Rt>> {
+        Some(&mut self.inner)
     }
 }
 

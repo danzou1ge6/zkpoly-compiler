@@ -126,7 +126,8 @@ where
         hd_info.n_gpus(),
     );
 
-    let mut unplanned_allocators: BTreeMap<_, SuperAllocator<'s, P, Cpu>> = unplanned_devices
+    // Device here does not matter since realization will not be performed
+    let mut unplanned_allocators: BTreeMap<_, SuperAllocator<'s, P, Rt, Cpu>> = unplanned_devices
         .iter()
         .map(|d| (*d, SuperAllocator::for_unplanned()))
         .collect();
@@ -608,10 +609,11 @@ where
 }
 
 /// Run `plan_devices` repetitively from bottom devices to top devices.
-pub fn transform_ops<'s, P, Rt: RuntimeType, Ca, Ga> (
+pub fn transform_ops<'s, P, Rt: RuntimeType, Ca, Ga, Da> (
     mut ops: OperationSeq<'s, ObjectId, P>,
     gpu_allocators: &mut [Ga],
     cpu_allocator: &mut Ca,
+    disk_allocator: &mut Da,
     obj_info: &object_info::Info<Rt>,
     hd_info: &HardwareInfo
 ) -> Result<OperationSeq<'s, ObjectId, P>, Error<'s>>
@@ -619,10 +621,12 @@ where
     P: UsizeId + 'static,
     Ca: Allocator<'s, ObjectId, P, Rt> + 's,
     Ga: Allocator<'s, ObjectId, P, Rt> + 's,
+    Da: Allocator<'s, ObjectId, P, Rt> +'s,
 {
     let plan_phases: Vec<BTreeSet<Device>> = vec![
         (0..hd_info.n_gpus()).map(|i| Device::Gpu(i)).collect(),
         [Device::Cpu].into_iter().collect(),
+        [Device::Disk].into_iter().collect()
     ];
     
     let mut planned_devices = BTreeSet::new();
@@ -645,6 +649,7 @@ where
             .enumerate()
             .map(|(i, alloc)| (Device::Gpu(i), alloc as &mut dyn Allocator<ObjectId, P, Rt>))
             .chain(std::iter::once((Device::Cpu, cpu_allocator as &mut dyn Allocator<ObjectId, P, Rt>)))
+            .chain(std::iter::once((Device::Disk, disk_allocator as &mut dyn Allocator<ObjectId, P, Rt>)))
             .collect();
 
         // fixme
