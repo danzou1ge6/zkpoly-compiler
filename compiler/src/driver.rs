@@ -152,10 +152,10 @@ pub struct MemoryInfo {
 }
 
 impl MemoryInfo {
-    pub fn new(gpu_memory_limit: u64, gpu_smithereen_space: u64) -> Self {
+    pub fn new(memory_limit: u64, smithereen_space: u64) -> Self {
         Self {
-            memory_limit: gpu_memory_limit,
-            smithereen_space: gpu_smithereen_space,
+            memory_limit,
+            smithereen_space,
         }
     }
 
