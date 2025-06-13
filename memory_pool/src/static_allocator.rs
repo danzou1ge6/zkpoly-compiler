@@ -35,6 +35,7 @@ impl SanityChecker {
                 )
             }
         }
+        self.ranges.insert(left, right);
     }
 
     pub fn free(&mut self, left: usize) {
@@ -90,13 +91,15 @@ impl CpuStaticAllocator {
             );
         }
 
-        self.base_ptr.with_addr(left)
+        unsafe {
+            self.base_ptr.add(left)
+        }
     }
 
     pub fn deallocate(&mut self, ptr: *mut u8) {
         if let Some(checker) = &mut self.checker {
-            let offset = ptr.addr() - self.base_ptr.addr();
-            checker.free(offset);
+            let offset = unsafe { ptr.offset_from(self.base_ptr) };
+            checker.free(offset.try_into().expect("negative offset"));
         }
     }
 }
