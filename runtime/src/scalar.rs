@@ -5,7 +5,6 @@ use std::{
 
 use group::ff::Field;
 use rand_core::RngCore;
-use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use zkpoly_common::devices::DeviceType;
 use zkpoly_cuda_api::{
     mem::{alloc_pinned, free_pinned},
@@ -13,7 +12,7 @@ use zkpoly_cuda_api::{
 };
 use zkpoly_memory_pool::{BuddyDiskPool, CpuMemoryPool};
 
-use crate::runtime::transfer::Transfer;
+use crate::{devices::{read_from_disk, write_to_disk}, runtime::transfer::Transfer};
 
 #[derive(Clone)]
 pub struct Scalar<F: Field> {
@@ -1025,32 +1024,7 @@ impl<F: Field> Transfer for ScalarArray<F> {
         assert_eq!(self.rotate, target.rotate);
         assert!(self.slice_info.is_none());
         assert!(target.slice_info.is_none());
-        let part_len = self.len / self.disk_pos.len();
-        target
-            .disk_pos
-            .par_iter()
-            .enumerate()
-            .for_each(|(disk_id, (fd, offset))| {
-                let offset = offset.clone();
-                let fd = fd.clone();
-                let cpu_offset = part_len * disk_id;
-
-                unsafe {
-                    let write_size = part_len * size_of::<F>();
-                    let res = libc::pwrite(
-                        fd,
-                        self.values.add(cpu_offset).cast(),
-                        write_size,
-                        offset as i64,
-                    );
-                    if res < write_size as isize {
-                        panic!(
-                            "Failed to write {} bytes to disk {} at offset {}: {}",
-                            write_size, disk_id, offset, res
-                        );
-                    }
-                }
-            });
+        write_to_disk(self.values as *const u8, &target.disk_pos, self.len * size_of::<F>());
     }
 
     fn disk2cpu(&self, target: &mut Self) {
@@ -1059,31 +1033,27 @@ impl<F: Field> Transfer for ScalarArray<F> {
         assert_eq!(self.rotate, target.rotate);
         assert!(self.slice_info.is_none());
         assert!(target.slice_info.is_none());
+        read_from_disk(target.values as *mut u8, &self.disk_pos, self.len * size_of::<F>());
+    }
+}
 
-        let part_len = self.len / self.disk_pos.len();
-        self.disk_pos
-            .par_iter()
-            .enumerate()
-            .for_each(|(disk_id, (fd, offset))| {
-                let tmp_target = target.clone();
-                let (fd, offset) = (fd.clone(), offset.clone());
-                let cpu_offset = part_len * disk_id;
+#[test]
+fn test_tranfer_cpu_disk() {
+    use zkpoly_memory_pool::BuddyDiskPool;
+    use zkpoly_memory_pool::CpuMemoryPool;
 
-                unsafe {
-                    let read_size = part_len * size_of::<F>();
-                    let res = libc::pread(
-                        fd,
-                        tmp_target.values.add(cpu_offset).cast(),
-                        read_size,
-                        offset as i64,
-                    );
-                    if res < read_size as isize {
-                        panic!(
-                            "Failed to read {} bytes from disk {} at offset {}: {}",
-                            read_size, disk_id, offset, res
-                        );
-                    }
-                }
-            });
+    use halo2curves::bn256::Fr as F;
+    let mut cpu_pool = CpuMemoryPool::new(10, size_of::<F>());
+    let mut disk_pool = vec![BuddyDiskPool::new(2usize.pow(28), 2048).unwrap(), BuddyDiskPool::new(2usize.pow(28), 2048).unwrap()];
+    let mut array1 = ScalarArray::<F>::alloc_cpu(1024, &mut cpu_pool);
+    array1.iter_mut().enumerate().for_each(|(i, v)| {
+        *v = F::from(i as u64);
+    });
+    let mut array2 = ScalarArray::<F>::alloc_disk(1024, &mut disk_pool);
+    array1.cpu2disk(&mut array2);
+    let mut array3 = ScalarArray::<F>::alloc_cpu(1024, &mut cpu_pool);
+    array2.disk2cpu(&mut array3);
+    for i in 0..1024 {
+        assert_eq!(array1[i], array3[i]);
     }
 }

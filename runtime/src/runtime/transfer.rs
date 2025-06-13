@@ -97,6 +97,10 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                             let dst = dst.unwrap_scalar_array_mut();
                             poly.cpu2disk(dst);
                         }
+                        Variable::PointArray(points) => {
+                            let dst = dst.unwrap_point_array_mut();
+                            points.cpu2disk(dst);
+                        }
                         _ => unimplemented!()
                     }
                 }
@@ -135,6 +139,10 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                             Variable::ScalarArray(poly) => {
                                 let dst = dst.unwrap_scalar_array_mut();
                                 poly.disk2cpu(dst);
+                            }
+                            Variable::PointArray(points) => {
+                                let dst = dst.unwrap_point_array_mut();
+                                points.disk2cpu(dst);
                             }
                             _ => unimplemented!()
                         }

@@ -1,6 +1,7 @@
 use crate::any::AnyWrapper;
 use crate::gpu_buffer::GpuBuffer;
 use crate::point::{Point, PointArray};
+use crate::runtime::transfer::Transfer;
 use crate::scalar::{Scalar, ScalarArray};
 use crate::transcript::{EncodedChallenge, TranscriptObject, TranscriptWrite};
 use group::ff::PrimeField;
@@ -11,7 +12,7 @@ use zkpoly_common::heap;
 use zkpoly_common::typ::Typ;
 use zkpoly_cuda_api::stream::CudaStream;
 use zkpoly_memory_pool::buddy_disk_pool::DiskMemoryPool;
-use zkpoly_memory_pool::{BuddyDiskPool, CpuMemoryPool};
+use zkpoly_memory_pool::CpuMemoryPool;
 
 zkpoly_common::define_usize_id!(VariableId);
 zkpoly_common::define_usize_id!(ConstantId);
@@ -45,7 +46,29 @@ pub fn move_constant_table<T: RuntimeType>(
                 panic!("can only move constant to Disk");
             }
 
-            todo!("move constant to disk and set c.device")
+            let new_var: Variable<T> = match c.value {
+                Variable::ScalarArray(poly) => {
+                    let mut new_poly =
+                        ScalarArray::<T::Field>::alloc_disk(poly.len(), disk_allocator);
+                    poly.cpu2disk(&mut new_poly);
+                    cpu_allocator.free(poly.values);
+                    Variable::ScalarArray(new_poly)
+                }
+                Variable::PointArray(points) => {
+                    let mut new_points =
+                        PointArray::<T::PointAffine>::alloc_disk(points.len, disk_allocator);
+                    points.cpu2disk(&mut new_points);
+                    cpu_allocator.free(points.values);
+                    Variable::PointArray(new_points)
+                }
+                _ => unreachable!("small items don't need to be swaped out"),
+            };
+            Constant {
+                device: on_device[i].clone(),
+                name: c.name,
+                value: new_var,
+                typ: c.typ,
+            }
         }
     })
 }
