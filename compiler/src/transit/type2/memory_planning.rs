@@ -184,14 +184,24 @@ pub fn plan<'s, Rt: RuntimeType>(
             Device::Cpu,
             &mut cpu_allocator as &mut dyn Allocator<ObjectId, Pointer, Rt>,
         )))
+        .chain(std::iter::once((
+            Device::Disk,
+            &mut disk_allocator as &mut dyn Allocator<ObjectId, Pointer, Rt>,
+        )))
         .collect();
 
     let chunk = realization::realize(ops, allocators, libs, obj_id_allocator, &obj_info, hd_info)?;
 
+    let disk_allocator = disk_allocator.unwrap();
+
+    if !hd_info.disk() && disk_allocator.peak_memory_usage() > 0 {
+        panic!("disk is not enabled but some objects are spilled to disk; this indicates insufficient CPU space");
+    }
+
     // fixme
     println!(
         "Disk peak memory usage is {}",
-        disk_allocator.unwrap().peak_memory_usage()
+        disk_allocator.peak_memory_usage()
     );
 
     Ok(chunk)

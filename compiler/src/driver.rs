@@ -171,7 +171,8 @@ impl MemoryInfo {
 #[derive(Debug, Clone)]
 pub struct HardwareInfo {
     gpus: Vec<MemoryInfo>,
-    cpu: MemoryInfo
+    cpu: MemoryInfo,
+    disk: bool,
 }
 
 impl HardwareInfo {
@@ -195,12 +196,24 @@ impl HardwareInfo {
     }
 
     pub fn new(cpu: MemoryInfo) -> Self {
-        Self { gpus: Vec::new(), cpu  }
+        Self {
+            gpus: Vec::new(),
+            cpu,
+            disk: false,
+        }
+    }
+
+    pub fn with_disk(self, disk: bool) -> Self {
+        Self { disk, ..self }
     }
 
     pub fn with_gpu(mut self, gpu: MemoryInfo) -> Self {
         self.gpus.push(gpu);
         self
+    }
+
+    pub fn disk(&self) -> bool {
+        self.disk
     }
 }
 

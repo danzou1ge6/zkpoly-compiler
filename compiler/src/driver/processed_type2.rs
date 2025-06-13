@@ -36,7 +36,8 @@ impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
         // - Decide constants to be on disk or CPU:
         //   If the constants take more than 1/4 CPU space, put big constants on disk.
         let constants_on_disk =
-            ast::lowering::constant_size(&t2const_tab) * 4 > hardware_info.cpu().memory_limit();
+            ast::lowering::constant_size(&t2const_tab) * 4 > hardware_info.cpu().memory_limit()
+            && hardware_info.disk();
         let constants_device = t2const_tab.map_by_ref(&mut |_, c| {
             if constants_on_disk && c.typ.can_on_disk() {
                 type3::Device::Disk
