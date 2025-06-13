@@ -137,11 +137,11 @@ fn mark_use(
     // - If the sliced object is defined on GPU, and it is sliced to CPU,
     //   similar to the first case
     if !Device::iter(hd_info.n_gpus()).any(|d| is_used_on(object_id, d)) {
-        // We must use `device` for `def_on` of `object_id`, is `object_id` itself can later be clone-sliced,
-        // and we don't want its `def_on` to be memory device of the [`VertexNode::RotateIdx`] vertex.
-        def_on.insert(object_id, device);
-
         if let Some((cloned_obj, _)) = cloned_slices.0.get_backward(&object_id) {
+            // We must use `device` for `def_on` of `object_id`, is `object_id` itself can later be clone-sliced,
+            // and we don't want its `def_on` to be memory device of the [`VertexNode::RotateIdx`] vertex.
+            def_on.insert(object_id, device);
+
             let def_on_device = def_on[&cloned_obj];
             if def_on_device == device {
                 extend_lifetime(hd_info, obj_last_use, *cloned_obj, device, vid);
@@ -475,7 +475,7 @@ impl DefUse {
         _return_vid: VertexId,
         execution_device: impl Fn(VertexId) -> type2::Device,
         hd_info: &HardwareInfo,
-        constants_device: &Heap<ConstantId, Device>
+        constants_device: &Heap<ConstantId, Device>,
     ) -> (Self, IdAllocator<ObjectId>) {
         let mut object_id_allocator = IdAllocator::new();
 
