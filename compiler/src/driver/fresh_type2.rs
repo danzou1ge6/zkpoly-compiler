@@ -1,9 +1,7 @@
 use std::io::{Read, Write};
 use zkpoly_common::load_dynamic::Libs;
 use zkpoly_memory_pool::{buddy_disk_pool::DiskMemoryPool, CpuMemoryPool};
-use zkpoly_runtime::args::{
-    self, regularize_cosntant_table_device, RuntimeType,
-};
+use zkpoly_runtime::args::{self, RuntimeType};
 
 use super::{
     artifect::Artifect, ast, check_type2_dag, debug_partial_typed_type2, debug_type2,
@@ -260,18 +258,17 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
 
         let mut ct_f = std::fs::File::open(dir.as_ref().join("constants.bin"))?;
         let mut allocator = self.prog.memory_pool;
-        ct_header.load_constant_table(&mut self.prog.consant_table, &mut ct_f, &mut allocator)?;
-
-        let constant_table = regularize_cosntant_table_device(
-            self.prog.consant_table,
+        ct_header.load_constant_table(
+            &mut self.prog.consant_table,
+            &mut ct_f,
             &mut allocator,
             disk_allocator,
-        );
+        )?;
 
         Ok((
             Artifect {
                 chunk: rt_chunk,
-                constant_table,
+                constant_table: self.prog.consant_table,
             },
             allocator,
         ))
@@ -281,6 +278,7 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
         mut self,
         str_buf: &'de mut String,
         dir: impl AsRef<std::path::Path>,
+        disk_allocator: &mut DiskMemoryPool,
     ) -> std::io::Result<ProcessedType2<'de, Rt>>
     where
         Rt: serde::Serialize + serde::Deserialize<'de>,
@@ -294,7 +292,12 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
 
         let mut ct_f = std::fs::File::open(dir.as_ref().join("constants.bin"))?;
         let mut allocator = self.prog.memory_pool;
-        ct_header.load_constant_table(&mut self.prog.consant_table, &mut ct_f, &mut allocator)?;
+        ct_header.load_constant_table(
+            &mut self.prog.consant_table,
+            &mut ct_f,
+            &mut allocator,
+            disk_allocator,
+        )?;
 
         Ok(ProcessedType2 {
             cg,

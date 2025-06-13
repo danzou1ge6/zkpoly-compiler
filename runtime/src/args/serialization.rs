@@ -7,9 +7,9 @@ use crate::{
     scalar::{Scalar, ScalarArray},
 };
 
-use super::{Constant, ConstantId, ConstantTable, RuntimeType, Variable};
-use zkpoly_common::typ::Typ;
-use zkpoly_memory_pool::CpuMemoryPool;
+use super::{move_constant, Constant, ConstantId, ConstantTable, RuntimeType, Variable};
+use zkpoly_common::{devices::DeviceType, typ::Typ};
+use zkpoly_memory_pool::{buddy_disk_pool::DiskMemoryPool, CpuMemoryPool};
 
 impl<Rt: RuntimeType> Variable<Rt> {
     pub fn dump_binary(&self, writer: &mut impl Write) -> io::Result<()> {
@@ -137,6 +137,7 @@ struct Entry {
     position: Option<(usize, usize)>,
     name: Option<String>,
     typ: Typ,
+    device: DeviceType,
 }
 
 #[derive(Serialize, Deserialize, Default, Clone, Debug)]
@@ -157,12 +158,14 @@ impl Header {
                         position: Some((data_offset, size)),
                         name: v.name.clone(),
                         typ: v.typ.clone(),
+                        device: v.device.clone(),
                     }
                 } else {
                     Entry {
                         position: None,
                         name: v.name.clone(),
                         typ: v.typ.clone(),
+                        device: v.device.clone(),
                     }
                 };
 
@@ -195,12 +198,15 @@ impl Header {
         ct: &mut ConstantTable<Rt>,
         reader: &mut (impl Read + Seek),
         allocator: &mut CpuMemoryPool,
+        disk_allocator: &mut DiskMemoryPool,
     ) -> io::Result<()> {
         for (i, entry) in self.entries.iter().enumerate() {
             if let Some((offset, _size)) = entry.position {
                 reader.seek(io::SeekFrom::Start(offset as u64))?;
                 let val = Variable::load_binary(&entry.typ, reader, allocator)?;
                 let constant = Constant::on_cpu(val, entry.name.clone(), entry.typ.clone());
+                let constant =
+                    move_constant(constant, entry.device.clone(), allocator, disk_allocator);
 
                 while ct.len() <= i {
                     // Tuple(vec![]) is placeholder

@@ -26,6 +26,48 @@ pub fn new_variable_table<T: RuntimeType>(len: usize) -> VariableTable<T> {
     heap::Heap::repeat_with(|| (None), len)
 }
 
+pub fn move_constant<T: RuntimeType>(
+    c: Constant<T>,
+    on_device: DeviceType,
+    cpu_allocator: &mut CpuMemoryPool,
+    disk_allocator: &mut DiskMemoryPool,
+) -> Constant<T> {
+    if c.device != DeviceType::CPU {
+        panic!("expected all newly constructed constants to be on CPU");
+    }
+
+    if c.device == on_device {
+        c
+    } else {
+        if on_device != DeviceType::Disk {
+            panic!("can only move constant to Disk");
+        }
+
+        let new_var: Variable<T> = match c.value {
+            Variable::ScalarArray(poly) => {
+                let mut new_poly = ScalarArray::<T::Field>::alloc_disk(poly.len(), disk_allocator);
+                poly.cpu2disk(&mut new_poly);
+                cpu_allocator.free(poly.values);
+                Variable::ScalarArray(new_poly)
+            }
+            Variable::PointArray(points) => {
+                let mut new_points =
+                    PointArray::<T::PointAffine>::alloc_disk(points.len, disk_allocator);
+                points.cpu2disk(&mut new_points);
+                cpu_allocator.free(points.values);
+                Variable::PointArray(new_points)
+            }
+            _ => unreachable!("small items don't need to be swaped out"),
+        };
+        Constant {
+            device: on_device.clone(),
+            name: c.name,
+            value: new_var,
+            typ: c.typ,
+        }
+    }
+}
+
 /// Since constructed during AST generation, all constants are on CPU,
 /// now we need move them to where they are assumed to be on during memory planning.
 pub fn move_constant_table<T: RuntimeType>(
@@ -34,64 +76,7 @@ pub fn move_constant_table<T: RuntimeType>(
     cpu_allocator: &mut CpuMemoryPool,
     disk_allocator: &mut DiskMemoryPool,
 ) -> ConstantTable<T> {
-    table.map(&mut |i, c| {
-        if c.device != DeviceType::CPU {
-            panic!("expected all newly constructed constants to be on CPU");
-        }
-
-        if c.device == on_device[i] {
-            c
-        } else {
-            if on_device[i] != DeviceType::Disk {
-                panic!("can only move constant to Disk");
-            }
-
-            let new_var: Variable<T> = match c.value {
-                Variable::ScalarArray(poly) => {
-                    let mut new_poly =
-                        ScalarArray::<T::Field>::alloc_disk(poly.len(), disk_allocator);
-                    poly.cpu2disk(&mut new_poly);
-                    cpu_allocator.free(poly.values);
-                    Variable::ScalarArray(new_poly)
-                }
-                Variable::PointArray(points) => {
-                    let mut new_points =
-                        PointArray::<T::PointAffine>::alloc_disk(points.len, disk_allocator);
-                    points.cpu2disk(&mut new_points);
-                    cpu_allocator.free(points.values);
-                    Variable::PointArray(new_points)
-                }
-                _ => unreachable!("small items don't need to be swaped out"),
-            };
-            Constant {
-                device: on_device[i].clone(),
-                name: c.name,
-                value: new_var,
-                typ: c.typ,
-            }
-        }
-    })
-}
-
-/// After loading constant table from disk, all constants actually are on CPU,
-/// but some constants' device field may be Disk,
-/// so we need to correct this.
-pub fn regularize_cosntant_table_device<T: RuntimeType>(
-    table: ConstantTable<T>,
-    cpu_allocator: &mut CpuMemoryPool,
-    disk_allocator: &mut DiskMemoryPool
-) -> ConstantTable<T> {
-    table.map(&mut |_, c| {
-        if c.device != DeviceType::CPU {
-            panic!("expected all newly constructed constants to be on CPU");
-        }
-
-        if c.device != DeviceType::Disk {
-            panic!("can only move constant to Disk");
-        }
-
-        todo!("move constant to disk")
-    })
+    table.map(&mut |i, c| move_constant(c, on_device[i].clone(), cpu_allocator, disk_allocator))
 }
 
 pub fn add_entry<T: RuntimeType>(t: &mut EntryTable<T>, var: Variable<T>) {
