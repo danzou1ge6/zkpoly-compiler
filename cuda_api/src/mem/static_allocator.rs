@@ -20,7 +20,7 @@ pub fn free_pinned<T: Sized>(ptr: *mut T) {
     }
 }
 
-pub struct CudaAllocator {
+pub struct StaticAllocator {
     device_id: i32,
     base_ptr: *mut std::ffi::c_void,
     max_size: usize,
@@ -28,7 +28,7 @@ pub struct CudaAllocator {
     ranges: BTreeMap<usize, usize>, // [left, right)
 }
 
-impl CudaAllocator {
+impl StaticAllocator {
     pub fn new(device_id: i32, max_size: usize, check_overlap: bool) -> Self {
         let mut base_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
         unsafe {
@@ -83,7 +83,7 @@ impl CudaAllocator {
     }
 }
 
-impl Drop for CudaAllocator {
+impl Drop for StaticAllocator {
     fn drop(&mut self) {
         unsafe {
             cuda_check!(cudaSetDevice(self.device_id));
@@ -118,7 +118,7 @@ pub fn cuda_d2h(dst: *mut c_void, src: *const c_void, size: usize) {
 fn test_cuda_allocator() {
     let device_id = 0;
     let max_size = 1 << 20;
-    let mut allocator = CudaAllocator::new(device_id, max_size, false);
+    let mut allocator = StaticAllocator::new(device_id, max_size, false);
     let offset = 0;
     let ptr: *mut c_void = allocator.allocate(offset, 9 * size_of::<i32>());
     assert!(!ptr.is_null());
@@ -134,7 +134,7 @@ fn test_cuda_allocator() {
 fn test_cuda_allocator_overlap() {
     let device_id = 0;
     let max_size = 1024;
-    let mut allocator = CudaAllocator::new(device_id, max_size, true);
+    let mut allocator = StaticAllocator::new(device_id, max_size, true);
 
     // 测试1：正常分配不重叠的内存区域
     let ptr1: *mut i32 = allocator.allocate(0, 4); // 0-16 bytes
@@ -165,7 +165,7 @@ fn test_cuda_allocator_overlap() {
 fn test_cuda_allocator_overlap_should_panic() {
     let device_id = 0;
     let max_size = 1024;
-    let mut allocator = CudaAllocator::new(device_id, max_size, true);
+    let mut allocator = StaticAllocator::new(device_id, max_size, true);
 
     // 首先分配一块内存
     let _ptr1: *mut i32 = allocator.allocate(0, 4); // 0-16 bytes

@@ -9,7 +9,7 @@ use crate::{
     cuda_driver_check,
 };
 
-pub struct CudaPageAllocator {
+pub struct PageAllocator {
     device: DeviceType,
     page_size: usize,
     page_table: Vec<CUmemGenericAllocationHandle>, // handle for physical memory
@@ -48,7 +48,7 @@ fn get_allocation_prop(device: &DeviceType) -> CUmemAllocationProp {
     prop
 }
 
-impl CudaPageAllocator {
+impl PageAllocator {
     pub fn new(device: DeviceType, page_size: usize, page_num: usize) -> Self {
         unsafe {
             cuda_driver_check!(cuInit(0)); // Initialize the CUDA driver API
@@ -171,7 +171,7 @@ impl CudaPageAllocator {
     }
 }
 
-impl Drop for CudaPageAllocator {
+impl Drop for PageAllocator {
     fn drop(&mut self) {
         unsafe {
             for handle in &self.page_table {
@@ -190,7 +190,7 @@ mod tests {
     #[test]
     fn test_allocate_write_read_deallocate() {
         let page_size = 1024 * 1024 * 2; // 2MB
-        let allocator = CudaPageAllocator::new(DeviceType::GPU { device_id: 0 }, page_size, 10);
+        let allocator = PageAllocator::new(DeviceType::GPU { device_id: 0 }, page_size, 10);
 
         let num_pages_to_alloc = 2;
         let va_size = page_size * num_pages_to_alloc * 2; // Reserve more VA than needed for the mapping
@@ -233,7 +233,7 @@ mod tests {
     fn test_extend_memory() {
         let page_size = 1024 * 1024 * 2; // 2MB
         let total_physical_pages = 10;
-        let allocator = CudaPageAllocator::new(
+        let allocator = PageAllocator::new(
             DeviceType::GPU { device_id: 0 },
             page_size,
             total_physical_pages,
@@ -345,14 +345,14 @@ mod tests {
         }
         // This call should panic due to the alignment assertion in CudaPageAllocator::new
         let _allocator =
-            CudaPageAllocator::new(DeviceType::GPU { device_id: 0 }, unaligned_page_size, 10);
+            PageAllocator::new(DeviceType::GPU { device_id: 0 }, unaligned_page_size, 10);
     }
 
     #[test]
     #[should_panic(expected = "assertion failed: va_size >= self.page_size * page_ids.len()")]
     fn test_allocate_insufficient_va_size() {
         let page_size = 1024 * 1024 * 2;
-        let allocator = CudaPageAllocator::new(DeviceType::GPU { device_id: 0 }, page_size, 10);
+        let allocator = PageAllocator::new(DeviceType::GPU { device_id: 0 }, page_size, 10);
         let page_ids_to_alloc = vec![0, 1]; // Requesting 2 pages (total size: page_size * 2)
         let insufficient_va_size = page_size * 1; // VA reserved for only 1 page
                                                   // This should panic because va_size is not enough for page_ids_to_alloc.len() pages.
@@ -365,7 +365,7 @@ mod tests {
     )]
     fn test_extend_insufficient_va_size() {
         let page_size = 1024 * 1024 * 2;
-        let allocator = CudaPageAllocator::new(DeviceType::GPU { device_id: 0 }, page_size, 10);
+        let allocator = PageAllocator::new(DeviceType::GPU { device_id: 0 }, page_size, 10);
 
         let initial_pages_count = 1;
         let initial_page_ids = vec![0];
@@ -416,7 +416,7 @@ mod tests {
             );
         }
 
-        let allocator = CudaPageAllocator::new(device, page_size, 5);
+        let allocator = PageAllocator::new(device, page_size, 5);
 
         let num_pages_to_alloc = 2;
         let va_size = page_size * num_pages_to_alloc * 2; // Reserve more VA

@@ -1115,7 +1115,7 @@ fn test_tranfer_cpu_disk() {
 fn test_transfer_gpu_disk() {
     use zkpoly_memory_pool::BuddyDiskPool;
     use zkpoly_memory_pool::CpuMemoryPool;
-    use zkpoly_cuda_api::mem::page_allocator::CudaPageAllocator;
+    use zkpoly_cuda_api::mem::page_allocator::PageAllocator;
 
     use halo2curves::bn256::Fr as F;
     let mut cpu_pool = CpuMemoryPool::new(10, size_of::<F>());
@@ -1123,7 +1123,7 @@ fn test_transfer_gpu_disk() {
         BuddyDiskPool::new(2usize.pow(28), 2048).unwrap(),
         BuddyDiskPool::new(2usize.pow(28), 2048).unwrap(),
     ];
-    let gpu_pool = CudaPageAllocator::new(DeviceType::GPU { device_id: 0}, 1024*1024*2, 2);
+    let gpu_pool = PageAllocator::new(DeviceType::GPU { device_id: 0}, 1024*1024*2, 2);
     let mut array1 = ScalarArray::<F>::alloc_cpu(1024, &mut cpu_pool);
     array1.iter_mut().enumerate().for_each(|(i, v)| {
         *v = F::from(i as u64);

@@ -332,13 +332,15 @@ where
     P: UsizeId + 'static,
 {
     fn allocate(&mut self, t: &ObjectId, pointer: &P) {
-        let (pages, virtual_size) = &self.allocator.page_mapping[*pointer];
+        let (pages, _) = &self.allocator.page_mapping[*pointer];
         let vn = self.aux.obj_info().typ(*t).with_normalized_p();
         let rv = ResidentalValue::new(Value::new(*t, self.machine.device(), vn), *pointer);
 
+        let vs = pages.len() * (self.allocator.page_size as usize);
+
         self.machine.allocate(
             AllocMethod::Paged {
-                va_size: virtual_size.clone().into(),
+                va_size: vs,
                 pa: pages.iter().map(|i| usize::from(*i)).collect(),
             },
             rv,

@@ -50,9 +50,7 @@ impl<Rt: RuntimeType> Scheduler<Rt> {
                 .collect::<Vec<usize>>();
             scheduler_threads.push(thread::spawn(move || {
                 let cur_cards_clone = cur_cards.clone();
-                let gpu_mapping = Arc::new(move |x: i32| {
-                    cur_cards_clone[x as usize] as i32
-                });
+                let gpu_mapping = Arc::new(move |x: i32| cur_cards_clone[x as usize] as i32);
                 while let Ok(task) = receiver.recv() {
                     let mut status = task.status.lock().unwrap();
                     assert!(
@@ -64,6 +62,8 @@ impl<Rt: RuntimeType> Scheduler<Rt> {
                     }; // 更新任务状态为运行中，并记录已分配的卡片
                     drop(status); // 释放锁
 
+                    use zkpoly_cuda_api::mem;
+
                     let gpu_allocator = task
                         .hardware_info
                         .gpus()
@@ -71,26 +71,36 @@ impl<Rt: RuntimeType> Scheduler<Rt> {
                         .map(|(id, gpu)| {
                             (
                                 cur_cards[id] as i32,
-                                zkpoly_cuda_api::mem::CudaAllocator::new(
-                                    cur_cards[id] as i32,
-                                    gpu.memory_limit() as usize,
-                                    false,
-                                ),
+                                mem::CudaAllocator {
+                                    statik: mem::StaticAllocator::new(
+                                        cur_cards[id] as i32,
+                                        gpu.memory_limit() as usize,
+                                        false,
+                                    ),
+                                    page: mem::PageAllocator::new(
+                                        zkpoly_common::devices::DeviceType::GPU {
+                                            device_id: cur_cards[i] as i32,
+                                        },
+                                        task.hardware_info.page_size() as usize,
+                                        gpu.page_number(task.hardware_info.page_size()) as usize,
+                                    ),
+                                },
                             )
                         })
                         .collect::<HashMap<_, _>>();
 
-                    let cpu_allocator = CpuStaticAllocator::new(task.hardware_info.cpu().memory_limit() as usize, true);
+                    let cpu_allocator = CpuStaticAllocator::new(
+                        task.hardware_info.cpu().memory_limit() as usize,
+                        true,
+                    );
 
                     let result: (Option<Variable<Rt>>, RuntimeInfo<Rt>);
-                    let mut runtime = task
-                        .artifect
-                        .prepare_dispatcher(
-                            cpu_allocator,
-                            gpu_allocator,
-                            task.rng,
-                            gpu_mapping.clone(),
-                        );
+                    let mut runtime = task.artifect.prepare_dispatcher(
+                        cpu_allocator,
+                        gpu_allocator,
+                        task.rng,
+                        gpu_mapping.clone(),
+                    );
 
                     let start = std::time::Instant::now();
                     (result, _) = runtime.run(&task.inputs, task.debug_opt);
