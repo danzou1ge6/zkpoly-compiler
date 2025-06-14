@@ -119,7 +119,7 @@ define_usize_id!(RegisterId);
 
 pub mod template {
     use zkpoly_common::typ::PolyType;
-    use zkpoly_runtime::instructions::AllocMethod;
+    use zkpoly_runtime::instructions::{AllocMethod, AllocVariant};
 
     use crate::{ast::PolyInit, transit::type2};
 
@@ -144,6 +144,7 @@ pub mod template {
         Free {
             id: I,
             device: Device,
+            variant: AllocVariant
         },
         StackFree {
             id: I,

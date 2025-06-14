@@ -341,7 +341,7 @@ impl<'a, 'm, 's, 'au, 'i, 'f, P: UsizeId + 'static, Rt: RuntimeType, D: DeviceMa
         );
 
         self.machine
-            .deallocate_object(*t, pointer, self.aux.obj_info());
+            .deallocate_object(*t, pointer, self.aux.obj_info(), AllocVariant::Offset);
     }
 
     fn transfer(

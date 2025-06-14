@@ -195,7 +195,7 @@ where
     fn deallocate(&mut self, t: &ObjectId, pointer: &P) {
         if let Some(..) = self.allocator.mapping.get(pointer) {
             self.machine
-                .deallocate_object(*t, pointer, self.aux.obj_info());
+                .deallocate_object(*t, pointer, self.aux.obj_info(), AllocVariant::Offset);
         } else {
             self.inner_realizer().deallocate(t, pointer);
         }

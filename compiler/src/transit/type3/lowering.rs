@@ -426,7 +426,7 @@ fn lower_instruction<'s, Rt: RuntimeType>(
                 }
             }
         }
-        super::InstructionNode::Malloc { id, addr, device  } => {
+        super::InstructionNode::Malloc { id, addr, device } => {
             let var_id = reg_id2var_id(*id);
 
             emit(Instruction::Allocate {
@@ -436,8 +436,9 @@ fn lower_instruction<'s, Rt: RuntimeType>(
                 alloc_method: addr.clone(),
             });
         }
-        super::InstructionNode::Free { id, .. } => emit(Instruction::Deallocate {
+        super::InstructionNode::Free { id, variant, .. } => emit(Instruction::Deallocate {
             id: reg_id2var_id(*id),
+            alloc_method: *variant,
         }),
         super::InstructionNode::Transfer { id, from } => emit(Instruction::Transfer {
             src_device: DeviceType::from(t3chunk.register_devices[from]),

@@ -22,6 +22,13 @@ pub enum AllocMethod {
     Dynamic(usize),
 }
 
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum AllocVariant {
+    Paged,
+    Offset,
+    Dynamic
+}
+
 impl Default for AllocMethod {
     fn default() -> Self {
         Self::Dynamic(0)
@@ -51,6 +58,7 @@ pub enum Instruction {
     Deallocate {
         // free the underlying memory
         id: VariableId,
+        alloc_method: AllocVariant
     },
 
     RemoveRegister {

@@ -401,14 +401,15 @@ where
         object: ObjectId,
         pointer: &P,
         obj_info: &object_info::Info<Rt>,
+        variant: AllocVariant
     ) {
         let vn = obj_info.typ(object).with_normalized_p();
         let rv = ResidentalValue::new(Value::new(object, self.device(), vn), *pointer);
 
-        self.deallocate(&rv);
+        self.deallocate(&rv, variant);
     }
 
-    pub fn deallocate(&mut self, rv: &ResidentalValue<P>) {
+    pub fn deallocate(&mut self, rv: &ResidentalValue<P>, variant: AllocVariant) {
         assert!(rv.device() == self.device);
 
         let reg = self.machine.defined_reg_for(rv);
@@ -416,6 +417,7 @@ where
             .emit(Instruction::new_no_src(InstructionNode::Free {
                 id: reg,
                 device: rv.device(),
+                variant
             }));
         self.machine
             .free_regs_to(*rv.pointer(), rv.object_id(), rv.device(), reg);

@@ -15,7 +15,10 @@ mod prelude {
         typ::Slice,
     };
 
-    pub(super) use zkpoly_runtime::{args::RuntimeType, instructions::AllocMethod};
+    pub(super) use zkpoly_runtime::{
+        args::RuntimeType,
+        instructions::{AllocMethod, AllocVariant},
+    };
 
     pub(super) use crate::driver::HardwareInfo;
     pub(super) use crate::transit::{

@@ -209,7 +209,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     device,
                     typ,
                     id,
-                    alloc_method: gpu_alloc,
+                    alloc_method
                 } => {
                     // only main thread can allocate memory
                     assert!(self.main_thread);
@@ -218,13 +218,13 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     *guard = Some(self.allocate(
                         device,
                         typ,
-                        gpu_alloc,
+                        alloc_method,
                         &mut mem_allocator,
                         &mut gpu_allocator,
                         &mut disk_allocator,
                     ));
                 }
-                Instruction::Deallocate { id } => {
+                Instruction::Deallocate { id, alloc_method } => {
                     // only main thread can deallocate memory
                     assert!(self.main_thread);
                     let guard = &mut (*self.variable)[id];
@@ -232,6 +232,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                         self.deallocate(
                             var,
                             id,
+                            alloc_method,
                             &mut mem_allocator,
                             &mut gpu_allocator,
                             &mut disk_allocator,

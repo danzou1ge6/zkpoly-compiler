@@ -175,7 +175,7 @@ where
 
     fn deallocate(&mut self, t: &ObjectId, pointer: &P) {
         self.machine
-            .deallocate_object(*t, pointer, self.aux.obj_info());
+            .deallocate_object(*t, pointer, self.aux.obj_info(), AllocVariant::Dynamic);
     }
 
     fn transfer(

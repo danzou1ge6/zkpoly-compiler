@@ -2,17 +2,14 @@ use std::collections::HashMap;
 
 use group::prime::PrimeCurveAffine;
 use zkpoly_common::{devices::DeviceType, typ::Typ};
-use zkpoly_cuda_api::{
-    mem::{page_allocator::PageAllocator, CudaAllocator},
-    stream::CudaStream,
-};
+use zkpoly_cuda_api::{mem::CudaAllocator, stream::CudaStream};
 use zkpoly_memory_pool::{static_allocator::CpuStaticAllocator, BuddyDiskPool};
 
 use crate::{
     any::AnyWrapper,
     args::{RuntimeType, Variable, VariableId},
     gpu_buffer::GpuBuffer,
-    instructions::AllocMethod,
+    instructions::{AllocMethod, AllocVariant},
     point::PointArray,
     runtime::RuntimeInfo,
     scalar::{Scalar, ScalarArray},
@@ -22,6 +19,11 @@ use crate::{
 fn unsupported_alloc_method(am: AllocMethod, on: DeviceType) -> ! {
     panic!("unsupported alloc method {:?} on {:?}", am, on)
 }
+
+fn unsupported_alloc_variant(av: AllocVariant, on: DeviceType) -> ! {
+    panic!("unsupported alloc variant {:?} on {:?}", av, on)
+}
+
 fn get_gpu_allocator<'a, 'b, 'c>(
     i: i32,
     gpu_allocator: &'a mut Option<&'b mut HashMap<i32, CudaAllocator>>,
@@ -186,64 +188,76 @@ impl<T: RuntimeType> RuntimeInfo<T> {
     pub(super) fn deallocate(
         &self,
         var: &mut Variable<T>,
-        var_id: VariableId,
+        _var_id: VariableId,
+        alloc_method: AllocVariant,
         mem_allocator: &mut Option<&mut CpuStaticAllocator>,
         gpu_allocator: &mut Option<&mut HashMap<i32, CudaAllocator>>,
         disk_allocator: &mut Option<&mut Vec<BuddyDiskPool>>,
     ) {
         match var {
             Variable::ScalarArray(poly) => match poly.device {
-                DeviceType::CPU => {
-                    mem_allocator
-                        .as_mut()
-                        .unwrap()
-                        .deallocate(poly.values as *mut u8);
-                }
-                DeviceType::GPU { device_id } => {
-                    gpu_allocator
-                        .as_mut()
-                        .unwrap()
-                        .get_mut(&device_id)
-                        .unwrap()
-                        .statik
-                        .free(poly.values);
-                }
-                DeviceType::Disk => {
-                    let bytes = poly.len() * size_of::<T::Field>() / poly.disk_pos.len();
-                    disk_allocator
-                        .as_mut()
-                        .unwrap()
-                        .iter_mut()
-                        .zip(poly.disk_pos.iter())
-                        .for_each(|(disk_pool, (_, offset))| {
-                            disk_pool
-                                .deallocate(*offset, bytes)
-                                .expect("deallocation failed");
-                        });
-                }
+                DeviceType::CPU => match alloc_method {
+                    AllocVariant::Offset => {
+                        mem_allocator
+                            .as_mut()
+                            .unwrap()
+                            .deallocate(poly.values as *mut u8);
+                    }
+                    otherwise => unsupported_alloc_variant(otherwise, poly.device.clone()),
+                },
+                DeviceType::GPU { device_id } => match alloc_method {
+                    AllocVariant::Offset => {
+                        get_gpu_allocator(device_id, gpu_allocator)
+                            .statik
+                            .free(poly.values);
+                    }
+                    AllocVariant::Paged => {
+                        // For now, we don't unmap pages
+                    }
+                    otherwise => unsupported_alloc_variant(otherwise, poly.device.clone()),
+                },
+                DeviceType::Disk => match alloc_method {
+                    AllocVariant::Dynamic => {
+                        let bytes = poly.len() * size_of::<T::Field>() / poly.disk_pos.len();
+                        disk_allocator
+                            .as_mut()
+                            .unwrap()
+                            .iter_mut()
+                            .zip(poly.disk_pos.iter())
+                            .for_each(|(disk_pool, (_, offset))| {
+                                disk_pool
+                                    .deallocate(*offset, bytes)
+                                    .expect("deallocation failed");
+                            });
+                    }
+                    otherwise => unsupported_alloc_variant(otherwise, poly.device.clone()),
+                },
             },
             Variable::PointArray(point_base) => match point_base.device {
-                DeviceType::CPU => {
-                    mem_allocator
-                        .as_mut()
-                        .unwrap()
-                        .deallocate(point_base.values as *mut u8);
-                }
-                DeviceType::GPU { device_id } => {
-                    gpu_allocator
-                        .as_mut()
-                        .unwrap()
-                        .get_mut(&device_id)
-                        .unwrap()
-                        .statik
-                        .free(point_base.values);
-                }
+                DeviceType::CPU => match alloc_method {
+                    AllocVariant::Offset => {
+                        mem_allocator
+                            .as_mut()
+                            .unwrap()
+                            .deallocate(point_base.values as *mut u8);
+                    }
+                    otherwise => unsupported_alloc_variant(otherwise, point_base.device.clone()),
+                },
+                DeviceType::GPU { device_id } => match alloc_method {
+                    AllocVariant::Offset => {
+                        get_gpu_allocator(device_id, gpu_allocator)
+                            .statik
+                            .free(point_base.values);
+                    }
+                    AllocVariant::Paged => {
+                        // For now, we don't unmap pages
+                    }
+                    otherwise => unsupported_alloc_variant(otherwise, point_base.device.clone()),
+                },
                 _ => unimplemented!(),
             },
-            Variable::Tuple(vec) => {
-                for var in vec {
-                    self.deallocate(var, var_id, mem_allocator, gpu_allocator, disk_allocator);
-                }
+            Variable::Tuple(..) => {
+                panic!("tuple must be deallocated element by element")
             }
             Variable::Stream(stream) => {
                 stream.destroy();
@@ -254,34 +268,50 @@ impl<T: RuntimeType> RuntimeInfo<T> {
             Variable::Transcript(transcript) => {
                 transcript.deallocate();
             }
-            Variable::Scalar(scalar) => match scalar.device {
-                DeviceType::CPU => {
-                    scalar.deallocate();
+            Variable::Scalar(scalar) => {
+                if alloc_method != AllocVariant::Offset {
+                    panic!("scalars should be allocated using offset");
                 }
-                DeviceType::GPU { device_id } => {
-                    gpu_allocator
-                        .as_mut()
-                        .unwrap()
-                        .get_mut(&device_id)
-                        .unwrap()
-                        .statik
-                        .free(scalar.value);
+
+                match scalar.device {
+                    DeviceType::CPU => {
+                        scalar.deallocate();
+                    }
+                    DeviceType::GPU { device_id } => {
+                        gpu_allocator
+                            .as_mut()
+                            .unwrap()
+                            .get_mut(&device_id)
+                            .unwrap()
+                            .statik
+                            .free(scalar.value);
+                    }
+                    _ => unimplemented!(),
                 }
-                _ => unimplemented!(),
-            },
+            }
             Variable::Any(any) => {
                 // deallocate the payload
                 any.dealloc();
             }
             Variable::GpuBuffer(gpu_buffer) => {
                 let device_id = gpu_buffer.device.unwrap_gpu();
-                gpu_allocator
-                    .as_mut()
-                    .unwrap()
-                    .get_mut(&device_id)
-                    .unwrap()
-                    .statik
-                    .free(gpu_buffer.ptr);
+                match alloc_method {
+                    AllocVariant::Offset => {
+                        gpu_allocator
+                            .as_mut()
+                            .unwrap()
+                            .get_mut(&device_id)
+                            .unwrap()
+                            .statik
+                            .free(gpu_buffer.ptr);
+                    }
+                    AllocVariant::Paged => {
+                        // For now, we don't unmap pages
+                    }
+                    otherwise => {
+                        unsupported_alloc_variant(otherwise, DeviceType::GPU { device_id })
+                    }
+                }
             }
         }
     }
