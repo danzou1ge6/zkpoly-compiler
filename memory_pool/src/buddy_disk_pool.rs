@@ -859,7 +859,7 @@ pub fn gpu_write_to_disk(
                 let res = cuFileWrite(
                     file_handle,
                     ptr as *const c_void,
-                    size,
+                    part_size,
                     offset as i64,
                     cpu_offset as i64,
                 );
@@ -897,7 +897,7 @@ pub fn gpu_read_from_disk(
                 let res = cuFileRead(
                     file_handle,
                     ptr as *mut c_void,
-                    size,
+                    part_size,
                     offset as i64,
                     cpu_offset as i64,
                 );
