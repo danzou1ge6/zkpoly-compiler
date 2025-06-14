@@ -1,3 +1,4 @@
+use core::panic;
 use std::{
     ops::{Index, IndexMut},
     ptr::copy_nonoverlapping,
@@ -10,9 +11,14 @@ use zkpoly_cuda_api::{
     mem::{alloc_pinned, free_pinned},
     stream::CudaStream,
 };
-use zkpoly_memory_pool::{BuddyDiskPool, CpuMemoryPool};
+use zkpoly_memory_pool::{
+    buddy_disk_pool::{
+        cpu_read_from_disk, cpu_write_to_disk, gpu_read_from_disk, gpu_write_to_disk, DiskAllocInfo,
+    },
+    BuddyDiskPool, CpuMemoryPool,
+};
 
-use crate::{devices::{read_from_disk, write_to_disk}, runtime::transfer::Transfer};
+use crate::runtime::transfer::Transfer;
 
 #[derive(Clone)]
 pub struct Scalar<F: Field> {
@@ -149,7 +155,7 @@ pub struct ScalarArray<F: Field> {
     pub(crate) rotate: i64, // the i64 is just to support neg during add, when getting rotate, we can safely assume it is positive
     pub device: DeviceType,
     pub slice_info: Option<ScalarSlice>,
-    pub disk_pos: Vec<(i32, usize)>, // if the poly is stored on disk, this is the offset of each part in each file, (fd, offset)
+    pub disk_pos: Vec<DiskAllocInfo>, // if the poly is stored on disk, this is the offset of each part in each file, (fd, offset)
 }
 
 impl<F: Field> std::fmt::Debug for ScalarArray<F> {
@@ -228,7 +234,7 @@ impl<F: Field> ScalarArray<F> {
             .iter_mut()
             .map(|pool| {
                 let pos = pool.allocate(part_len * size_of::<F>()).unwrap();
-                (pool.get_fd() as i32, pos)
+                DiskAllocInfo::new(pos, pool)
             })
             .collect::<Vec<_>>();
         Self {
@@ -619,7 +625,9 @@ impl<F: Field> Transfer for ScalarArray<F> {
                 == DeviceType::GPU {
                     device_id: stream.get_device()
                 },
-            "target device {:?} is not GPU with stream device {}", target.device, stream.get_device()
+            "target device {:?} is not GPU with stream device {}",
+            target.device,
+            stream.get_device()
         );
 
         let shift = self.get_shift(target);
@@ -1024,7 +1032,11 @@ impl<F: Field> Transfer for ScalarArray<F> {
         assert_eq!(self.rotate, target.rotate);
         assert!(self.slice_info.is_none());
         assert!(target.slice_info.is_none());
-        write_to_disk(self.values as *const u8, &target.disk_pos, self.len * size_of::<F>());
+        cpu_write_to_disk(
+            self.values as *const u8,
+            &target.disk_pos,
+            self.len * size_of::<F>(),
+        );
     }
 
     fn disk2cpu(&self, target: &mut Self) {
@@ -1033,7 +1045,45 @@ impl<F: Field> Transfer for ScalarArray<F> {
         assert_eq!(self.rotate, target.rotate);
         assert!(self.slice_info.is_none());
         assert!(target.slice_info.is_none());
-        read_from_disk(target.values as *mut u8, &self.disk_pos, self.len * size_of::<F>());
+        cpu_read_from_disk(
+            target.values as *mut u8,
+            &self.disk_pos,
+            self.len * size_of::<F>(),
+        );
+    }
+
+    fn gpu2disk(&self, target: &mut Self) {
+        if let DeviceType::GPU { device_id } = self.device {
+            assert_eq!(target.device, DeviceType::Disk);
+            assert_eq!(self.rotate, target.rotate);
+            assert!(self.slice_info.is_none());
+            assert!(target.slice_info.is_none());
+            gpu_write_to_disk(
+                self.values as *const u8,
+                &target.disk_pos,
+                self.len * size_of::<F>(),
+                device_id,
+            );
+        } else {
+            panic!("gpu2disk is only supported for GPU arrays");
+        }
+    }
+
+    fn disk2gpu(&self, target: &mut Self) {
+        if let DeviceType::GPU { device_id } = target.device {
+            assert_eq!(self.device, DeviceType::Disk);
+            assert_eq!(self.rotate, target.rotate);
+            assert!(self.slice_info.is_none());
+            assert!(target.slice_info.is_none());
+            gpu_read_from_disk(
+                target.values as *mut u8,
+                &self.disk_pos,
+                self.len * size_of::<F>(),
+                device_id,
+            );
+        } else {
+            panic!("disk2gpu is only supported for GPU arrays");
+        }
     }
 }
 
@@ -1044,7 +1094,10 @@ fn test_tranfer_cpu_disk() {
 
     use halo2curves::bn256::Fr as F;
     let mut cpu_pool = CpuMemoryPool::new(10, size_of::<F>());
-    let mut disk_pool = vec![BuddyDiskPool::new(2usize.pow(28), 2048).unwrap(), BuddyDiskPool::new(2usize.pow(28), 2048).unwrap()];
+    let mut disk_pool = vec![
+        BuddyDiskPool::new(2usize.pow(28), 2048).unwrap(),
+        BuddyDiskPool::new(2usize.pow(28), 2048).unwrap(),
+    ];
     let mut array1 = ScalarArray::<F>::alloc_cpu(1024, &mut cpu_pool);
     array1.iter_mut().enumerate().for_each(|(i, v)| {
         *v = F::from(i as u64);
@@ -1056,4 +1109,50 @@ fn test_tranfer_cpu_disk() {
     for i in 0..1024 {
         assert_eq!(array1[i], array3[i]);
     }
+}
+
+#[test]
+fn test_transfer_gpu_disk() {
+    use zkpoly_memory_pool::BuddyDiskPool;
+    use zkpoly_memory_pool::CpuMemoryPool;
+    use zkpoly_cuda_api::mem::page_allocator::CudaPageAllocator;
+
+    use halo2curves::bn256::Fr as F;
+    let mut cpu_pool = CpuMemoryPool::new(10, size_of::<F>());
+    let mut disk_pool = vec![
+        BuddyDiskPool::new(2usize.pow(28), 2048).unwrap(),
+        BuddyDiskPool::new(2usize.pow(28), 2048).unwrap(),
+    ];
+    let gpu_pool = CudaPageAllocator::new(DeviceType::GPU { device_id: 0}, 1024*1024*2, 2);
+    let mut array1 = ScalarArray::<F>::alloc_cpu(1024, &mut cpu_pool);
+    array1.iter_mut().enumerate().for_each(|(i, v)| {
+        *v = F::from(i as u64);
+    });
+    let mut array2 = ScalarArray::<F>::alloc_disk(1024, &mut disk_pool);
+    array1.cpu2disk(&mut array2);
+
+    // Simulate GPU transfer
+    let stream = CudaStream::new(0);
+    let ptr_gpu: *mut F = gpu_pool.allocate(1024 * 1024 * 2, vec![0]);
+    let mut array3 = ScalarArray::<F>::new(1024, ptr_gpu, DeviceType::GPU { device_id: 0 });
+    array2.disk2gpu(&mut array3);
+    
+    let mut array4 = ScalarArray::<F>::alloc_cpu(1024, &mut cpu_pool);
+    array3.gpu2cpu(&mut array4, &stream);
+
+    stream.sync();
+    
+    for i in 0..1024 {
+        assert_eq!(array1[i], array4[i]);
+    }
+    
+    // Simulate GPU transfer back to Disk
+    let mut array5 = ScalarArray::<F>::alloc_disk(1024, &mut disk_pool);
+    array4.cpu2disk(&mut array5);
+    let mut array6 = ScalarArray::<F>::alloc_cpu(1024, &mut cpu_pool);
+    array5.disk2cpu(&mut array6);
+    for i in 0..1024 {
+        assert_eq!(array1[i], array6[i]);
+    }
+
 }
