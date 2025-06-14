@@ -1,13 +1,13 @@
 use std::ops::Index;
 
-use crate::{devices::{read_from_disk, write_to_disk}, runtime::transfer::Transfer};
+use crate::runtime::transfer::Transfer;
 use halo2curves::CurveAffine;
 use zkpoly_common::devices::DeviceType;
 use zkpoly_cuda_api::{
     mem::{alloc_pinned, free_pinned},
     stream::CudaStream,
 };
-use zkpoly_memory_pool::{BuddyDiskPool, CpuMemoryPool};
+use zkpoly_memory_pool::{buddy_disk_pool::{cpu_read_from_disk, cpu_write_to_disk, DiskAllocInfo}, BuddyDiskPool, CpuMemoryPool};
 
 #[derive(Clone)]
 pub struct Point<P: CurveAffine> {
@@ -56,7 +56,7 @@ pub struct PointArray<P: CurveAffine> {
     pub values: *mut P,
     pub len: usize,
     pub device: DeviceType,
-    pub disk_pos: Vec<(i32, usize)>, // if the poly is stored on disk, this is the offset of each part in each file, (fd, offset)
+    pub disk_pos: Vec<DiskAllocInfo>, // if the poly is stored on disk, this is the offset of each part in each file, (fd, offset)
 }
 
 unsafe impl<P: CurveAffine> Send for PointArray<P> {}
@@ -106,7 +106,7 @@ impl<P: CurveAffine> PointArray<P> {
             .iter_mut()
             .map(|pool| {
                 let pos = pool.allocate(part_len * size_of::<P>()).unwrap();
-                (pool.get_fd() as i32, pos)
+                DiskAllocInfo::new(pos, pool)
             })
             .collect::<Vec<_>>();
         Self {
@@ -194,14 +194,22 @@ impl<P: CurveAffine> Transfer for PointArray<P> {
         assert_eq!(self.device, DeviceType::CPU);
         assert_eq!(target.device, DeviceType::Disk);
         assert_eq!(self.len, target.len);
-        write_to_disk(self.values as *const u8, &target.disk_pos, self.len * size_of::<P>());
+        cpu_write_to_disk(
+            self.values as *const u8,
+            &target.disk_pos,
+            self.len * size_of::<P>(),
+        );
     }
 
     fn disk2cpu(&self, target: &mut Self) {
         assert_eq!(self.device, DeviceType::Disk);
         assert_eq!(target.device, DeviceType::CPU);
         assert_eq!(self.len, target.len);
-        read_from_disk(target.values as *mut u8, &self.disk_pos, self.len * size_of::<P>());
+        cpu_read_from_disk(
+            target.values as *mut u8,
+            &self.disk_pos,
+            self.len * size_of::<P>(),
+        );
     }
 }
 

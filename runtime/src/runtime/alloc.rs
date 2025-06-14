@@ -224,9 +224,9 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                             .unwrap()
                             .iter_mut()
                             .zip(poly.disk_pos.iter())
-                            .for_each(|(disk_pool, (_, offset))| {
+                            .for_each(|(disk_pool, dai)| {
                                 disk_pool
-                                    .deallocate(*offset, bytes)
+                                    .deallocate(dai.offset, bytes)
                                     .expect("deallocation failed");
                             });
                     }

@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io;
+use std::os::raw::c_void;
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::io::AsRawFd;
 use std::path::PathBuf;
@@ -12,6 +13,12 @@ use libc;
 use nix::fcntl::{self, OFlag};
 use nix::sys::{statfs, uio};
 use nix::unistd;
+use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use zkpoly_cuda_api::bindings::{
+    cuFileHandleDeregister, cuFileRead, cuFileWrite, cudaSetDevice, CUfileDescr_t, CUfileHandle_t,
+};
+use zkpoly_cuda_api::cuda_check;
+use zkpoly_cuda_api::file::register_cufile;
 
 #[derive(Debug)]
 pub enum BuddyDiskPoolError {
@@ -85,20 +92,43 @@ pub type DiskMemoryPool = Vec<BuddyDiskPool>;
 pub struct BuddyDiskPool {
     file: File,
     file_path: PathBuf, // To aid in debugging or potential re-opening
-    _temp_dir_handle: tempfile::TempDir,
+    temp_dir_handle: Option<tempfile::TempDir>,
+    _cu_file_descr: CUfileDescr_t, // cuFile descriptor for GPU direct I/O
+    cu_file_handle: CUfileHandle_t, // cuFile handle for GPU direct I/O
 
     slabs: Vec<DiskSlabInfo>,
     free_slab_info_indices: Vec<usize>,
     slab_layers: Vec<SlabLayerInfo>,
-    
+
     // Maps an allocated offset to its DiskSlabInfo index in slabs.
-    active_allocations: HashMap<usize, usize>, 
+    active_allocations: HashMap<usize, usize>,
 
     capacity: usize,         // Total usable capacity, aligned to system_alignment
     system_alignment: usize, // Alignment required by O_DIRECT and filesystem
     min_block_size: usize,   // Smallest allocatable block size, aligned to system_alignment
     max_log_factor: u32,     // Max log_factor relative to min_block_size
                              // num_levels = max_log_factor + 1
+}
+
+#[derive(Debug, Clone)]
+pub struct DiskAllocInfo {
+    pub offset: usize, // offset in the file where the allocation starts
+    pub fd: i32,       // file descriptor of the disk pool file
+    pub cu_file_handle: CUfileHandle_t, // cuFile handle for GPU direct I/O
+}
+
+// Safety: cuFile api is thread-safe
+unsafe impl Send for DiskAllocInfo {}
+unsafe impl Sync for DiskAllocInfo {}
+
+impl DiskAllocInfo {
+    pub fn new(offset: usize, disk_pool: &BuddyDiskPool) -> Self {
+        DiskAllocInfo {
+            offset,
+            fd: disk_pool.get_fd(),
+            cu_file_handle: disk_pool.cu_file_handle,
+        }
+    }
 }
 
 // Wrap mutable parts in a Mutex if BuddyDiskPool needs to be Sync
@@ -111,16 +141,37 @@ impl BuddyDiskPool {
     pub fn get_alignment(&self) -> usize {
         self.system_alignment
     }
-    
-    pub fn new(total_capacity_request: usize, min_block_size_request: usize) -> Result<Self, BuddyDiskPoolError> {
+
+    /// keep the temporary directory and its contents (including the pool file)
+    pub fn keep(&mut self) -> PathBuf {
+        self.temp_dir_handle.take().unwrap().keep()
+    }
+
+    pub fn new(
+        total_capacity_request: usize,
+        min_block_size_request: usize,
+        tmp_dir: Option<PathBuf>, // Temporary directory for the pool file
+    ) -> Result<Self, BuddyDiskPoolError> {
         if total_capacity_request == 0 {
-            return Err(BuddyDiskPoolError::InvalidCapacity("Total capacity request cannot be zero.".to_string()));
+            return Err(BuddyDiskPoolError::InvalidCapacity(
+                "Total capacity request cannot be zero.".to_string(),
+            ));
         }
         if min_block_size_request == 0 {
-            return Err(BuddyDiskPoolError::InvalidMinBlockSize("Min block size request cannot be zero.".to_string()));
+            return Err(BuddyDiskPoolError::InvalidMinBlockSize(
+                "Min block size request cannot be zero.".to_string(),
+            ));
         }
 
-        let temp_dir = tempfile::Builder::new().prefix("buddy_disk_pool_").tempdir()?;
+        let temp_dir = if tmp_dir.is_some() {
+            tempfile::Builder::new()
+                .prefix("buddy_disk_pool_")
+                .tempdir_in(tmp_dir.unwrap())?
+        } else {
+            tempfile::Builder::new()
+                .prefix("buddy_disk_pool_")
+                .tempdir()?
+        };
         let file_path = temp_dir.path().join("buddy_pool.dat");
 
         let file = OpenOptions::new()
@@ -130,7 +181,9 @@ impl BuddyDiskPool {
             .truncate(true)
             .custom_flags(libc::O_DIRECT)
             .open(&file_path)
-            .map_err(|e| BuddyDiskPoolError::FileOpenError(format!("Failed to open {:?}: {}", file_path, e)))?;
+            .map_err(|e| {
+                BuddyDiskPoolError::FileOpenError(format!("Failed to open {:?}: {}", file_path, e))
+            })?;
 
         let system_alignment = match statfs::fstatfs(&file) {
             Ok(fs_stat) => fs_stat.block_size() as usize,
@@ -138,17 +191,28 @@ impl BuddyDiskPool {
         };
 
         if system_alignment == 0 || !system_alignment.is_power_of_two() {
-            return Err(BuddyDiskPoolError::AlignmentError(format!("Invalid system alignment {}", system_alignment)));
+            return Err(BuddyDiskPoolError::AlignmentError(format!(
+                "Invalid system alignment {}",
+                system_alignment
+            )));
         }
 
-        let min_block_size = (min_block_size_request + system_alignment - 1) / system_alignment * system_alignment;
+        let min_block_size =
+            (min_block_size_request + system_alignment - 1) / system_alignment * system_alignment;
         if min_block_size == 0 {
-             return Err(BuddyDiskPoolError::InvalidMinBlockSize(format!("Requested min_block_size {} is too small to be aligned to {}", min_block_size_request, system_alignment)));
+            return Err(BuddyDiskPoolError::InvalidMinBlockSize(format!(
+                "Requested min_block_size {} is too small to be aligned to {}",
+                min_block_size_request, system_alignment
+            )));
         }
-        if min_block_size > total_capacity_request && total_capacity_request > 0 { // allow total_capacity_request = 0 for now, though earlier check catches it
-             return Err(BuddyDiskPoolError::InvalidMinBlockSize(format!("Min block size {} cannot be greater than total capacity request {}", min_block_size, total_capacity_request)));
+        if min_block_size > total_capacity_request && total_capacity_request > 0 {
+            // allow total_capacity_request = 0 for now, though earlier check catches it
+            return Err(BuddyDiskPoolError::InvalidMinBlockSize(format!(
+                "Min block size {} cannot be greater than total capacity request {}",
+                min_block_size, total_capacity_request
+            )));
         }
-        
+
         // Capacity must be a multiple of min_block_size for the buddy system to perfectly cover it.
         // And also a multiple of system_alignment for fallocate.
         let num_min_blocks_in_capacity = total_capacity_request / min_block_size;
@@ -157,26 +221,42 @@ impl BuddyDiskPool {
         // So, capacity will be system_aligned.
 
         if capacity == 0 && total_capacity_request > 0 {
-             return Err(BuddyDiskPoolError::InvalidCapacity(format!("Adjusted capacity is zero. Original request: {}, MinBlock: {}. Num min blocks: {}", total_capacity_request, min_block_size, num_min_blocks_in_capacity)));
+            return Err(BuddyDiskPoolError::InvalidCapacity(format!(
+                "Adjusted capacity is zero. Original request: {}, MinBlock: {}. Num min blocks: {}",
+                total_capacity_request, min_block_size, num_min_blocks_in_capacity
+            )));
         }
 
         if capacity > 0 {
-            fcntl::fallocate(&file, fcntl::FallocateFlags::empty(), 0, capacity as libc::off_t)
-                .map_err(|e| BuddyDiskPoolError::FallocateError(format!("fallocate failed for size {}: {}", capacity, e)))?;
+            fcntl::fallocate(
+                &file,
+                fcntl::FallocateFlags::empty(),
+                0,
+                capacity as libc::off_t,
+            )
+            .map_err(|e| {
+                BuddyDiskPoolError::FallocateError(format!(
+                    "fallocate failed for size {}: {}",
+                    capacity, e
+                ))
+            })?;
         }
-        
+
         let max_log_factor = if capacity >= min_block_size {
             (capacity / min_block_size).checked_ilog2().unwrap_or(0)
         } else {
             0 // Should be caught by capacity == 0 check if min_block_size > 0
         };
-        
+
         let num_layers = (max_log_factor + 1) as usize;
+
+        // now we need to register the file to cuFile for GPU direct I/O
+        let (cu_file_descr, cu_file_handle) = register_cufile(&file);
 
         let mut pool = Self {
             file,
             file_path,
-            _temp_dir_handle: temp_dir,
+            temp_dir_handle: Some(temp_dir),
             slabs: Vec::new(),
             free_slab_info_indices: Vec::new(),
             slab_layers: vec![SlabLayerInfo::default(); num_layers],
@@ -185,6 +265,8 @@ impl BuddyDiskPool {
             system_alignment,
             min_block_size,
             max_log_factor,
+            _cu_file_descr: cu_file_descr,
+            cu_file_handle,
         };
 
         // Initialize free list with top-level blocks covering the capacity
@@ -193,14 +275,16 @@ impl BuddyDiskPool {
             let mut current_offset = 0;
             for lf in (0..=max_log_factor).rev() {
                 let block_size_at_lf = pool.min_block_size * (1 << lf);
-                if block_size_at_lf == 0 { continue; } // Should not happen if min_block_size > 0
+                if block_size_at_lf == 0 {
+                    continue;
+                } // Should not happen if min_block_size > 0
 
                 while remaining_cap >= block_size_at_lf {
                     let slab_idx = pool.obtain_slab_info_index(current_offset, lf, None);
                     // pool.slabs[slab_idx].free is true by default from new()
                     pool.layer_insert_all(lf, slab_idx);
                     pool.layer_insert_free(lf, slab_idx);
-                    
+
                     current_offset += block_size_at_lf;
                     remaining_cap -= block_size_at_lf;
                 }
@@ -209,12 +293,18 @@ impl BuddyDiskPool {
         Ok(pool)
     }
 
-    fn obtain_slab_info_index(&mut self, offset: usize, log_factor: u32, parent_idx: Option<usize>) -> usize {
+    fn obtain_slab_info_index(
+        &mut self,
+        offset: usize,
+        log_factor: u32,
+        parent_idx: Option<usize>,
+    ) -> usize {
         if let Some(idx) = self.free_slab_info_indices.pop() {
             self.slabs[idx] = DiskSlabInfo::new(offset, log_factor, parent_idx);
             idx
         } else {
-            self.slabs.push(DiskSlabInfo::new(offset, log_factor, parent_idx));
+            self.slabs
+                .push(DiskSlabInfo::new(offset, log_factor, parent_idx));
             self.slabs.len() - 1
         }
     }
@@ -229,7 +319,9 @@ impl BuddyDiskPool {
         let layer_info = &mut self.slab_layers[log_factor as usize];
         match layer_info.head_all_idx {
             Some(head_idx) => {
-                let head_prev_idx = self.slabs[head_idx].prev_in_layer.expect("Head of 'all' list must have a prev pointer");
+                let head_prev_idx = self.slabs[head_idx]
+                    .prev_in_layer
+                    .expect("Head of 'all' list must have a prev pointer");
                 self.slabs[slab_idx].next_in_layer = Some(head_idx);
                 self.slabs[slab_idx].prev_in_layer = Some(head_prev_idx);
                 self.slabs[head_idx].prev_in_layer = Some(slab_idx);
@@ -248,7 +340,8 @@ impl BuddyDiskPool {
             let slab_to_remove = &self.slabs[slab_idx];
             (slab_to_remove.next_in_layer, slab_to_remove.prev_in_layer)
         };
-        if slab_next_opt == Some(slab_idx) { // Only element
+        if slab_next_opt == Some(slab_idx) {
+            // Only element
             self.slab_layers[log_factor as usize].head_all_idx = None;
         } else {
             let next_s_idx = slab_next_opt.expect("Slab in list must have next pointer");
@@ -273,7 +366,9 @@ impl BuddyDiskPool {
         let layer_info = &mut self.slab_layers[log_factor as usize];
         match layer_info.head_free_idx {
             Some(head_idx) => {
-                let head_prev_idx = self.slabs[head_idx].prev_free_in_layer.expect("Head of 'free' list must have a prev pointer");
+                let head_prev_idx = self.slabs[head_idx]
+                    .prev_free_in_layer
+                    .expect("Head of 'free' list must have a prev pointer");
                 self.slabs[slab_idx].next_free_in_layer = Some(head_idx);
                 self.slabs[slab_idx].prev_free_in_layer = Some(head_prev_idx);
                 self.slabs[head_idx].prev_free_in_layer = Some(slab_idx);
@@ -291,20 +386,41 @@ impl BuddyDiskPool {
         let (slab_next_opt, slab_prev_opt) = {
             let slab_to_remove = &self.slabs[slab_idx];
             // assert!(slab_to_remove.free, "Slab being removed from free list should be free");
-            (slab_to_remove.next_free_in_layer, slab_to_remove.prev_free_in_layer)
+            (
+                slab_to_remove.next_free_in_layer,
+                slab_to_remove.prev_free_in_layer,
+            )
         };
-         if slab_next_opt.is_none() && slab_prev_opt.is_none() && self.slab_layers[log_factor as usize].head_free_idx != Some(slab_idx) {
+        if slab_next_opt.is_none()
+            && slab_prev_opt.is_none()
+            && self.slab_layers[log_factor as usize].head_free_idx != Some(slab_idx)
+        {
             // Not in the free list, or list is corrupted. This can happen if already removed.
             // This function should be idempotent or ensure it's only called once.
-            return; 
+            return;
         }
 
-        if slab_next_opt == Some(slab_idx) { // Only element
+        if slab_next_opt == Some(slab_idx) {
+            // Only element
             self.slab_layers[log_factor as usize].head_free_idx = None;
         } else {
             // These expects will panic if the slab was not actually in a list.
-            let next_s_idx = slab_next_opt.ok_or_else(|| BuddyDiskPoolError::InternalError(format!("Slab {} (lf {}) not in free list (no next_free_in_layer)", slab_idx, log_factor))).unwrap(); // TODO: Return Result
-            let prev_s_idx = slab_prev_opt.ok_or_else(|| BuddyDiskPoolError::InternalError(format!("Slab {} (lf {}) not in free list (no prev_free_in_layer)", slab_idx, log_factor))).unwrap(); // TODO: Return Result
+            let next_s_idx = slab_next_opt
+                .ok_or_else(|| {
+                    BuddyDiskPoolError::InternalError(format!(
+                        "Slab {} (lf {}) not in free list (no next_free_in_layer)",
+                        slab_idx, log_factor
+                    ))
+                })
+                .unwrap(); // TODO: Return Result
+            let prev_s_idx = slab_prev_opt
+                .ok_or_else(|| {
+                    BuddyDiskPoolError::InternalError(format!(
+                        "Slab {} (lf {}) not in free list (no prev_free_in_layer)",
+                        slab_idx, log_factor
+                    ))
+                })
+                .unwrap(); // TODO: Return Result
 
             self.slabs[next_s_idx].prev_free_in_layer = Some(prev_s_idx);
             self.slabs[prev_s_idx].next_free_in_layer = Some(next_s_idx);
@@ -315,7 +431,7 @@ impl BuddyDiskPool {
         self.slabs[slab_idx].next_free_in_layer = None;
         self.slabs[slab_idx].prev_free_in_layer = None;
     }
-    
+
     fn get_first_free_slab_in_layer(&self, log_factor: u32) -> Option<usize> {
         if (log_factor as usize) < self.slab_layers.len() {
             self.slab_layers[log_factor as usize].head_free_idx
@@ -327,14 +443,25 @@ impl BuddyDiskPool {
     /// Splits a parent slab to create children at `child_log_factor`.
     fn split_slab(&mut self, parent_log_factor: u32) -> Result<(usize, usize), BuddyDiskPoolError> {
         if parent_log_factor == 0 {
-            return Err(BuddyDiskPoolError::InternalError("Cannot split slab of log_factor 0".to_string()));
+            return Err(BuddyDiskPoolError::InternalError(
+                "Cannot split slab of log_factor 0".to_string(),
+            ));
         }
         if parent_log_factor > self.max_log_factor {
-             return Err(BuddyDiskPoolError::InternalError(format!("Cannot split from log_factor {} > max_log_factor {}", parent_log_factor, self.max_log_factor)));
+            return Err(BuddyDiskPoolError::InternalError(format!(
+                "Cannot split from log_factor {} > max_log_factor {}",
+                parent_log_factor, self.max_log_factor
+            )));
         }
 
-        let parent_slab_idx = self.get_first_free_slab_in_layer(parent_log_factor)
-            .ok_or_else(|| BuddyDiskPoolError::InternalError(format!("No free slab to split at log_factor {}", parent_log_factor)))?;
+        let parent_slab_idx = self
+            .get_first_free_slab_in_layer(parent_log_factor)
+            .ok_or_else(|| {
+                BuddyDiskPoolError::InternalError(format!(
+                    "No free slab to split at log_factor {}",
+                    parent_log_factor
+                ))
+            })?;
 
         self.slabs[parent_slab_idx].free = false;
         self.layer_remove_free(parent_log_factor, parent_slab_idx);
@@ -346,9 +473,11 @@ impl BuddyDiskPool {
         let lchild_offset = parent_offset;
         let rchild_offset = parent_offset + child_actual_size;
 
-        let lchild_idx = self.obtain_slab_info_index(lchild_offset, child_log_factor, Some(parent_slab_idx));
-        let rchild_idx = self.obtain_slab_info_index(rchild_offset, child_log_factor, Some(parent_slab_idx));
-        
+        let lchild_idx =
+            self.obtain_slab_info_index(lchild_offset, child_log_factor, Some(parent_slab_idx));
+        let rchild_idx =
+            self.obtain_slab_info_index(rchild_offset, child_log_factor, Some(parent_slab_idx));
+
         self.slabs[parent_slab_idx].lchild = Some(lchild_idx);
         self.slabs[parent_slab_idx].rchild = Some(rchild_idx);
 
@@ -360,7 +489,7 @@ impl BuddyDiskPool {
         self.layer_insert_all(child_log_factor, rchild_idx);
         self.layer_insert_free(child_log_factor, lchild_idx);
         self.layer_insert_free(child_log_factor, rchild_idx);
-        
+
         Ok((lchild_idx, rchild_idx))
     }
 
@@ -383,19 +512,22 @@ impl BuddyDiskPool {
         self.ensure_free_slab_exists(log_factor + 1)?;
         // Now, a free slab at log_factor + 1 must exist. Split it.
         let (lchild_idx, _rchild_idx) = self.split_slab(log_factor + 1)?;
-        
+
         // The split ensures lchild_idx is at `log_factor` and is free.
         // `split_slab` adds children to free list.
         Ok(lchild_idx) // Or rchild_idx, or whichever one is desired. Usually lchild.
     }
-    
+
     /// Calculates the required log_factor for a given size.
     fn get_target_log_factor(&self, size_bytes: usize) -> Result<u32, BuddyDiskPoolError> {
         if size_bytes == 0 {
-            return Err(BuddyDiskPoolError::InvalidSize("Allocation size cannot be zero.".to_string()));
+            return Err(BuddyDiskPoolError::InvalidSize(
+                "Allocation size cannot be zero.".to_string(),
+            ));
         }
-        if size_bytes > self.capacity { // Check against total pool capacity
-             return Err(BuddyDiskPoolError::OutOfMemory);
+        if size_bytes > self.capacity {
+            // Check against total pool capacity
+            return Err(BuddyDiskPoolError::OutOfMemory);
         }
         // Smallest block that can contain size_bytes
         let num_min_chunks = (size_bytes + self.min_block_size - 1) / self.min_block_size;
@@ -419,7 +551,9 @@ impl BuddyDiskPool {
         if size_bytes == 0 {
             // Or return a special offset like 0 with size 0, if that's meaningful.
             // For now, error on zero size.
-            return Err(BuddyDiskPoolError::InvalidSize("Cannot allocate zero bytes.".to_string()));
+            return Err(BuddyDiskPoolError::InvalidSize(
+                "Cannot allocate zero bytes.".to_string(),
+            ));
         }
         // User does not specify alignment, pool uses its system_alignment internally for all O_DIRECT ops.
         // The size_bytes itself doesn't need to be pre-aligned by user, but the allocated block will be.
@@ -444,7 +578,7 @@ impl BuddyDiskPool {
         if current_log_factor == self.max_log_factor {
             return Ok(()); // Cannot merge beyond max_log_factor
         }
-        
+
         if let Some(parent_idx) = parent_idx_opt {
             let (lchild_idx_opt, rchild_idx_opt) = {
                 let parent_slab = &self.slabs[parent_idx];
@@ -463,7 +597,7 @@ impl BuddyDiskPool {
                     self.layer_remove_free(child_lf, ridx);
                     self.layer_remove_all(child_lf, ridx);
                     self.release_slab_info_index(ridx);
-                    
+
                     let parent_mut_slab = &mut self.slabs[parent_idx];
                     parent_mut_slab.lchild = None;
                     parent_mut_slab.rchild = None;
@@ -475,18 +609,30 @@ impl BuddyDiskPool {
                     return self.try_merge(parent_idx);
                 }
             } else {
-                return Err(BuddyDiskPoolError::InternalError(format!("Parent slab {} is missing child information during merge attempt for slab {}.", parent_idx, slab_idx)));
+                return Err(BuddyDiskPoolError::InternalError(format!(
+                    "Parent slab {} is missing child information during merge attempt for slab {}.",
+                    parent_idx, slab_idx
+                )));
             }
         }
         Ok(())
     }
 
-    pub fn deallocate(&mut self, offset: usize, size_bytes: usize) -> Result<(), BuddyDiskPoolError> {
+    pub fn deallocate(
+        &mut self,
+        offset: usize,
+        size_bytes: usize,
+    ) -> Result<(), BuddyDiskPoolError> {
         if size_bytes == 0 {
-             return Err(BuddyDiskPoolError::InvalidSize("Cannot deallocate zero bytes.".to_string()));
+            return Err(BuddyDiskPoolError::InvalidSize(
+                "Cannot deallocate zero bytes.".to_string(),
+            ));
         }
         let slab_idx = self.active_allocations.remove(&offset).ok_or_else(|| {
-            BuddyDiskPoolError::BlockNotFound(format!("Offset {} not found in active allocations or already deallocated.", offset))
+            BuddyDiskPoolError::BlockNotFound(format!(
+                "Offset {} not found in active allocations or already deallocated.",
+                offset
+            ))
         })?;
 
         // Verify size matches allocated block's effective size (optional, but good for safety)
@@ -500,7 +646,7 @@ impl BuddyDiskPool {
 
         self.slabs[slab_idx].free = true;
         self.layer_insert_free(allocated_log_factor, slab_idx);
-        
+
         self.try_merge(slab_idx)?; // Start merge attempt from the deallocated slab itself (it will look at its parent)
 
         Ok(())
@@ -512,25 +658,48 @@ impl BuddyDiskPool {
     /// Buffer address must also meet O_DIRECT alignment.
     pub fn read(&self, offset: usize, buffer: &mut [u8]) -> Result<(), BuddyDiskPoolError> {
         if offset % self.system_alignment != 0 {
-            return Err(BuddyDiskPoolError::AlignmentError(format!("Read offset {} is not aligned to system alignment {}", offset, self.system_alignment)));
+            return Err(BuddyDiskPoolError::AlignmentError(format!(
+                "Read offset {} is not aligned to system alignment {}",
+                offset, self.system_alignment
+            )));
         }
         if buffer.len() == 0 {
             return Ok(()); // Reading zero bytes is a no-op
         }
         if buffer.len() % self.system_alignment != 0 {
-            return Err(BuddyDiskPoolError::AlignmentError(format!("Read buffer length {} is not a multiple of system alignment {}", buffer.len(), self.system_alignment)));
+            return Err(BuddyDiskPoolError::AlignmentError(format!(
+                "Read buffer length {} is not a multiple of system alignment {}",
+                buffer.len(),
+                self.system_alignment
+            )));
         }
         if buffer.as_ptr() as usize % self.system_alignment != 0 {
-             return Err(BuddyDiskPoolError::AlignmentError(format!("Read buffer address {:p} is not aligned to system alignment {}", buffer.as_ptr(), self.system_alignment)));
+            return Err(BuddyDiskPoolError::AlignmentError(format!(
+                "Read buffer address {:p} is not aligned to system alignment {}",
+                buffer.as_ptr(),
+                self.system_alignment
+            )));
         }
         // Check if offset + buffer.len() is within file capacity
         if offset + buffer.len() > self.capacity {
-            return Err(BuddyDiskPoolError::InvalidOffset(format!("Read request (offset {} + len {}) exceeds pool capacity {}", offset, buffer.len(), self.capacity)));
+            return Err(BuddyDiskPoolError::InvalidOffset(format!(
+                "Read request (offset {} + len {}) exceeds pool capacity {}",
+                offset,
+                buffer.len(),
+                self.capacity
+            )));
         }
 
         match uio::pread(&self.file, buffer, offset as libc::off_t) {
             Ok(bytes_read) if bytes_read == buffer.len() => Ok(()),
-            Ok(bytes_read) => Err(BuddyDiskPoolError::IoError(io::Error::new(io::ErrorKind::Other, format!("Partial read: expected {}, got {}", buffer.len(), bytes_read)))),
+            Ok(bytes_read) => Err(BuddyDiskPoolError::IoError(io::Error::new(
+                io::ErrorKind::Other,
+                format!(
+                    "Partial read: expected {}, got {}",
+                    buffer.len(),
+                    bytes_read
+                ),
+            ))),
             Err(e) => Err(BuddyDiskPoolError::NixError(e)),
         }
     }
@@ -541,42 +710,217 @@ impl BuddyDiskPool {
     /// Buffer address must also meet O_DIRECT alignment.
     pub fn write(&self, offset: usize, buffer: &[u8]) -> Result<(), BuddyDiskPoolError> {
         if offset % self.system_alignment != 0 {
-            return Err(BuddyDiskPoolError::AlignmentError(format!("Write offset {} is not aligned to system alignment {}", offset, self.system_alignment)));
+            return Err(BuddyDiskPoolError::AlignmentError(format!(
+                "Write offset {} is not aligned to system alignment {}",
+                offset, self.system_alignment
+            )));
         }
         if buffer.len() == 0 {
             return Ok(()); // Writing zero bytes is a no-op
         }
         if buffer.len() % self.system_alignment != 0 {
-            return Err(BuddyDiskPoolError::AlignmentError(format!("Write buffer length {} is not a multiple of system alignment {}", buffer.len(), self.system_alignment)));
+            return Err(BuddyDiskPoolError::AlignmentError(format!(
+                "Write buffer length {} is not a multiple of system alignment {}",
+                buffer.len(),
+                self.system_alignment
+            )));
         }
         if buffer.as_ptr() as usize % self.system_alignment != 0 {
-             return Err(BuddyDiskPoolError::AlignmentError(format!("Write buffer address {:p} is not aligned to system alignment {}", buffer.as_ptr(), self.system_alignment)));
+            return Err(BuddyDiskPoolError::AlignmentError(format!(
+                "Write buffer address {:p} is not aligned to system alignment {}",
+                buffer.as_ptr(),
+                self.system_alignment
+            )));
         }
         if offset + buffer.len() > self.capacity {
-            return Err(BuddyDiskPoolError::InvalidOffset(format!("Write request (offset {} + len {}) exceeds pool capacity {}", offset, buffer.len(), self.capacity)));
+            return Err(BuddyDiskPoolError::InvalidOffset(format!(
+                "Write request (offset {} + len {}) exceeds pool capacity {}",
+                offset,
+                buffer.len(),
+                self.capacity
+            )));
         }
-        
-        let mutable_buffer = unsafe { std::slice::from_raw_parts_mut(buffer.as_ptr() as *mut u8, buffer.len()) };
+
+        let mutable_buffer =
+            unsafe { std::slice::from_raw_parts_mut(buffer.as_ptr() as *mut u8, buffer.len()) };
         match uio::pwrite(&self.file, mutable_buffer, offset as libc::off_t) {
             Ok(bytes_written) if bytes_written == buffer.len() => Ok(()),
-            Ok(bytes_written) => Err(BuddyDiskPoolError::IoError(io::Error::new(io::ErrorKind::Other, format!("Partial write: expected {}, got {}", buffer.len(), bytes_written)))),
+            Ok(bytes_written) => Err(BuddyDiskPoolError::IoError(io::Error::new(
+                io::ErrorKind::Other,
+                format!(
+                    "Partial write: expected {}, got {}",
+                    buffer.len(),
+                    bytes_written
+                ),
+            ))),
             Err(e) => Err(BuddyDiskPoolError::NixError(e)),
         }
     }
-    
+
     // --- Getter methods for testing or info ---
-    pub fn system_alignment(&self) -> usize { self.system_alignment }
-    pub fn capacity(&self) -> usize { self.capacity }
-    pub fn min_block_size(&self) -> usize { self.min_block_size }
-    pub fn max_log_factor(&self) -> u32 { self.max_log_factor }
+    pub fn system_alignment(&self) -> usize {
+        self.system_alignment
+    }
+    pub fn capacity(&self) -> usize {
+        self.capacity
+    }
+    pub fn min_block_size(&self) -> usize {
+        self.min_block_size
+    }
+    pub fn max_log_factor(&self) -> u32 {
+        self.max_log_factor
+    }
 }
 
 impl Drop for BuddyDiskPool {
     fn drop(&mut self) {
+        unsafe { cuFileHandleDeregister(self.cu_file_handle) };
         // The file is closed automatically when `self.file` (File object) is dropped.
         // The temporary directory `self._temp_dir_handle` (TempDir object)
         // and its contents (including our pool file) are removed when it's dropped.
     }
+}
+
+#[derive(Clone, Debug)]
+struct SafePtr<T> {
+    ptr: *const T,
+}
+
+unsafe impl<T> Send for SafePtr<T> {}
+unsafe impl<T> Sync for SafePtr<T> {}
+
+#[derive(Clone, Debug)]
+struct SafePtrMut<T> {
+    ptr: *mut T,
+}
+
+unsafe impl<T> Send for SafePtrMut<T> {}
+unsafe impl<T> Sync for SafePtrMut<T> {}
+
+// Helper functions for reading/writing to disk using O_DIRECT
+pub fn cpu_write_to_disk(ptr: *const u8, disk_pos: &Vec<DiskAllocInfo>, size: usize) {
+    let safe_ptr = SafePtr { ptr };
+    let part_size = size / disk_pos.len();
+    disk_pos
+        .par_iter()
+        .enumerate()
+        .for_each(|(disk_id, alloc_info)| {
+            let safe_ptr_clone = safe_ptr.clone();
+            let ptr = safe_ptr_clone.ptr;
+            let offset = alloc_info.offset.clone();
+            let fd = alloc_info.fd.clone();
+            let cpu_offset = part_size * disk_id;
+
+            unsafe {
+                let res = libc::pwrite(fd, ptr.add(cpu_offset).cast(), part_size, offset as i64);
+                if res < part_size as isize {
+                    panic!(
+                        "Failed to write {} bytes to disk {} at offset {}: {}",
+                        part_size, disk_id, offset, res
+                    );
+                }
+            }
+        });
+}
+
+pub fn cpu_read_from_disk(ptr: *mut u8, disk_pos: &Vec<DiskAllocInfo>, size: usize) {
+    let safe_ptr = SafePtrMut { ptr };
+    let part_size = size / disk_pos.len();
+
+    disk_pos
+        .par_iter()
+        .enumerate()
+        .for_each(|(disk_id, alloc_info)| {
+            let safe_ptr_clone = safe_ptr.clone();
+            let ptr = safe_ptr_clone.ptr;
+            let (fd, offset) = (alloc_info.fd.clone(), alloc_info.offset.clone());
+            let cpu_offset = part_size * disk_id;
+
+            unsafe {
+                let res = libc::pread(fd, ptr.add(cpu_offset).cast(), part_size, offset as i64);
+                if res < part_size as isize {
+                    panic!(
+                        "Failed to read {} bytes from disk {} at offset {}: {}",
+                        part_size, disk_id, offset, res
+                    );
+                }
+            }
+        });
+}
+
+pub fn gpu_write_to_disk(
+    ptr: *const u8,
+    disk_pos: &Vec<DiskAllocInfo>,
+    size: usize,
+    device_id: i32,
+) {
+    let safe_ptr = SafePtr { ptr };
+    let part_size = size / disk_pos.len();
+    disk_pos
+        .par_iter()
+        .enumerate()
+        .for_each(|(disk_id, alloc_info)| {
+            let safe_ptr_clone = safe_ptr.clone();
+            let ptr = safe_ptr_clone.ptr;
+            let offset = alloc_info.offset.clone();
+            let file_handle = alloc_info.cu_file_handle.clone();
+            let cpu_offset = part_size * disk_id;
+
+            unsafe {
+                cuda_check!(cudaSetDevice(device_id));
+                let res = cuFileWrite(
+                    file_handle,
+                    ptr as *const c_void,
+                    part_size,
+                    offset as i64,
+                    cpu_offset as i64,
+                );
+                if res < part_size as isize {
+                    panic!(
+                        "Failed to write {} bytes to disk {} at offset {}: {}",
+                        part_size, disk_id, offset, res
+                    );
+                }
+            }
+        });
+}
+
+pub fn gpu_read_from_disk(
+    ptr: *mut u8,
+    disk_pos: &Vec<DiskAllocInfo>,
+    size: usize,
+    device_id: i32,
+) {
+    let safe_ptr = SafePtrMut { ptr };
+    let part_size = size / disk_pos.len();
+
+    disk_pos
+        .par_iter()
+        .enumerate()
+        .for_each(|(disk_id, alloc_info)| {
+            let safe_ptr_clone = safe_ptr.clone();
+            let ptr = safe_ptr_clone.ptr;
+            let file_handle = alloc_info.cu_file_handle.clone();
+            let offset = alloc_info.offset.clone();
+            let cpu_offset = part_size * disk_id;
+
+            unsafe {
+                cuda_check!(cudaSetDevice(device_id));
+                let res = cuFileRead(
+                    file_handle,
+                    ptr as *mut c_void,
+                    part_size,
+                    offset as i64,
+                    cpu_offset as i64,
+                );
+                if res < part_size as isize {
+                    panic!(
+                        "Failed to read {} bytes from disk {} at offset {}: {}",
+                        part_size, disk_id, offset, res
+                    );
+                }
+            }
+        });
 }
 
 #[cfg(test)]
@@ -585,15 +929,26 @@ mod tests {
     use std::alloc::{alloc, dealloc, Layout};
 
     fn get_system_alignment_for_test() -> usize {
-        let temp_dir = tempfile::Builder::new().prefix("align_test_").tempdir().unwrap();
+        let temp_dir = tempfile::Builder::new()
+            .prefix("align_test_")
+            .tempdir()
+            .unwrap();
         let file_path = temp_dir.path().join("align_test.dat");
-        let file = OpenOptions::new().read(true).write(true).create(true).truncate(true).custom_flags(libc::O_DIRECT).open(&file_path).unwrap();
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .custom_flags(libc::O_DIRECT)
+            .open(&file_path)
+            .unwrap();
         let fs_stat = statfs::fstatfs(&file).unwrap();
         fs_stat.block_size() as usize
     }
-    
+
     fn aligned_vec(size: usize, alignment: usize, fill_val: u8) -> Vec<u8> {
-        let layout = Layout::from_size_align(size, alignment).expect("Failed to create layout for aligned_vec");
+        let layout = Layout::from_size_align(size, alignment)
+            .expect("Failed to create layout for aligned_vec");
         let ptr = unsafe { alloc(layout) };
         if ptr.is_null() {
             panic!("Failed to allocate aligned memory for aligned_vec");
@@ -605,22 +960,23 @@ mod tests {
         vec
     }
 
-
     #[test]
     fn test_buddy_pool_new() {
         let sys_align = get_system_alignment_for_test();
         let min_req = sys_align / 2; // Test rounding up min_block_size
         let cap_req = sys_align * 8 - (sys_align / 2); // Test rounding down capacity
 
-        let pool = BuddyDiskPool::new(cap_req, min_req).unwrap();
+        let pool = BuddyDiskPool::new(cap_req, min_req, None).unwrap();
 
         assert_eq!(pool.system_alignment(), sys_align);
         assert_eq!(pool.min_block_size(), sys_align); // min_req rounded up
-        assert_eq!(pool.capacity(), sys_align * 7);  // cap_req rounded down to multiple of new min_block_size (sys_align)
-                                                     // (sys_align * 8 - sys_align/2) / sys_align = 7 (integer div)
-                                                     // capacity = 7 * sys_align
-        
-        let expected_max_log_factor = (pool.capacity() / pool.min_block_size()).checked_ilog2().unwrap_or(0);
+        assert_eq!(pool.capacity(), sys_align * 7); // cap_req rounded down to multiple of new min_block_size (sys_align)
+                                                    // (sys_align * 8 - sys_align/2) / sys_align = 7 (integer div)
+                                                    // capacity = 7 * sys_align
+
+        let expected_max_log_factor = (pool.capacity() / pool.min_block_size())
+            .checked_ilog2()
+            .unwrap_or(0);
         assert_eq!(pool.max_log_factor, expected_max_log_factor);
 
         // Check initial free list state
@@ -634,7 +990,9 @@ mod tests {
                     assert!(slab.free);
                     total_free_slab_space += pool.min_block_size() * (1 << slab.log_factor);
                     head_idx = slab.next_free_in_layer.unwrap();
-                    if head_idx == start_head_idx { break; }
+                    if head_idx == start_head_idx {
+                        break;
+                    }
                 }
             }
         }
@@ -646,7 +1004,7 @@ mod tests {
         let sys_align = get_system_alignment_for_test();
         let min_b = sys_align;
         let cap = min_b * 16; // 16 min_blocks, max_log_factor = 4
-        let mut pool = BuddyDiskPool::new(cap, min_b).unwrap();
+        let mut pool = BuddyDiskPool::new(cap, min_b, None).unwrap();
 
         // Allocate a block of min_block_size
         let offset1 = pool.allocate(min_b).unwrap();
@@ -671,52 +1029,52 @@ mod tests {
         let sys_align = get_system_alignment_for_test();
         let min_b = sys_align;
         let cap = min_b * 4; // max_log_factor = 2 (blocks of size min_b, 2*min_b, 4*min_b)
-        let mut pool = BuddyDiskPool::new(cap, min_b).unwrap();
-        
+        let mut pool = BuddyDiskPool::new(cap, min_b, None).unwrap();
+
         // Initial state: one block of 4*min_b at log_factor 2, offset 0
         // lf 0: []
         // lf 1: []
         // lf 2: [idx_A(off=0, sz=4*min_b)]
 
         let off1 = pool.allocate(min_b).unwrap(); // Needs lf 0
-        // Split A (lf 2) -> B(lf 1, off=0), C(lf 1, off=2*min_b)
-        // B is used for further split. C is free.
-        // Split B (lf 1) -> D(lf 0, off=0), E(lf 0, off=min_b)
-        // D is allocated (off1). E is free.
-        // State:
-        // lf 0: [idx_E(off=min_b)]
-        // lf 1: [idx_C(off=2*min_b)]
-        // lf 2: []
-        // Active: idx_D(off=0)
+                                                  // Split A (lf 2) -> B(lf 1, off=0), C(lf 1, off=2*min_b)
+                                                  // B is used for further split. C is free.
+                                                  // Split B (lf 1) -> D(lf 0, off=0), E(lf 0, off=min_b)
+                                                  // D is allocated (off1). E is free.
+                                                  // State:
+                                                  // lf 0: [idx_E(off=min_b)]
+                                                  // lf 1: [idx_C(off=2*min_b)]
+                                                  // lf 2: []
+                                                  // Active: idx_D(off=0)
         assert_eq!(off1, 0);
 
         let off2 = pool.allocate(min_b).unwrap(); // Needs lf 0. Takes E.
-        // State:
-        // lf 0: []
-        // lf 1: [idx_C(off=2*min_b)]
-        // lf 2: []
-        // Active: idx_D(off=0), idx_E(off=min_b)
+                                                  // State:
+                                                  // lf 0: []
+                                                  // lf 1: [idx_C(off=2*min_b)]
+                                                  // lf 2: []
+                                                  // Active: idx_D(off=0), idx_E(off=min_b)
         assert_eq!(off2, min_b);
 
         pool.deallocate(off1, min_b).unwrap(); // Free D (lf 0, off=0)
-        // D becomes free. Try merge D and E. Parent is B.
-        // E is not free (it's off2). So no merge of D+E.
-        // State:
-        // lf 0: [idx_D(off=0)] (D is now free)
-        // lf 1: [idx_C(off=2*min_b)]
-        // Active: idx_E(off=min_b)
+                                               // D becomes free. Try merge D and E. Parent is B.
+                                               // E is not free (it's off2). So no merge of D+E.
+                                               // State:
+                                               // lf 0: [idx_D(off=0)] (D is now free)
+                                               // lf 1: [idx_C(off=2*min_b)]
+                                               // Active: idx_E(off=min_b)
 
         pool.deallocate(off2, min_b).unwrap(); // Free E (lf 0, off=min_b)
-        // E becomes free. Try merge D and E. Parent is B. Both D,E free.
-        // Merge D,E into B (lf 1, off=0). D,E slabinfo released. B becomes free.
-        // Try merge B and C. Parent is A.
-        // B (lf 1, off=0) is free. C (lf 1, off=2*min_b) is free.
-        // Merge B,C into A (lf 2, off=0). B,C slabinfo released. A becomes free.
-        // State:
-        // lf 0: []
-        // lf 1: []
-        // lf 2: [idx_A(off=0)]
-        // Active: []
+                                               // E becomes free. Try merge D and E. Parent is B. Both D,E free.
+                                               // Merge D,E into B (lf 1, off=0). D,E slabinfo released. B becomes free.
+                                               // Try merge B and C. Parent is A.
+                                               // B (lf 1, off=0) is free. C (lf 1, off=2*min_b) is free.
+                                               // Merge B,C into A (lf 2, off=0). B,C slabinfo released. A becomes free.
+                                               // State:
+                                               // lf 0: []
+                                               // lf 1: []
+                                               // lf 2: [idx_A(off=0)]
+                                               // Active: []
 
         // Allocate the whole thing
         let off_final = pool.allocate(cap).unwrap();
@@ -729,14 +1087,14 @@ mod tests {
         let sys_align = get_system_alignment_for_test();
         let min_b = sys_align;
         let cap = min_b * 8;
-        let mut pool = BuddyDiskPool::new(cap, min_b).unwrap();
+        let mut pool = BuddyDiskPool::new(cap, min_b, None).unwrap();
 
         let alloc_size = min_b * 2; // lf 1
         let offset = pool.allocate(alloc_size).unwrap();
 
         let write_buf = aligned_vec(alloc_size, sys_align, 0xAB);
         let mut read_buf = aligned_vec(alloc_size, sys_align, 0);
-        
+
         pool.write(offset, &write_buf).unwrap();
         pool.read(offset, &mut read_buf).unwrap();
         assert_eq!(write_buf, read_buf, "Full block read/write mismatch");
@@ -751,28 +1109,35 @@ mod tests {
             pool.write(offset + sys_align, &write_buf_part).unwrap();
             // Read from second sys_align chunk
             pool.read(offset + sys_align, &mut read_buf_part).unwrap();
-            assert_eq!(write_buf_part, read_buf_part, "Partial block read/write mismatch");
+            assert_eq!(
+                write_buf_part, read_buf_part,
+                "Partial block read/write mismatch"
+            );
 
             // Verify first part is untouched by the partial write
             let mut first_part_check_buf = aligned_vec(sys_align, sys_align, 0);
             pool.read(offset, &mut first_part_check_buf).unwrap();
-            let expected_first_part_data: Vec<u8> = write_buf.iter().take(sys_align).cloned().collect();
-            assert_eq!(first_part_check_buf, expected_first_part_data, "First part of block was modified unexpectedly");
+            let expected_first_part_data: Vec<u8> =
+                write_buf.iter().take(sys_align).cloned().collect();
+            assert_eq!(
+                first_part_check_buf, expected_first_part_data,
+                "First part of block was modified unexpectedly"
+            );
         }
         pool.deallocate(offset, alloc_size).unwrap();
     }
-    
+
     #[test]
     fn test_out_of_memory_buddy() {
         let sys_align = get_system_alignment_for_test();
         let min_b = sys_align;
         let cap = min_b * 2; // Small pool
-        let mut pool = BuddyDiskPool::new(cap, min_b).unwrap();
+        let mut pool = BuddyDiskPool::new(cap, min_b, None).unwrap();
 
         let _off1 = pool.allocate(min_b * 2).unwrap(); // Allocate everything
 
         match pool.allocate(min_b) {
-            Err(BuddyDiskPoolError::OutOfMemory) => {}, // Expected
+            Err(BuddyDiskPoolError::OutOfMemory) => {} // Expected
             Ok(_) => panic!("Should be out of memory"),
             Err(e) => panic!("Unexpected error type for OOM: {:?}", e),
         }

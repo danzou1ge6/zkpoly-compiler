@@ -27,6 +27,12 @@ pub trait Transfer {
     fn disk2cpu(&self, _: &mut Self) {
         unimplemented!("disk2cpu not implemented for {:?}", type_name::<Self>());
     }
+    fn disk2gpu(&self, _: &mut Self) {
+        unimplemented!("disk2gpu not implemented for {:?}", type_name::<Self>());
+    }
+    fn gpu2disk(&self, _: &mut Self) {
+        unimplemented!("gpu2disk not implemented for {:?}", type_name::<Self>());
+    }
 }
 
 macro_rules! match_transfer {
@@ -130,7 +136,15 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                         Scalar => unwrap_scalar_mut
                     );
                 }
-                DeviceType::Disk => unimplemented!(),
+                DeviceType::Disk => {
+                    match src {
+                        Variable::ScalarArray(poly) => {
+                            let dst = dst.unwrap_scalar_array_mut();
+                            poly.gpu2disk(dst);
+                        }
+                        _ => unimplemented!()
+                    }
+                }
             },
             DeviceType::Disk => {
                 match dst_device {
@@ -147,7 +161,15 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                             _ => unimplemented!()
                         }
                     }
-                    DeviceType::GPU { .. } => unimplemented!(),
+                    DeviceType::GPU { .. } => {
+                        match src {
+                            Variable::ScalarArray(poly) => {
+                                let dst = dst.unwrap_scalar_array_mut();
+                                poly.disk2gpu(dst);
+                            }
+                            _ => unimplemented!()
+                        }
+                    }
                     DeviceType::Disk => unimplemented!(),
                 }
             }
