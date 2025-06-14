@@ -7,7 +7,7 @@ fn get_test_system_alignment() -> usize {
     let dummy_capacity = 4096 * 4; 
     let dummy_min_block = 4096;    
     
-    match BuddyDiskPool::new(dummy_capacity, dummy_min_block) {
+    match BuddyDiskPool::new(dummy_capacity, dummy_min_block, None) {
         Ok(pool) => pool.system_alignment(),
         Err(e) => {
             eprintln!("Warning: Could not create dummy BuddyDiskPool to get system alignment: {:?}. Falling back to 4096.", e);
@@ -31,7 +31,7 @@ fn test_cpu_direct_to_disk_swap_and_verify() {
 
     let disk_min_block_size = system_alignment; 
     let disk_capacity = disk_min_block_size * 256; 
-    let mut disk_pool = BuddyDiskPool::new(disk_capacity, disk_min_block_size)
+    let mut disk_pool = BuddyDiskPool::new(disk_capacity, disk_min_block_size, None)
         .expect("Failed to create BuddyDiskPool");
 
     assert_eq!(disk_pool.system_alignment(), system_alignment, "Disk pool system alignment mismatch");
@@ -115,7 +115,7 @@ fn test_multiple_direct_swaps() {
     let mut cpu_pool = CpuMemoryPool::new(10, system_alignment.max(128));
     let disk_min_block = system_alignment;
     let disk_cap = disk_min_block * 512; 
-    let mut disk_pool = BuddyDiskPool::new(disk_cap, disk_min_block)
+    let mut disk_pool = BuddyDiskPool::new(disk_cap, disk_min_block, None)
         .expect("Failed to create BuddyDiskPool for multi-direct-swap test");
 
     struct AllocationInfoDirect {
