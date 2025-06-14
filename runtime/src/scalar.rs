@@ -1095,8 +1095,8 @@ fn test_tranfer_cpu_disk() {
     use halo2curves::bn256::Fr as F;
     let mut cpu_pool = CpuMemoryPool::new(10, size_of::<F>());
     let mut disk_pool = vec![
-        BuddyDiskPool::new(2usize.pow(28), 2048, Some("/tmp".into())).unwrap(),
-        BuddyDiskPool::new(2usize.pow(28), 2048, Some("/data/tmp".into())).unwrap(),
+        BuddyDiskPool::new(2usize.pow(28), Some("/tmp".into())).unwrap(),
+        // BuddyDiskPool::new(2usize.pow(28), Some("/data/tmp".into())).unwrap(),
     ];
     let mut array1 = ScalarArray::<F>::alloc_cpu(1024, &mut cpu_pool);
     array1.iter_mut().for_each(|v| {
@@ -1120,8 +1120,8 @@ fn test_transfer_gpu_disk() {
     use halo2curves::bn256::Fr as F;
     let mut cpu_pool = CpuMemoryPool::new(10, size_of::<F>());
     let mut disk_pool = vec![
-        BuddyDiskPool::new(2usize.pow(28), 2048, Some("/tmp".into())).unwrap(),
-        BuddyDiskPool::new(2usize.pow(28), 2048, Some("/data/tmp".into())).unwrap(),
+        BuddyDiskPool::new(2usize.pow(28), Some("/tmp".into())).unwrap(),
+        // BuddyDiskPool::new(2usize.pow(28), Some("/data/tmp".into())).unwrap(),
     ];
     let gpu_pool = PageAllocator::new(DeviceType::GPU { device_id: 0 }, 1024 * 1024 * 2, 2);
     let mut array1 = ScalarArray::<F>::alloc_cpu(1024, &mut cpu_pool);

@@ -5,9 +5,8 @@ use std::mem;
 // Helper to get system alignment.
 fn get_test_system_alignment() -> usize {
     let dummy_capacity = 4096 * 4; 
-    let dummy_min_block = 4096;    
     
-    match BuddyDiskPool::new(dummy_capacity, dummy_min_block, None) {
+    match BuddyDiskPool::new(dummy_capacity, None) {
         Ok(pool) => pool.system_alignment(),
         Err(e) => {
             eprintln!("Warning: Could not create dummy BuddyDiskPool to get system alignment: {:?}. Falling back to 4096.", e);
@@ -31,7 +30,7 @@ fn test_cpu_direct_to_disk_swap_and_verify() {
 
     let disk_min_block_size = system_alignment; 
     let disk_capacity = disk_min_block_size * 256; 
-    let mut disk_pool = BuddyDiskPool::new(disk_capacity, disk_min_block_size, None)
+    let mut disk_pool = BuddyDiskPool::new(disk_capacity, None)
         .expect("Failed to create BuddyDiskPool");
 
     assert_eq!(disk_pool.system_alignment(), system_alignment, "Disk pool system alignment mismatch");
@@ -88,7 +87,7 @@ fn test_cpu_direct_to_disk_swap_and_verify() {
     // 8. Deallocate resources
     cpu_pool.free(cpu_ptr_src);
     cpu_pool.free(cpu_ptr_dst);
-    disk_pool.deallocate(disk_offset, io_len_bytes) // Use the size passed to disk_pool.allocate
+    disk_pool.deallocate(disk_offset) // Use the size passed to disk_pool.allocate
         .expect("Disk deallocation failed");
 
     println!("Integration test 'test_cpu_direct_to_disk_swap_and_verify' passed.");
@@ -115,7 +114,7 @@ fn test_multiple_direct_swaps() {
     let mut cpu_pool = CpuMemoryPool::new(10, system_alignment.max(128));
     let disk_min_block = system_alignment;
     let disk_cap = disk_min_block * 512; 
-    let mut disk_pool = BuddyDiskPool::new(disk_cap, disk_min_block, None)
+    let mut disk_pool = BuddyDiskPool::new(disk_cap, None)
         .expect("Failed to create BuddyDiskPool for multi-direct-swap test");
 
     struct AllocationInfoDirect {
@@ -132,7 +131,7 @@ fn test_multiple_direct_swaps() {
             let alloc_info = allocations.remove(idx_to_remove);
             
             cpu_pool.free(alloc_info.cpu_ptr);
-            disk_pool.deallocate(alloc_info.disk_offset, alloc_info.io_len) // Use io_len for dealloc
+            disk_pool.deallocate(alloc_info.disk_offset) // Use io_len for dealloc
                 .expect(&format!("Disk dealloc failed for offset {} size {}", alloc_info.disk_offset, alloc_info.io_len));
         } else {
             let requested_data_size = (rand::random::<usize>() % (disk_min_block * 3)) + disk_min_block / 2;
@@ -179,7 +178,7 @@ fn test_multiple_direct_swaps() {
     // Cleanup remaining
     for alloc_info in allocations {
         cpu_pool.free(alloc_info.cpu_ptr);
-        disk_pool.deallocate(alloc_info.disk_offset, alloc_info.io_len).expect("Final disk dealloc failed (multi_direct_swap)");
+        disk_pool.deallocate(alloc_info.disk_offset).expect("Final disk dealloc failed (multi_direct_swap)");
     }
     println!("Integration test 'test_multiple_direct_swaps' passed.");
 }
