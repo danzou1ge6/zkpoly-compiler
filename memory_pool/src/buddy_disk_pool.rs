@@ -92,7 +92,7 @@ pub type DiskMemoryPool = Vec<BuddyDiskPool>;
 pub struct BuddyDiskPool {
     file: File,
     file_path: PathBuf, // To aid in debugging or potential re-opening
-    _temp_dir_handle: tempfile::TempDir,
+    temp_dir_handle: Option<tempfile::TempDir>,
     _cu_file_descr: CUfileDescr_t, // cuFile descriptor for GPU direct I/O
     cu_file_handle: CUfileHandle_t, // cuFile handle for GPU direct I/O
 
@@ -142,9 +142,15 @@ impl BuddyDiskPool {
         self.system_alignment
     }
 
+    /// keep the temporary directory and its contents (including the pool file)
+    pub fn keep(&mut self) -> PathBuf {
+        self.temp_dir_handle.take().unwrap().keep()
+    }
+
     pub fn new(
         total_capacity_request: usize,
         min_block_size_request: usize,
+        tmp_dir: Option<PathBuf>, // Temporary directory for the pool file
     ) -> Result<Self, BuddyDiskPoolError> {
         if total_capacity_request == 0 {
             return Err(BuddyDiskPoolError::InvalidCapacity(
@@ -157,9 +163,15 @@ impl BuddyDiskPool {
             ));
         }
 
-        let temp_dir = tempfile::Builder::new()
-            .prefix("buddy_disk_pool_")
-            .tempdir()?;
+        let temp_dir = if tmp_dir.is_some() {
+            tempfile::Builder::new()
+                .prefix("buddy_disk_pool_")
+                .tempdir_in(tmp_dir.unwrap())?
+        } else {
+            tempfile::Builder::new()
+                .prefix("buddy_disk_pool_")
+                .tempdir()?
+        };
         let file_path = temp_dir.path().join("buddy_pool.dat");
 
         let file = OpenOptions::new()
@@ -244,7 +256,7 @@ impl BuddyDiskPool {
         let mut pool = Self {
             file,
             file_path,
-            _temp_dir_handle: temp_dir,
+            temp_dir_handle: Some(temp_dir),
             slabs: Vec::new(),
             free_slab_info_indices: Vec::new(),
             slab_layers: vec![SlabLayerInfo::default(); num_layers],
@@ -954,7 +966,7 @@ mod tests {
         let min_req = sys_align / 2; // Test rounding up min_block_size
         let cap_req = sys_align * 8 - (sys_align / 2); // Test rounding down capacity
 
-        let pool = BuddyDiskPool::new(cap_req, min_req).unwrap();
+        let pool = BuddyDiskPool::new(cap_req, min_req, None).unwrap();
 
         assert_eq!(pool.system_alignment(), sys_align);
         assert_eq!(pool.min_block_size(), sys_align); // min_req rounded up
@@ -992,7 +1004,7 @@ mod tests {
         let sys_align = get_system_alignment_for_test();
         let min_b = sys_align;
         let cap = min_b * 16; // 16 min_blocks, max_log_factor = 4
-        let mut pool = BuddyDiskPool::new(cap, min_b).unwrap();
+        let mut pool = BuddyDiskPool::new(cap, min_b, None).unwrap();
 
         // Allocate a block of min_block_size
         let offset1 = pool.allocate(min_b).unwrap();
@@ -1017,7 +1029,7 @@ mod tests {
         let sys_align = get_system_alignment_for_test();
         let min_b = sys_align;
         let cap = min_b * 4; // max_log_factor = 2 (blocks of size min_b, 2*min_b, 4*min_b)
-        let mut pool = BuddyDiskPool::new(cap, min_b).unwrap();
+        let mut pool = BuddyDiskPool::new(cap, min_b, None).unwrap();
 
         // Initial state: one block of 4*min_b at log_factor 2, offset 0
         // lf 0: []
@@ -1075,7 +1087,7 @@ mod tests {
         let sys_align = get_system_alignment_for_test();
         let min_b = sys_align;
         let cap = min_b * 8;
-        let mut pool = BuddyDiskPool::new(cap, min_b).unwrap();
+        let mut pool = BuddyDiskPool::new(cap, min_b, None).unwrap();
 
         let alloc_size = min_b * 2; // lf 1
         let offset = pool.allocate(alloc_size).unwrap();
@@ -1120,7 +1132,7 @@ mod tests {
         let sys_align = get_system_alignment_for_test();
         let min_b = sys_align;
         let cap = min_b * 2; // Small pool
-        let mut pool = BuddyDiskPool::new(cap, min_b).unwrap();
+        let mut pool = BuddyDiskPool::new(cap, min_b, None).unwrap();
 
         let _off1 = pool.allocate(min_b * 2).unwrap(); // Allocate everything
 
