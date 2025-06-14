@@ -340,9 +340,8 @@ impl<'a, 'm, 's, 'au, 'i, 'f, P: UsizeId + 'static, Rt: RuntimeType, D: DeviceMa
             self.machine.device()
         );
 
-        let vn = self.aux.obj_info().typ(*t).with_normalized_p();
-        let rv = ResidentalValue::new(Value::new(*t, self.machine.device(), vn), *pointer);
-        self.machine.deallocate(&rv);
+        self.machine
+            .deallocate_object(*t, pointer, self.aux.obj_info());
     }
 
     fn transfer(

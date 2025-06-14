@@ -12,6 +12,7 @@ pub use slab_allocator::SlabAllocator;
 pub use super_allocator::SuperAllocator;
 pub use constant_wrapper::Wrapper as ConstantWrapper;
 pub use smithereens_wrapper::Wrapper as SmithereenWrapper;
+pub use page_allocator::PageAllocator;
 
 const SMITHEREEN_CEIL_TO_INTEGRAL_THRESHOLD: u64 = 2u64.pow(16);
 const LOG_MIN_INTEGRAL_SIZE: u32 = 10;

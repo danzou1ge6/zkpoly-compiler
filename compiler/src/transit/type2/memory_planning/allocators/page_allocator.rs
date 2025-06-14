@@ -75,6 +75,12 @@ mod pages {
             }
         }
 
+        pub fn update_next_use(&mut self, page: PageId, to: Index) {
+            let page = usize::from(page);
+            let to = usize::from(to);
+            self.next_use.modify_set(page, page, to as u64);
+        }
+
         /// Return a vector of `number` free pages, or none if not enough free pages
         pub fn try_find_free_pages(&mut self, number: usize) -> Option<Vec<PageId>> {
             if self.free_pages.len() >= number {
@@ -97,29 +103,16 @@ mod pages {
 
 use pages::{PageId, Pages};
 
-pub type Procedure<'f, P, Rt: RuntimeType> = Box<
-    dyn for<'a, 's, 'm, 'au, 'i> FnOnce(
-            &mut Handle<'a, 'm, 's, 'au, 'i, P, Rt>,
-        ) -> PlanningResponse<
-            'f,
-            's,
-            ObjectId,
-            P,
-            Result<(), Error<'s>>,
-            Rt,
-        > + 'f,
->;
-
-pub struct PageAllocator<'f, P, Rt: RuntimeType> {
+pub struct PageAllocator<'f, P, Rt: RuntimeType, D: DeviceMarker> {
     page_size: u64,
     pages: Pages,
     living_objects: BTreeMap<ObjectId, (P, Size)>,
-    page_mapping: Heap<P, Vec<PageId>>,
+    page_mapping: Heap<P, (Vec<PageId>, Size)>,
     page_objects: Heap<PageId, Option<ObjectId>>,
-    _phantom: PhantomData<&'f Rt>
+    _phantom: PhantomData<(&'f Rt, D)>,
 }
 
-impl<'f, P, Rt: RuntimeType> PageAllocator<'f, P, Rt> {
+impl<'f, P, Rt: RuntimeType, D: DeviceMarker> PageAllocator<'f, P, Rt, D> {
     pub fn new(number_pages: usize, page_size: u64) -> Self {
         Self {
             page_size,
@@ -127,18 +120,18 @@ impl<'f, P, Rt: RuntimeType> PageAllocator<'f, P, Rt> {
             living_objects: BTreeMap::new(),
             page_mapping: Heap::new(),
             page_objects: Heap::repeat(None, number_pages),
-            _phantom: PhantomData
+            _phantom: PhantomData,
         }
     }
 }
 
-pub struct Handle<'a, 'm, 's, 'au, 'i, P, Rt: RuntimeType> {
-    allocator: &'a mut PageAllocator<'s, P, Rt>,
+pub struct Handle<'a, 'm, 's, 'au, 'i, P, Rt: RuntimeType, D: DeviceMarker> {
+    allocator: &'a mut PageAllocator<'s, P, Rt, D>,
     machine: planning::MachineHandle<'m, 's, ObjectId, P>,
     aux: &'au mut AuxiliaryInfo<'i, Rt>,
 }
 
-impl<'a, 'm, 's, 'au, 'i, P, Rt: RuntimeType> Handle<'a, 'm, 's, 'au, 'i, P, Rt>
+impl<'a, 'm, 's, 'au, 'i, P, Rt: RuntimeType, D: DeviceMarker> Handle<'a, 'm, 's, 'au, 'i, P, Rt, D>
 where
     P: UsizeId + 'static,
 {
@@ -158,7 +151,7 @@ where
             .copied()
             .for_each(|page| self.allocator.pages.occupy(page, next_use));
 
-        let p = self.allocator.page_mapping.push(pages);
+        let p = self.allocator.page_mapping.push((pages, size));
         self.allocator.living_objects.insert(object, (p, size));
 
         self.machine.allocate(object, p);
@@ -171,7 +164,7 @@ where
             .living_objects
             .remove(&victim_object)
             .unwrap_or_else(|| panic!("object {:?} not allocated", victim_object));
-        let victim_pages = self.allocator.page_mapping[victim_pointer].clone();
+        let (victim_pages, _) = self.allocator.page_mapping[victim_pointer].clone();
 
         victim_pages.iter().for_each(|page| {
             self.allocator.pages.free(*page);
@@ -182,19 +175,35 @@ where
 
         (victim_pointer, victim_size)
     }
+
+    fn update_pages_next_use(&mut self, p: P, next_use: Index) {
+        let (pages, _) = &self.allocator.page_mapping[p];
+        pages.iter().for_each(|page| {
+            self.allocator.pages.update_next_use(*page, next_use);
+        });
+    }
 }
 
-impl<'a, 'm, 's, 'au, 'i, P, Rt: RuntimeType> AllocatorHandle<'s, ObjectId, P, Rt>
-    for Handle<'a, 'm, 's, 'au, 'i, P, Rt>
+impl<'a, 'm, 's, 'au, 'i, P, Rt: RuntimeType, D: DeviceMarker> AllocatorHandle<'s, ObjectId, P, Rt>
+    for Handle<'a, 'm, 's, 'au, 'i, P, Rt, D>
 where
     P: UsizeId + 'static,
 {
     fn access(&mut self, t: &ObjectId) -> Option<P> {
+        let next_use = self
+            .aux
+            .query_next_use(t.clone(), self.device())
+            .unwrap_or(Index::inf());
+
         self.allocator
             .living_objects
             .get(t)
             .map(|(a, _)| a)
             .cloned()
+            .map(|p| {
+                self.update_pages_next_use(p, next_use);
+                p
+            })
     }
 
     fn allocate(&mut self, size: Size, t: &ObjectId) -> allocator::AResp<'s, ObjectId, P, P, Rt> {
@@ -253,13 +262,13 @@ where
             )
         }
     }
+
     fn claim(
         &mut self,
         t: &ObjectId,
         size: Size,
         from: Device,
-    ) -> allocator::AResp<'s, ObjectId, P, (), Rt>
-    {
+    ) -> allocator::AResp<'s, ObjectId, P, (), Rt> {
         if self.allocator.living_objects.contains_key(t) {
             return Response::Complete(Ok(()));
         }
@@ -279,8 +288,7 @@ where
         }
     }
 
-    fn deallocate(&mut self, t: &ObjectId) -> allocator::AResp<'s, ObjectId, P, (), Rt>
-    {
+    fn deallocate(&mut self, t: &ObjectId) -> allocator::AResp<'s, ObjectId, P, (), Rt> {
         let _ = self.deallocate_pages(*t);
         Response::ok(())
     }
@@ -291,7 +299,17 @@ where
 
     fn reuse(&mut self, new_object: ObjectId, old_object: ObjectId) {
         if let Some((p, size)) = self.allocator.living_objects.remove(&old_object) {
+            let next_use = self
+                .aux
+                .query_next_use(new_object.clone(), self.device())
+                .unwrap_or(Index::inf());
+            self.update_pages_next_use(p, next_use);
             self.allocator.living_objects.insert(new_object, (p, size));
+
+            let (pages, _) = &self.allocator.page_mapping[p];
+            pages.iter().for_each(|page| {
+                self.allocator.page_objects[*page] = Some(new_object);
+            })
         } else {
             panic!("object {:?} not allocated", old_object)
         }
@@ -299,5 +317,101 @@ where
 
     fn typeid(&self) -> typeid::ConstTypeId {
         typeid::ConstTypeId::of::<Self>()
+    }
+}
+
+pub struct Realizer<'a, 'm, 's, 'au, 'i, 'f, P, Rt: RuntimeType, D: DeviceMarker> {
+    allocator: &'a mut PageAllocator<'f, P, Rt, D>,
+    machine: realization::MachineHandle<'m, 's, P>,
+    aux: &'au AuxiliaryInfo<'i, Rt>,
+}
+
+impl<'a, 'm, 's, 'au, 'i, 'f, P, Rt: RuntimeType, D: DeviceMarker>
+    AllocatorRealizer<'s, ObjectId, P, Rt> for Realizer<'a, 'm, 's, 'au, 'i, 'f, P, Rt, D>
+where
+    P: UsizeId + 'static,
+{
+    fn allocate(&mut self, t: &ObjectId, pointer: &P) {
+        let (pages, virtual_size) = &self.allocator.page_mapping[*pointer];
+        let vn = self.aux.obj_info().typ(*t).with_normalized_p();
+        let rv = ResidentalValue::new(Value::new(*t, self.machine.device(), vn), *pointer);
+
+        self.machine.allocate(
+            AllocMethod::Paged {
+                va_size: virtual_size.clone().into(),
+                pa: pages.iter().map(|i| usize::from(*i)).collect(),
+            },
+            rv,
+        );
+    }
+
+    fn deallocate(&mut self, t: &ObjectId, pointer: &P) {
+        self.machine
+            .deallocate_object(*t, pointer, self.aux.obj_info());
+    }
+
+    fn transfer(
+        &mut self,
+        t: &ObjectId,
+        from_pointer: &P,
+        to_device: Device,
+        to_pointer: &P,
+    ) -> RealizationResponse<'s, ObjectId, P, Result<(), Error<'s>>, Rt> {
+        Response::Continue(Continuation::transfer_object(
+            self.machine.device(),
+            *from_pointer,
+            to_device,
+            *to_pointer,
+            *t,
+        ))
+    }
+}
+
+impl<'s, P: UsizeId + 'static, Rt: RuntimeType, D: DeviceMarker> Allocator<'s, ObjectId, P, Rt>
+    for PageAllocator<'s, P, Rt, D>
+{
+    fn handle<'a, 'b, 'c, 'd, 'i>(
+        &'a mut self,
+        machine: planning::MachineHandle<'b, 's, ObjectId, P>,
+        aux: &'c mut AuxiliaryInfo<'i, Rt>,
+    ) -> Box<dyn AllocatorHandle<'s, ObjectId, P, Rt> + 'd>
+    where
+        'a: 'd,
+        'b: 'd,
+        'c: 'd,
+        'i: 'd,
+    {
+        Box::new(Handle {
+            allocator: self,
+            machine,
+            aux,
+        })
+    }
+
+    fn realizer<'a, 'b, 'c, 'd, 'i>(
+        &'a mut self,
+        machine: realization::MachineHandle<'b, 's, P>,
+        aux: &'c mut AuxiliaryInfo<'i, Rt>,
+    ) -> Box<dyn AllocatorRealizer<'s, ObjectId, P, Rt> + 'd>
+    where
+        'a: 'd,
+        'b: 'd,
+        'c: 'd,
+        'i: 'd,
+    {
+        Box::new(Realizer {
+            allocator: self,
+            machine,
+            aux,
+        })
+    }
+
+    fn allcate_pointer(&mut self) -> P {
+        self.page_mapping
+            .push((vec![], Size::Integral(IntegralSize(0))))
+    }
+
+    fn inner<'t>(&'t mut self) -> Option<&'t mut dyn Allocator<'s, ObjectId, P, Rt>> {
+        None
     }
 }

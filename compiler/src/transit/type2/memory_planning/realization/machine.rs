@@ -377,7 +377,6 @@ pub struct MachineHandle<'m, 's, P> {
     device: Device,
 }
 
-
 impl<'m, 's, P> MachineHandle<'m, 's, P>
 where
     P: UsizeId,
@@ -392,9 +391,21 @@ where
             .emit(Instruction::new_no_src(InstructionNode::Malloc {
                 id: reg,
                 addr,
-                device
+                device,
             }));
         reg
+    }
+
+    pub fn deallocate_object<Rt: RuntimeType>(
+        &mut self,
+        object: ObjectId,
+        pointer: &P,
+        obj_info: &object_info::Info<Rt>,
+    ) {
+        let vn = obj_info.typ(object).with_normalized_p();
+        let rv = ResidentalValue::new(Value::new(object, self.device(), vn), *pointer);
+
+        self.deallocate(&rv);
     }
 
     pub fn deallocate(&mut self, rv: &ResidentalValue<P>) {
@@ -404,7 +415,7 @@ where
         self.machine
             .emit(Instruction::new_no_src(InstructionNode::Free {
                 id: reg,
-                device: rv.device()
+                device: rv.device(),
             }));
         self.machine
             .free_regs_to(*rv.pointer(), rv.object_id(), rv.device(), reg);

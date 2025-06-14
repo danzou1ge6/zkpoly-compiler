@@ -194,14 +194,8 @@ where
 
     fn deallocate(&mut self, t: &ObjectId, pointer: &P) {
         if let Some(..) = self.allocator.mapping.get(pointer) {
-            self.machine.deallocate(&ResidentalValue::new(
-                Value::new(
-                    *t,
-                    self.machine.device(),
-                    self.aux.obj_info().typ(*t).with_normalized_p(),
-                ),
-                *pointer,
-            ));
+            self.machine
+                .deallocate_object(*t, pointer, self.aux.obj_info());
         } else {
             self.inner_realizer().deallocate(t, pointer);
         }

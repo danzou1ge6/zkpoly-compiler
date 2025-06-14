@@ -103,7 +103,9 @@ pub fn plan<'s, Rt: RuntimeType>(
 
     let obj_info = object_info::Info::<Rt>::collect(&ops);
 
-    use allocators::{ConstantWrapper, SlabAllocator, SmithereenWrapper, SuperAllocator};
+    use allocators::{
+        ConstantWrapper, PageAllocator, SlabAllocator, SmithereenWrapper, SuperAllocator,
+    };
 
     let lbss = allocators::collect_integral_sizes(obj_info.sizes());
     let mut gpu_allocators: Vec<
@@ -113,7 +115,7 @@ pub fn plan<'s, Rt: RuntimeType>(
         .map(|gpu| {
             SmithereenWrapper::new(
                 SlabAllocator::new(
-                    gpu.memory_limit() - gpu.smithereen_space(),
+                    gpu.integral_space(),
                     gpu.smithereen_space(),
                     lbss.clone(),
                 ),
@@ -131,7 +133,7 @@ pub fn plan<'s, Rt: RuntimeType>(
         Cpu,
     > = SmithereenWrapper::new(
         SlabAllocator::new(
-            hd_info.cpu().memory_limit() - hd_info.cpu().smithereen_space(),
+            hd_info.cpu().integral_space(),
             hd_info.cpu().smithereen_space(),
             lbss.clone(),
         ),

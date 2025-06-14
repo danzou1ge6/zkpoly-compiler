@@ -166,6 +166,14 @@ impl MemoryInfo {
     pub fn smithereen_space(&self) -> u64 {
         self.smithereen_space
     }
+
+    pub fn integral_space(&self) -> u64 {
+        self.memory_limit - self.smithereen_space
+    }
+
+    pub fn page_number(&self, page_size: u64) -> u64 {
+        self.integral_space() / page_size
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -173,6 +181,7 @@ pub struct HardwareInfo {
     gpus: Vec<MemoryInfo>,
     cpu: MemoryInfo,
     disk: bool,
+    page_size: Option<u64>,
 }
 
 impl HardwareInfo {
@@ -200,6 +209,14 @@ impl HardwareInfo {
             gpus: Vec::new(),
             cpu,
             disk: false,
+            page_size: None,
+        }
+    }
+
+    pub fn with_page_size(self, page_size: u64) -> Self {
+        Self {
+            page_size: Some(page_size),
+            ..self
         }
     }
 
@@ -210,6 +227,10 @@ impl HardwareInfo {
     pub fn with_gpu(mut self, gpu: MemoryInfo) -> Self {
         self.gpus.push(gpu);
         self
+    }
+
+    pub fn page_size(&self) -> u64 {
+        self.page_size.expect("page size not specified")
     }
 
     pub fn disk(&self) -> bool {
