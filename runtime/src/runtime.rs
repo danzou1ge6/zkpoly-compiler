@@ -21,7 +21,7 @@ use crate::{
 use zkpoly_cuda_api::{
     bindings::cudaDeviceSynchronize,
     cuda_check,
-    mem::{page_allocator::CudaPageAllocator, CudaAllocator},
+    mem::{page_allocator::PageAllocator, CudaAllocator},
 };
 
 use zkpoly_memory_pool::{static_allocator::CpuStaticAllocator, BuddyDiskPool};
@@ -41,7 +41,6 @@ pub struct Runtime<T: RuntimeType> {
     pub mem_allocator: Option<CpuStaticAllocator>,
     gpu_allocator: HashMap<i32, CudaAllocator>,
     disk_allocator: Vec<BuddyDiskPool>,
-    page_allocator: Vec<CudaPageAllocator>,
     rng: AsyncRng,
     _libs: Libs,
 }
@@ -69,7 +68,6 @@ impl<T: RuntimeType> Runtime<T> {
         mem_allocator: CpuStaticAllocator,
         gpu_allocator: HashMap<i32, CudaAllocator>,
         disk_allocator: Vec<BuddyDiskPool>,
-        page_allocator: Vec<CudaPageAllocator>,
         rng: AsyncRng,
         gpu_mapping: Arc<dyn Fn(i32) -> i32 + Send + Sync>,
         libs: Libs,
@@ -84,7 +82,6 @@ impl<T: RuntimeType> Runtime<T> {
             mem_allocator: Some(mem_allocator),
             gpu_allocator,
             disk_allocator,
-            page_allocator,
             gpu_mapping,
             rng,
             _libs: libs,
@@ -140,7 +137,6 @@ impl<T: RuntimeType> Runtime<T> {
                 Some(&mut self.mem_allocator.as_mut().unwrap()),
                 Some(&mut self.gpu_allocator),
                 Some(&mut self.disk_allocator),
-                Some(&mut self.page_allocator),
                 None,
                 0,
                 Arc::new(std::sync::Mutex::new(())),
@@ -177,7 +173,6 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         mut mem_allocator: Option<&mut CpuStaticAllocator>,
         mut gpu_allocator: Option<&mut HashMap<i32, CudaAllocator>>,
         mut disk_allocator: Option<&mut Vec<BuddyDiskPool>>,
-        mut page_allocator: Option<&mut Vec<CudaPageAllocator>>,
         epilogue: Option<Sender<i32>>,
         _thread_id: usize,
         global_mutex: Arc<Mutex<()>>,
@@ -227,7 +222,6 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                         &mut mem_allocator,
                         &mut gpu_allocator,
                         &mut disk_allocator,
-                        &mut page_allocator,
                     ));
                 }
                 Instruction::Deallocate { id } => {
@@ -365,7 +359,6 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     thread::spawn(move || {
                         sub_info.run(
                             instructions,
-                            None,
                             None,
                             None,
                             None,

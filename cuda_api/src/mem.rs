@@ -1,14 +1,22 @@
 use std::ffi::c_void;
 
-pub use cuda_allocator::CudaAllocator;
 
 use crate::{
     bindings::{cudaFreeHost, cudaMallocHost},
     cuda_check,
 };
 
-pub mod cuda_allocator;
+pub mod static_allocator;
 pub mod page_allocator;
+
+pub use static_allocator::StaticAllocator;
+pub use page_allocator::PageAllocator;
+
+pub struct CudaAllocator {
+    pub statik: static_allocator::StaticAllocator,
+    pub page: page_allocator::PageAllocator,
+}
+
 
 pub fn alloc_pinned<T: Sized>(len: usize) -> *mut T {
     let mut ptr: *mut T = std::ptr::null_mut();
