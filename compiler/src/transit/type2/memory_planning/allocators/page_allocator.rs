@@ -192,7 +192,7 @@ where
     fn access(&mut self, t: &ObjectId) -> Option<P> {
         let next_use = self
             .aux
-            .query_next_use(t.clone(), self.device())
+            .mark_use(t.clone(), self.device())
             .unwrap_or(Index::inf());
 
         self.allocator
@@ -238,6 +238,9 @@ where
                 .unwrap_or_else(|| panic!("object {:?} not allocated", victim_object));
             let t = *t;
             let this_device = self.device();
+
+            // fixme
+            println!("{:?} ejecting {:?}", this_device, victim_object);
 
             Response::Continue(
                 Continuation::simple_eject(
