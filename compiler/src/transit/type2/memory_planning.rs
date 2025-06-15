@@ -26,7 +26,7 @@ mod prelude {
             self,
             object_analysis::{
                 self, liveness, object_info,
-                size::{IntegralSize, Size, SmithereenSize},
+                size::{IntegralSize, LogBlockSizes, Size, SmithereenSize},
                 template::{Operation, OperationSeq, ResidentalValue},
                 Index, ObjectId, Value, ValueNode, VertexInput,
             },
@@ -44,7 +44,7 @@ mod prelude {
         allocators,
         auxiliary::AuxiliaryInfo,
         continuations::{self, Continuation, Response},
-        planning::{self, machine::PlanningResponse},
+        planning,
         realization::{self, RealizationResponse},
         Error,
     };
@@ -194,11 +194,19 @@ pub fn plan<'s, Rt: RuntimeType>(
         )))
         .collect();
 
-    let chunk = realization::realize(ops, allocators, libs, obj_id_allocator, &obj_info, hd_info)?;
+    let chunk = realization::realize(
+        ops,
+        allocators,
+        libs,
+        obj_id_allocator,
+        &obj_info,
+        hd_info,
+        LogBlockSizes::new(lbss),
+    )?;
 
     let disk_allocator = disk_allocator.unwrap();
 
-    if !hd_info.disk() && disk_allocator.peak_memory_usage() > 0 {
+    if !hd_info.disk_available() && disk_allocator.peak_memory_usage() > 0 {
         panic!("disk is not enabled but some objects are spilled to disk; this indicates insufficient CPU space");
     }
 

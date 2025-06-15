@@ -111,6 +111,20 @@ pub struct BuddyDiskPool {
     max_block_size: usize,   // Size of the largest allocatable block
 }
 
+impl std::fmt::Debug for BuddyDiskPool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BuddyDiskPool")
+           .field("capacity", &self.capacity)
+           .field("min_block_size", &self.min_block_size)
+           .field("max_log_factor", &self.max_log_factor)
+           .field("max_block_size", &self.max_block_size)
+           .field("temp_dir_handle", &self.temp_dir_handle)
+           .finish()
+    }
+}
+
+unsafe impl Send for BuddyDiskPool {}
+
 #[derive(Debug, Clone)]
 pub struct DiskAllocInfo {
     pub offset: usize, // offset in the file where the allocation starts

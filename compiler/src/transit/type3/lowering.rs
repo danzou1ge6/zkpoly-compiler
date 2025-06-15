@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::transit::type2;
+use crate::transit::type2::object_analysis::size::{IntegralSize, LogBlockSizes};
 
 use super::track_splitting::TrackTasks;
 use super::{Track, VertexNode};
@@ -217,6 +218,8 @@ impl<T> ThreadSpecific<T> {
             (PrimaryThread::MemoryManagement, &self.memory_management),
             (PrimaryThread::Gpu, &self.gpu),
             (PrimaryThread::Cpu, &self.cpu),
+            (PrimaryThread::ToDisk, &self.to_disk),
+            (PrimaryThread::FromDisk, &self.from_disk),
         ]
         .into_iter()
     }
@@ -663,6 +666,7 @@ pub struct Chunk<Rt: RuntimeType> {
     pub(crate) event_table: EventTypeTable,
     pub(crate) n_variables: usize,
     pub(crate) n_threads: usize,
+    pub(crate) lbss: LogBlockSizes,
     pub(crate) libs: Libs,
 }
 
@@ -734,6 +738,7 @@ pub fn emit_multithread_instructions<'s, Rt: RuntimeType>(
     EventTypeTable,
     StreamSpecific<VariableId>,
     IdAllocator<VariableId>,
+    LogBlockSizes,
     Libs,
 ) {
     let mut event_table = EventTypeTable::new();
@@ -878,6 +883,7 @@ pub fn emit_multithread_instructions<'s, Rt: RuntimeType>(
         event_table,
         stream2variable_id,
         variable_id_allcoator,
+        t3chunk.lbss,
         libs,
     )
 }
@@ -888,6 +894,7 @@ pub fn lower<'s, Rt: RuntimeType>(
     event_table: EventTypeTable,
     stream2variable_id: StreamSpecific<VariableId>,
     variable_id_allocator: IdAllocator<VariableId>,
+    lbss: LogBlockSizes,
     libs: Libs,
 ) -> Chunk<Rt> {
     let mut instructions = Vec::new();
@@ -930,6 +937,7 @@ pub fn lower<'s, Rt: RuntimeType>(
         event_table,
         n_threads: mt_chunk.threads.len(),
         n_variables: variable_id_allocator.n_allocated(),
+        lbss,
         libs,
     }
 }

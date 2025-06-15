@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap},
     io::Write,
     panic::PanicHookInfo,
     path::PathBuf,
@@ -9,7 +9,10 @@ use std::{
 };
 
 use zkpoly_common::digraph::internal::{Digraph, SubDigraph};
-use zkpoly_cuda_api::{bindings::cudaDeviceSynchronize, cuda_check};
+use zkpoly_cuda_api::{bindings::cudaDeviceSynchronize, cuda_check, mem::CudaAllocator};
+use zkpoly_memory_pool::{
+    buddy_disk_pool::DiskMemoryPool, static_allocator::CpuStaticAllocator, BuddyDiskPool,
+};
 use zkpoly_runtime::args::RuntimeType;
 
 use crate::{
@@ -177,10 +180,13 @@ impl MemoryInfo {
 }
 
 #[derive(Debug, Clone)]
+pub struct DiskMemoryInfo {}
+
+#[derive(Debug, Clone)]
 pub struct HardwareInfo {
     gpus: Vec<MemoryInfo>,
     cpu: MemoryInfo,
-    disk: bool,
+    disk: Vec<DiskMemoryInfo>,
     page_size: Option<u64>,
 }
 
@@ -191,6 +197,10 @@ impl HardwareInfo {
 
     pub fn gpus(&self) -> impl Iterator<Item = &MemoryInfo> {
         self.gpus.iter()
+    }
+
+    pub fn disks(&self) -> impl Iterator<Item = &DiskMemoryInfo> {
+        self.disk.iter()
     }
 
     pub fn cpu(&self) -> &MemoryInfo {
@@ -208,7 +218,7 @@ impl HardwareInfo {
         Self {
             gpus: Vec::new(),
             cpu,
-            disk: false,
+            disk: Vec::new(),
             page_size: None,
         }
     }
@@ -220,8 +230,9 @@ impl HardwareInfo {
         }
     }
 
-    pub fn with_disk(self, disk: bool) -> Self {
-        Self { disk, ..self }
+    pub fn with_disk(mut self) -> Self {
+        self.disk.push(DiskMemoryInfo {});
+        self
     }
 
     pub fn with_gpu(mut self, gpu: MemoryInfo) -> Self {
@@ -233,8 +244,44 @@ impl HardwareInfo {
         self.page_size.expect("page size not specified")
     }
 
-    pub fn disk(&self) -> bool {
-        self.disk
+    pub fn disk_available(&self) -> bool {
+        !self.disk.is_empty()
+    }
+
+    pub fn cpu_allocator(&self, memory_check: bool) -> CpuStaticAllocator {
+        CpuStaticAllocator::new(self.cpu().memory_limit() as usize, memory_check)
+    }
+
+    pub fn gpu_allocators(&self, memory_check: bool) -> HashMap<i32, CudaAllocator> {
+        use zkpoly_cuda_api::mem;
+        self.gpus()
+            .enumerate()
+            .map(|(id, gpu)| {
+                (
+                    id as i32,
+                    CudaAllocator {
+                        statik: mem::StaticAllocator::new(
+                            0,
+                            gpu.smithereen_space() as usize,
+                            memory_check,
+                        ),
+                        page: mem::PageAllocator::new(
+                            zkpoly_common::devices::DeviceType::GPU { device_id: 0 },
+                            self.page_size() as usize,
+                            gpu.page_number(self.page_size()) as usize,
+                        ),
+                    },
+                )
+            })
+            .collect()
+    }
+
+    pub fn disk_allocator(&self, max_block: usize) -> DiskMemoryPool {
+        self.disks()
+            .map(|_| {
+                BuddyDiskPool::new(max_block, None).expect("cannot create disk pool")
+            })
+            .collect()
     }
 }
 

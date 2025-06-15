@@ -58,7 +58,7 @@ impl<'s, Rt: RuntimeType> ProcessedType3<'s, Rt> {
         // To Runtime Instructions
 
         // - Emitting Multithread Chunk
-        let (mt_chunk, f_table, event_table, stream2variable_id, variable_id_allocator, libs) =
+        let (mt_chunk, f_table, event_table, stream2variable_id, variable_id_allocator, lbss, libs) =
             options.log_suround(
                 "Emitting Multithread Chunk",
                 || {
@@ -88,6 +88,7 @@ impl<'s, Rt: RuntimeType> ProcessedType3<'s, Rt> {
                     event_table,
                     stream2variable_id,
                     variable_id_allocator,
+                    lbss,
                     libs,
                 ))
             },

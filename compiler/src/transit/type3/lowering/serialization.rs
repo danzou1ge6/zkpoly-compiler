@@ -1,4 +1,4 @@
-use crate::{ast::lowering::UserFunctionId, transit::type2};
+use crate::{ast::lowering::UserFunctionId, transit::type2::{self, object_analysis::size::{IntegralSize, LogBlockSizes}}};
 
 use super::{kernel_gen::load_function, Chunk};
 use serde::{ser::SerializeStruct, Deserialize, Serialize};
@@ -16,6 +16,7 @@ pub struct ChunkDeserializer {
     pub(crate) f_table: Heap<FunctionId, KernelType>,
     pub(crate) event_table: EventTypeTable,
     pub(crate) n_variables: usize,
+    pub(crate) lbss: LogBlockSizes,
     pub(crate) n_threads: usize,
 }
 
@@ -33,6 +34,7 @@ impl<Rt: RuntimeType> Serialize for Chunk<Rt> {
         struc.serialize_field("event_table", &self.event_table)?;
         struc.serialize_field("n_variables", &self.n_variables)?;
         struc.serialize_field("n_threads", &self.n_threads)?;
+        struc.serialize_field("lbss", &self.lbss)?;
         struc.end()
     }
 }
@@ -57,6 +59,7 @@ impl ChunkDeserializer {
             event_table,
             n_variables,
             n_threads,
+            lbss: self.lbss,
             libs: libs,
         }
     }

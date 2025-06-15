@@ -1,17 +1,35 @@
 use std::{collections::HashMap, sync::Arc};
 
-use zkpoly_memory_pool::static_allocator::CpuStaticAllocator;
+use zkpoly_memory_pool::{buddy_disk_pool::DiskMemoryPool, static_allocator::CpuStaticAllocator};
 use zkpoly_runtime::{
     args::{self, RuntimeType},
     devices::instantizate_event_table,
 };
 
-use super::type3;
+use crate::transit::type2::object_analysis::size::IntegralSize;
+
+use super::{type3, HardwareInfo};
 
 #[derive(Clone)]
 pub struct Artifect<Rt: RuntimeType> {
     pub(super) chunk: type3::lowering::Chunk<Rt>,
     pub(super) constant_table: args::ConstantTable<Rt>,
+}
+
+pub struct Pools {
+    pub cpu: CpuStaticAllocator,
+    pub gpu: HashMap<i32, zkpoly_cuda_api::mem::CudaAllocator>,
+    pub disk: DiskMemoryPool,
+}
+
+impl Pools {
+    pub fn on(hd_info: &HardwareInfo, memory_check: bool, max_block: usize) -> Self {
+        Self {
+            cpu: hd_info.cpu_allocator(memory_check),
+            gpu: hd_info.gpu_allocators(memory_check),
+            disk: hd_info.disk_allocator(max_block),
+        }
+    }
 }
 
 impl<Rt: RuntimeType> Artifect<Rt> {
@@ -31,10 +49,16 @@ impl<Rt: RuntimeType> Artifect<Rt> {
         Ok(())
     }
 
+    pub fn create_pools(&self, hd_info: &HardwareInfo, memory_check: bool) -> Pools {
+        let max_lbs = self.chunk.lbss.max();
+        let max_bs: usize = max_lbs.into();
+
+        Pools::on(hd_info, memory_check, max_bs)
+    }
+
     pub fn prepare_dispatcher(
         self,
-        cpu_allocator: CpuStaticAllocator,
-        gpu_allocator: HashMap<i32, zkpoly_cuda_api::mem::CudaAllocator>,
+        pools: Pools,
         rng: zkpoly_runtime::async_rng::AsyncRng,
         gpu_mapping: Arc<dyn Fn(i32) -> i32 + Send + Sync>,
     ) -> zkpoly_runtime::runtime::Runtime<Rt> {
@@ -46,9 +70,9 @@ impl<Rt: RuntimeType> Artifect<Rt> {
             self.chunk.f_table,
             instantizate_event_table(self.chunk.event_table, gpu_mapping.clone()),
             self.chunk.n_threads,
-            cpu_allocator,
-            gpu_allocator,
-            vec![], // TODO: disk allocators
+            pools.cpu,
+            pools.gpu,
+            pools.disk,
             rng,
             gpu_mapping,
             self.chunk.libs,

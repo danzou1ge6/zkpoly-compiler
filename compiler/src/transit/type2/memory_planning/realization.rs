@@ -4,6 +4,8 @@ use type3::{Instruction, InstructionNode};
 pub mod machine;
 pub use machine::{Machine, MachineHandle, MemoryBlock, RealizationResponse};
 
+use super::object_analysis::size::LogBlockSizes;
+
 pub fn realize<'s, 'a, T, Rt: RuntimeType>(
     ops: OperationSeq<'s, T, Pointer>,
     mut allocators_x: AllocatorCollection<'a, 's, T, Pointer, Rt>,
@@ -11,6 +13,7 @@ pub fn realize<'s, 'a, T, Rt: RuntimeType>(
     object_id_allocator: IdAllocator<ObjectId>,
     obj_inf: &object_info::Info<Rt>,
     hd_info: &HardwareInfo,
+    lbss: LogBlockSizes,
 ) -> Result<type3::Chunk<'s, Rt>, Error<'s>>
 where
     T: std::fmt::Debug,
@@ -166,6 +169,7 @@ where
         reg_memory_blocks: machine_x.reg_booking.export_memory_blocks(),
         reg_id_allocator: machine_x.reg_booking.reg_id_allocator(),
         obj_id_allocator: object_id_allocator,
+        lbss,
         libs,
         _phantom: PhantomData,
     })

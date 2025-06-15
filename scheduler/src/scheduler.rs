@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
+use zkpoly_compiler::driver::artifect::Pools;
 use zkpoly_compiler::driver::{Artifect, HardwareInfo};
 use zkpoly_memory_pool::static_allocator::CpuStaticAllocator;
 use zkpoly_runtime::args::{EntryTable, RuntimeType, Variable};
@@ -62,43 +63,11 @@ impl<Rt: RuntimeType> Scheduler<Rt> {
                     }; // 更新任务状态为运行中，并记录已分配的卡片
                     drop(status); // 释放锁
 
-                    use zkpoly_cuda_api::mem;
-
-                    let gpu_allocator = task
-                        .hardware_info
-                        .gpus()
-                        .enumerate()
-                        .map(|(id, gpu)| {
-                            (
-                                cur_cards[id] as i32,
-                                mem::CudaAllocator {
-                                    statik: mem::StaticAllocator::new(
-                                        cur_cards[id] as i32,
-                                        gpu.memory_limit() as usize,
-                                        false,
-                                    ),
-                                    page: mem::PageAllocator::new(
-                                        zkpoly_common::devices::DeviceType::GPU {
-                                            device_id: cur_cards[i] as i32,
-                                        },
-                                        task.hardware_info.page_size() as usize,
-                                        gpu.page_number(task.hardware_info.page_size()) as usize,
-                                    ),
-                                },
-                            )
-                        })
-                        .collect::<HashMap<_, _>>();
-
-                    let cpu_allocator = CpuStaticAllocator::new(
-                        task.hardware_info.cpu().memory_limit() as usize,
-                        true,
-                    );
-
                     let result: (Option<Variable<Rt>>, RuntimeInfo<Rt>);
+                    let pools = task.artifect.create_pools(&task.hardware_info, true);
                     let mut runtime = task.artifect.prepare_dispatcher(
-                        cpu_allocator,
-                        gpu_allocator,
-                        task.rng,
+                        pools,
+                       task.rng,
                         gpu_mapping.clone(),
                     );
 

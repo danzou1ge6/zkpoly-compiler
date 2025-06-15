@@ -1,6 +1,7 @@
 use crate::utils::{log2, log2_ceil};
+use serde::{Serialize, Deserialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct IntegralSize(pub u32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -142,5 +143,24 @@ impl std::ops::Mul<u64> for Size {
             }
             Size::Smithereen(SmithereenSize(ss)) => Self::Smithereen(SmithereenSize(ss * rhs)),
         }
+    }
+}
+
+/// Invariant: sizes are sorted in ascending order
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct LogBlockSizes(pub(crate) Vec<IntegralSize>);
+
+impl LogBlockSizes {
+    pub fn new(sizes: Vec<IntegralSize>) -> Self {
+        // check ascending order
+        if !sizes.is_sorted() {
+            panic!("sizes must be sorted in ascending order, got {:?}", sizes);
+        }
+
+        Self(sizes)
+    }
+
+    pub fn max(&self) -> IntegralSize {
+        *self.0.last().expect("lbss is empty")
     }
 }

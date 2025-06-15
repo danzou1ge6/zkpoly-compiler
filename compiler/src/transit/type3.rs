@@ -11,7 +11,7 @@ use zkpoly_common::{
 };
 use zkpoly_runtime::args::RuntimeType;
 
-use super::type2::object_analysis::ObjectId;
+use super::type2::object_analysis::{size::{IntegralSize, LogBlockSizes}, ObjectId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Device {
@@ -144,7 +144,7 @@ pub mod template {
         Free {
             id: I,
             device: Device,
-            variant: AllocVariant
+            variant: AllocVariant,
         },
         StackFree {
             id: I,
@@ -575,6 +575,7 @@ pub struct Chunk<'s, Rt: RuntimeType> {
     pub(crate) reg_id_allocator: IdAllocator<RegisterId>,
     pub(crate) reg_memory_blocks: BTreeMap<RegisterId, MemoryBlock>,
     pub(crate) obj_id_allocator: IdAllocator<ObjectId>,
+    pub(crate) lbss: LogBlockSizes,
     pub(crate) libs: Libs,
     pub(crate) _phantom: PhantomData<Rt>,
 }
