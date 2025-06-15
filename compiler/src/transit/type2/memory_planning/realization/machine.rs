@@ -401,7 +401,7 @@ where
         object: ObjectId,
         pointer: &P,
         obj_info: &object_info::Info<Rt>,
-        variant: AllocVariant
+        variant: AllocVariant,
     ) {
         let vn = obj_info.typ(object).with_normalized_p();
         let rv = ResidentalValue::new(Value::new(object, self.device(), vn), *pointer);
@@ -417,7 +417,7 @@ where
             .emit(Instruction::new_no_src(InstructionNode::Free {
                 id: reg,
                 device: rv.device(),
-                variant
+                variant,
             }));
         self.machine
             .free_regs_to(*rv.pointer(), rv.object_id(), rv.device(), reg);

@@ -286,6 +286,68 @@ where
 
         Continuation::new(f)
     }
+
+    /// Creates a simple continuation that let some device provide a copy of `object` for `to_device`, potentially sliced.
+    /// 
+    /// `from_device` must be planning or unplanned,
+    /// `to_device` must be planning or unplanned.
+    pub fn provide_object_sliced(
+        from_device: Device,
+        from_object: ObjectId,
+        to_device: Device,
+        to_object: ObjectId,
+        to_pointer: P,
+        slice: Option<Slice>,
+    ) -> Self {
+        let f = move |allocators: &mut AllocatorCollection<'_, 's, ObjectId, P, Rt>,
+                      machine: &mut Machine<'s, ObjectId, P>,
+                      aux: &mut AuxiliaryInfo<Rt>| {
+            if slice.is_some() && from_device == Device::Disk {
+                panic!("slicing from disk is not supported");
+            }
+
+            if aux.is_planning(to_device) {
+                if aux.is_planning(from_device) {
+                    let from_pointer = allocators
+                        .handle(from_device, machine, aux)
+                        .access(&from_object)
+                        .expect("object not found");
+                    machine.transfer_object_sliced(
+                        to_device,
+                        to_pointer,
+                        to_object,
+                        from_device,
+                        from_pointer,
+                        from_object,
+                        slice,
+                        aux.obj_info(),
+                    );
+                } else if aux.is_unplanned(from_device) {
+                    machine.reclaim_object_sliced(to_device, to_pointer, to_object, from_device, from_object, slice, aux.obj_info());
+                } else {
+                    panic!("from_device {:?} is neither planning nor unplanned", from_device)
+                }
+            } else if aux.is_unplanned(to_device) {
+                if aux.is_planning(from_device) {
+                    let from_pointer = allocators
+                        .handle(from_device, machine, aux)
+                        .access(&from_object)
+                        .expect("object not found");
+                    machine.eject_object_sliced(to_device, to_object, from_device, from_pointer, from_object, slice, aux.obj_info());
+                } else if aux.is_unplanned(from_device) {
+                    // do nothing
+                } else {
+                    panic!("from_device {:?} is neither planning nor unplanned", from_device)
+                }
+            } else {
+                panic!("to_device {:?} is neither planning nor unplanned", to_device)
+            }
+
+            Ok(())
+        };
+
+        Continuation::new(f)
+    }
 }
 
 impl<'s, T, P, R, Rt: RuntimeType>

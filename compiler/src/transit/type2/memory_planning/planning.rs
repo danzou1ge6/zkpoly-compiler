@@ -357,31 +357,15 @@ where
                     });
             }
             Clone(new_object, device, sliced_object, slice) if planning_or_unplanned!(device) => {
-                // First allocate space for `new_object`
-                let resp = allocators.handle(device, machine, aux)
-                    .allocate(obj_info.size(new_object), &new_object);
-                resp.commit(allocators, machine, aux)?;
-
-                macro_rules! access {
-                    ($obj:expr) => {
-                        allocators.handle(device, machine, aux)
-                            .access($obj)
-                            .expect("this is newly allocated and should be accessible")
-                    };
-                }
 
                 // Choose a device to slice `sliced_object` from.
-                if planning!(device) {
+                let from_device = if planning!(device) {
                     // When `device` is being planned, the priority is
                     // - `device` , transfer object from it
                     // - Planning device, transfer object from it
                     // - Unplanned device, reclaim object from it
                     if allocators.handle(device, machine, aux).completeness(sliced_object).is_one() {
-                        let to_pointer = access!(&new_object);
-                        let from_pointer = get_src_pointer!(device, sliced_object);
-
-                        machine.transfer_object_sliced(device, to_pointer, new_object, device, from_pointer, sliced_object, slice, obj_info);
-
+                        Some(device)
                     } else if let Some(src_device) =  allocators
                         .object_available_on(
                             planning_devices.iter() .copied().filter(|&d| d != device),
@@ -390,11 +374,7 @@ where
                             aux
                         ).pop()
                     {
-                        let to_pointer = access!(&new_object);
-                        let src_pointer = get_src_pointer!(src_device, sliced_object);
-
-                        machine.transfer_object_sliced(device, to_pointer, new_object, src_device, src_pointer, sliced_object, slice, obj_info);
-
+                        Some(src_device)
                     } else if let Some(src_device) = allocators
                         .object_available_on(
                             unplanned_devices.iter() .copied(),
@@ -403,9 +383,9 @@ where
                             aux
                         ).pop()
                     {
-                        let to_pointer = access!(&new_object);
-                        machine.reclaim_object_sliced(device, to_pointer, new_object, src_device, sliced_object, slice, obj_info);
-
+                        Some(src_device)
+                    } else {
+                        panic!("no planning or unplanneddevice available for object {:?}", sliced_object);
                     }
                 } else if unplanned!(device) {
                     // When `device` is unplanned, the priority is
@@ -421,6 +401,7 @@ where
                     {
                         // do nothing
                         machine.emit(Clone(new_object, device, sliced_object, slice));
+                        None
 
                     } else if let Some(src_device) = allocators
                         .object_available_on(
@@ -429,14 +410,55 @@ where
                             machine,
                             aux
                         ).pop()
-                        
                     {
-                        let src_pointer = get_src_pointer!(src_device, sliced_object);
-
-                        machine.eject_object_sliced(device, new_object, src_device, src_pointer, sliced_object, slice, obj_info);
-                    } 
+                        Some(src_device)
+                    }  else {
+                        panic!("no planning or unplanned device available for object {:?}", sliced_object);
+                    }
                 } else {
                     unreachable!()
+                };
+
+                // Allocate space for `new_object`
+                let resp = allocators.handle(device, machine, aux)
+                    .allocate(obj_info.size(new_object), &new_object);
+                let to_pointer = resp.commit(allocators, machine, aux)?;
+
+                // For now, disk does not support slicing.
+                // So, if we are cloning slice from disk, we first claim whole `sliced_object`,
+                // then clone-slice it on `device`.
+                if from_device.is_some_and(|from: Device| from == Device::Disk) && slice.is_some() {
+                    let from_device = from_device.unwrap();
+                    let resp = allocators
+                        .handle(device, machine, aux)
+                        .claim(&sliced_object, obj_info.size(sliced_object), from_device);
+                    resp.commit(allocators, machine, aux)?;
+
+                    let to_pointer = allocators
+                        .handle(device, machine, aux)
+                        .access(&new_object)
+                        .expect("your memory would be too small if it cannot hold two objects of this size");
+
+                    let c = Continuation::provide_object_sliced(
+                        device,
+                        sliced_object,
+                        device,
+                        new_object,
+                        to_pointer,
+                        slice
+                    );
+                    allocators.apply_continuation(c, machine, aux)?;
+
+                } else if let Some(from_device) = from_device {
+                    let c = Continuation::provide_object_sliced(
+                        from_device,
+                        sliced_object,
+                        device,
+                        new_object,
+                        to_pointer,
+                        slice
+                    );
+                    allocators.apply_continuation(c, machine, aux)?;
                 }
             }
             Clone(_, device, _, _) => {

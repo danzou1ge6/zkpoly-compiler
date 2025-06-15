@@ -22,6 +22,10 @@ impl Slice {
     pub fn end(&self) -> u64 {
         self.0 + self.1
     }
+
+    pub fn is_plain(&self, deg: u64) -> bool {
+        self.0 == 0 && self.1 == deg
+    }
 }
 
 #[derive(
@@ -134,6 +138,14 @@ pub mod template {
             match (self, other) {
                 (ScalarArray { len: deg1, .. }, ScalarArray { len: deg2, .. }) => deg1 == deg2,
                 (otherwise1, otherwise2) => otherwise1 == otherwise2,
+            }
+        }
+
+        pub fn poly(&self) -> Option<(&usize, &P)> {
+            use Typ::*;
+            match self {
+                ScalarArray { len, meta } => Some((len, meta)),
+                _ => None,
             }
         }
 
