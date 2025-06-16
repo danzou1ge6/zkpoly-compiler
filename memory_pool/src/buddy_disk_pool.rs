@@ -790,6 +790,8 @@ struct SafePtrMut<T> {
 unsafe impl<T> Send for SafePtrMut<T> {}
 unsafe impl<T> Sync for SafePtrMut<T> {}
 
+const MAX_RW_COUNT: usize = 0x7ffff000; // MAX_RW_COUNT
+
 // Helper functions for reading/writing to disk using O_DIRECT
 pub fn cpu_write_to_disk(ptr: *const u8, disk_pos: &Vec<DiskAllocInfo>, size: usize) {
     let safe_ptr = SafePtr { ptr };
@@ -800,18 +802,27 @@ pub fn cpu_write_to_disk(ptr: *const u8, disk_pos: &Vec<DiskAllocInfo>, size: us
         .for_each(|(disk_id, alloc_info)| {
             let safe_ptr_clone = safe_ptr.clone();
             let ptr = safe_ptr_clone.ptr;
-            let offset = alloc_info.offset.clone();
+            let mut offset = alloc_info.offset.clone();
             let fd = alloc_info.fd.clone();
-            let cpu_offset = part_size * disk_id;
+            let mut cpu_offset = part_size * disk_id;
 
-            unsafe {
-                let res = libc::pwrite(fd, ptr.add(cpu_offset).cast(), part_size, offset as i64);
-                if res < part_size as isize {
-                    panic!(
-                        "Failed to write {} bytes to disk {} at offset {}: {}",
-                        part_size, disk_id, offset, res
-                    );
+            // as the os has limit on the size of one write call, we need to split the write into parts
+            let mut res_size = part_size;
+
+            while res_size > 0 {
+                let write_size = res_size.min(MAX_RW_COUNT);
+                unsafe {
+                    let res = libc::pwrite(fd, ptr.add(cpu_offset).cast(), write_size, offset as i64);
+                    if res < write_size as isize {
+                        panic!(
+                            "Failed to write {} bytes to disk {} at offset {}: {}",
+                            write_size, disk_id, offset, res
+                        );
+                    }
                 }
+                res_size -= write_size;
+                offset += write_size;
+                cpu_offset += write_size;
             }
         });
 }
@@ -826,17 +837,27 @@ pub fn cpu_read_from_disk(ptr: *mut u8, disk_pos: &Vec<DiskAllocInfo>, size: usi
         .for_each(|(disk_id, alloc_info)| {
             let safe_ptr_clone = safe_ptr.clone();
             let ptr = safe_ptr_clone.ptr;
-            let (fd, offset) = (alloc_info.fd.clone(), alloc_info.offset.clone());
-            let cpu_offset = part_size * disk_id;
+            let (fd, mut offset) = (alloc_info.fd.clone(), alloc_info.offset.clone());
+            let mut cpu_offset = part_size * disk_id;
 
-            unsafe {
-                let res = libc::pread(fd, ptr.add(cpu_offset).cast(), part_size, offset as i64);
-                if res < part_size as isize {
-                    panic!(
-                        "Failed to read {} bytes from disk {} at offset {}: {}",
-                        part_size, disk_id, offset, res
-                    );
+            // as the os has limit on the size of one read call, we need to split the read into parts
+            let mut res_size = part_size;
+            while res_size > 0 {
+                let read_size = res_size.min(MAX_RW_COUNT);
+
+                unsafe {
+                    let res = libc::pread(fd, ptr.add(cpu_offset).cast(), read_size, offset as i64);
+                    if res < read_size as isize {
+                        panic!(
+                            "Failed to read {} bytes from disk {} at offset {}: {}",
+                            read_size, disk_id, offset, res
+                        );
+                    }
                 }
+
+                offset += read_size;
+                cpu_offset += read_size;
+                res_size -= read_size;
             }
         });
 }
@@ -1075,6 +1096,7 @@ mod tests {
     #[test]
     fn test_buddy_read_write() {
         let sys_align = get_system_alignment_for_test();
+        println!("System alignment for test: {}", sys_align);
         let max_block_size = sys_align * 8;
         let mut pool = BuddyDiskPool::new(max_block_size, None).unwrap();
 

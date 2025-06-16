@@ -76,7 +76,9 @@ pub fn move_constant_table<T: RuntimeType>(
     cpu_allocator: &mut CpuMemoryPool,
     disk_allocator: &mut DiskMemoryPool,
 ) -> ConstantTable<T> {
-    table.map(&mut |i, c| move_constant(c, on_device[i].clone(), cpu_allocator, disk_allocator))
+    let new_table = table.map(&mut |i, c| move_constant(c, on_device[i].clone(), cpu_allocator, disk_allocator));
+    cpu_allocator.shrink();
+    new_table
 }
 
 pub fn add_entry<T: RuntimeType>(t: &mut EntryTable<T>, var: Variable<T>) {
