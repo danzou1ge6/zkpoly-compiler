@@ -104,7 +104,7 @@ where
         let addr = self.allocator.objects_at.get_forward(t).copied();
 
         // fixme
-        println!("GPU access {:?} got {:?}", t, addr);
+        println!("{:?} access {:?} got {:?}", self.device(), t, addr);
 
         if let Some(addr) = addr {
             self.update_next_use(addr, updated_next_use);

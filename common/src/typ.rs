@@ -187,7 +187,7 @@ pub mod template {
             match self {
                 ScalarArray { .. } => true,
                 PointBase { .. } => true,
-                _ => true,
+                _ => false,
             }
         }
     }
