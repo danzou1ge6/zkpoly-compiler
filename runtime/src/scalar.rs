@@ -1112,6 +1112,30 @@ fn test_tranfer_cpu_disk() {
 }
 
 #[test]
+fn test_tranfer_cpu_disk_large() {
+    use zkpoly_memory_pool::BuddyDiskPool;
+    use zkpoly_memory_pool::CpuMemoryPool;
+
+    use halo2curves::bn256::Fr as F;
+    let mut cpu_pool = CpuMemoryPool::new(26, size_of::<F>());
+    let mut disk_pool = vec![
+        BuddyDiskPool::new(2usize.pow(34), Some("/tmp".into())).unwrap(),
+        // BuddyDiskPool::new(2usize.pow(28), Some("/data/tmp".into())).unwrap(),
+    ];
+    let mut array1 = ScalarArray::<F>::alloc_cpu(2usize.pow(26), &mut cpu_pool);
+    array1.iter_mut().enumerate().for_each(|(id, v)| {
+        *v = F::from(id as u64);
+    });
+    let mut array2 = ScalarArray::<F>::alloc_disk(2usize.pow(26), &mut disk_pool);
+    array1.cpu2disk(&mut array2);
+    let mut array3 = ScalarArray::<F>::alloc_cpu(2usize.pow(26), &mut cpu_pool);
+    array2.disk2cpu(&mut array3);
+    for i in 0..1024 {
+        assert_eq!(array1[i], array3[i]);
+    }
+}
+
+#[test]
 fn test_transfer_gpu_disk() {
     use zkpoly_cuda_api::mem::page_allocator::PageAllocator;
     use zkpoly_memory_pool::BuddyDiskPool;
@@ -1157,6 +1181,61 @@ fn test_transfer_gpu_disk() {
     let mut array6 = ScalarArray::<F>::alloc_cpu(1024, &mut cpu_pool);
     array5.disk2cpu(&mut array6);
     for i in 0..1024 {
+        if array1[i] != array6[i] {
+            println!(
+                "Mismatch at index {}: {:?} != {:?}",
+                i, array1[i], array6[i]
+            );
+        }
+    }
+}
+
+#[test]
+fn test_transfer_gpu_disk_large() {
+    use zkpoly_cuda_api::mem::page_allocator::PageAllocator;
+    use zkpoly_memory_pool::BuddyDiskPool;
+    use zkpoly_memory_pool::CpuMemoryPool;
+
+    use halo2curves::bn256::Fr as F;
+    let mut cpu_pool = CpuMemoryPool::new(26, size_of::<F>());
+    let mut disk_pool = vec![
+        BuddyDiskPool::new(2usize.pow(34), Some("/tmp".into())).unwrap(),
+        // BuddyDiskPool::new(2usize.pow(28), Some("/data/tmp".into())).unwrap(),
+    ];
+    let gpu_pool = PageAllocator::new(DeviceType::GPU { device_id: 0 }, 1024 * 1024 * 1024 * 2, 2);
+    let mut array1 = ScalarArray::<F>::alloc_cpu(2usize.pow(26), &mut cpu_pool);
+    array1.iter_mut().enumerate().for_each(|(id, v)| {
+        *v = F::from(id as u64);
+    });
+    let mut array2 = ScalarArray::<F>::alloc_disk(2usize.pow(26), &mut disk_pool);
+    array1.cpu2disk(&mut array2);
+
+    // Simulate GPU transfer
+    let stream = CudaStream::new(0);
+    let ptr_gpu: *mut F = gpu_pool.allocate(1024 * 1024 * 1024 * 2, vec![0]);
+    let mut array3 = ScalarArray::<F>::new(2usize.pow(26), ptr_gpu, DeviceType::GPU { device_id: 0 });
+    array2.disk2gpu(&mut array3);
+
+    let mut array4 = ScalarArray::<F>::alloc_cpu(2usize.pow(26), &mut cpu_pool);
+    array3.gpu2cpu(&mut array4, &stream);
+
+    stream.sync();
+
+    for i in 0..2usize.pow(26) {
+        if array1[i] != array4[i] {
+            println!(
+                "Mismatch at index {}: {:?} != {:?}",
+                i, array1[i], array4[i]
+            );
+        }
+    }
+
+    // Simulate GPU transfer back to Disk
+    let mut array5 = ScalarArray::<F>::alloc_disk(2usize.pow(26), &mut disk_pool);
+    array4.cpu2disk(&mut array5);
+    let mut array6 = ScalarArray::<F>::alloc_cpu(2usize.pow(26), &mut cpu_pool);
+    array5.disk2cpu(&mut array6);
+    for i in 0..2usize.pow(26) {
         if array1[i] != array6[i] {
             println!(
                 "Mismatch at index {}: {:?} != {:?}",
