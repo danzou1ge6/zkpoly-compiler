@@ -306,6 +306,12 @@ where
                 panic!("slicing from disk is not supported");
             }
 
+            // fixme
+            println!(
+                "{:?} provide object {:?} for {:?} on {:?}",
+                from_device, from_object, to_object, to_device
+            );
+
             if aux.is_planning(to_device) {
                 if aux.is_planning(from_device) {
                     let from_pointer = allocators

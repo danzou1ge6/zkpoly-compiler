@@ -182,10 +182,10 @@ pub mod template {
             }
         }
 
-        pub fn can_on_disk(&self) -> bool {
+        pub fn can_on_disk<F>(&self) -> bool {
             use Typ::*;
             match self {
-                ScalarArray { .. } => true,
+                ScalarArray { len, .. } => *len * std::mem::size_of::<F>() >= 4096,
                 PointBase { .. } => true,
                 _ => false,
             }

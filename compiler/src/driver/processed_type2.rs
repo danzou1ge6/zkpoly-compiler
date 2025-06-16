@@ -39,7 +39,7 @@ impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
             ast::lowering::constant_size(&t2const_tab) * 4 > hardware_info.cpu().memory_limit()
             && hardware_info.disk_available();
         let constants_device = t2const_tab.map_by_ref(&mut |_, c| {
-            if constants_on_disk && c.typ.can_on_disk() {
+            if constants_on_disk && c.typ.can_on_disk::<Rt::Field>() {
                 type3::Device::Disk
             } else {
                 type3::Device::Cpu
