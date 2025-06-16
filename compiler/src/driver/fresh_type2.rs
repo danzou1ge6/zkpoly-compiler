@@ -4,9 +4,10 @@ use zkpoly_memory_pool::{buddy_disk_pool::DiskMemoryPool, CpuMemoryPool};
 use zkpoly_runtime::args::{self, RuntimeType};
 
 use super::{
-    artifect::Artifect, ast, check_type2_dag, debug_partial_typed_type2, debug_type2,
-    processed_type2::ProcessedType2, type2, type3, DebugOptions, Error, HardwareInfo,
-    PanicJoinHandler,
+    artifect::{Artifect, SemiArtifect},
+    ast, check_type2_dag, debug_partial_typed_type2, debug_type2,
+    processed_type2::ProcessedType2,
+    type2, type3, DebugOptions, Error, HardwareInfo, PanicJoinHandler,
 };
 
 pub struct FreshType2<'s, Rt: RuntimeType> {
@@ -207,12 +208,7 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
         // - Arithmetic Kernel Fusion
         let t2cg = options.log_suround(
             "Fusing arithmetic kernels",
-            || {
-                Ok(type2::kernel_fusion::fuse_arith(
-                    t2cg,
-                    &hardware_info,
-                ))
-            },
+            || Ok(type2::kernel_fusion::fuse_arith(t2cg, &hardware_info)),
             "Done.",
         )?;
 
@@ -315,9 +311,20 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
         disk_allocator: &mut DiskMemoryPool,
         ctx: &PanicJoinHandler,
     ) -> Result<(Artifect<Rt>, CpuMemoryPool), Error<'s, Rt>> {
+        Ok(self
+            .to_semi_artifect(options, hardware_info, ctx)?
+            .finish(disk_allocator))
+    }
+
+    pub fn to_semi_artifect(
+        self,
+        options: &DebugOptions,
+        hardware_info: &HardwareInfo,
+        ctx: &PanicJoinHandler,
+    ) -> Result<SemiArtifect<Rt>, Error<'s, Rt>> {
         self.apply_passes(options, hardware_info, ctx)?
             .to_type3(options, hardware_info, ctx)?
             .apply_passes(options)?
-            .to_artifect(options, hardware_info, disk_allocator, ctx)
+            .to_artifect(options, hardware_info, ctx)
     }
 }
