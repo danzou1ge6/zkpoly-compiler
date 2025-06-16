@@ -210,7 +210,7 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
             || {
                 Ok(type2::kernel_fusion::fuse_arith(
                     t2cg,
-                    hardware_info.smallest_gpu_memory_integral_limit(),
+                    &hardware_info,
                 ))
             },
             "Done.",

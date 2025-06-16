@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::transit::{type2, SourceInfo};
+use crate::{driver::HardwareInfo, transit::{type2, SourceInfo}};
 
 use super::{temporary_space, Cg, Vertex, VertexId, VertexNode};
 use zkpoly_common::{
@@ -377,7 +377,7 @@ fn get_poly_repr<Rt: RuntimeType>(output_types: &Vec<super::Typ<Rt>>) -> PolyTyp
         .unwrap_or(PolyType::Coef)
 }
 
-pub fn fuse_arith<'s, Rt: RuntimeType>(cg: Cg<'s, Rt>, gpu_mem_limit: u64) -> Cg<'s, Rt> {
+pub fn fuse_arith<'s, Rt: RuntimeType>(cg: Cg<'s, Rt>, hw_info: &HardwareInfo) -> Cg<'s, Rt> {
     let succ: Heap<VertexId, BTreeSet<VertexId>> = cg.g.successors();
     let mut fused = vec![0; cg.g.order()];
     let order = cg.g.topology_sort().map(|(vid, _)| vid).collect::<Vec<_>>();
@@ -417,8 +417,23 @@ pub fn fuse_arith<'s, Rt: RuntimeType>(cg: Cg<'s, Rt>, gpu_mem_limit: u64) -> Cg
             // otherwise, the local memory usage will be too large
             // 10GB for 60k vertices with estimated reg usage 4000 on A100
             // 1GB for 5k vertices with estimated reg usage 1000 on A100
+            // also, we need to ensure host memory can hold all the inputs and outputs
+            ag.reorder_input_outputs();
+            let output_types = ag
+                    .outputs
+                    .iter()
+                    .map(|output_id| {
+                        let vid = arith2vid.get(output_id).unwrap();
+                        let v = cg.g.vertex(*vid);
+                        v.typ().clone()
+                    })
+                    .collect::<Vec<_>>();
+            let poly_degree = get_poly_degree(&output_types);
+            let poly_size = (poly_degree * size_of::<Rt::Field>()).max(1); // at least 1 byte, this is for the case of scalar i/o
+            let nodes_limit = hw_info.cpu().integral_space() as usize / poly_size;
+            assert!(nodes_limit > 3); // two inputs and one output
 
-            let (ags, arith2vids) = cg.split(&ag, arith2vid, 8192); // 8192 is a magic number for largest arith graph, can be tuned
+            let (ags, arith2vids) = cg.split(&ag, arith2vid, nodes_limit);
 
             // now we have a vector of arith graphs, we need to add them to the new graph
             for (mut ag, arith2vid) in ags.into_iter().zip(arith2vids.iter()) {
@@ -469,7 +484,7 @@ pub fn fuse_arith<'s, Rt: RuntimeType>(cg: Cg<'s, Rt>, gpu_mem_limit: u64) -> Cg
                 let temp_spaces = temporary_space::arith::<Rt>(&ag, None);
                 assert!(temp_spaces.len() == 2);
                 let chunking = ag
-                    .decide_chunking::<Rt::Field>(gpu_mem_limit - temp_spaces[0] - temp_spaces[1]);
+                    .decide_chunking::<Rt::Field>(hw_info.smallest_gpu_memory_integral_limit() - temp_spaces[0] - temp_spaces[1]);
 
                 // decide the polynomial representation
                 ag.poly_repr = get_poly_repr(&output_types);
