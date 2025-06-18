@@ -1136,6 +1136,56 @@ fn test_tranfer_cpu_disk_large() {
 }
 
 #[test]
+fn test_transfer_bandwidth_2gb() {
+    use halo2curves::bn256::Fr as F;
+    use std::mem::size_of;
+    use std::time::Instant;
+    use zkpoly_memory_pool::BuddyDiskPool;
+    use zkpoly_memory_pool::CpuMemoryPool;
+
+    // 2GB = 2 * 1024 * 1024 * 1024 bytes
+    let bytes_2gb = 2usize * 1024 * 1024 * 1024;
+    let n_elem = bytes_2gb / size_of::<F>();
+
+    // 分配CPU池和磁盘池
+    let mut cpu_pool = CpuMemoryPool::new((bytes_2gb as f64).log2().ceil() as u32, size_of::<F>());
+    let mut disk_pool = vec![
+        BuddyDiskPool::new(bytes_2gb, Some("/tmp".into())).unwrap(),
+        BuddyDiskPool::new(bytes_2gb, Some("/data/tmp".into())).unwrap(),
+    ];
+
+    // 分配并初始化数据
+    let mut array1 = ScalarArray::<F>::alloc_cpu(n_elem, &mut cpu_pool);
+    array1.iter_mut().enumerate().for_each(|(id, v)| {
+        *v = F::from(id as u64);
+    });
+
+    // 写到磁盘并计时
+    let mut array2 = ScalarArray::<F>::alloc_disk(n_elem, &mut disk_pool);
+    let start_write = Instant::now();
+    array1.cpu2disk(&mut array2);
+    let elapsed_write = start_write.elapsed().as_secs_f64();
+    let write_bw = (bytes_2gb as f64) / elapsed_write / (1024.0 * 1024.0 * 1024.0);
+
+    // 从磁盘读回并计时
+    let mut array3 = ScalarArray::<F>::alloc_cpu(n_elem, &mut cpu_pool);
+    let start_read = Instant::now();
+    array2.disk2cpu(&mut array3);
+    let elapsed_read = start_read.elapsed().as_secs_f64();
+    let read_bw = (bytes_2gb as f64) / elapsed_read / (1024.0 * 1024.0 * 1024.0);
+
+    // 验证数据正确性（只比较前1024个元素）
+    for i in 0..1024 {
+        assert_eq!(array1[i], array3[i]);
+    }
+
+    println!(
+        "Write bandwidth: {:.2} GB/s, Read bandwidth: {:.2} GB/s",
+        write_bw, read_bw
+    );
+}
+
+#[test]
 fn test_transfer_gpu_disk() {
     use zkpoly_cuda_api::mem::page_allocator::PageAllocator;
     use zkpoly_memory_pool::BuddyDiskPool;
@@ -1213,7 +1263,8 @@ fn test_transfer_gpu_disk_large() {
     // Simulate GPU transfer
     let stream = CudaStream::new(0);
     let ptr_gpu: *mut F = gpu_pool.allocate(1024 * 1024 * 1024 * 2, vec![0]);
-    let mut array3 = ScalarArray::<F>::new(2usize.pow(26), ptr_gpu, DeviceType::GPU { device_id: 0 });
+    let mut array3 =
+        ScalarArray::<F>::new(2usize.pow(26), ptr_gpu, DeviceType::GPU { device_id: 0 });
     array2.disk2gpu(&mut array3);
 
     let mut array4 = ScalarArray::<F>::alloc_cpu(2usize.pow(26), &mut cpu_pool);
