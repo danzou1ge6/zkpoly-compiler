@@ -1,4 +1,5 @@
 use memmap2::{MmapMut, MmapOptions};
+use std::collections::BTreeSet;
 use std::ffi::c_void;
 use std::ptr::NonNull;
 use std::{
@@ -689,5 +690,27 @@ impl MemoryPool {
         } else {
             Err(errors.join("; "))
         }
+    }
+
+    pub fn used_bytes(&self) -> usize {
+        // visit the top-level slabs (max_log_factor) and sum their sizes
+        let mut cur = self.slab_layers[self.max_log_factor as usize]
+            .head_all_idx;
+        let mut visited = BTreeSet::new();
+        while let Some(idx) = cur {
+            if visited.contains(&idx) {
+                break; // ring list, so this means we've visited all slabs
+            }
+            visited.insert(idx);
+            if idx < self.slabs.len() {
+                let slab = &self.slabs[idx];
+                assert_eq!(slab.log_factor, self.max_log_factor, "Slab at index {} should have log_factor {}", idx, self.max_log_factor);
+                cur = slab.next_in_layer;
+            } else {
+                eprintln!("used_bytes: Invalid slab index {} encountered.", idx);
+                break;
+            }
+        }
+        visited.len() * self.base_size * (1 << self.max_log_factor)
     }
 }

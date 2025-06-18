@@ -180,7 +180,23 @@ impl MemoryInfo {
 }
 
 #[derive(Debug, Clone)]
-pub struct DiskMemoryInfo {}
+pub struct DiskMemoryInfo {
+    disk_path: Option<PathBuf>,
+}
+
+impl DiskMemoryInfo {
+    pub fn new(disk_path: Option<PathBuf>) -> Self {
+        Self { disk_path }
+    }
+
+    pub fn disk_path(&self) -> Option<&PathBuf> {
+        self.disk_path.as_ref()
+    }
+
+    pub fn has_path(&self) -> bool {
+        self.disk_path.is_none()
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct HardwareInfo {
@@ -230,8 +246,8 @@ impl HardwareInfo {
         }
     }
 
-    pub fn with_disk(mut self) -> Self {
-        self.disk.push(DiskMemoryInfo {});
+    pub fn with_disk(mut self, info: DiskMemoryInfo) -> Self {
+        self.disk.push(info);
         self
     }
 
@@ -278,8 +294,9 @@ impl HardwareInfo {
 
     pub fn disk_allocator(&self, max_block: usize) -> DiskMemoryPool {
         self.disks()
-            .map(|_| {
-                BuddyDiskPool::new(max_block, None).expect("cannot create disk pool")
+            .map(|disk_info| {
+                let disk_path = disk_info.disk_path().cloned();
+                BuddyDiskPool::new(max_block, disk_path).expect("cannot create disk pool")
             })
             .collect()
     }

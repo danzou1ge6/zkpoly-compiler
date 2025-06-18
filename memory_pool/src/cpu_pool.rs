@@ -26,6 +26,10 @@ impl CpuMemoryPool {
         }
     }
 
+    pub fn used_bytes(&self) -> usize {
+        self.pool.used_bytes()
+    }
+
     pub fn use_mmap(mut self) -> Self {
         self.pool.use_mmap();
         self

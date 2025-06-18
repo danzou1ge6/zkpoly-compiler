@@ -387,6 +387,22 @@ mod tests {
     }
 
     #[test]
+    fn test_gpu_massive_allocate() {
+        let page_size = 1024 * 1024 * 1024 * 2;
+        let allocator = PageAllocator::new(DeviceType::GPU { device_id: 0 }, page_size, 10);
+        let num_pages_to_alloc = 1; // Allocate 2GB
+        let va_size = page_size * num_pages_to_alloc;
+        for i in 0..4096 {
+            let page_ids = (0..num_pages_to_alloc)
+                .map(|j| (i + j) % 10) // Wrap around the available pages
+                .collect::<Vec<_>>();
+            let ptr = allocator.allocate::<u8>(va_size, page_ids);
+            assert!(!ptr.is_null(), "Failed to allocate memory for iteration {}", i);
+            println!("iteration {} successed", i);
+        }
+    }
+
+    #[test]
     fn test_cpu_page_allocator_allocate_deallocate() {
         let mut min_granularity: usize = 0;
         let device = DeviceType::CPU;
