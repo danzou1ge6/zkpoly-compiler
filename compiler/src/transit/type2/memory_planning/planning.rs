@@ -239,7 +239,7 @@ where
                     }
                 }
 
-                for vo in temps.iter()
+                if let Some(vo) = temps.first()
                 {
                     if planning_or_unplanned!(vo.device()) {
                         let resp = allocators.handle(vo.device(), machine, aux)
@@ -347,8 +347,8 @@ where
                 machine.emit(Operation::Type2(vid, outputs, node, temps.clone(), src));
 
                 // Deallocate temporary spaces right away, for clearity
-                temps.into_iter()
-                    .for_each(|rv| {
+                temps.first()
+                    .map(|rv| {
                         if planning!(rv.device()) {
                             assert!(rv.pointer().is_some());
                             allocators.handle(rv.device(), machine, aux)

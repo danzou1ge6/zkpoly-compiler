@@ -557,6 +557,19 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     let dst_guard = &mut (*self.variable)[dst];
                     *dst_guard = Some(var);
                 }
+                Instruction::SliceBuffer {
+                    src,
+                    dst,
+                    offset,
+                    len,
+                } => {
+                    let src_guard = &(*self.variable)[src];
+                    let var = src_guard.as_ref().unwrap().clone();
+                    let dst_guard = &mut (*self.variable)[dst];
+
+                    let buf = var.unwrap_gpu_buffer().clone().sliced(offset, len);
+                    *dst_guard = Some(Variable::GpuBuffer(buf))
+                }
             }
             if self.bench_start.is_some() && instruct_copy.is_some() {
                 if debug_option == RuntimeDebug::RecordTime {

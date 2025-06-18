@@ -162,7 +162,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                 let device_id = (self.gpu_mapping)(device.unwrap_gpu());
                 Variable::Stream(CudaStream::new(device_id))
             }
-            Typ::GpuBuffer(size) => {
+            Typ::GpuBuffer(size, ..) => {
                 let device_id = (self.gpu_mapping)(device.unwrap_gpu());
                 match alloc_method {
                     AllocMethod::Offset(offset, ..) => Variable::GpuBuffer(GpuBuffer {

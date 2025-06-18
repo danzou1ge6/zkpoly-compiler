@@ -14,4 +14,12 @@ impl GpuBuffer {
     pub fn new(ptr: *mut u8, size: usize, device: DeviceType) -> Self {
         Self { ptr, size, device }
     }
+
+    pub fn sliced(self, offset: usize, size: usize) -> Self {
+        Self {
+            ptr: unsafe { self.ptr.add(offset) },
+            size,
+            device: self.device,
+        }
+    }
 }

@@ -230,8 +230,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
             let arg_buffer = tmp_buffers[0].unwrap_gpu_buffer();
             let local_buffer = tmp_buffers[1].unwrap_gpu_buffer();
             // check the buffer size
-            assert_eq!(
-                arg_buffer.size,
+            assert!(
+                arg_buffer.size >=
                 (2 * num_of_vars + 3 * num_of_mut_vars) * std::mem::size_of::<PolyPtr>()
             );
 

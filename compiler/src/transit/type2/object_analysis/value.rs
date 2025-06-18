@@ -102,7 +102,7 @@ impl Value {
             Typ::Point => size_of::<Rt::PointAffine>(),
             Typ::Tuple => panic!("a value should never point to a tuple"),
             Typ::Stream => panic!("a value should never point to a stream"),
-            Typ::GpuBuffer(len) => *len,
+            Typ::GpuBuffer(len, ..) => *len,
             Typ::Any(_, len) => *len,
         }
     }

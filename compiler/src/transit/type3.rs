@@ -11,7 +11,10 @@ use zkpoly_common::{
 };
 use zkpoly_runtime::args::RuntimeType;
 
-use super::type2::object_analysis::{size::{IntegralSize, LogBlockSizes}, ObjectId};
+use super::type2::object_analysis::{
+    size::{IntegralSize, LogBlockSizes},
+    ObjectId,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Device {
@@ -177,6 +180,12 @@ pub mod template {
             init: PolyInit,
             pty: PolyType,
         },
+        SliceBuffer {
+            id: I,
+            operand: I,
+            offset: usize,
+            len: usize,
+        },
     }
 
     impl<I, V> InstructionNode<I, V>
@@ -195,6 +204,7 @@ pub mod template {
                 TransferToDefed { id, .. } => Box::new(std::iter::once(*id)),
                 SetPolyMeta { id, .. } => Box::new(std::iter::once(*id)),
                 FillPoly { id, .. } => Box::new(std::iter::once(*id)),
+                SliceBuffer { id, .. } => Box::new(std::iter::once(*id)),
             }
         }
 
@@ -210,6 +220,7 @@ pub mod template {
                 Transfer { id, .. } => Box::new(std::iter::once(id)),
                 SetPolyMeta { id, .. } => Box::new(std::iter::once(id)),
                 FillPoly { id, .. } => Box::new(std::iter::once(id)),
+                SliceBuffer { id, .. } => Box::new(std::iter::once(id)),
             }
         }
 
@@ -227,6 +238,7 @@ pub mod template {
                 TransferToDefed { id, to, .. } => Box::new(std::iter::once((*id, Some(*to)))),
                 SetPolyMeta { id, .. } => Box::new(std::iter::once((*id, None))),
                 FillPoly { id, operand, .. } => Box::new(std::iter::once((*id, Some(*operand)))),
+                SliceBuffer { id, .. } => Box::new(std::iter::once((*id, None))),
             }
         }
 
@@ -450,6 +462,7 @@ impl<'s> Instruction<'s> {
                 Device::Gpu(i) => type2::Device::Gpu(i),
                 _ => panic!("FillPoly should have its result on either GPU or CPU"),
             }),
+            SliceBuffer { .. } => Cpu,
         }
     }
 
@@ -471,6 +484,7 @@ impl<'s> Instruction<'s> {
             }
             SetPolyMeta { from, .. } => Box::new(std::iter::once(*from)),
             FillPoly { operand, .. } => Box::new(std::iter::once(*operand)),
+            SliceBuffer { operand, .. } => Box::new(std::iter::once(*operand)),
             _ => Box::new(std::iter::empty()),
         }
     }
