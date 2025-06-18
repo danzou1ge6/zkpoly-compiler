@@ -10,3 +10,4 @@ pub mod point;
 pub mod runtime;
 pub mod scalar;
 pub mod transcript;
+pub mod debug;

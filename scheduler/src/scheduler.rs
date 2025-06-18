@@ -6,6 +6,7 @@ use zkpoly_compiler::driver::{Artifect, HardwareInfo};
 use zkpoly_memory_pool::static_allocator::CpuStaticAllocator;
 use zkpoly_runtime::args::{EntryTable, RuntimeType, Variable};
 use zkpoly_runtime::async_rng::AsyncRng;
+use zkpoly_runtime::debug::DebugInfoCollector;
 use zkpoly_runtime::runtime::{RuntimeDebug, RuntimeInfo};
 
 // 任务状态
@@ -20,7 +21,7 @@ pub enum TaskStatus {
 struct Task<Rt: RuntimeType> {
     artifect: Artifect<Rt>,
     status: Arc<Mutex<TaskStatus>>,
-    result_sender: mpsc::Sender<(Option<Variable<Rt>>, RuntimeInfo<Rt>)>, // 用于发送任务结果
+    result_sender: mpsc::Sender<(Option<Variable<Rt>>, Option<DebugInfoCollector>, RuntimeInfo<Rt>)>, // 用于发送任务结果
     hardware_info: HardwareInfo,
     rng: AsyncRng,
     inputs: EntryTable<Rt>,
@@ -63,7 +64,7 @@ impl<Rt: RuntimeType> Scheduler<Rt> {
                     }; // 更新任务状态为运行中，并记录已分配的卡片
                     drop(status); // 释放锁
 
-                    let result: (Option<Variable<Rt>>, RuntimeInfo<Rt>);
+                    let result: (Option<Variable<Rt>>, Option<DebugInfoCollector>, RuntimeInfo<Rt>);
                     let pools = task.artifect.create_pools(&task.hardware_info, true);
                     let mut runtime = task.artifect.prepare_dispatcher(
                         pools,
@@ -110,7 +111,7 @@ impl<Rt: RuntimeType> Scheduler<Rt> {
         debug_opt: RuntimeDebug,
     ) -> (
         Arc<Mutex<TaskStatus>>,
-        mpsc::Receiver<(Option<Variable<Rt>>, RuntimeInfo<Rt>)>,
+        mpsc::Receiver<(Option<Variable<Rt>>, Option<DebugInfoCollector>, RuntimeInfo<Rt>)>,
     ) {
         let (result_sender, result_receiver) = mpsc::channel();
         let status = Arc::new(Mutex::new(TaskStatus::Pending));

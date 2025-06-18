@@ -13,16 +13,13 @@ use zkpoly_common::{devices::DeviceType, load_dynamic::Libs};
 use crate::{
     args::{new_variable_table, ConstantTable, EntryTable, RuntimeType, Variable, VariableTable},
     async_rng::AsyncRng,
+    debug::{DebugInfo, DebugInfoCollector},
     devices::{new_thread_table, Event, EventTable, ThreadTable},
     functions::{FuncMeta, FunctionTable},
     instructions::Instruction,
 };
 
-use zkpoly_cuda_api::{
-    bindings::cudaDeviceSynchronize,
-    cuda_check,
-    mem::{page_allocator::PageAllocator, CudaAllocator},
-};
+use zkpoly_cuda_api::{bindings::cudaDeviceSynchronize, cuda_check, mem::CudaAllocator};
 
 use zkpoly_memory_pool::{static_allocator::CpuStaticAllocator, BuddyDiskPool};
 
@@ -50,6 +47,7 @@ pub enum RuntimeDebug {
     RecordTime,
     BenchKernel,
     DebugInstruction,
+    RecordTimeAsync,
     None,
 }
 
@@ -105,8 +103,17 @@ impl<T: RuntimeType> Runtime<T> {
         &mut self,
         input_table: &EntryTable<T>,
         debug_opt: RuntimeDebug,
-    ) -> ((Option<Variable<T>>, RuntimeInfo<T>), CpuStaticAllocator) {
-        let bench_start = if RuntimeDebug::RecordTime == debug_opt {
+    ) -> (
+        (
+            Option<Variable<T>>,
+            Option<DebugInfoCollector>,
+            RuntimeInfo<T>,
+        ),
+        CpuStaticAllocator,
+    ) {
+        let bench_start = if RuntimeDebug::RecordTime == debug_opt
+            || RuntimeDebug::RecordTimeAsync == debug_opt
+        {
             Some(Instant::now())
         } else {
             None
@@ -131,7 +138,7 @@ impl<T: RuntimeType> Runtime<T> {
             executed_kernels,
             debug_instruction,
         };
-        let r = unsafe {
+        let (r, debug_info) = unsafe {
             info.run(
                 self.instructions.clone(),
                 Some(&mut self.mem_allocator.as_mut().unwrap()),
@@ -140,9 +147,10 @@ impl<T: RuntimeType> Runtime<T> {
                 None,
                 0,
                 Arc::new(std::sync::Mutex::new(())),
+                debug_opt,
             )
         };
-        ((r, info), self.mem_allocator.take().unwrap())
+        ((r, debug_info, info), self.mem_allocator.take().unwrap())
     }
 }
 
@@ -173,21 +181,35 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         mut mem_allocator: Option<&mut CpuStaticAllocator>,
         mut gpu_allocator: Option<&mut HashMap<i32, CudaAllocator>>,
         mut disk_allocator: Option<&mut Vec<BuddyDiskPool>>,
-        epilogue: Option<Sender<i32>>,
+        epilogue: Option<Sender<Option<DebugInfoCollector>>>,
         _thread_id: usize,
         global_mutex: Arc<Mutex<()>>,
-    ) -> Option<Variable<T>> {
+        debug_option: RuntimeDebug,
+    ) -> (Option<Variable<T>>, Option<DebugInfoCollector>) {
+        let mut debug_infos = if debug_option == RuntimeDebug::RecordTimeAsync {
+            Some(DebugInfoCollector {
+                debug_info: Vec::new(),
+                sub_thread_debug_info: HashMap::new(),
+            })
+        } else {
+            None
+        };
         for (i, instruction) in instructions.into_iter().enumerate() {
-            let _guard: Option<std::sync::MutexGuard<'_, ()>> =
-                if self.bench_start.is_some() || self.executed_kernels.is_some() {
-                    Some(global_mutex.lock().unwrap())
-                } else {
-                    None
-                };
+            let _guard: Option<std::sync::MutexGuard<'_, ()>> = if debug_option
+                == RuntimeDebug::RecordTime
+                || debug_option == RuntimeDebug::BenchKernel
+                || debug_option == RuntimeDebug::DebugInstruction
+            {
+                Some(global_mutex.lock().unwrap())
+            } else {
+                None
+            };
 
             let (start_time, instruct_copy) = if self.bench_start.is_some() {
-                unsafe {
-                    cuda_check!(cudaDeviceSynchronize()); // wait for all previous cuda calls
+                if debug_option == RuntimeDebug::RecordTime {
+                    unsafe {
+                        cuda_check!(cudaDeviceSynchronize()); // wait for all previous cuda calls
+                    }
                 }
                 let instruct_copy = if let Instruction::AssertEq { .. } = &instruction {
                     None
@@ -366,12 +388,18 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                             Some(tx),
                             new_thread.into(),
                             global_mutex,
+                            debug_option.clone(),
                         );
                     });
                 }
                 Instruction::Join { thread } => {
                     let rx = (*self.threads)[thread].take().unwrap();
-                    rx.recv().unwrap();
+                    let sub_debug_info = rx.recv().unwrap();
+                    if let Some(debug_infos) = &mut debug_infos {
+                        debug_infos
+                            .sub_thread_debug_info
+                            .insert(thread, Box::new(sub_debug_info.unwrap()));
+                    }
                 }
                 Instruction::Rotation { src, dst, shift } => {
                     let guard = &(*self.variable)[src];
@@ -428,7 +456,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                         panic!("can only return from main thread");
                     }
                     let var = (*self.variable)[var_id].take().unwrap();
-                    return Some(var);
+                    return (Some(var), debug_infos);
                 }
                 Instruction::SetSliceMeta {
                     src,
@@ -544,41 +572,51 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                 }
             }
             if self.bench_start.is_some() && instruct_copy.is_some() {
-                unsafe {
-                    cuda_check!(cudaDeviceSynchronize());
+                if debug_option == RuntimeDebug::RecordTime {
+                    unsafe {
+                        cuda_check!(cudaDeviceSynchronize());
+                    }
                 }
                 let start_duration = start_time
                     .unwrap()
                     .saturating_duration_since(self.bench_start.clone().unwrap());
                 let end_duration =
                     Instant::now().saturating_duration_since(self.bench_start.clone().unwrap());
-                if let Some(func_name) = function_name {
-                    println!(
-                        "thread {:?} instruction FuncCall {} {:?} start: {:?} end: {:?}",
-                        _thread_id,
-                        func_name,
-                        instruct_copy.unwrap(),
-                        start_duration.as_micros(),
-                        end_duration.as_micros()
-                    );
+                if debug_option == RuntimeDebug::RecordTime {
+                    if let Some(func_name) = function_name {
+                        println!(
+                            "thread {:?} instruction FuncCall {} {:?} start: {:?} end: {:?}",
+                            _thread_id,
+                            func_name,
+                            instruct_copy.unwrap(),
+                            start_duration.as_micros(),
+                            end_duration.as_micros()
+                        );
+                    } else {
+                        println!(
+                            "thread {:?} instruction {:?} start: {:?} end: {:?}",
+                            _thread_id,
+                            instruct_copy.unwrap(),
+                            start_duration.as_micros(),
+                            end_duration.as_micros()
+                        );
+                    }
                 } else {
-                    println!(
-                        "thread {:?} instruction {:?} start: {:?} end: {:?}",
-                        _thread_id,
-                        instruct_copy.unwrap(),
-                        start_duration.as_micros(),
-                        end_duration.as_micros()
-                    );
+                    debug_infos.as_mut().unwrap().debug_info.push(DebugInfo {
+                        instruction: instruct_copy.unwrap(),
+                        start_duration,
+                        end_duration,
+                    });
                 }
             }
         }
         if !self.main_thread {
             epilogue
                 .unwrap()
-                .send(1)
+                .send(debug_infos)
                 .expect("channel will be there waiting for the pool");
         }
 
-        None
+        (None, None)
     }
 }
