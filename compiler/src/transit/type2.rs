@@ -361,6 +361,7 @@ pub mod template {
                 Msm { .. } => true,
                 Ntt { .. } => true,
                 Arith { chunking, .. } => chunking.is_some(),
+                ScanMul { .. } => true,
                 _ => false,
             }
         }

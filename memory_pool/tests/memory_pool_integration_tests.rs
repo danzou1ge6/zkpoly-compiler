@@ -240,6 +240,8 @@ fn test_complex() {
                 .expect("Complex: Deallocate failed");
         }
     }
+    println!("before shrink uses {} bytes", pool.used_bytes());
     pool.shrink().expect("Complex: Shrink failed");
+    println!("after shrink uses {} bytes", pool.used_bytes());
     pool.clear().expect("Complex: Clear failed");
 }
