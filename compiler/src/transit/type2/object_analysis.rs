@@ -107,6 +107,8 @@ pub mod template {
         ///
         /// Depending on current device of memory planning, some of the values' pointers
         /// may be unknown.
+        /// 
+        /// All temporary spaces belong to the same object.
         Type2(
             VertexId,
             Vec<(ResidentalValue<Option<P>>, Option<ObjectId>)>,
@@ -253,6 +255,25 @@ pub use template::{Index, Operation, OperationSeq};
 pub mod cg_def_use;
 pub mod size;
 
+/// Given an iterator of sizes of buffers, and align the buffer must obey,
+/// returns the total size of the merged buffer and the (offset, length)'s of each buffer slice,
+/// where the length may be longer than original size.
+fn merge_temporary_buffer(sizes: impl Iterator<Item = u64>, align: u64) -> (u64, Vec<Slice>) {
+    let mut offset = 0;
+    let mut slices = Vec::new();
+
+    let align = |offset: u64| -> u64 { (offset + align - 1) / align * align };
+
+    for size in sizes {
+        let next_offset = align(offset + size);
+        slices.push(Slice::new(offset, next_offset - offset));
+
+        offset = next_offset;
+    }
+
+    (offset, slices)
+}
+
 impl<'s, T, P> OperationSeq<'s, T, P>
 where
     P: UsizeId,
@@ -360,13 +381,16 @@ where
                 .map_or_else(
                     || Vec::new(),
                     |(sizes, md)| {
-                        sizes
+                        let temp_buffer_obj_id = obj_id_allocator.alloc();
+                        let (size, slices) = merge_temporary_buffer(sizes.into_iter(), 32);
+
+                        slices
                             .into_iter()
                             .map(|s| {
                                 Value::new(
-                                    obj_id_allocator.alloc(),
+                                    temp_buffer_obj_id,
                                     md,
-                                    ValueNode::GpuBuffer(s as usize),
+                                    ValueNode::GpuBuffer(size as usize, s),
                                 )
                                 .into()
                             })

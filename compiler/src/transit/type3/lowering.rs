@@ -506,6 +506,17 @@ fn lower_instruction<'s, Rt: RuntimeType>(
                 dst: reg_id2var_id(*id),
             })
         }
+        super::InstructionNode::SliceBuffer {
+            id,
+            operand,
+            offset,
+            len,
+        } => emit(Instruction::SliceBuffer {
+            src: reg_id2var_id(*operand),
+            dst: reg_id2var_id(*id),
+            offset: *offset,
+            len: *len,
+        }),
     };
 }
 

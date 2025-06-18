@@ -208,6 +208,7 @@ fn format_inst_label<'s, Rt: RuntimeType>(
         TransferToDefed { .. } => "TransferToDefed".to_string(),
         SetPolyMeta { offset, len, .. } => format!("SetPolyMeta({}, {})", offset, len),
         FillPoly { deg, init, pty, .. } => format!("FillPoly({}, {:?}, {:?})", deg, init, pty),
+        SliceBuffer { offset, len, .. } => format!("SliceBuffer({}, {})", offset, len),
     }
 }
 
@@ -234,5 +235,6 @@ fn format_labeled_uses<'s>(inst: &Instruction<'s>) -> Vec<(RegisterId, String)> 
         TransferToDefed { to, from, .. } => vec![(*to, "".to_string()), (*from, "".to_string())],
         SetPolyMeta { from, .. } => vec![(*from, "".to_string())],
         FillPoly { operand, .. } => vec![(*operand, "".to_string())],
+        SliceBuffer { operand, .. } => vec![(*operand, "".to_string())],
     }
 }

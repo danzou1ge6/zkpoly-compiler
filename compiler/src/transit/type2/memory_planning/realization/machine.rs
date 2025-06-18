@@ -102,10 +102,8 @@ impl<P> RegBooking<P>
 where
     P: UsizeId,
 {
-    pub fn new_reg(&mut self, rv: ResidentalValue<P>) -> RegisterId {
-        let reg = self
-            .values
-            .push(RegisterValue::Single(rv.clone(), RegisterStatus::Undefined));
+    pub fn new_reg(&mut self, rv: ResidentalValue<P>, status: RegisterStatus) -> RegisterId {
+        let reg = self.values.push(RegisterValue::Single(rv.clone(), status));
         self.p2reg
             .entry((*rv.pointer(), rv.device()))
             .or_default()
@@ -256,11 +254,17 @@ where
     /// All defined registers in the instruction must be defined for the first time.
     /// Allocations are not considered definitions.
     pub fn emit(&mut self, inst: type3::Instruction<'s>) {
-        if !inst.node.is_allloc() {
-            inst.defs().for_each(|r| self.reg_booking.define(r));
-        }
+        // Slicing a temporary buffer is not considered defining
+        match &inst.node {
+            InstructionNode::SliceBuffer { .. } => {}
+            _ => {
+                if !inst.node.is_allloc() {
+                    inst.defs().for_each(|r| self.reg_booking.define(r));
+                }
+            }
+        };
         if let type3::InstructionNode::Type2 { temp, .. } = &inst.node {
-            temp.iter().for_each(|r| self.reg_booking.define(*r))
+            temp.iter().for_each(|r| self.reg_booking.define(*r));
         }
         self.instructions.push(inst);
     }
@@ -297,7 +301,9 @@ where
         let (reg_deg, _) = reg_rv.node().unwrap_poly();
         assert!(deg == reg_deg);
 
-        let new_reg = self.reg_booking.new_reg(rv.clone());
+        let new_reg = self
+            .reg_booking
+            .new_reg(rv.clone(), RegisterStatus::Undefined);
 
         self.emit(Instruction::new_no_src(InstructionNode::SetPolyMeta {
             id: new_reg,
@@ -310,22 +316,56 @@ where
     }
 
     /// Lookup for an undefined register having exactly the `rv`.
-    /// Unlike `defined_reg_for`, this function does not create new register through slicing.
+    /// Unlike `defined_reg_for`, this function does not create new register through slicing polynomials.
     ///
-    /// However, this function does create new register by calling realizer.
+    /// However, this function does create new register by slicing temporary buffers.
     pub fn undefined_reg_for(&mut self, rv: &ResidentalValue<P>) -> RegisterId
     where
         P: UsizeId,
     {
-        self.reg_booking
-            .lookup_reg(&rv, RegisterStatus::Undefined)
-            .unwrap_or_else(|| panic!("no undefined register found for {:?}", rv))
+        if let Some(reg) = self.reg_booking.lookup_reg(&rv, RegisterStatus::Undefined) {
+            return reg;
+        }
+
+        let reg = self
+            .reg_booking
+            .regs_pointing_to(
+                rv.object_id(),
+                *rv.pointer(),
+                rv.device(),
+                RegisterStatus::Undefined,
+            )
+            .next()
+            .unwrap_or_else(|| {
+                panic!(
+                    "cannot find a defined register even just pointing to {:?}",
+                    &rv
+                )
+            });
+
+        let (reg_rv, _) = self.reg_booking.reg_value(reg);
+        let (size, slice) = rv.node().unwrap_gpu_buffer();
+        let (reg_size, _) = reg_rv.node().unwrap_gpu_buffer();
+        assert_eq!(size, reg_size);
+
+        let new_reg = self
+            .reg_booking
+            .new_reg(rv.clone(), RegisterStatus::Undefined);
+
+        self.emit(Instruction::new_no_src(InstructionNode::SliceBuffer {
+            id: new_reg,
+            operand: reg,
+            offset: slice.begin() as usize,
+            len: slice.len() as usize,
+        }));
+
+        new_reg
     }
 
     /// Add a new undefined register to the machine.
     /// The space that the register points to is not necessarily allocated.
-    pub fn new_reg(&mut self, rv: ResidentalValue<P>) -> RegisterId {
-        self.reg_booking.new_reg(rv)
+    pub fn new_undefined_reg(&mut self, rv: ResidentalValue<P>) -> RegisterId {
+        self.reg_booking.new_reg(rv, RegisterStatus::Undefined)
     }
 
     /// Create a new tuple register from `regs`, which must all be single registers.
@@ -386,7 +426,7 @@ where
         assert!(rv.device() == self.device);
 
         let device = rv.device();
-        let reg = self.machine.new_reg(rv);
+        let reg = self.machine.new_undefined_reg(rv);
         self.machine
             .emit(Instruction::new_no_src(InstructionNode::Malloc {
                 id: reg,
@@ -412,7 +452,24 @@ where
     pub fn deallocate(&mut self, rv: &ResidentalValue<P>, variant: AllocVariant) {
         assert!(rv.device() == self.device);
 
-        let reg = self.machine.defined_reg_for(rv);
+        // A temporary register that is sliced can be undefined when it must be deallocated
+        let reg = self
+            .machine
+            .reg_booking
+            .regs_pointing_to(
+                rv.object_id(),
+                *rv.pointer(),
+                rv.device(),
+                RegisterStatus::Defined,
+            )
+            .chain(self.machine.reg_booking.regs_pointing_to(
+                rv.object_id(),
+                *rv.pointer(),
+                rv.device(),
+                RegisterStatus::Undefined,
+            ))
+            .next()
+            .unwrap_or_else(|| panic!("cannot find a register pointing to {:?}", rv));
         self.machine
             .emit(Instruction::new_no_src(InstructionNode::Free {
                 id: reg,

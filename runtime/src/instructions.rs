@@ -26,7 +26,7 @@ pub enum AllocMethod {
 pub enum AllocVariant {
     Paged,
     Offset,
-    Dynamic
+    Dynamic,
 }
 
 impl Default for AllocMethod {
@@ -58,7 +58,7 @@ pub enum Instruction {
     Deallocate {
         // free the underlying memory
         id: VariableId,
-        alloc_method: AllocVariant
+        alloc_method: AllocVariant,
     },
 
     RemoveRegister {
@@ -167,6 +167,13 @@ pub enum Instruction {
         src: VariableId,
         dst: VariableId,
     },
+
+    SliceBuffer {
+        src: VariableId,
+        dst: VariableId,
+        offset: usize,
+        len: usize,
+    },
 }
 
 pub fn instruction_label<Rt: RuntimeType>(
@@ -216,6 +223,7 @@ pub fn instruction_label<Rt: RuntimeType>(
         AssertEq { .. } => "AssertEq".to_string(),
         Print(_, label) => format!("Print({})", label),
         CopyRegister { .. } => "CopyRegister".to_string(),
+        SliceBuffer { offset, len, .. } => format!("SliceBuffer({}, {})", offset, len),
     }
 }
 
@@ -260,6 +268,7 @@ pub fn labeled_mutable_uses(inst: &Instruction) -> Vec<(VariableId, String)> {
         AssertEq { .. } => vec![],
         Print(..) => vec![],
         CopyRegister { dst, .. } => vec![(*dst, "".to_string())],
+        SliceBuffer { dst, .. } => vec![(*dst, "".to_string())],
     }
 }
 
@@ -288,6 +297,7 @@ pub fn labeled_uses(inst: &Instruction) -> Vec<(VariableId, String)> {
         ],
         Print(value, _) => vec![(*value, "".to_string())],
         CopyRegister { dst, .. } => vec![(*dst, "".to_string())],
+        SliceBuffer { src, .. } => vec![(*src, "".to_string())],
     }
 }
 

@@ -101,17 +101,17 @@ where
                                     panic!("no mutable input found for {:?}", inplace_of)
                                 });
                             (
-                                machine.new_reg(rv.clone().assume_pointed()),
+                                machine.new_undefined_reg(rv.clone().assume_pointed()),
                                 Some(inplace_reg)
                             )
                         } else if node.immortal() {
                             (
-                                machine.new_reg(rv.clone().assume_pointed()),
+                                machine.new_undefined_reg(rv.clone().assume_pointed()),
                                 None
                             )
                         } else if input_objects.contains(&rv.object_id()) {
                             (
-                                machine.new_reg(rv.clone().assume_pointed()),
+                                machine.new_undefined_reg(rv.clone().assume_pointed()),
                                 None
                             )
                         } else {

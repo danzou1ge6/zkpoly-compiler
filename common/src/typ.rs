@@ -126,7 +126,7 @@ pub mod template {
         Tuple,
         Any(AnyTypeId, usize),
         Stream,
-        GpuBuffer(usize),
+        GpuBuffer(usize, P),
     }
 
     impl<P> Typ<P> {
@@ -170,15 +170,23 @@ pub mod template {
                 Tuple => panic!("size of Tuple is not defined"),
                 Any(_, len) => *len,
                 Stream => panic!("size of Stream is not defined"),
-                GpuBuffer(len) => *len,
+                GpuBuffer(len, ..) => *len,
             }
         }
 
         pub fn is_gpu_buffer(&self) -> bool {
             use Typ::*;
             match self {
-                GpuBuffer(_) => true,
+                GpuBuffer(..) => true,
                 _ => false,
+            }
+        }
+
+        pub fn unwrap_gpu_buffer(&self) -> (usize, &P) {
+            use Typ::*;
+            match self {
+                GpuBuffer(len, meta) => (*len, meta),
+                _ => panic!("expected GpuBuffer"),
             }
         }
 
@@ -214,7 +222,7 @@ impl template::Typ<()> {
             Tuple => Tuple,
             Any(tid, len) => Any(*tid, *len),
             Stream => Stream,
-            GpuBuffer(len) => GpuBuffer(*len),
+            GpuBuffer(len, ..) => GpuBuffer(*len, Slice::new(0, *len as u64)),
         }
     }
 }
@@ -226,6 +234,7 @@ impl template::Typ<PolyMeta> {
                 len: *len,
                 meta: Slice::new(0, *len as u64),
             },
+            Self::GpuBuffer(len, _) => Self::GpuBuffer(*len, Slice::new(0, *len as u64)),
             otherwise => otherwise.clone(),
         }
     }
@@ -244,7 +253,7 @@ impl template::Typ<PolyMeta> {
             Tuple => Tuple,
             Any(tid, len) => Any(*tid, *len),
             Stream => Stream,
-            GpuBuffer(len) => GpuBuffer(*len),
+            GpuBuffer(len, ..) => GpuBuffer(*len, ()),
         }
     }
 
