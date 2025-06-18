@@ -1,4 +1,5 @@
 use crate::{ast, transit::type3};
+use std::io::Write;
 
 use super::fresh_type3::FreshType3;
 use zkpoly_common::load_dynamic::Libs;
@@ -35,8 +36,8 @@ impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
 
         // - Decide constants to be on disk or CPU:
         //   If the constants take more than 1/4 CPU space, put big constants on disk.
-        let constants_on_disk =
-            ast::lowering::constant_size(&t2const_tab) * 4 > hardware_info.cpu().memory_limit()
+        let constants_on_disk = ast::lowering::constant_size(&t2const_tab) * 4
+            > hardware_info.cpu().memory_limit()
             && hardware_info.disk_available();
         let constants_device = t2const_tab.map_by_ref(&mut |_, c| {
             if constants_on_disk && c.typ.can_on_disk::<Rt::Field>() {
@@ -169,7 +170,7 @@ impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
         // To Type3 through Memory Planning
         let g = SubDigraph::new(&t2cg.g, t2cg.g.connected_component(t2cg.output));
 
-        let t3chunk = options.log_suround(
+        let (t3chunk, statistics) = options.log_suround(
             "Planning memory",
             || {
                 Ok(type2::memory_planning::plan(
@@ -190,6 +191,14 @@ impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
         if options.debug_fresh_type3 {
             let mut f = std::fs::File::create(options.debug_dir.join("type3_fresh.html")).unwrap();
             type3::pretty_print::prettify(&t3chunk, |vid| devices[&vid], &mut f).unwrap();
+        }
+
+        if options.debug_memory_planning_statistics {
+            let mut f =
+                std::fs::File::create(options.debug_dir.join("memory_planning_statistics.txt"))
+                    .unwrap();
+            write!(&mut f, "{:?}", &statistics).unwrap();
+            println!("Memory Planning Statistics:\n{:?}", &statistics);
         }
 
         Ok(FreshType3 {
@@ -219,24 +228,5 @@ impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
         ct_header.dump_entries_data(&self.constant_table, &mut ct_f)?;
 
         Ok(())
-    }
-}
-
-fn _human_readable_size(size: u64) -> String {
-    const KB: u64 = 1024;
-    const MB: u64 = KB * 1024;
-    const GB: u64 = MB * 1024;
-    const TB: u64 = GB * 1024;
-
-    if size >= TB {
-        format!("{:.2} TB", size as f64 / TB as f64)
-    } else if size >= GB {
-        format!("{:.2} GB", size as f64 / GB as f64)
-    } else if size >= MB {
-        format!("{:.2} MB", size as f64 / MB as f64)
-    } else if size >= KB {
-        format!("{:.2} KB", size as f64 / KB as f64)
-    } else {
-        format!("{} B", size)
     }
 }

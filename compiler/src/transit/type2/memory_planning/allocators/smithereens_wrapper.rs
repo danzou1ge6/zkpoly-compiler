@@ -26,6 +26,10 @@ impl<'f, A, P, Rt: RuntimeType, D: DeviceMarker> Wrapper<'f, A, P, Rt, D> {
             _phantom: PhantomData,
         }
     }
+
+    pub fn unwrap(self) -> A {
+        self.inner
+    }
 }
 
 pub struct Handle<'a, 'm, 's, 'au, 'i, A, P, Rt: RuntimeType, D: DeviceMarker> {

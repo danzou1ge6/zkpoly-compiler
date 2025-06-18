@@ -225,16 +225,58 @@ where
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct Statistics {
+    /// The number of bytes transferred from device to device
+    transfer_sizes: DeviceSpecific<DeviceSpecific<u64>>,
+}
+
+impl Statistics {
+    pub fn transferred_bytes(&self, from: Device, to: Device) -> u64 {
+        *self.transfer_sizes.get(from).get(to)
+    }
+}
+
+impl Statistics {
+    pub fn zero(n_gpus: usize) -> Self {
+        Self {
+            transfer_sizes: DeviceSpecific::new(n_gpus, || DeviceSpecific::new(n_gpus, || 0)),
+        }
+    }
+
+    pub fn pretty_print(
+        &self,
+        writer: &mut impl std::fmt::Write,
+        indent: usize,
+    ) -> std::fmt::Result<()> {
+        for (from, from_sizes) in self.transfer_sizes.iter() {
+            for (to, size) in from_sizes.iter() {
+                writeln!(
+                    writer,
+                    "{}{:?} -> {:?}: {}",
+                    " ".repeat(indent),
+                    from,
+                    to,
+                    size
+                )?;
+            }
+        }
+        Ok(())
+    }
+}
+
 pub struct Machine<'s, P> {
     pub(super) instructions: Vec<type3::Instruction<'s>>,
     pub(super) reg_booking: RegBooking<P>,
+    pub(super) statistics: Statistics,
 }
 
 impl<'s, P> Machine<'s, P> {
-    pub fn empty() -> Self {
+    pub fn empty(n_gpus: usize) -> Self {
         Self {
             instructions: Vec::new(),
             reg_booking: RegBooking::empty(),
+            statistics: Statistics::zero(n_gpus),
         }
     }
 
@@ -391,9 +433,20 @@ where
         }));
     }
 
-    pub fn transfer_object(&mut self, rv_to: ResidentalValue<P>, rv_from: ResidentalValue<P>) {
+    pub fn transfer_object<Rt: RuntimeType>(
+        &mut self,
+        rv_to: ResidentalValue<P>,
+        rv_from: ResidentalValue<P>,
+        obj_info: &object_info::Info<Rt>,
+    ) {
         let reg_to = self.undefined_reg_for(&rv_to);
         let reg_from = self.defined_reg_for(&rv_from);
+
+        *self
+            .statistics
+            .transfer_sizes
+            .get_mut(rv_from.device())
+            .get_mut(rv_to.device()) += u64::from(obj_info.size(rv_from.object_id()));
 
         self.emit(Instruction::new_no_src(InstructionNode::Transfer {
             id: reg_to,
@@ -510,7 +563,7 @@ impl<'s, T, P, Rt: RuntimeType>
             let rv_to = ResidentalValue::new(Value::new(object, to_device, vn.clone()), to_pointer);
             let rv_from = ResidentalValue::new(Value::new(object, from_device, vn), from_pointer);
 
-            machine.transfer_object(rv_to, rv_from);
+            machine.transfer_object(rv_to, rv_from, aux.obj_info());
             Ok(())
         };
 

@@ -61,7 +61,7 @@ pub struct DeviceSpecific<T> {
 }
 
 impl<T> DeviceSpecific<T> {
-    pub fn get_device(&self, device: Device) -> &T {
+    pub fn get(&self, device: Device) -> &T {
         match device {
             Device::Gpu(i) => &self.gpu[i],
             Device::Cpu => &self.cpu,
@@ -70,7 +70,7 @@ impl<T> DeviceSpecific<T> {
         }
     }
 
-    pub fn get_device_mut(&mut self, device: Device) -> &mut T {
+    pub fn get_mut(&mut self, device: Device) -> &mut T {
         match device {
             Device::Gpu(i) => &mut self.gpu[i],
             Device::Cpu => &mut self.cpu,
@@ -98,6 +98,19 @@ impl<T> DeviceSpecific<T> {
             stack: T::default(),
             disk: T::default(),
         }
+    }
+
+    pub fn new(n_gpus: usize, mut f: impl FnMut() -> T) -> Self {
+        DeviceSpecific {
+            gpu: (0..n_gpus).map(|_| f()).collect(),
+            cpu: f(),
+            stack: f(),
+            disk: f(),
+        }
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (Device, &T)> {
+        Device::iter(self.gpu.len()).map(|d| (d, self.get(d)))
     }
 }
 

@@ -84,6 +84,44 @@ pub mod auxiliary;
 pub mod planning;
 pub mod realization;
 
+#[derive(Debug, Clone)]
+pub struct Statistics {
+    pub realization_statistics: realization::machine::Statistics,
+    pub disk_peak_usage: u64,
+    pub cpu_peak_usage: u64,
+    pub disk_constants_size: u64,
+    pub cpu_constants_size: u64,
+}
+
+impl std::fmt::Display for Statistics {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use crate::utils::human_readable_size;
+
+        writeln!(f, "Realization statistics:")?;
+        self.realization_statistics.pretty_print(f, 2)?;
+        writeln!(
+            f,
+            "Disk peak usage           : {}",
+            human_readable_size(self.disk_peak_usage)
+        )?;
+        writeln!(
+            f,
+            "CPU peak usage            : {}",
+            human_readable_size(self.cpu_peak_usage)
+        )?;
+        writeln!(
+            f,
+            "Disk constants size       : {}",
+            human_readable_size(self.disk_constants_size)
+        )?;
+        writeln!(
+            f,
+            "CPU constants size        : {}",
+            human_readable_size(self.cpu_constants_size)
+        )
+    }
+}
+
 pub fn plan<'s, Rt: RuntimeType>(
     cg: &type2::Cg<'s, Rt>,
     g: &SubDigraph<type2::VertexId, type2::Vertex<'s, Rt>>,
@@ -93,7 +131,7 @@ pub fn plan<'s, Rt: RuntimeType>(
     execution_device: impl Fn(VertexId) -> type2::Device,
     hd_info: &driver::HardwareInfo,
     mut libs: Libs,
-) -> Result<type3::Chunk<'s, Rt>, Error<'s>> {
+) -> Result<(type3::Chunk<'s, Rt>, Statistics), Error<'s>> {
     let ops: OperationSeq<'_, ObjectId, Pointer> = OperationSeq::construct(
         cg,
         g,
@@ -159,6 +197,15 @@ pub fn plan<'s, Rt: RuntimeType>(
         .map(|obj| (obj, disk_allocator.allcate_pointer()))
         .collect::<Vec<_>>();
 
+    let cpu_constants_size = cpu_constant_objects
+        .iter()
+        .map(|(obj, _)| u64::from(obj_info.size(*obj)))
+        .sum();
+    let disk_constants_size = disk_constant_objects
+        .iter()
+        .map(|(obj, _)| u64::from(obj_info.size(*obj)))
+        .sum();
+
     let mut cpu_allocator =
         ConstantWrapper::<_, _, _, Rt, Cpu>::new(cpu_allocator, cpu_constant_objects.into_iter());
     let mut disk_allocator = ConstantWrapper::<_, _, _, Rt, Disk>::new(
@@ -194,7 +241,7 @@ pub fn plan<'s, Rt: RuntimeType>(
         )))
         .collect();
 
-    let chunk = realization::realize(
+    let (chunk, realization_statistics) = realization::realize(
         ops,
         allocators,
         libs,
@@ -216,5 +263,14 @@ pub fn plan<'s, Rt: RuntimeType>(
         disk_allocator.peak_memory_usage()
     );
 
-    Ok(chunk)
+    Ok((
+        chunk,
+        Statistics {
+            realization_statistics,
+            disk_peak_usage: disk_allocator.peak_memory_usage(),
+            cpu_peak_usage: cpu_allocator.unwrap().unwrap().peak_memory_usage(),
+            disk_constants_size,
+            cpu_constants_size,
+        },
+    ))
 }

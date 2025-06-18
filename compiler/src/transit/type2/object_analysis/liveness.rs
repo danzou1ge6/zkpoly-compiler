@@ -56,7 +56,7 @@ impl UsedBy {
         self.0
             .entry(object)
             .or_insert_with(|| DeviceSpecific::default(hd_info.n_gpus()))
-            .get_device_mut(device)
+            .get_mut(device)
             .push(index)
     }
 

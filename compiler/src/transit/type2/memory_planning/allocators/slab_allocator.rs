@@ -51,6 +51,10 @@ impl<'f, P, Rt: RuntimeType, D: DeviceMarker> SlabAllocator<'f, P, Rt, D> {
             _phantom: PhantomData,
         }
     }
+
+    pub fn peak_memory_usage(&self) -> u64 {
+        self.ia.occupied_size()
+    }
 }
 
 /// All sizes entering the allocator must be normalized first.

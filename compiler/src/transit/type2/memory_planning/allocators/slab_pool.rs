@@ -259,6 +259,10 @@ impl Allocator {
         }
     }
 
+    pub fn occupied_size(&self) -> u64 {
+        self.next_new_biggest_block_addr
+    }
+
     pub fn tick(&mut self, t: Instant) {
         assert!(self.now == 0 || usize::from(t) >= self.now);
         self.now = t.into();

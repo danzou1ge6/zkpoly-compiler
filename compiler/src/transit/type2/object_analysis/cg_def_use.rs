@@ -109,7 +109,7 @@ fn mark_use(
         *obj_last_use
             .entry(object_id)
             .or_insert_with(|| DeviceSpecific::default(hd_info.n_gpus()))
-            .get_device_mut(device) = Some(vid);
+            .get_mut(device) = Some(vid);
 
         // Considering that parent memory device has bigger space,
         // it's better that we keep objects alive on parent devices until the object dies
@@ -123,7 +123,7 @@ fn mark_use(
     let is_used_on = |object_id, device| {
         used_on
             .get(&object_id)
-            .is_some_and(|places| *places.get_device(device))
+            .is_some_and(|places| *places.get(device))
     };
 
     // If
@@ -161,7 +161,7 @@ fn mark_use(
     *used_on
         .entry(object_id)
         .or_insert_with(|| DeviceSpecific::default(hd_info.n_gpus()))
-        .get_device_mut(device) = true;
+        .get_mut(device) = true;
 }
 
 /// Collects input values of a vertex.
@@ -601,7 +601,7 @@ impl DefUse {
         } else {
             self.object_dies_after
                 .get(&object_id)
-                .map(|places| places.get_device(device).clone())
+                .map(|places| places.get(device).clone())
                 .flatten()
                 .map_or(Die::NeverUsed, Die::After)
         }

@@ -17,7 +17,7 @@ impl<'i, Rt: RuntimeType> AuxiliaryInfo<'i, Rt> {
         self.next_uses
             .entry(object)
             .or_insert_with(|| DeviceSpecific::default(self.n_gpus))
-            .get_device_mut(device)
+            .get_mut(device)
     }
 
     fn pop_next_use_until(

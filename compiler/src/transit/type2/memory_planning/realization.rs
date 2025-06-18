@@ -14,7 +14,7 @@ pub fn realize<'s, 'a, T, Rt: RuntimeType>(
     obj_inf: &object_info::Info<Rt>,
     hd_info: &HardwareInfo,
     lbss: LogBlockSizes,
-) -> Result<type3::Chunk<'s, Rt>, Error<'s>>
+) -> Result<(type3::Chunk<'s, Rt>, machine::Statistics), Error<'s>>
 where
     T: std::fmt::Debug,
     ObjectId: for<'o> From<&'o T>,
@@ -28,7 +28,7 @@ where
         hd_info.n_gpus(),
     );
 
-    let mut machine_x: Machine<'_, Pointer> = Machine::empty();
+    let mut machine_x: Machine<'_, Pointer> = Machine::empty(hd_info.n_gpus());
 
     let allocators = &mut allocators_x;
     let machine = &mut machine_x;
@@ -141,7 +141,7 @@ where
                 });
             }
             TransferObject(rv_to, rv_from) => {
-                machine.transfer_object(rv_to, rv_from);
+                machine.transfer_object(rv_to, rv_from, aux.obj_info());
             }
             Transfer(to_device, to_pointer, t, from_device, from_pointer) => {
                 let resp = allocators.realizer(from_device, machine, aux).transfer(
@@ -162,7 +162,7 @@ where
         }
     }
 
-    Ok(type3::Chunk {
+    Ok((type3::Chunk {
         instructions: machine_x.instructions,
         register_types: machine_x.reg_booking.export_reg_types(),
         register_devices: machine_x.reg_booking.export_reg_devices(),
@@ -172,5 +172,5 @@ where
         lbss,
         libs,
         _phantom: PhantomData,
-    })
+    }, machine_x.statistics))
 }
