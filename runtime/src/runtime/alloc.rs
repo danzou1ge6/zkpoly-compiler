@@ -218,17 +218,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                 },
                 DeviceType::Disk => match alloc_method {
                     AllocVariant::Dynamic => {
-                        let bytes = poly.len() * size_of::<T::Field>() / poly.disk_pos.len();
-                        disk_allocator
-                            .as_mut()
-                            .unwrap()
-                            .iter_mut()
-                            .zip(poly.disk_pos.iter())
-                            .for_each(|(disk_pool, dai)| {
-                                disk_pool
-                                    .deallocate(dai.offset)
-                                    .expect("deallocation failed");
-                            });
+                        poly.free_disk(disk_allocator.as_mut().unwrap());
                     }
                     otherwise => unsupported_alloc_variant(otherwise, poly.device.clone()),
                 },

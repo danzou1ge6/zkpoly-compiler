@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 use zkpoly_common::{
     arith::{Arith, BinOp, UnrOp},
-    devices::DeviceType,
     digraph::internal::Digraph,
     heap::Heap,
     typ::PolyType,

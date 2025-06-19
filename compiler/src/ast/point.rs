@@ -1,4 +1,4 @@
-use zkpoly_memory_pool::CpuMemoryPool;
+use zkpoly_runtime::runtime::transfer::Transfer;
 
 use super::*;
 use crate::utils::log2;
@@ -10,13 +10,24 @@ pub type PrecomputedPoints<Rt: RuntimeType> = Outer<PrecomputedPointsData<Rt>>;
 
 impl<Rt: RuntimeType> PrecomputedPoints<Rt> {
     #[track_caller]
-    pub fn construct(points: &[Rt::PointAffine], allocator: &mut CpuMemoryPool) -> Self {
+    pub fn construct(points: &[Rt::PointAffine], allocator: &mut ConstantPool) -> Self {
         if let Some(log_n) = log2(points.len() as u64) {
             let src = SourceInfo::new(Location::caller().clone(), None);
-            Self::new(
-                PrecomputedPointsData(rt::point::PointArray::from_vec(points, allocator), log_n),
-                src,
-            )
+            if (zkpoly_common::typ::Typ::PointBase { len: points.len() }).can_on_disk::<Rt::Field, Rt::PointAffine>() {
+                let cpu_temp = rt::point::PointArray::borrow_vec(points);
+                let mut disk_points =
+                    rt::point::PointArray::alloc_disk(points.len() as usize, &mut allocator.disk);
+                cpu_temp.cpu2disk(&mut disk_points);
+                Self::new(PrecomputedPointsData(disk_points, log_n), src)
+            } else {
+                Self::new(
+                    PrecomputedPointsData(
+                        rt::point::PointArray::from_vec(points, &mut allocator.cpu),
+                        log_n,
+                    ),
+                    src,
+                )
+            }
         } else {
             panic!("points length must be power of 2");
         }

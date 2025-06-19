@@ -1,7 +1,7 @@
 use arith::{ArithBinOp, ArithUnrOp};
 use std::ops::{Add, Div, Mul, Neg, Sub};
 use zkpoly_common::typ::PolyType;
-use zkpoly_memory_pool::CpuMemoryPool;
+use zkpoly_runtime::runtime::transfer::Transfer;
 
 use crate::{transit::type2::template::VertexNode, transit::type2::NttAlgorithm};
 
@@ -206,31 +206,45 @@ impl<'c, Rt: RuntimeType> PolyLagrange<Rt> {
     }
 
     #[track_caller]
-    pub fn constant(data: &[Rt::Field], allocator: &mut CpuMemoryPool) -> Self {
+    pub fn constant(data: &[Rt::Field], allocator: &mut ConstantPool) -> Self {
         let src = SourceInfo::new(Location::caller().clone(), None);
-        PolyLagrange::new(
-            PolyLagrangeNode::Constant(
-                rt::scalar::ScalarArray::from_vec(data, allocator),
-                data.len() as u64,
-            ),
-            src,
-        )
+        if zkpoly_common::typ::Typ::scalar_array(data.len()).can_on_disk::<Rt::Field, Rt::PointAffine>() {
+            let temp_cpu = rt::scalar::ScalarArray::borrow_vec(data);
+            let mut disk_poly =
+                rt::scalar::ScalarArray::alloc_disk(data.len(), allocator.disk);
+            temp_cpu.cpu2disk(&mut disk_poly);
+            PolyLagrange::new(
+                PolyLagrangeNode::Constant(disk_poly, data.len() as u64),
+                src,
+            )
+        } else {
+            PolyLagrange::new(
+                PolyLagrangeNode::Constant(
+                    rt::scalar::ScalarArray::from_vec(data, allocator.cpu),
+                    data.len() as u64,
+                ),
+                src,
+            )
+        }
     }
 
     #[track_caller]
     pub fn constant_from_iter(
         data: impl Iterator<Item = Rt::Field>,
         len: u64,
-        allocator: &mut CpuMemoryPool,
+        allocator: &mut ConstantPool,
     ) -> Self {
         let src = SourceInfo::new(Location::caller().clone(), None);
-        PolyLagrange::new(
-            PolyLagrangeNode::Constant(
-                rt::scalar::ScalarArray::from_iter(data, len as usize, allocator),
-                len,
-            ),
-            src,
-        )
+        let temp_cpu = rt::scalar::ScalarArray::from_iter(data, len as usize, allocator.cpu);
+        if zkpoly_common::typ::Typ::scalar_array(len as usize).can_on_disk::<Rt::Field, Rt::PointAffine>() {
+            let mut disk_poly =
+                rt::scalar::ScalarArray::alloc_disk(len as usize, allocator.disk);
+            temp_cpu.cpu2disk(&mut disk_poly);
+            allocator.cpu.free(temp_cpu.values);
+            PolyLagrange::new(PolyLagrangeNode::Constant(disk_poly, len), src)
+        } else {
+            PolyLagrange::new(PolyLagrangeNode::Constant(temp_cpu, len), src)
+        }
     }
 
     #[track_caller]

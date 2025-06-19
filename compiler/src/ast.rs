@@ -1,6 +1,7 @@
 pub use crate::transit::{self, PolyInit};
 use std::{fmt::Debug, marker::PhantomData, panic::Location, rc::Rc};
 use zkpoly_common::{arith, heap::IdAllocator};
+use zkpoly_memory_pool::{buddy_disk_pool::DiskMemoryPool, CpuMemoryPool};
 pub use zkpoly_runtime::args::{Constant, ConstantId, EntryId};
 use zkpoly_runtime::{
     self as rt,
@@ -386,6 +387,11 @@ impl<S> ScalarArith<S> {
             }
         }
     }
+}
+
+pub struct ConstantPool<'a> {
+    pub cpu: &'a mut CpuMemoryPool,
+    pub disk: &'a mut DiskMemoryPool
 }
 
 pub mod array;

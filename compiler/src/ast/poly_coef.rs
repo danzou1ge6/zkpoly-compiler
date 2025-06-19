@@ -3,7 +3,7 @@ use std::ops::{Add, Mul, Neg, Sub};
 use zkpoly_common::typ::PolyType;
 
 use type2::NttAlgorithm;
-use zkpoly_memory_pool::CpuMemoryPool;
+use zkpoly_runtime::runtime::transfer::Transfer;
 
 use super::*;
 
@@ -200,29 +200,39 @@ impl<Rt: RuntimeType> PolyCoef<Rt> {
     }
 
     #[track_caller]
-    pub fn constant(values: &[Rt::Field], allocator: &mut CpuMemoryPool) -> Self {
+    pub fn constant(data: &[Rt::Field], allocator: &mut ConstantPool) -> Self {
         let src = SourceInfo::new(Location::caller().clone(), None);
-        PolyCoef::new(
-            PolyCoefNode::Constant(rt::scalar::ScalarArray::from_vec(values, allocator)),
-            src,
-        )
+        if zkpoly_common::typ::Typ::scalar_array(data.len()).can_on_disk::<Rt::Field, Rt::PointAffine>() {
+            let temp_cpu = rt::scalar::ScalarArray::borrow_vec(data);
+            let mut disk_poly =
+                rt::scalar::ScalarArray::alloc_disk(data.len(), allocator.disk);
+            temp_cpu.cpu2disk(&mut disk_poly);
+            PolyCoef::new(PolyCoefNode::Constant(disk_poly), src)
+        } else {
+            PolyCoef::new(
+                PolyCoefNode::Constant(rt::scalar::ScalarArray::from_vec(data, allocator.cpu)),
+                src,
+            )
+        }
     }
 
     #[track_caller]
     pub fn constant_from_iter(
-        values: impl Iterator<Item = Rt::Field>,
+        data: impl Iterator<Item = Rt::Field>,
         len: u64,
-        allocator: &mut CpuMemoryPool,
+        allocator: &mut ConstantPool,
     ) -> Self {
         let src = SourceInfo::new(Location::caller().clone(), None);
-        PolyCoef::new(
-            PolyCoefNode::Constant(rt::scalar::ScalarArray::from_iter(
-                values,
-                len as usize,
-                allocator,
-            )),
-            src,
-        )
+        let temp_cpu = rt::scalar::ScalarArray::from_iter(data, len as usize, allocator.cpu);
+        if zkpoly_common::typ::Typ::scalar_array(len as usize).can_on_disk::<Rt::Field, Rt::PointAffine>() {
+            let mut disk_poly =
+                rt::scalar::ScalarArray::alloc_disk(len as usize, allocator.disk);
+            temp_cpu.cpu2disk(&mut disk_poly);
+            allocator.cpu.free(temp_cpu.values);
+            PolyCoef::new(PolyCoefNode::Constant(disk_poly), src)
+        } else {
+            PolyCoef::new(PolyCoefNode::Constant(temp_cpu), src)
+        }
     }
 
     #[track_caller]

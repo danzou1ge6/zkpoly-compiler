@@ -32,39 +32,59 @@ pub fn move_constant<T: RuntimeType>(
     cpu_allocator: &mut CpuMemoryPool,
     disk_allocator: &mut DiskMemoryPool,
 ) -> Constant<T> {
-    if c.device != DeviceType::CPU {
-        panic!("expected all newly constructed constants to be on CPU");
-    }
-
-    if c.device == on_device {
-        c
-    } else {
-        if on_device != DeviceType::Disk {
-            panic!("can only move constant to Disk");
-        }
-
-        let new_var: Variable<T> = match c.value {
-            Variable::ScalarArray(poly) => {
-                let mut new_poly = ScalarArray::<T::Field>::alloc_disk(poly.len(), disk_allocator);
-                poly.cpu2disk(&mut new_poly);
-                cpu_allocator.free(poly.values);
-                Variable::ScalarArray(new_poly)
+    match (c.device.clone(), on_device.clone()) {
+        (a, b) if a == b => c,
+        (DeviceType::CPU, DeviceType::Disk) => {
+            let new_var: Variable<T> = match c.value {
+                Variable::ScalarArray(poly) => {
+                    let mut new_poly =
+                        ScalarArray::<T::Field>::alloc_disk(poly.len(), disk_allocator);
+                    poly.cpu2disk(&mut new_poly);
+                    cpu_allocator.free(poly.values);
+                    Variable::ScalarArray(new_poly)
+                }
+                Variable::PointArray(points) => {
+                    let mut new_points =
+                        PointArray::<T::PointAffine>::alloc_disk(points.len, disk_allocator);
+                    points.cpu2disk(&mut new_points);
+                    cpu_allocator.free(points.values);
+                    Variable::PointArray(new_points)
+                }
+                _ => unreachable!("small items don't need to be swaped out"),
+            };
+            Constant {
+                device: on_device.clone(),
+                name: c.name,
+                value: new_var,
+                typ: c.typ,
             }
-            Variable::PointArray(points) => {
-                let mut new_points =
-                    PointArray::<T::PointAffine>::alloc_disk(points.len, disk_allocator);
-                points.cpu2disk(&mut new_points);
-                cpu_allocator.free(points.values);
-                Variable::PointArray(new_points)
-            }
-            _ => unreachable!("small items don't need to be swaped out"),
-        };
-        Constant {
-            device: on_device.clone(),
-            name: c.name,
-            value: new_var,
-            typ: c.typ,
         }
+        (DeviceType::Disk, DeviceType::CPU) => {
+            let new_var: Variable<T> = match c.value {
+                Variable::ScalarArray(mut poly) => {
+                    let mut new_poly =
+                        ScalarArray::<T::Field>::alloc_cpu(poly.len(), cpu_allocator);
+                    poly.disk2cpu(&mut new_poly);
+                    poly.free_disk(disk_allocator);
+                    Variable::ScalarArray(new_poly)
+                }
+                Variable::PointArray(mut points) => {
+                    let mut new_points =
+                        PointArray::<T::PointAffine>::alloc_cpu(points.len, cpu_allocator);
+                    points.disk2cpu(&mut new_points);
+                    points.free_disk(disk_allocator);
+                    Variable::PointArray(new_points)
+                }
+                _ => unreachable!("small items don't need to be swaped out"),
+            };
+            Constant {
+                device: on_device.clone(),
+                name: c.name,
+                value: new_var,
+                typ: c.typ,
+            }
+        }
+        (a, b) => panic!("cannot move constant from {:?} to {:?}", a, b),
     }
 }
 
@@ -76,7 +96,8 @@ pub fn move_constant_table<T: RuntimeType>(
     cpu_allocator: &mut CpuMemoryPool,
     disk_allocator: &mut DiskMemoryPool,
 ) -> ConstantTable<T> {
-    let new_table = table.map(&mut |i, c| move_constant(c, on_device[i].clone(), cpu_allocator, disk_allocator));
+    let new_table = table
+        .map(&mut |i, c| move_constant(c, on_device[i].clone(), cpu_allocator, disk_allocator));
     cpu_allocator.shrink();
     new_table
 }

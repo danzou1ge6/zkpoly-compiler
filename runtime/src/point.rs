@@ -7,7 +7,10 @@ use zkpoly_cuda_api::{
     mem::{alloc_pinned, free_pinned},
     stream::CudaStream,
 };
-use zkpoly_memory_pool::{buddy_disk_pool::{cpu_read_from_disk, cpu_write_to_disk, DiskAllocInfo}, BuddyDiskPool, CpuMemoryPool};
+use zkpoly_memory_pool::{
+    buddy_disk_pool::{cpu_read_from_disk, cpu_write_to_disk, DiskAllocInfo},
+    BuddyDiskPool, CpuMemoryPool,
+};
 
 #[derive(Clone)]
 pub struct Point<P: CurveAffine> {
@@ -114,6 +117,28 @@ impl<P: CurveAffine> PointArray<P> {
             len,
             device: DeviceType::Disk,
             disk_pos: disk_pose,
+        }
+    }
+
+    pub fn free_disk(&mut self, allocator: &mut Vec<BuddyDiskPool>) {
+        allocator
+            .iter_mut()
+            .zip(self.disk_pos.iter())
+            .for_each(|(disk_pool, dai)| {
+                disk_pool
+                    .deallocate(dai.offset)
+                    .expect("deallocation failed");
+            });
+    }
+
+    pub fn borrow_vec(vec: &[P]) -> Self {
+        let ptr = vec.as_ptr();
+        let len = vec.len();
+        Self {
+            values: ptr as *mut P,
+            len,
+            device: DeviceType::CPU,
+            disk_pos: Vec::new(),
         }
     }
 

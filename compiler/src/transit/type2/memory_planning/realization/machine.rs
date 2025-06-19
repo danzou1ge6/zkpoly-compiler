@@ -248,7 +248,7 @@ impl Statistics {
         &self,
         writer: &mut impl std::fmt::Write,
         indent: usize,
-    ) -> std::fmt::Result<()> {
+    ) -> std::fmt::Result {
         for (from, from_sizes) in self.transfer_sizes.iter() {
             for (to, size) in from_sizes.iter() {
                 writeln!(

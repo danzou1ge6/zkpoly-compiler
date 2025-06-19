@@ -247,12 +247,34 @@ impl<F: Field> ScalarArray<F> {
         }
     }
 
+    pub fn free_disk(&mut self, allocator: &mut Vec<BuddyDiskPool>) {
+        allocator
+            .iter_mut()
+            .zip(self.disk_pos.iter())
+            .for_each(|(disk_pool, dai)| {
+                disk_pool
+                    .deallocate(dai.offset)
+                    .expect("deallocation failed");
+            });
+    }
+
     pub fn from_vec(v: &[F], allocator: &mut CpuMemoryPool) -> Self {
         let r = Self::alloc_cpu(v.len(), allocator);
         unsafe {
             std::ptr::copy_nonoverlapping(v.as_ptr(), r.values, v.len());
         }
         r
+    }
+
+    pub fn borrow_vec(v: &[F]) -> Self {
+        Self {
+            values: v.as_ptr() as *mut F,
+            len: v.len(),
+            rotate: 0,
+            device: DeviceType::CPU,
+            slice_info: None,
+            disk_pos: Vec::new(),
+        }
     }
 
     pub fn from_iter(
