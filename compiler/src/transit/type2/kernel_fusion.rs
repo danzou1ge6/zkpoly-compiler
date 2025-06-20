@@ -1,6 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::{driver::HardwareInfo, transit::{type2, SourceInfo}};
+use crate::{
+    driver::HardwareInfo,
+    transit::{type2, SourceInfo},
+};
 
 use super::{temporary_space, Cg, Vertex, VertexId, VertexNode};
 use zkpoly_common::{
@@ -113,26 +116,29 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
         vid: VertexId,
         to: &mut Vec<MarkStatus>,
         succ: &Heap<VertexId, BTreeSet<VertexId>>,
-        start_mark: bool,
+        mut start_mark: bool,
         fused: &Vec<usize>,
         from: &Vec<MarkStatus>,
         fuse_id: usize,
     ) {
         let vid_usize: usize = vid.into();
-        if to[vid_usize] == MarkStatus::Unvisited {
-            let can_fuse = self.can_fuse(vid, fused, to, from); // , None, None);
-            if start_mark {
-                to[vid_usize] = MarkStatus::Marked;
-            } else {
-                to[vid_usize] = MarkStatus::Visited;
-            }
-            let mut mark_next = start_mark;
-            if !can_fuse && fused[vid_usize] != fuse_id {
-                mark_next = true;
-            }
-            for fwd in succ[vid].iter() {
-                self.mark_fwd(*fwd, to, succ, mark_next, fused, from, fuse_id);
-            }
+        if to[vid_usize] == MarkStatus::Marked
+            || (!start_mark && to[vid_usize] == MarkStatus::Visited)
+        {
+            return; // is in the current fusion or already visited
+        }
+        let can_fuse = self.can_fuse(vid, fused, to, from); // , None, None);
+        if !can_fuse && fused[vid_usize] != fuse_id {
+            start_mark = true;
+        }
+        if start_mark {
+            to[vid_usize] = MarkStatus::Marked;
+        } else {
+            to[vid_usize] = MarkStatus::Visited;
+        }
+
+        for fwd in succ[vid].iter() {
+            self.mark_fwd(*fwd, to, succ, start_mark, fused, from, fuse_id);
         }
     }
 
@@ -141,26 +147,30 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
         &self,
         vid: VertexId,
         from: &mut Vec<MarkStatus>,
-        start_mark: bool,
+        mut start_mark: bool,
         fused: &Vec<usize>,
         to: &Vec<MarkStatus>,
         fuse_id: usize,
     ) {
         let vid_usize: usize = vid.into();
-        if from[vid_usize] == MarkStatus::Unvisited {
-            let can_fuse = self.can_fuse(vid, fused, to, from); // , None, None);
-            if start_mark {
-                from[vid_usize] = MarkStatus::Marked;
-            } else {
-                from[vid_usize] = MarkStatus::Visited;
-            }
-            let mut mark_next = start_mark;
-            if !can_fuse && fused[vid_usize] != fuse_id {
-                mark_next = true;
-            }
-            for bwd in self.g.vertex(vid).uses() {
-                self.mark_bwd(bwd, from, mark_next, fused, to, fuse_id);
-            }
+        if from[vid_usize] == MarkStatus::Marked
+            || (!start_mark && from[vid_usize] == MarkStatus::Visited)
+        {
+            return; // is in the current fusion or already visited
+        }
+        let can_fuse = self.can_fuse(vid, fused, to, from); // , None, None);
+        if !can_fuse && fused[vid_usize] != fuse_id {
+            start_mark = true;
+        }
+
+        if start_mark {
+            from[vid_usize] = MarkStatus::Marked;
+        } else {
+            from[vid_usize] = MarkStatus::Visited;
+        }
+
+        for bwd in self.g.vertex(vid).uses() {
+            self.mark_bwd(bwd, from, start_mark, fused, to, fuse_id);
         }
     }
 
@@ -377,7 +387,15 @@ fn get_poly_repr<Rt: RuntimeType>(output_types: &Vec<super::Typ<Rt>>) -> PolyTyp
         .unwrap_or(PolyType::Coef)
 }
 
-pub fn fuse_arith<'s, Rt: RuntimeType>(cg: Cg<'s, Rt>, hw_info: &HardwareInfo) -> Cg<'s, Rt> {
+pub fn fuse_arith<'s, Rt: RuntimeType>(mut cg: Cg<'s, Rt>, hw_info: &HardwareInfo) -> Cg<'s, Rt> {
+    let mut success = true;
+    while success {
+        (cg, success) = _fuse_arith(cg, hw_info);
+    }
+    cg
+}
+
+fn _fuse_arith<'s, Rt: RuntimeType>(cg: Cg<'s, Rt>, hw_info: &HardwareInfo) -> (Cg<'s, Rt>, bool) {
     let succ: Heap<VertexId, BTreeSet<VertexId>> = cg.g.successors();
     let mut fused = vec![0; cg.g.order()];
     let order = cg.g.topology_sort().map(|(vid, _)| vid).collect::<Vec<_>>();
@@ -389,8 +407,11 @@ pub fn fuse_arith<'s, Rt: RuntimeType>(cg: Cg<'s, Rt>, hw_info: &HardwareInfo) -
     let mut old_id2new_id: BTreeMap<VertexId, VertexId> = BTreeMap::new();
     let mut tuple_gets = BTreeSet::new(); // tuple_gets are new added vertices, we don't need to relabel them
 
+    let mut success = false;
+
     for id in order {
-        if cg.can_fuse(id, &fused, &to, &from) {
+        if cg.can_fuse(id, &fused, &to, &from) && !success {
+            success = true; // we found a fusion candidate
             let mut vid2arith = BTreeMap::new();
             let mut arith2vid = BTreeMap::new();
             let mut ag = ArithGraph {
@@ -420,14 +441,14 @@ pub fn fuse_arith<'s, Rt: RuntimeType>(cg: Cg<'s, Rt>, hw_info: &HardwareInfo) -
             // also, we need to ensure host memory can hold all the inputs and outputs
             ag.reorder_input_outputs();
             let output_types = ag
-                    .outputs
-                    .iter()
-                    .map(|output_id| {
-                        let vid = arith2vid.get(output_id).unwrap();
-                        let v = cg.g.vertex(*vid);
-                        v.typ().clone()
-                    })
-                    .collect::<Vec<_>>();
+                .outputs
+                .iter()
+                .map(|output_id| {
+                    let vid = arith2vid.get(output_id).unwrap();
+                    let v = cg.g.vertex(*vid);
+                    v.typ().clone()
+                })
+                .collect::<Vec<_>>();
             let poly_degree = get_poly_degree(&output_types);
             let poly_size = (poly_degree * size_of::<Rt::Field>()).max(1); // at least 1 byte, this is for the case of scalar i/o
             let nodes_limit = hw_info.cpu().integral_space() as usize / poly_size / 2; // divide by 2 to ensure we have enough space for inputs and outputs
@@ -483,8 +504,9 @@ pub fn fuse_arith<'s, Rt: RuntimeType>(cg: Cg<'s, Rt>, hw_info: &HardwareInfo) -
                 // };
                 let temp_spaces = temporary_space::arith::<Rt>(&ag, None);
                 assert!(temp_spaces.len() == 2);
-                let chunking = ag
-                    .decide_chunking::<Rt::Field>(hw_info.smallest_gpu_memory_integral_limit() - temp_spaces[0] - temp_spaces[1]);
+                let chunking = ag.decide_chunking::<Rt::Field>(
+                    hw_info.smallest_gpu_memory_integral_limit() - temp_spaces[0] - temp_spaces[1],
+                );
 
                 // decide the polynomial representation
                 ag.poly_repr = get_poly_repr(&output_types);
@@ -531,8 +553,11 @@ pub fn fuse_arith<'s, Rt: RuntimeType>(cg: Cg<'s, Rt>, hw_info: &HardwareInfo) -
             .relabeled(&mut |vid| old_id2new_id.get(&vid).unwrap().clone());
         *new_graph.vertex_mut(vid).node_mut() = new_node;
     }
-    Cg {
-        g: new_graph,
-        output: old_id2new_id.get(&cg.output).unwrap().clone(),
-    }
+    (
+        Cg {
+            g: new_graph,
+            output: old_id2new_id.get(&cg.output).unwrap().clone(),
+        },
+        success,
+    )
 }
