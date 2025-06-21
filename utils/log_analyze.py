@@ -36,6 +36,32 @@ def parse_log_line(line):
             return None
         instruction_type = instr_match.group(1)
         function_name = None
+
+    transfer_match = re.search(r'Transfer \{ src_device: ([^,]+), dst_device: ([^,]+)', line)
+    if transfer_match:
+        instruction_type = 'Transfer'
+        src_device = transfer_match.group(1)
+        dst_device = transfer_match.group(2)
+        
+        # CPU -> GPU
+        if 'CPU' in src_device and 'GPU' in dst_device:
+            instruction_type = 'Transfer-CPU2GPU'
+        # GPU -> CPU
+        elif 'GPU' in src_device and 'CPU' in dst_device:
+            instruction_type = 'Transfer-GPU2CPU'
+        # Disk transfers
+        elif 'Disk' in src_device or 'Disk' in dst_device:
+            if 'CPU' in dst_device:
+                instruction_type = 'Transfer-Disk2CPU'
+            elif 'CPU' in src_device:
+                instruction_type = 'Transfer-CPU2Disk'
+            else:
+                instruction_type = 'Transfer-Disk'
+        # Other transfers
+        else:
+            instruction_type = f'Transfer-{src_device}2{dst_device}'
+
+
     
     # Extract device information
     device_match = re.search(r'device: (\w+) \{ device_id: (\d+) \}', line)
