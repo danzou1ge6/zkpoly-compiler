@@ -78,7 +78,12 @@ impl Ctx {
         self.active_vertices
             .insert(vid, (has_ready_successor, score));
 
-        for pred in cg.g.vertex(vid).predecessors() {
+        for pred in
+            cg.g.vertex(vid)
+                .predecessors()
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+        {
             // Update the active ranking of the predecessor
             self.active_vertices
                 .insert(pred, self.active_ranking(cg, successors, pred));
@@ -103,7 +108,7 @@ impl Ctx {
         successors: &Heap<VertexId, BTreeSet<VertexId>>,
         connected: &Heap<VertexId, bool>,
     ) -> Self {
-        let deg_in = cg.g.degrees_in();
+        let deg_in = cg.g.degrees_in_no_multiedge();
 
         let ready_vertices: BTreeSet<VertexId> = deg_in
             .iter_with_id()
@@ -122,6 +127,7 @@ impl Ctx {
 
         let unexecuted_score =
             cg.g.topology_sort_inv()
+                .filter(|(vid, _)| connected[*vid])
                 .fold(BTreeMap::new(), |mut acc, (vid, _)| {
                     let cost = successors[vid]
                         .iter()
@@ -171,7 +177,7 @@ pub fn schedule<'s, Rt: RuntimeType>(
 
         counter += 1;
 
-        print!("[Scheduler] Scheduled {} / {}\r", counter, total);
+        print!("[Scheduler] Scheduled {} / {}: {:?}\n", counter, total, vid);
     }
     println!();
 
