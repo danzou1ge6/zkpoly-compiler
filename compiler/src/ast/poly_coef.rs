@@ -202,10 +202,13 @@ impl<Rt: RuntimeType> PolyCoef<Rt> {
     #[track_caller]
     pub fn constant(data: &[Rt::Field], allocator: &mut ConstantPool) -> Self {
         let src = SourceInfo::new(Location::caller().clone(), None);
-        if zkpoly_common::typ::Typ::scalar_array(data.len()).can_on_disk::<Rt::Field, Rt::PointAffine>() {
+        if zkpoly_common::typ::Typ::scalar_array(data.len())
+            .can_on_disk::<Rt::Field, Rt::PointAffine>()
+            && allocator.has_disk()
+        {
             let temp_cpu = rt::scalar::ScalarArray::borrow_vec(data);
             let mut disk_poly =
-                rt::scalar::ScalarArray::alloc_disk(data.len(), allocator.disk);
+                rt::scalar::ScalarArray::alloc_disk(data.len(), allocator.unwrap_disk());
             temp_cpu.cpu2disk(&mut disk_poly);
             PolyCoef::new(PolyCoefNode::Constant(disk_poly), src)
         } else {
@@ -224,9 +227,12 @@ impl<Rt: RuntimeType> PolyCoef<Rt> {
     ) -> Self {
         let src = SourceInfo::new(Location::caller().clone(), None);
         let temp_cpu = rt::scalar::ScalarArray::from_iter(data, len as usize, allocator.cpu);
-        if zkpoly_common::typ::Typ::scalar_array(len as usize).can_on_disk::<Rt::Field, Rt::PointAffine>() {
+        if zkpoly_common::typ::Typ::scalar_array(len as usize)
+            .can_on_disk::<Rt::Field, Rt::PointAffine>()
+            && allocator.has_disk()
+        {
             let mut disk_poly =
-                rt::scalar::ScalarArray::alloc_disk(len as usize, allocator.disk);
+                rt::scalar::ScalarArray::alloc_disk(len as usize, allocator.unwrap_disk());
             temp_cpu.cpu2disk(&mut disk_poly);
             allocator.cpu.free(temp_cpu.values);
             PolyCoef::new(PolyCoefNode::Constant(disk_poly), src)

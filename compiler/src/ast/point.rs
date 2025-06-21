@@ -13,10 +13,15 @@ impl<Rt: RuntimeType> PrecomputedPoints<Rt> {
     pub fn construct(points: &[Rt::PointAffine], allocator: &mut ConstantPool) -> Self {
         if let Some(log_n) = log2(points.len() as u64) {
             let src = SourceInfo::new(Location::caller().clone(), None);
-            if (zkpoly_common::typ::Typ::PointBase { len: points.len() }).can_on_disk::<Rt::Field, Rt::PointAffine>() {
+            if (zkpoly_common::typ::Typ::PointBase { len: points.len() })
+                .can_on_disk::<Rt::Field, Rt::PointAffine>()
+                && allocator.has_disk()
+            {
                 let cpu_temp = rt::point::PointArray::borrow_vec(points);
-                let mut disk_points =
-                    rt::point::PointArray::alloc_disk(points.len() as usize, &mut allocator.disk);
+                let mut disk_points = rt::point::PointArray::alloc_disk(
+                    points.len() as usize,
+                    &mut allocator.unwrap_disk(),
+                );
                 cpu_temp.cpu2disk(&mut disk_points);
                 Self::new(PrecomputedPointsData(disk_points, log_n), src)
             } else {

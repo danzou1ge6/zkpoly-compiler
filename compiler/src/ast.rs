@@ -391,7 +391,21 @@ impl<S> ScalarArith<S> {
 
 pub struct ConstantPool<'a> {
     pub cpu: &'a mut CpuMemoryPool,
-    pub disk: &'a mut DiskMemoryPool
+    pub disk: Option<&'a mut DiskMemoryPool>
+}
+
+impl<'a> ConstantPool<'a> {
+    pub fn has_disk(&self) -> bool {
+        self.disk.is_some()
+    }
+
+    pub fn disk(&mut self) -> Option<&mut DiskMemoryPool> {
+        self.disk.as_deref_mut()
+    }
+
+    pub fn unwrap_disk(&mut self) -> &mut DiskMemoryPool {
+        self.disk.as_mut().unwrap()
+    }
 }
 
 pub mod array;
