@@ -48,6 +48,7 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for PrecomputedPoints<Rt> {
                 zkpoly_common::typ::Typ::PointBase {
                     len: 2usize.pow(self.inner.t.1),
                 },
+                self.inner.t.0.device.clone()
             );
             Vertex::new(
                 VertexNode::Constant(constant),
@@ -119,7 +120,7 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for Point<Rt> {
                 )
             }
             Constant(c) => {
-                let constant = cg.add_constant(
+                let constant = cg.add_cpu_constant(
                     Point::to_variable(c.clone()),
                     None,
                     zkpoly_common::typ::Typ::Point,

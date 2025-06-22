@@ -33,7 +33,7 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for WhateverUntyped<Rt> {
                 Constant(x, tid, size) => {
                     let val = x.replace(Box::new(0));
                     let var = Variable::Any(AnyWrapper::new(val));
-                    let constant = cg.add_constant(
+                    let constant = cg.add_cpu_constant(
                         var,
                         None,
                         zkpoly_common::typ::Typ::Any(tid.clone().into(), *size),

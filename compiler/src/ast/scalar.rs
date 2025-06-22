@@ -37,7 +37,7 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for Scalar<Rt> {
                     new_vertex(VertexNode::SingleArith(arith), Some(Typ::Scalar))
                 }
                 Constant(x) => {
-                    let constant = cg.add_constant(
+                    let constant = cg.add_cpu_constant(
                         Scalar::to_variable(*x),
                         None,
                         zkpoly_common::typ::Typ::Scalar,

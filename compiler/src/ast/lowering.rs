@@ -1,9 +1,6 @@
 use std::collections::BTreeMap;
 use zkpoly_common::{
-    arith::{Arith, BinOp, UnrOp},
-    digraph::internal::Digraph,
-    heap::Heap,
-    typ::PolyType,
+    arith::{Arith, BinOp, UnrOp}, devices::DeviceType, digraph::internal::Digraph, heap::Heap, typ::PolyType
 };
 use zkpoly_memory_pool::CpuMemoryPool;
 pub use zkpoly_runtime::args::ConstantId;
@@ -155,9 +152,19 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
         value: Variable<Rt>,
         name: Option<String>,
         typ: zkpoly_common::typ::Typ,
+        device: DeviceType
     ) -> ConstantId {
-        let id = self.constant_table.push(Constant::on_cpu(value, name, typ));
+        let id = self.constant_table.push(Constant::new(value, name, typ, device));
         id
+    }
+
+    pub fn add_cpu_constant(
+        &mut self,
+        value: Variable<Rt>,
+        name: Option<String>,
+        typ: zkpoly_common::typ::Typ,
+    ) -> ConstantId {
+        self.add_constant(value, name, typ, DeviceType::CPU)
     }
 
     pub fn add_function(&mut self, f: FunctionUntyped<Rt>) -> UserFunctionId {

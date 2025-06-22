@@ -54,6 +54,7 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for PolyCoef<Rt> {
                     PolyCoef::to_variable(data.clone()),
                     self.src().name.clone(),
                     zkpoly_common::typ::Typ::scalar_array(data.len),
+                    data.device.clone(),
                 );
                 new_vertex(
                     VertexNode::Constant(constant_id),

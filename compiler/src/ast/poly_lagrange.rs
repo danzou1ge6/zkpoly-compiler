@@ -54,6 +54,7 @@ impl<'c, Rt: RuntimeType> TypeEraseable<Rt> for PolyLagrange<Rt> {
                         PolyLagrange::to_variable(data.clone()),
                         self.src().name.clone(),
                         zkpoly_common::typ::Typ::scalar_array(*len as usize),
+                        data.device.clone()
                     );
                     Vertex::new(
                         VertexNode::Constant(constant_id),
