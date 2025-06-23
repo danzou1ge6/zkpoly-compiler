@@ -288,7 +288,7 @@ where
     }
 
     /// Creates a simple continuation that let some device provide a copy of `object` for `to_device`, potentially sliced.
-    /// 
+    ///
     /// `from_device` must be planning or unplanned,
     /// `to_device` must be planning or unplanned.
     pub fn provide_object_sliced(
@@ -329,9 +329,20 @@ where
                         aux.obj_info(),
                     );
                 } else if aux.is_unplanned(from_device) {
-                    machine.reclaim_object_sliced(to_device, to_pointer, to_object, from_device, from_object, slice, aux.obj_info());
+                    machine.reclaim_object_sliced(
+                        to_device,
+                        to_pointer,
+                        to_object,
+                        from_device,
+                        from_object,
+                        slice,
+                        aux.obj_info(),
+                    );
                 } else {
-                    panic!("from_device {:?} is neither planning nor unplanned", from_device)
+                    panic!(
+                        "from_device {:?} is neither planning nor unplanned",
+                        from_device
+                    )
                 }
             } else if aux.is_unplanned(to_device) {
                 if aux.is_planning(from_device) {
@@ -339,14 +350,28 @@ where
                         .handle(from_device, machine, aux)
                         .access(&from_object)
                         .expect("object not found");
-                    machine.eject_object_sliced(to_device, to_object, from_device, from_pointer, from_object, slice, aux.obj_info());
+                    machine.eject_object_sliced(
+                        to_device,
+                        to_object,
+                        from_device,
+                        from_pointer,
+                        from_object,
+                        slice,
+                        aux.obj_info(),
+                    );
                 } else if aux.is_unplanned(from_device) {
                     // do nothing
                 } else {
-                    panic!("from_device {:?} is neither planning nor unplanned", from_device)
+                    panic!(
+                        "from_device {:?} is neither planning nor unplanned",
+                        from_device
+                    )
                 }
             } else {
-                panic!("to_device {:?} is neither planning nor unplanned", to_device)
+                panic!(
+                    "to_device {:?} is neither planning nor unplanned",
+                    to_device
+                )
             }
 
             Ok(())
@@ -434,10 +459,11 @@ where
                 let resp = allocators
                     .handle(to_device, machine, aux)
                     .allocate(size, &t);
-                let to_pointer = match allocators.run(resp, machine, aux) {
-                    Ok(p) => p,
-                    Err(e) => return Err(e),
-                };
+                allocators.run(resp, machine, aux)?;
+                let to_pointer = allocators
+                    .handle(to_device, machine, aux)
+                    .access(&t)
+                    .expect("i just allocated this object");
 
                 // fixme
                 println!("{:?} received {:?} from {:?}", to_device, t, from_device);
@@ -526,10 +552,12 @@ where
                 let resp = allocators
                     .handle(to_device, machine, aux)
                     .allocate(size, &t);
-                let to_pointer = match resp.commit(allocators, machine, aux) {
-                    Ok(to_pointer) => to_pointer,
-                    Err(e) => return Err(e),
-                };
+                resp.commit(allocators, machine, aux)?;
+                let to_pointer = allocators
+                    .handle(to_device, machine, aux)
+                    .access(&t)
+                    .expect("i just allocated this object");
+
                 {
                     if aux.is_planning(from_device) {
                         if aux.is_planning(to_device) {

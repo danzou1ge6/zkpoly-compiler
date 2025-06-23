@@ -118,7 +118,7 @@ where
     }
 
     fn allocate(&mut self, size: Size, t: &ObjectId) -> allocator::AResp<'s, ObjectId, P, P, Rt> {
-        println!("GPU allocating {:?}", t);
+        println!("{:?} allocating {:?}", self.device(), t);
 
         if self.allocator.objects_at.get_forward(t).is_some() {
             panic!("object {:?} already allocated", t);
@@ -173,6 +173,17 @@ where
                                     .clone()
                             })
                             .collect::<Vec<_>>();
+
+                        if objects.iter().any(|&obj| {
+                            self.aux
+                                .query_next_use(obj, self.device())
+                                .unwrap_or(Index::inf())
+                                <= self.aux.pc()
+                        }) {
+                            println!("allocator state: {:?}", &self.allocator.ia);
+                            panic!("ejecting victim that is in use ");
+                        }
+
                         let sizes = victims
                             .iter()
                             .map(|victim| self.allocator.mapping[*victim].1)

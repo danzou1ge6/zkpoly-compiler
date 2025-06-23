@@ -189,7 +189,7 @@ where
         let object_uses = op.object_uses().collect::<Vec<_>>();
 
         // fixme
-        println!("op = {:?}", op);
+        println!("{:?}: op = {:?}", index, op);
 
         match op {
             Type2(vid, outputs, node, temps, src) => {
@@ -422,7 +422,7 @@ where
                 // Allocate space for `new_object`
                 let resp = allocators.handle(device, machine, aux)
                     .allocate(obj_info.size(new_object), &new_object);
-                let to_pointer = resp.commit(allocators, machine, aux)?;
+                resp.commit(allocators, machine, aux)?;
 
                 // For now, disk does not support slicing.
                 // So, if we are cloning slice from disk, we first claim whole `sliced_object`,
@@ -450,6 +450,11 @@ where
                     allocators.apply_continuation(c, machine, aux)?;
 
                 } else if let Some(from_device) = from_device {
+                    let to_pointer = allocators
+                        .handle(device, machine, aux)
+                        .access(&new_object)
+                        .expect("your memory would be too small if it cannot hold two objects of this size");
+
                     let c = Continuation::provide_object_sliced(
                         from_device,
                         sliced_object,
@@ -473,7 +478,10 @@ where
                 if planning!(to_v.device()) {
                     let resp = allocators.handle(to_v.device(), machine, aux)
                         .allocate(obj_info.size(to_v.object_id()), &to_v.object_id());
-                    let to_p = resp.commit(allocators, machine, aux)?;
+                    resp.commit(allocators, machine, aux)?;
+                    let to_p = allocators.handle(to_v.device(), machine, aux)
+                        .access(&to_v.object_id())
+                        .expect("i just allocated this object");
                     
                     machine.transfer_object(
                         ResidentalValue::new(to_v, to_p),
