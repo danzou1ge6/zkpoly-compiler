@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, panic::Location};
+use std::{collections::BTreeMap, ops::DerefMut, panic::Location};
 
 use zkpoly_common::{
     devices::DeviceType, load_dynamic::Libs, msm_config::MsmConfig, typ::PolyType,
@@ -7,7 +7,8 @@ use zkpoly_core::{
     msm::{get_best_config, MSMPrecompute},
     ntt::{GenPqOmegas, SsipPrecompute},
 };
-use zkpoly_memory_pool::CpuMemoryPool;
+use zkpoly_cuda_api::bindings::cudaDeviceSynchronize;
+use zkpoly_memory_pool::{buddy_disk_pool::DiskMemoryPool, CpuMemoryPool};
 use zkpoly_runtime::{
     args::{RuntimeType, Variable},
     point::PointArray,
@@ -30,7 +31,9 @@ pub fn precompute<'s, Rt: RuntimeType>(
     memory_limit: usize,
     libs: &mut Libs,
     allocator: &mut CpuMemoryPool,
+    disk_allocator: &mut DiskMemoryPool,
     constant_tb: &mut ConstantTable<Rt>,
+    disk_available: bool,
 ) -> Cg<'s, Rt> {
     let order = cg.g.vertices().collect::<Vec<_>>();
     let mut gen_omega = GenOmega::<Rt::Field>::new();
@@ -146,8 +149,22 @@ pub fn precompute<'s, Rt: RuntimeType>(
                 assert_eq!(points.len(), 1);
                 let input_id = points[0];
                 let input_constant_id = cg.g.vertex(input_id).node().unwrap_constant();
-                let input_points =
-                    (*constant_tb[*input_constant_id].value.unwrap_point_array()).clone();
+                let need_free = constant_tb[*input_constant_id].device.is_disk();
+                let input_constant = zkpoly_runtime::args::copy_constant(
+                    constant_tb[*input_constant_id].clone(),
+                    DeviceType::CPU,
+                    allocator,
+                    disk_allocator,
+                );
+                let input_points = input_constant.value.unwrap_point_array().clone();
+
+                let mut disk_allocator =
+                    scopeguard::guard(&mut *disk_allocator, |disk_allocator| {
+                        if need_free {
+                            let mut input_points = input_points.clone();
+                            input_points.free_disk(disk_allocator);
+                        }
+                    });
 
                 let config =
                     get_best_config::<Rt>(input_points.len, polys.len() as u32, memory_limit);
@@ -163,7 +180,7 @@ pub fn precompute<'s, Rt: RuntimeType>(
                     let f = msm_precompute_func.get_fn();
 
                     let len = input_points.len;
-                    let mut point_arrays = vec![input_points];
+                    let mut point_arrays = vec![input_points.clone()];
                     for _ in 1..config.get_precompute() {
                         let point_array = PointArray::<Rt::PointAffine>::new(
                             len,
@@ -178,16 +195,33 @@ pub fn precompute<'s, Rt: RuntimeType>(
                         4, // allow at most 4 cards to do precompute together
                     )
                     .unwrap();
+                    unsafe {
+                        cudaDeviceSynchronize();
+                    }
 
                     let c_ids = point_arrays
                         .into_iter()
                         .skip(1)
                         .map(|array| {
-                            constant_tb.push(Constant::on_cpu(
+                            let t = zkpoly_common::typ::Typ::PointBase { len };
+                            let c = Constant::on_cpu(
                                 Variable::PointArray(array),
                                 Some("precompute points for msm".to_string()),
-                                zkpoly_common::typ::Typ::PointBase { len },
-                            ))
+                                t.clone(),
+                            );
+                            let c = if disk_available
+                                && t.can_on_disk::<Rt::Field, Rt::PointAffine>()
+                            {
+                                zkpoly_runtime::args::move_constant(
+                                    c,
+                                    DeviceType::Disk,
+                                    allocator,
+                                    disk_allocator.deref_mut(),
+                                )
+                            } else {
+                                c
+                            };
+                            constant_tb.push(c)
                         })
                         .collect::<Vec<_>>();
 

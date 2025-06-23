@@ -32,6 +32,25 @@ pub fn move_constant<T: RuntimeType>(
     cpu_allocator: &mut CpuMemoryPool,
     disk_allocator: &mut DiskMemoryPool,
 ) -> Constant<T> {
+    move_constant_(c, on_device, cpu_allocator, disk_allocator, true)
+}
+
+pub fn copy_constant<T: RuntimeType>(
+    c: Constant<T>,
+    on_device: DeviceType,
+    cpu_allocator: &mut CpuMemoryPool,
+    disk_allocator: &mut DiskMemoryPool,
+) -> Constant<T> {
+    move_constant_(c, on_device, cpu_allocator, disk_allocator, false)
+}
+
+pub fn move_constant_<T: RuntimeType>(
+    c: Constant<T>,
+    on_device: DeviceType,
+    cpu_allocator: &mut CpuMemoryPool,
+    disk_allocator: &mut DiskMemoryPool,
+    free: bool,
+) -> Constant<T> {
     match (c.device.clone(), on_device.clone()) {
         (a, b) if a == b => c,
         (DeviceType::CPU, DeviceType::Disk) => {
@@ -40,14 +59,18 @@ pub fn move_constant<T: RuntimeType>(
                     let mut new_poly =
                         ScalarArray::<T::Field>::alloc_disk(poly.len(), disk_allocator);
                     poly.cpu2disk(&mut new_poly);
-                    cpu_allocator.free(poly.values);
+                    if free {
+                        cpu_allocator.free(poly.values);
+                    }
                     Variable::ScalarArray(new_poly)
                 }
                 Variable::PointArray(points) => {
                     let mut new_points =
                         PointArray::<T::PointAffine>::alloc_disk(points.len, disk_allocator);
                     points.cpu2disk(&mut new_points);
-                    cpu_allocator.free(points.values);
+                    if free {
+                        cpu_allocator.free(points.values);
+                    }
                     Variable::PointArray(new_points)
                 }
                 _ => unreachable!("small items don't need to be swaped out"),
@@ -65,14 +88,18 @@ pub fn move_constant<T: RuntimeType>(
                     let mut new_poly =
                         ScalarArray::<T::Field>::alloc_cpu(poly.len(), cpu_allocator);
                     poly.disk2cpu(&mut new_poly);
-                    poly.free_disk(disk_allocator);
+                    if free {
+                        poly.free_disk(disk_allocator);
+                    }
                     Variable::ScalarArray(new_poly)
                 }
                 Variable::PointArray(mut points) => {
                     let mut new_points =
                         PointArray::<T::PointAffine>::alloc_cpu(points.len, cpu_allocator);
                     points.disk2cpu(&mut new_points);
-                    points.free_disk(disk_allocator);
+                    if free {
+                        points.free_disk(disk_allocator);
+                    }
                     Variable::PointArray(new_points)
                 }
                 _ => unreachable!("small items don't need to be swaped out"),
@@ -257,6 +284,15 @@ impl<Rt: RuntimeType> Constant<Rt> {
             value,
             typ,
             device: DeviceType::CPU,
+        }
+    }
+
+    pub fn new(value: Variable<Rt>, name: Option<String>, typ: zkpoly_common::typ::Typ, device: DeviceType) -> Self {
+        Self {
+            name,
+            value,
+            typ,
+            device
         }
     }
 }

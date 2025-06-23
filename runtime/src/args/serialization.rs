@@ -1,9 +1,11 @@
 use core::slice;
+use scopeguard::defer;
 use serde::{Deserialize, Serialize};
 use std::io::{self, Read, Seek, Write};
 
 use crate::{
     point::{Point, PointArray},
+    runtime::transfer::Transfer,
     scalar::{Scalar, ScalarArray},
 };
 
@@ -12,12 +14,25 @@ use zkpoly_common::{devices::DeviceType, typ::Typ};
 use zkpoly_memory_pool::{buddy_disk_pool::DiskMemoryPool, CpuMemoryPool};
 
 impl<Rt: RuntimeType> Variable<Rt> {
-    pub fn dump_binary(&self, writer: &mut impl Write) -> io::Result<()> {
+    pub fn dump_binary(
+        &self,
+        writer: &mut impl Write,
+        allocator: &mut CpuMemoryPool,
+    ) -> io::Result<()> {
         match self {
             Variable::ScalarArray(poly) => {
-                if !poly.device.is_cpu() {
-                    panic!("polynomail must be on CPU");
-                }
+                let on_disk = poly.device.is_disk();
+                let poly = if on_disk {
+                    let mut cpu_poly = ScalarArray::alloc_cpu(poly.len, allocator);
+                    poly.disk2cpu(&mut cpu_poly);
+                    cpu_poly
+                } else {
+                    poly.clone()
+                };
+                defer!(if on_disk {
+                    allocator.free(poly.values);
+                });
+
                 if poly.slice_info.is_some() || poly.rotate != 0 {
                     panic!("polynomial must be unrotated and unsliced");
                 }
@@ -49,9 +64,19 @@ impl<Rt: RuntimeType> Variable<Rt> {
                 writer.write_all(v)?;
             },
             Variable::PointArray(ps) => {
-                if !ps.device.is_cpu() {
-                    panic!("point must be on CPU");
-                }
+                let on_disk = ps.device.is_disk();
+                let ps = if on_disk {
+                    let mut cpu_ps = PointArray::alloc_cpu(ps.len, allocator);
+                    ps.disk2cpu(&mut cpu_ps);
+                    cpu_ps
+                } else {
+                    ps.clone()
+                };
+
+                defer!(if on_disk {
+                    allocator.free(ps.values);
+                });
+
                 unsafe {
                     let v = slice::from_raw_parts(
                         ps.values.cast::<u8>(),
@@ -184,10 +209,11 @@ impl Header {
         &self,
         ct: &ConstantTable<Rt>,
         writer: &mut impl Write,
+        allocator: &mut CpuMemoryPool,
     ) -> io::Result<()> {
         for (entry, c) in self.entries.iter().zip(ct.iter()) {
             if let Some(_) = entry.position {
-                c.value.dump_binary(writer)?;
+                c.value.dump_binary(writer, allocator)?;
             }
         }
         Ok(())

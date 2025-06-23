@@ -77,6 +77,7 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
         options: &DebugOptions,
         hardware_info: &HardwareInfo,
         ctx: &PanicJoinHandler,
+        disk_allocator: &mut DiskMemoryPool
     ) -> Result<ProcessedType2<'s, Rt>, Error<'static, Rt>> {
         let type2::Program {
             cg: t2cg,
@@ -131,7 +132,9 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
                     hardware_info.smallest_gpu_memory_integral_limit() as usize,
                     &mut libs,
                     &mut allocator,
+                    disk_allocator,
                     &mut t2const_tab,
+                    hardware_info.disk_available()
                 ))
             },
             "Done.",
@@ -312,7 +315,7 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
         ctx: &PanicJoinHandler,
     ) -> Result<(Artifect<Rt>, CpuMemoryPool), Error<'s, Rt>> {
         Ok(self
-            .to_semi_artifect(options, hardware_info, ctx)?
+            .to_semi_artifect(options, hardware_info, disk_allocator , ctx)?
             .finish(disk_allocator))
     }
 
@@ -320,9 +323,10 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
         self,
         options: &DebugOptions,
         hardware_info: &HardwareInfo,
+        disk_allocator: &mut DiskMemoryPool,
         ctx: &PanicJoinHandler,
     ) -> Result<SemiArtifect<Rt>, Error<'s, Rt>> {
-        self.apply_passes(options, hardware_info, ctx)?
+        self.apply_passes(options, hardware_info, ctx, disk_allocator)?
             .to_type3(options, hardware_info, ctx)?
             .apply_passes(options)?
             .to_artifect(options, hardware_info, ctx)

@@ -211,7 +211,7 @@ impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
         })
     }
 
-    pub fn dump(&self, dir: impl AsRef<std::path::Path>) -> std::io::Result<()>
+    pub fn dump(&mut self, dir: impl AsRef<std::path::Path>) -> std::io::Result<()>
     where
         Rt: for<'de> serde::Deserialize<'de> + serde::Serialize,
     {
@@ -225,7 +225,7 @@ impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
         serde_json::to_writer_pretty(&mut ct_header_f, &ct_header)?;
 
         let mut ct_f = std::fs::File::create(dir.as_ref().join("constants.bin"))?;
-        ct_header.dump_entries_data(&self.constant_table, &mut ct_f)?;
+        ct_header.dump_entries_data(&self.constant_table, &mut ct_f, &mut self.allocator)?;
 
         Ok(())
     }

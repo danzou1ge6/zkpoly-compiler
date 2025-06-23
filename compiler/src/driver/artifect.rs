@@ -45,7 +45,7 @@ impl<Rt: RuntimeType> SemiArtifect<Rt> {
         )
     }
 
-    pub fn dump(&self, dir: impl AsRef<std::path::Path>) -> std::io::Result<()> {
+    pub fn dump(&mut self, dir: impl AsRef<std::path::Path>) -> std::io::Result<()> {
         std::fs::create_dir_all(dir.as_ref())?;
 
         let mut chunk_f = std::fs::File::create(dir.as_ref().join("chunk.json"))?;
@@ -56,7 +56,7 @@ impl<Rt: RuntimeType> SemiArtifect<Rt> {
         serde_json::to_writer_pretty(&mut ct_header_f, &ct_header)?;
 
         let mut ct_f = std::fs::File::create(dir.as_ref().join("constants.bin"))?;
-        ct_header.dump_entries_data(&self.constant_table, &mut ct_f)?;
+        ct_header.dump_entries_data(&self.constant_table, &mut ct_f, &mut self.allocator)?;
 
         Ok(())
     }
