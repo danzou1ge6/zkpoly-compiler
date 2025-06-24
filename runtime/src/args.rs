@@ -30,7 +30,7 @@ pub fn move_constant<T: RuntimeType>(
     c: Constant<T>,
     on_device: DeviceType,
     cpu_allocator: &mut CpuMemoryPool,
-    disk_allocator: &mut DiskMemoryPool,
+    disk_allocator: Option<&mut DiskMemoryPool>,
 ) -> Constant<T> {
     move_constant_(c, on_device, cpu_allocator, disk_allocator, true)
 }
@@ -39,7 +39,7 @@ pub fn copy_constant<T: RuntimeType>(
     c: Constant<T>,
     on_device: DeviceType,
     cpu_allocator: &mut CpuMemoryPool,
-    disk_allocator: &mut DiskMemoryPool,
+    disk_allocator: Option<&mut DiskMemoryPool>,
 ) -> Constant<T> {
     move_constant_(c, on_device, cpu_allocator, disk_allocator, false)
 }
@@ -48,7 +48,7 @@ pub fn move_constant_<T: RuntimeType>(
     c: Constant<T>,
     on_device: DeviceType,
     cpu_allocator: &mut CpuMemoryPool,
-    disk_allocator: &mut DiskMemoryPool,
+    disk_allocator: Option<&mut DiskMemoryPool>,
     free: bool,
 ) -> Constant<T> {
     match (c.device.clone(), on_device.clone()) {
@@ -56,8 +56,12 @@ pub fn move_constant_<T: RuntimeType>(
         (DeviceType::CPU, DeviceType::Disk) => {
             let new_var: Variable<T> = match c.value {
                 Variable::ScalarArray(poly) => {
-                    let mut new_poly =
-                        ScalarArray::<T::Field>::alloc_disk(poly.len(), disk_allocator);
+                    let mut new_poly = ScalarArray::<T::Field>::alloc_disk(
+                        poly.len(),
+                        disk_allocator.expect(
+                            "expect to have disk pool if you are moving polynomials to disk",
+                        ),
+                    );
                     poly.cpu2disk(&mut new_poly);
                     if free {
                         cpu_allocator.free(poly.values);
@@ -65,8 +69,11 @@ pub fn move_constant_<T: RuntimeType>(
                     Variable::ScalarArray(new_poly)
                 }
                 Variable::PointArray(points) => {
-                    let mut new_points =
-                        PointArray::<T::PointAffine>::alloc_disk(points.len, disk_allocator);
+                    let mut new_points = PointArray::<T::PointAffine>::alloc_disk(
+                        points.len,
+                        disk_allocator
+                            .expect("expect to have disk pool if you are moving points to disk"),
+                    );
                     points.cpu2disk(&mut new_points);
                     if free {
                         cpu_allocator.free(points.values);
@@ -89,7 +96,9 @@ pub fn move_constant_<T: RuntimeType>(
                         ScalarArray::<T::Field>::alloc_cpu(poly.len(), cpu_allocator);
                     poly.disk2cpu(&mut new_poly);
                     if free {
-                        poly.free_disk(disk_allocator);
+                        poly.free_disk(disk_allocator.expect(
+                            "expect to have disk pool if you are moving polynomials out of disk",
+                        ));
                     }
                     Variable::ScalarArray(new_poly)
                 }
@@ -98,7 +107,9 @@ pub fn move_constant_<T: RuntimeType>(
                         PointArray::<T::PointAffine>::alloc_cpu(points.len, cpu_allocator);
                     points.disk2cpu(&mut new_points);
                     if free {
-                        points.free_disk(disk_allocator);
+                        points.free_disk(disk_allocator.expect(
+                            "expect to have disk pool if you are moving points out of disk",
+                        ));
                     }
                     Variable::PointArray(new_points)
                 }
@@ -121,10 +132,16 @@ pub fn move_constant_table<T: RuntimeType>(
     table: ConstantTable<T>,
     on_device: &heap::Heap<ConstantId, DeviceType>,
     cpu_allocator: &mut CpuMemoryPool,
-    disk_allocator: &mut DiskMemoryPool,
+    mut disk_allocator: Option<&mut DiskMemoryPool>,
 ) -> ConstantTable<T> {
-    let new_table = table
-        .map(&mut |i, c| move_constant(c, on_device[i].clone(), cpu_allocator, disk_allocator));
+    let new_table = table.map(&mut |i, c| {
+        move_constant(
+            c,
+            on_device[i].clone(),
+            cpu_allocator,
+            disk_allocator.as_deref_mut(),
+        )
+    });
     cpu_allocator.shrink();
     new_table
 }
@@ -287,12 +304,17 @@ impl<Rt: RuntimeType> Constant<Rt> {
         }
     }
 
-    pub fn new(value: Variable<Rt>, name: Option<String>, typ: zkpoly_common::typ::Typ, device: DeviceType) -> Self {
+    pub fn new(
+        value: Variable<Rt>,
+        name: Option<String>,
+        typ: zkpoly_common::typ::Typ,
+        device: DeviceType,
+    ) -> Self {
         Self {
             name,
             value,
             typ,
-            device
+            device,
         }
     }
 }

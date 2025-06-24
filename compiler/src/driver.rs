@@ -20,6 +20,8 @@ use crate::{
     transit::{type2, type3},
 };
 
+pub use ast::ConstantPool;
+
 #[derive(Debug, Clone)]
 pub struct DebugOptions {
     debug_dir: PathBuf,
@@ -264,8 +266,8 @@ impl HardwareInfo {
         self.page_size.expect("page size not specified")
     }
 
-    pub fn disk_available(&self) -> bool {
-        !self.disk.is_empty()
+    pub fn disks_available(&self) -> usize {
+        self.disk.len()
     }
 
     pub fn cpu_allocator(&self, memory_check: bool) -> CpuStaticAllocator {

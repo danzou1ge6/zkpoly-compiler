@@ -1,19 +1,14 @@
 use super::artifect::SemiArtifect;
 use std::{collections::BTreeMap, io::Write};
 use zkpoly_common::heap::Heap;
-use zkpoly_memory_pool::CpuMemoryPool;
 use zkpoly_runtime::args::{ConstantId, RuntimeType};
 
-use super::{
-    cudaDeviceSynchronize, cuda_check, type2, type3, DebugOptions, Error, HardwareInfo,
-    PanicJoinHandler,
-};
+use super::{cudaDeviceSynchronize, cuda_check, type2, type3, DebugOptions, Error, HardwareInfo};
 
 pub struct ProcessedType3<'s, Rt: RuntimeType> {
     pub(super) chunk: type3::Chunk<'s, Rt>,
     pub(super) uf_table: type2::user_function::Table<Rt>,
     pub(super) constant_table: type2::ConstantTable<Rt>,
-    pub(super) allocator: CpuMemoryPool,
     pub(super) constants_device: Heap<ConstantId, type3::Device>,
     pub(super) execution_devices: BTreeMap<type2::VertexId, type2::Device>,
 }
@@ -23,13 +18,11 @@ impl<'s, Rt: RuntimeType> ProcessedType3<'s, Rt> {
         self,
         options: &DebugOptions,
         hardware_info: &HardwareInfo,
-        _ctx: &PanicJoinHandler,
     ) -> Result<SemiArtifect<Rt>, Error<'s, Rt>> {
         let Self {
             chunk: t3chunk,
             uf_table: t2uf_tab,
             constant_table: t2const_tab,
-            allocator,
             constants_device,
             execution_devices,
         } = self;
@@ -105,7 +98,6 @@ impl<'s, Rt: RuntimeType> ProcessedType3<'s, Rt> {
         Ok(SemiArtifect {
             chunk: rt_chunk,
             constant_table: t2const_tab,
-            allocator,
             constant_devices: constants_device,
         })
     }

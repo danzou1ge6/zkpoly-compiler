@@ -1,9 +1,8 @@
 use crate::{ast, transit::type3};
 use std::io::Write;
 
-use super::fresh_type3::FreshType3;
+use super::{fresh_type3::FreshType3, ConstantPool};
 use zkpoly_common::load_dynamic::Libs;
-use zkpoly_memory_pool::CpuMemoryPool;
 use zkpoly_runtime::args::{self, RuntimeType};
 
 use super::{
@@ -16,7 +15,6 @@ pub struct ProcessedType2<'s, Rt: RuntimeType> {
     pub(super) constant_table: type2::ConstantTable<Rt>,
     pub(super) uf_table: type2::user_function::Table<Rt>,
     pub(super) libs: Libs,
-    pub(super) allocator: CpuMemoryPool,
 }
 
 impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
@@ -24,6 +22,7 @@ impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
         self,
         options: &DebugOptions,
         hardware_info: &HardwareInfo,
+        constant_pool: &mut ConstantPool,
         ctx: &PanicJoinHandler,
     ) -> Result<FreshType3<'s, Rt>, Error<'static, Rt>> {
         let Self {
@@ -31,14 +30,17 @@ impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
             constant_table: t2const_tab,
             uf_table: t2uf_tab,
             libs,
-            allocator,
         } = self;
+
+        if hardware_info.disks_available() != constant_pool.disk.as_ref().map_or(0, |x| x.len()) {
+            panic!("inconsistent number of disks in hardware info and constant pool");
+        }
 
         // - Decide constants to be on disk or CPU:
         //   If the constants take more than 1/4 CPU space, put big constants on disk.
         let constants_on_disk = ast::lowering::constant_size(&t2const_tab) * 4
             > hardware_info.cpu().memory_limit()
-            && hardware_info.disk_available();
+            && hardware_info.disks_available() > 0;
         let constants_device = t2const_tab.map_by_ref(&mut |_, c| {
             if constants_on_disk && c.typ.can_on_disk::<Rt::Field, Rt::PointAffine>() {
                 type3::Device::Disk
@@ -205,13 +207,16 @@ impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
             chunk: t3chunk,
             uf_table: t2uf_tab,
             constant_table: t2const_tab,
-            allocator,
             constants_device,
             execution_devices: devices,
         })
     }
 
-    pub fn dump(&mut self, dir: impl AsRef<std::path::Path>) -> std::io::Result<()>
+    pub fn dump(
+        &mut self,
+        dir: impl AsRef<std::path::Path>,
+        constant_pool: &mut ConstantPool,
+    ) -> std::io::Result<()>
     where
         Rt: for<'de> serde::Deserialize<'de> + serde::Serialize,
     {
@@ -225,7 +230,7 @@ impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
         serde_json::to_writer_pretty(&mut ct_header_f, &ct_header)?;
 
         let mut ct_f = std::fs::File::create(dir.as_ref().join("constants.bin"))?;
-        ct_header.dump_entries_data(&self.constant_table, &mut ct_f, &mut self.allocator)?;
+        ct_header.dump_entries_data(&self.constant_table, &mut ct_f, &mut constant_pool.cpu)?;
 
         Ok(())
     }

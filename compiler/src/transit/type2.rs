@@ -779,7 +779,6 @@ pub struct Program<'s, Rt: RuntimeType> {
     pub(crate) cg: Cg<'s, Rt>,
     pub(crate) user_function_table: user_function::Table<Rt>,
     pub(crate) consant_table: ConstantTable<Rt>,
-    pub(crate) memory_pool: CpuMemoryPool,
 }
 
 pub mod arith_decide_mutable;

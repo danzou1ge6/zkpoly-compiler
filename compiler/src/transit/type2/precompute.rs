@@ -12,6 +12,7 @@ use zkpoly_memory_pool::{buddy_disk_pool::DiskMemoryPool, CpuMemoryPool};
 use zkpoly_runtime::{
     args::{RuntimeType, Variable},
     point::PointArray,
+    runtime::transfer::Transfer,
     scalar::ScalarArray,
 };
 
@@ -31,9 +32,8 @@ pub fn precompute<'s, Rt: RuntimeType>(
     memory_limit: usize,
     libs: &mut Libs,
     allocator: &mut CpuMemoryPool,
-    disk_allocator: &mut DiskMemoryPool,
+    mut disk_allocator: Option<&mut DiskMemoryPool>,
     constant_tb: &mut ConstantTable<Rt>,
-    disk_available: bool,
 ) -> Cg<'s, Rt> {
     let order = cg.g.vertices().collect::<Vec<_>>();
     let mut gen_omega = GenOmega::<Rt::Field>::new();
@@ -149,22 +149,24 @@ pub fn precompute<'s, Rt: RuntimeType>(
                 assert_eq!(points.len(), 1);
                 let input_id = points[0];
                 let input_constant_id = cg.g.vertex(input_id).node().unwrap_constant();
-                let need_free = constant_tb[*input_constant_id].device.is_disk();
-                let input_constant = zkpoly_runtime::args::copy_constant(
-                    constant_tb[*input_constant_id].clone(),
-                    DeviceType::CPU,
-                    allocator,
-                    disk_allocator,
-                );
+                let input_constant = constant_tb[*input_constant_id].clone();
+                let need_copy = input_constant.device.is_disk();
                 let input_points = input_constant.value.unwrap_point_array().clone();
+                let input_points = if need_copy {
+                    let mut cpu_points =
+                        zkpoly_runtime::point::PointArray::alloc_cpu(input_points.len, allocator);
+                    input_points.disk2cpu(&mut cpu_points);
+                    cpu_points
+                } else {
+                    input_points
+                };
 
-                let mut disk_allocator =
-                    scopeguard::guard(&mut *disk_allocator, |disk_allocator| {
-                        if need_free {
-                            let mut input_points = input_points.clone();
-                            input_points.free_disk(disk_allocator);
-                        }
-                    });
+                let mut allocator = scopeguard::guard(&mut *allocator, |allocator| {
+                    if need_copy {
+                        let input_points = input_points.clone();
+                        allocator.free(input_points.values);
+                    }
+                });
 
                 let config =
                     get_best_config::<Rt>(input_points.len, polys.len() as u32, memory_limit);
@@ -209,18 +211,12 @@ pub fn precompute<'s, Rt: RuntimeType>(
                                 Some("precompute points for msm".to_string()),
                                 t.clone(),
                             );
-                            let c = if disk_available
-                                && t.can_on_disk::<Rt::Field, Rt::PointAffine>()
-                            {
-                                zkpoly_runtime::args::move_constant(
-                                    c,
-                                    DeviceType::Disk,
-                                    allocator,
-                                    disk_allocator.deref_mut(),
-                                )
-                            } else {
-                                c
-                            };
+                            let c = zkpoly_runtime::args::move_constant(
+                                c,
+                                DeviceType::Disk,
+                                allocator.deref_mut(),
+                                disk_allocator.as_deref_mut(),
+                            );
                             constant_tb.push(c)
                         })
                         .collect::<Vec<_>>();

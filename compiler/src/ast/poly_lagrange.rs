@@ -54,7 +54,7 @@ impl<'c, Rt: RuntimeType> TypeEraseable<Rt> for PolyLagrange<Rt> {
                         PolyLagrange::to_variable(data.clone()),
                         self.src().name.clone(),
                         zkpoly_common::typ::Typ::scalar_array(*len as usize),
-                        data.device.clone()
+                        data.device.clone(),
                     );
                     Vertex::new(
                         VertexNode::Constant(constant_id),
@@ -224,7 +224,7 @@ impl<'c, Rt: RuntimeType> PolyLagrange<Rt> {
         } else {
             PolyLagrange::new(
                 PolyLagrangeNode::Constant(
-                    rt::scalar::ScalarArray::from_vec(data, allocator.cpu),
+                    rt::scalar::ScalarArray::from_vec(data, &mut allocator.cpu),
                     data.len() as u64,
                 ),
                 src,
@@ -239,12 +239,13 @@ impl<'c, Rt: RuntimeType> PolyLagrange<Rt> {
         allocator: &mut ConstantPool,
     ) -> Self {
         let src = SourceInfo::new(Location::caller().clone(), None);
-        let temp_cpu = rt::scalar::ScalarArray::from_iter(data, len as usize, allocator.cpu);
+        let temp_cpu = rt::scalar::ScalarArray::from_iter(data, len as usize, &mut allocator.cpu);
         if zkpoly_common::typ::Typ::scalar_array(len as usize)
             .can_on_disk::<Rt::Field, Rt::PointAffine>()
             && allocator.has_disk()
         {
-            let mut disk_poly = rt::scalar::ScalarArray::alloc_disk(len as usize, allocator.unwrap_disk());
+            let mut disk_poly =
+                rt::scalar::ScalarArray::alloc_disk(len as usize, allocator.unwrap_disk());
             temp_cpu.cpu2disk(&mut disk_poly);
             allocator.cpu.free(temp_cpu.values);
             PolyLagrange::new(PolyLagrangeNode::Constant(disk_poly, len), src)

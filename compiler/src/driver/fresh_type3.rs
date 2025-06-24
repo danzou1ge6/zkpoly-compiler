@@ -2,7 +2,6 @@ use std::collections::BTreeMap;
 
 use super::{processed_type3::ProcessedType3, type3};
 use zkpoly_common::heap::Heap;
-use zkpoly_memory_pool::CpuMemoryPool;
 use zkpoly_runtime::args::{ConstantId, RuntimeType};
 
 use super::{type2, DebugOptions, Error};
@@ -11,7 +10,6 @@ pub struct FreshType3<'s, Rt: RuntimeType> {
     pub(super) chunk: type3::Chunk<'s, Rt>,
     pub(super) uf_table: type2::user_function::Table<Rt>,
     pub(super) constant_table: type2::ConstantTable<Rt>,
-    pub(super) allocator: CpuMemoryPool,
     pub(super) constants_device: Heap<ConstantId, type3::Device>,
     pub(super) execution_devices: BTreeMap<type2::VertexId, type2::Device>,
 }
@@ -40,7 +38,6 @@ impl<'s, Rt: RuntimeType> FreshType3<'s, Rt> {
             chunk: t3chunk,
             uf_table: self.uf_table,
             constant_table: self.constant_table,
-            allocator: self.allocator,
             constants_device: self.constants_device,
             execution_devices: self.execution_devices,
         })

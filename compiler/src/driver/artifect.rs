@@ -1,15 +1,13 @@
 use std::{collections::HashMap, sync::Arc};
 
 use zkpoly_common::{devices::DeviceType, heap::Heap};
-use zkpoly_memory_pool::{
-    buddy_disk_pool::DiskMemoryPool, static_allocator::CpuStaticAllocator, CpuMemoryPool,
-};
+use zkpoly_memory_pool::{buddy_disk_pool::DiskMemoryPool, static_allocator::CpuStaticAllocator};
 use zkpoly_runtime::{
     args::{self, move_constant_table, ConstantId, RuntimeType},
     devices::instantizate_event_table,
 };
 
-use super::{type3, HardwareInfo};
+use super::{type3, ConstantPool, HardwareInfo};
 
 #[derive(Clone)]
 pub struct Artifect<Rt: RuntimeType> {
@@ -20,32 +18,32 @@ pub struct Artifect<Rt: RuntimeType> {
 pub struct SemiArtifect<Rt: RuntimeType> {
     pub(super) chunk: type3::lowering::Chunk<Rt>,
     pub(super) constant_table: args::ConstantTable<Rt>,
-    pub(super) allocator: CpuMemoryPool,
     pub(super) constant_devices: Heap<ConstantId, type3::Device>,
 }
 
 impl<Rt: RuntimeType> SemiArtifect<Rt> {
-    pub fn finish(mut self, disk_allocator: &mut DiskMemoryPool) -> (Artifect<Rt>, CpuMemoryPool) {
+    pub fn finish(self, constant_pool: &mut ConstantPool) -> Artifect<Rt> {
         // - Move Constants to where they should be
         let constant_table = move_constant_table(
             self.constant_table,
             &self
                 .constant_devices
                 .map_by_ref(&mut |_, t3t| DeviceType::from(t3t.clone())),
-            &mut self.allocator,
-            disk_allocator,
+            &mut constant_pool.cpu,
+            constant_pool.disk.as_mut(),
         );
 
-        (
-            Artifect {
-                chunk: self.chunk,
-                constant_table,
-            },
-            self.allocator,
-        )
+        Artifect {
+            chunk: self.chunk,
+            constant_table,
+        }
     }
 
-    pub fn dump(&mut self, dir: impl AsRef<std::path::Path>) -> std::io::Result<()> {
+    pub fn dump(
+        &mut self,
+        dir: impl AsRef<std::path::Path>,
+        constant_pool: &mut ConstantPool,
+    ) -> std::io::Result<()> {
         std::fs::create_dir_all(dir.as_ref())?;
 
         let mut chunk_f = std::fs::File::create(dir.as_ref().join("chunk.json"))?;
@@ -56,7 +54,7 @@ impl<Rt: RuntimeType> SemiArtifect<Rt> {
         serde_json::to_writer_pretty(&mut ct_header_f, &ct_header)?;
 
         let mut ct_f = std::fs::File::create(dir.as_ref().join("constants.bin"))?;
-        ct_header.dump_entries_data(&self.constant_table, &mut ct_f, &mut self.allocator)?;
+        ct_header.dump_entries_data(&self.constant_table, &mut ct_f, &mut constant_pool.cpu)?;
 
         Ok(())
     }

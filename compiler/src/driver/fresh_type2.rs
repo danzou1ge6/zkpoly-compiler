@@ -1,13 +1,12 @@
 use std::io::{Read, Write};
 use zkpoly_common::load_dynamic::Libs;
-use zkpoly_memory_pool::{buddy_disk_pool::DiskMemoryPool, CpuMemoryPool};
 use zkpoly_runtime::args::{self, RuntimeType};
 
 use super::{
     artifect::{Artifect, SemiArtifect},
     ast, check_type2_dag, debug_partial_typed_type2, debug_type2,
     processed_type2::ProcessedType2,
-    type2, type3, DebugOptions, Error, HardwareInfo, PanicJoinHandler,
+    type2, type3, ConstantPool, DebugOptions, Error, HardwareInfo, PanicJoinHandler,
 };
 
 pub struct FreshType2<'s, Rt: RuntimeType> {
@@ -18,12 +17,11 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
     pub fn from_ast(
         ast: impl ast::TypeEraseable<Rt>,
         options: &DebugOptions,
-        allocator: CpuMemoryPool,
         ctx: &PanicJoinHandler,
     ) -> Result<Self, Error<'s, Rt>> {
         let (ast_cg, output_vid) = options.log_suround(
             "Lowering AST to Type2...",
-            || Ok(ast::lowering::Cg::new(ast, allocator)),
+            || Ok(ast::lowering::Cg::new(ast)),
             "Done.",
         )?;
 
@@ -76,14 +74,13 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
         self,
         options: &DebugOptions,
         hardware_info: &HardwareInfo,
+        constant_pool: &mut ConstantPool,
         ctx: &PanicJoinHandler,
-        disk_allocator: &mut DiskMemoryPool
     ) -> Result<ProcessedType2<'s, Rt>, Error<'static, Rt>> {
         let type2::Program {
             cg: t2cg,
             consant_table: mut t2const_tab,
             user_function_table: t2uf_tab,
-            memory_pool: mut allocator,
         } = self.prog;
 
         let mut libs = Libs::new();
@@ -131,10 +128,9 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
                     t2cg,
                     hardware_info.smallest_gpu_memory_integral_limit() as usize,
                     &mut libs,
-                    &mut allocator,
-                    disk_allocator,
+                    &mut constant_pool.cpu,
+                    constant_pool.disk.as_mut(),
                     &mut t2const_tab,
-                    hardware_info.disk_available()
                 ))
             },
             "Done.",
@@ -238,15 +234,14 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
             constant_table: t2const_tab,
             uf_table: t2uf_tab,
             libs,
-            allocator,
         })
     }
 
     pub fn load_artifect(
         mut self,
         dir: impl AsRef<std::path::Path>,
-        disk_allocator: &mut DiskMemoryPool,
-    ) -> std::io::Result<(Artifect<Rt>, CpuMemoryPool)> {
+        constant_pool: &mut ConstantPool,
+    ) -> std::io::Result<Artifect<Rt>> {
         let mut chunk_f = std::fs::File::open(dir.as_ref().join("chunk.json"))?;
         let rt_chunk_deserializer: type3::lowering::serialization::ChunkDeserializer =
             serde_json::from_reader(&mut chunk_f)?;
@@ -256,28 +251,24 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
         let ct_header: args::serialization::Header = serde_json::from_reader(&mut ct_header_f)?;
 
         let mut ct_f = std::fs::File::open(dir.as_ref().join("constants.bin"))?;
-        let mut allocator = self.prog.memory_pool;
         ct_header.load_constant_table(
             &mut self.prog.consant_table,
             &mut ct_f,
-            &mut allocator,
-            disk_allocator,
+            &mut constant_pool.cpu,
+            constant_pool.disk.as_mut(),
         )?;
 
-        Ok((
-            Artifect {
-                chunk: rt_chunk,
-                constant_table: self.prog.consant_table,
-            },
-            allocator,
-        ))
+        Ok(Artifect {
+            chunk: rt_chunk,
+            constant_table: self.prog.consant_table,
+        })
     }
 
     pub fn load_processed_type2<'de>(
         mut self,
         str_buf: &'de mut String,
         dir: impl AsRef<std::path::Path>,
-        disk_allocator: &mut DiskMemoryPool,
+        constant_pool: &mut ConstantPool,
     ) -> std::io::Result<ProcessedType2<'de, Rt>>
     where
         Rt: serde::Serialize + serde::Deserialize<'de>,
@@ -290,12 +281,11 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
         let ct_header: args::serialization::Header = serde_json::from_reader(&mut ct_header_f)?;
 
         let mut ct_f = std::fs::File::open(dir.as_ref().join("constants.bin"))?;
-        let mut allocator = self.prog.memory_pool;
         ct_header.load_constant_table(
             &mut self.prog.consant_table,
             &mut ct_f,
-            &mut allocator,
-            disk_allocator,
+            &mut constant_pool.cpu,
+            constant_pool.disk.as_mut(),
         )?;
 
         Ok(ProcessedType2 {
@@ -303,7 +293,6 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
             constant_table: self.prog.consant_table,
             uf_table: self.prog.user_function_table,
             libs: Libs::new(),
-            allocator,
         })
     }
 
@@ -311,24 +300,24 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
         self,
         options: &DebugOptions,
         hardware_info: &HardwareInfo,
-        disk_allocator: &mut DiskMemoryPool,
+        constant_pool: &mut ConstantPool,
         ctx: &PanicJoinHandler,
-    ) -> Result<(Artifect<Rt>, CpuMemoryPool), Error<'s, Rt>> {
+    ) -> Result<Artifect<Rt>, Error<'s, Rt>> {
         Ok(self
-            .to_semi_artifect(options, hardware_info, disk_allocator , ctx)?
-            .finish(disk_allocator))
+            .to_semi_artifect(options, hardware_info, constant_pool, ctx)?
+            .finish(constant_pool))
     }
 
     pub fn to_semi_artifect(
         self,
         options: &DebugOptions,
         hardware_info: &HardwareInfo,
-        disk_allocator: &mut DiskMemoryPool,
+        constant_pool: &mut ConstantPool,
         ctx: &PanicJoinHandler,
     ) -> Result<SemiArtifect<Rt>, Error<'s, Rt>> {
-        self.apply_passes(options, hardware_info, ctx, disk_allocator)?
-            .to_type3(options, hardware_info, ctx)?
+        self.apply_passes(options, hardware_info, constant_pool, ctx)?
+            .to_type3(options, hardware_info, constant_pool, ctx)?
             .apply_passes(options)?
-            .to_artifect(options, hardware_info, ctx)
+            .to_artifect(options, hardware_info)
     }
 }

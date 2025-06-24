@@ -224,15 +224,19 @@ impl Header {
         ct: &mut ConstantTable<Rt>,
         reader: &mut (impl Read + Seek),
         allocator: &mut CpuMemoryPool,
-        disk_allocator: &mut DiskMemoryPool,
+        mut disk_allocator: Option<&mut DiskMemoryPool>,
     ) -> io::Result<()> {
         for (i, entry) in self.entries.iter().enumerate() {
             if let Some((offset, _size)) = entry.position {
                 reader.seek(io::SeekFrom::Start(offset as u64))?;
                 let val = Variable::load_binary(&entry.typ, reader, allocator)?;
                 let constant = Constant::on_cpu(val, entry.name.clone(), entry.typ.clone());
-                let constant =
-                    move_constant(constant, entry.device.clone(), allocator, disk_allocator);
+                let constant = move_constant(
+                    constant,
+                    entry.device.clone(),
+                    allocator,
+                    disk_allocator.as_deref_mut(),
+                );
 
                 while ct.len() <= i {
                     // Tuple(vec![]) is placeholder

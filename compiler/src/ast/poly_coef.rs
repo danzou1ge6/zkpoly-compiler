@@ -214,7 +214,7 @@ impl<Rt: RuntimeType> PolyCoef<Rt> {
             PolyCoef::new(PolyCoefNode::Constant(disk_poly), src)
         } else {
             PolyCoef::new(
-                PolyCoefNode::Constant(rt::scalar::ScalarArray::from_vec(data, allocator.cpu)),
+                PolyCoefNode::Constant(rt::scalar::ScalarArray::from_vec(data, &mut allocator.cpu)),
                 src,
             )
         }
@@ -227,7 +227,7 @@ impl<Rt: RuntimeType> PolyCoef<Rt> {
         allocator: &mut ConstantPool,
     ) -> Self {
         let src = SourceInfo::new(Location::caller().clone(), None);
-        let temp_cpu = rt::scalar::ScalarArray::from_iter(data, len as usize, allocator.cpu);
+        let temp_cpu = rt::scalar::ScalarArray::from_iter(data, len as usize, &mut allocator.cpu);
         if zkpoly_common::typ::Typ::scalar_array(len as usize)
             .can_on_disk::<Rt::Field, Rt::PointAffine>()
             && allocator.has_disk()

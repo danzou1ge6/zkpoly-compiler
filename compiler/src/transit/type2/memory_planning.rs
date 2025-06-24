@@ -253,7 +253,7 @@ pub fn plan<'s, Rt: RuntimeType>(
 
     let disk_allocator = disk_allocator.unwrap();
 
-    if !hd_info.disk_available() && disk_allocator.peak_memory_usage() > 0 {
+    if hd_info.disks_available() == 0 && disk_allocator.peak_memory_usage() > 0 {
         panic!("disk is not enabled but some objects are spilled to disk; this indicates insufficient CPU space");
     }
 

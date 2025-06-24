@@ -2,7 +2,6 @@ use std::collections::BTreeMap;
 use zkpoly_common::{
     arith::{Arith, BinOp, UnrOp}, devices::DeviceType, digraph::internal::Digraph, heap::Heap, typ::PolyType
 };
-use zkpoly_memory_pool::CpuMemoryPool;
 pub use zkpoly_runtime::args::ConstantId;
 use zkpoly_runtime::args::{RuntimeType, Variable};
 
@@ -127,7 +126,6 @@ pub struct Cg<'s, Rt: RuntimeType> {
     pub(crate) constant_table: ConstantTable<Rt>,
     pub(crate) user_function_table: UserFunctionTable<Rt>,
     pub(crate) user_function_id_mapping: BTreeMap<*const u8, UserFunctionId>,
-    pub(crate) allocator: CpuMemoryPool,
     pub(crate) one: ConstantId,
     pub(crate) zero: ConstantId,
 }
@@ -175,10 +173,6 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
             .clone()
     }
 
-    pub fn allocator(&mut self) -> &mut CpuMemoryPool {
-        &mut self.allocator
-    }
-
     pub fn lower(
         self,
         output: VertexId,
@@ -209,7 +203,6 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
                     cg: crate::transit::Cg { output, g },
                     user_function_table: uf_table,
                     consant_table: self.constant_table,
-                    memory_pool: self.allocator,
                 })
             }
             Err(e) => {
@@ -222,7 +215,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
         }
     }
 
-    pub fn empty(allocator: CpuMemoryPool) -> Self {
+    pub fn empty() -> Self {
         let mut constant_table = Heap::new();
         let one = constant_table.push(Constant::on_cpu(
             super::Scalar::to_variable(<Rt::Field as group::ff::Field>::ONE),
@@ -240,7 +233,6 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
             user_function_table: Heap::new(),
             constant_table,
             user_function_id_mapping: BTreeMap::new(),
-            allocator,
             one,
             zero,
         }
@@ -248,9 +240,8 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
 
     pub fn new(
         output_v: impl super::TypeEraseable<Rt>,
-        allocator: CpuMemoryPool,
     ) -> (Self, VertexId) {
-        let mut cg = Self::empty(allocator);
+        let mut cg = Self::empty();
         let output_vid = output_v.erase(&mut cg);
         let src_info = cg.g.vertex(output_vid).src().clone();
         let return_vid = cg.g.add_vertex(Vertex::new(
