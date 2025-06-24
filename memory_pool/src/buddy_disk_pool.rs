@@ -103,23 +103,23 @@ pub struct BuddyDiskPool {
     // Maps an allocated offset to its DiskSlabInfo index in slabs.
     active_allocations: HashMap<usize, usize>,
 
-    capacity: usize,         // Current total usable capacity, aligned to system_alignment
+    capacity: usize, // Current total usable capacity, aligned to system_alignment
     system_alignment: usize, // Alignment required by O_DIRECT and filesystem
-    min_block_size: usize,   // Smallest allocatable block size, aligned to system_alignment
-    max_log_factor: u32,     // Max log_factor relative to min_block_size
-                            // num_levels = max_log_factor + 1
-    max_block_size: usize,   // Size of the largest allocatable block
+    min_block_size: usize, // Smallest allocatable block size, aligned to system_alignment
+    max_log_factor: u32, // Max log_factor relative to min_block_size
+    // num_levels = max_log_factor + 1
+    max_block_size: usize, // Size of the largest allocatable block
 }
 
 impl std::fmt::Debug for BuddyDiskPool {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BuddyDiskPool")
-           .field("capacity", &self.capacity)
-           .field("min_block_size", &self.min_block_size)
-           .field("max_log_factor", &self.max_log_factor)
-           .field("max_block_size", &self.max_block_size)
-           .field("temp_dir_handle", &self.temp_dir_handle)
-           .finish()
+            .field("capacity", &self.capacity)
+            .field("min_block_size", &self.min_block_size)
+            .field("max_log_factor", &self.max_log_factor)
+            .field("max_block_size", &self.max_block_size)
+            .field("temp_dir_handle", &self.temp_dir_handle)
+            .finish()
     }
 }
 
@@ -210,17 +210,18 @@ impl BuddyDiskPool {
                 system_alignment
             )));
         }
-        
+
         // Align max_block_size to system_alignment
-        let max_block_size = (max_block_size + system_alignment - 1) / system_alignment * system_alignment;
-        
+        let max_block_size =
+            (max_block_size + system_alignment - 1) / system_alignment * system_alignment;
+
         // Calculate min_block_size and max_log_factor from max_block_size
         let min_block_size = system_alignment;
         let max_log_factor = (max_block_size / min_block_size).ilog2();
 
         // Initially we have just one max-sized block
         let initial_capacity = max_block_size;
-        
+
         // Allocate initial file space
         fcntl::fallocate(
             &file,
@@ -483,14 +484,15 @@ impl BuddyDiskPool {
         if log_factor == self.max_log_factor {
             // Try expanding the file by one max block size
             let new_capacity = self.capacity + self.max_block_size;
-            
+
             // Extend the file
             fcntl::fallocate(
                 &self.file,
                 fcntl::FallocateFlags::empty(),
                 self.capacity as i64,
                 self.max_block_size as i64,
-            ).map_err(|e| {
+            )
+            .map_err(|e| {
                 BuddyDiskPoolError::FallocateError(format!(
                     "fallocate failed for expansion size {}: {}",
                     self.max_block_size, e
@@ -498,15 +500,16 @@ impl BuddyDiskPool {
             })?;
 
             // Create a new slab for the expanded space
-            let new_slab_idx = self.obtain_slab_info_index(self.capacity, self.max_log_factor, None);
-            
+            let new_slab_idx =
+                self.obtain_slab_info_index(self.capacity, self.max_log_factor, None);
+
             // Add to the appropriate lists
             self.layer_insert_all(self.max_log_factor, new_slab_idx);
             self.layer_insert_free(self.max_log_factor, new_slab_idx);
-            
+
             // Update capacity after successful slab creation
             self.capacity = new_capacity;
-            
+
             return Ok(new_slab_idx);
         }
 
@@ -812,7 +815,8 @@ pub fn cpu_write_to_disk(ptr: *const u8, disk_pos: &Vec<DiskAllocInfo>, size: us
             while res_size > 0 {
                 let write_size = res_size.min(MAX_RW_COUNT);
                 unsafe {
-                    let res = libc::pwrite(fd, ptr.add(cpu_offset).cast(), write_size, offset as i64);
+                    let res =
+                        libc::pwrite(fd, ptr.add(cpu_offset).cast(), write_size, offset as i64);
                     if res < write_size as isize {
                         panic!(
                             "Failed to write {} bytes to disk {} at offset {}: {}",
@@ -928,9 +932,16 @@ pub fn gpu_read_from_disk(
                     cpu_offset as i64,
                 );
                 if res < part_size as isize {
+                    let msg = if res == -1 {
+                        // syscall error
+                        let errorno = std::io::Error::last_os_error().raw_os_error().unwrap();
+                        format!("syscall errorno {}", errorno)
+                    } else {
+                        format!("cufile errorno {}", res)
+                    };
                     panic!(
                         "Failed to read {} bytes from disk {} at offset {}: {}",
-                        part_size, disk_id, offset, res
+                        part_size, disk_id, offset, msg
                     );
                 }
             }
@@ -1068,24 +1079,24 @@ mod tests {
         assert_eq!(off2, min_b);
 
         pool.deallocate(off1).unwrap(); // Free D (lf 0, off=0)
-                                               // D becomes free. Try merge D and E. Parent is B.
-                                               // E is not free (it's off2). So no merge of D+E.
-                                               // State:
-                                               // lf 0: [idx_D(off=0)] (D is now free)
-                                               // lf 1: [idx_C(off=2*min_b)]
-                                               // Active: idx_E(off=min_b)
+                                        // D becomes free. Try merge D and E. Parent is B.
+                                        // E is not free (it's off2). So no merge of D+E.
+                                        // State:
+                                        // lf 0: [idx_D(off=0)] (D is now free)
+                                        // lf 1: [idx_C(off=2*min_b)]
+                                        // Active: idx_E(off=min_b)
 
         pool.deallocate(off2).unwrap(); // Free E (lf 0, off=min_b)
-                                               // E becomes free. Try merge D and E. Parent is B. Both D,E free.
-                                               // Merge D,E into B (lf 1, off=0). D,E slabinfo released. B becomes free.
-                                               // Try merge B and C. Parent is A.
-                                               // B (lf 1, off=0) is free. C (lf 1, off=2*min_b) is free.
-                                               // Merge B,C into A (lf 2, off=0). B,C slabinfo released. A becomes free.
-                                               // State:
-                                               // lf 0: []
-                                               // lf 1: []
-                                               // lf 2: [idx_A(off=0)]
-                                               // Active: []
+                                        // E becomes free. Try merge D and E. Parent is B. Both D,E free.
+                                        // Merge D,E into B (lf 1, off=0). D,E slabinfo released. B becomes free.
+                                        // Try merge B and C. Parent is A.
+                                        // B (lf 1, off=0) is free. C (lf 1, off=2*min_b) is free.
+                                        // Merge B,C into A (lf 2, off=0). B,C slabinfo released. A becomes free.
+                                        // State:
+                                        // lf 0: []
+                                        // lf 1: []
+                                        // lf 2: [idx_A(off=0)]
+                                        // Active: []
 
         // Allocate the whole thing
         let off_final = pool.allocate(max_block_size).unwrap();
@@ -1141,7 +1152,7 @@ mod tests {
         // Second allocation should fail
         match pool.allocate(sys_align) {
             Err(BuddyDiskPoolError::OutOfMemory) => panic!("should auto expand"),
-            Ok(_) => {},
+            Ok(_) => {}
             Err(e) => panic!("Unexpected error type for OOM: {:?}", e),
         }
 
