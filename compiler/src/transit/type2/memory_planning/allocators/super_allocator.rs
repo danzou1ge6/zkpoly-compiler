@@ -157,7 +157,7 @@ where
 
 pub struct Realizer<'a, 'm, 's, 'au, 'i, P, Rt: RuntimeType, D: DeviceMarker> {
     _allocator: &'a mut SuperAllocator<'s, P, Rt, D>,
-    machine: realization::MachineHandle<'m, 's, P>,
+    machine: realization::MachineHandle<'m, 's, P, Rt>,
     aux: &'au AuxiliaryInfo<'i, Rt>,
 }
 
@@ -213,7 +213,7 @@ where
 
     fn realizer<'a, 'b, 'c, 'd, 'i: 'd>(
         &'a mut self,
-        machine: realization::MachineHandle<'b, 's, P>,
+        machine: realization::MachineHandle<'b, 's, P, Rt>,
         aux: &'c mut AuxiliaryInfo<'i, Rt>,
     ) -> Box<dyn AllocatorRealizer<'s, ObjectId, P, Rt> + 'd>
     where

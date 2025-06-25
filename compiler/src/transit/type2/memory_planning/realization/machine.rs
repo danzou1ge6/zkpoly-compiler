@@ -1,4 +1,4 @@
-use crate::transit::type2::memory_planning::prelude::*;
+use crate::{transit::type2::memory_planning::prelude::*, utils::human_readable_size};
 use type3::{Instruction, InstructionNode};
 
 /// A register's status progresses from [`Undefined`] to [`Defined`] to [`Freed`].
@@ -235,6 +235,10 @@ impl Statistics {
     pub fn transferred_bytes(&self, from: Device, to: Device) -> u64 {
         *self.transfer_sizes.get(from).get(to)
     }
+
+    pub fn add_transfer(&mut self, from: Device, to: Device, bytes: u64) {
+        *self.transfer_sizes.get_mut(from).get_mut(to) += bytes;
+    }
 }
 
 impl Statistics {
@@ -257,7 +261,7 @@ impl Statistics {
                     " ".repeat(indent),
                     from,
                     to,
-                    size
+                    human_readable_size(*size)
                 )?;
             }
         }
@@ -265,22 +269,24 @@ impl Statistics {
     }
 }
 
-pub struct Machine<'s, P> {
+pub struct Machine<'s, P, Rt: RuntimeType> {
     pub(super) instructions: Vec<type3::Instruction<'s>>,
     pub(super) reg_booking: RegBooking<P>,
     pub(super) statistics: Statistics,
+    _phantom: PhantomData<Rt>,
 }
 
-impl<'s, P> Machine<'s, P> {
+impl<'s, P, Rt: RuntimeType> Machine<'s, P, Rt> {
     pub fn empty(n_gpus: usize) -> Self {
         Self {
             instructions: Vec::new(),
             reg_booking: RegBooking::empty(),
             statistics: Statistics::zero(n_gpus),
+            _phantom: PhantomData,
         }
     }
 
-    pub fn handle<'m>(&'m mut self, device: Device) -> MachineHandle<'m, 's, P> {
+    pub fn handle<'m>(&'m mut self, device: Device) -> MachineHandle<'m, 's, P, Rt> {
         MachineHandle {
             machine: self,
             device,
@@ -288,7 +294,7 @@ impl<'s, P> Machine<'s, P> {
     }
 }
 
-impl<'s, P> Machine<'s, P>
+impl<'s, P, Rt: RuntimeType> Machine<'s, P, Rt>
 where
     P: UsizeId,
 {
@@ -299,15 +305,62 @@ where
         // Slicing a temporary buffer is not considered defining
         match &inst.node {
             InstructionNode::SliceBuffer { .. } => {}
+            InstructionNode::Type2 { .. } => panic!("emit is not intended for type2 instructions"),
             _ => {
                 if !inst.node.is_allloc() {
                     inst.defs().for_each(|r| self.reg_booking.define(r));
                 }
             }
         };
+
+        self.instructions.push(inst);
+    }
+
+    pub fn emit_type2(&mut self, inst: type3::Instruction<'s>, obj_info: &object_info::Info<Rt>) {
         if let type3::InstructionNode::Type2 { temp, .. } = &inst.node {
             temp.iter().for_each(|r| self.reg_booking.define(*r));
+        } else {
+            panic!("emit_type2 is only supported for type2 instructions");
         }
+
+        inst.defs().for_each(|r| self.reg_booking.define(r));
+
+        // Log transfer for arith subgraph
+        if let type3::InstructionNode::Type2 {
+            vertex: type3::VertexNode::Arith { arith, chunking },
+            ..
+        } = &inst.node
+        {
+            if chunking.is_some() {
+                let (input_space, output_space) = arith.space_needed::<Rt::Field>();
+                self.statistics
+                    .add_transfer(Device::Cpu, Device::Gpu(0), input_space as u64);
+                self.statistics
+                    .add_transfer(Device::Gpu(0), Device::Cpu, output_space as u64);
+            }
+        }
+
+        // Log transfer for MSM
+        if let type3::InstructionNode::Type2 {
+            vertex: type3::VertexNode::Msm { polys, points, .. },
+            ..
+        } = &inst.node
+        {
+            let intput_space = polys
+                .iter()
+                .map(|r| {
+                    let (v, _) = self.reg_booking.reg_value(*r);
+                    u64::from(obj_info.size(v.object_id()))
+                })
+                .chain(points.iter().map(|r| {
+                    let (v, _) = self.reg_booking.reg_value(*r);
+                    u64::from(obj_info.size(v.object_id()))
+                }))
+                .sum();
+            self.statistics
+                .add_transfer(Device::Cpu, Device::Gpu(0), intput_space);
+        }
+
         self.instructions.push(inst);
     }
 
@@ -433,7 +486,7 @@ where
         }));
     }
 
-    pub fn transfer_object<Rt: RuntimeType>(
+    pub fn transfer_object(
         &mut self,
         rv_to: ResidentalValue<P>,
         rv_from: ResidentalValue<P>,
@@ -442,11 +495,11 @@ where
         let reg_to = self.undefined_reg_for(&rv_to);
         let reg_from = self.defined_reg_for(&rv_from);
 
-        *self
-            .statistics
-            .transfer_sizes
-            .get_mut(rv_from.device())
-            .get_mut(rv_to.device()) += u64::from(obj_info.size(rv_from.object_id()));
+        self.statistics.add_transfer(
+            rv_from.device(),
+            rv_to.device(),
+            u64::from(obj_info.size(rv_from.object_id())),
+        );
 
         self.emit(Instruction::new_no_src(InstructionNode::Transfer {
             id: reg_to,
@@ -463,14 +516,18 @@ where
             .collect::<Vec<_>>();
         regs.into_iter().for_each(|r| self.free_reg(r));
     }
+
+    pub fn statistics(&mut self) -> &Statistics {
+        &self.statistics
+    }
 }
 
-pub struct MachineHandle<'m, 's, P> {
-    machine: &'m mut Machine<'s, P>,
+pub struct MachineHandle<'m, 's, P, Rt: RuntimeType> {
+    machine: &'m mut Machine<'s, P, Rt>,
     device: Device,
 }
 
-impl<'m, 's, P> MachineHandle<'m, 's, P>
+impl<'m, 's, P, Rt: RuntimeType> MachineHandle<'m, 's, P, Rt>
 where
     P: UsizeId,
 {
@@ -489,7 +546,7 @@ where
         reg
     }
 
-    pub fn deallocate_object<Rt: RuntimeType>(
+    pub fn deallocate_object(
         &mut self,
         object: ObjectId,
         pointer: &P,
@@ -540,10 +597,10 @@ where
 }
 
 pub type RealizationResponse<'s, T, P, R, Rt: RuntimeType> =
-    Response<'s, Machine<'s, P>, T, P, R, Rt>;
+    Response<'s, Machine<'s, P, Rt>, T, P, R, Rt>;
 
 impl<'s, T, P, Rt: RuntimeType>
-    continuations::Continuation<'s, Machine<'s, P>, T, P, Result<(), Error<'s>>, Rt>
+    continuations::Continuation<'s, Machine<'s, P, Rt>, T, P, Result<(), Error<'s>>, Rt>
 {
     pub fn transfer_object(
         from_device: Device,
@@ -556,7 +613,7 @@ impl<'s, T, P, Rt: RuntimeType>
         P: UsizeId + 'static,
     {
         let f = move |_allocators: &mut AllocatorCollection<T, P, Rt>,
-                      machine: &mut Machine<'s, P>,
+                      machine: &mut Machine<'s, P, Rt>,
                       aux: &mut AuxiliaryInfo<Rt>| {
             let vn = aux.obj_info().typ(object).with_normalized_p();
 

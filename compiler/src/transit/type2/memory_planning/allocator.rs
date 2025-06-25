@@ -123,7 +123,7 @@ pub trait Allocator<'s, T, P, Rt: RuntimeType> {
 
     fn realizer<'a, 'b, 'c, 'd, 'i>(
         &'a mut self,
-        machine: realization::MachineHandle<'b, 's, P>,
+        machine: realization::MachineHandle<'b, 's, P, Rt>,
         aux: &'c mut AuxiliaryInfo<'i, Rt>,
     ) -> Box<dyn AllocatorRealizer<'s, T, P, Rt> + 'd>
     where
@@ -164,7 +164,7 @@ impl<'a, 's, T, P, Rt: RuntimeType> AllocatorCollection<'a, 's, T, P, Rt> {
     pub fn realizer<'b, 'm, 'aux, 'c, 'i>(
         &'b mut self,
         device: Device,
-        machine: &'m mut realization::Machine<'s, P>,
+        machine: &'m mut realization::Machine<'s, P, Rt>,
         aux: &'aux mut AuxiliaryInfo<'i, Rt>,
     ) -> Box<dyn AllocatorRealizer<'s, T, P, Rt> + 'c>
     where

@@ -28,7 +28,7 @@ where
         hd_info.n_gpus(),
     );
 
-    let mut machine_x: Machine<'_, Pointer> = Machine::empty(hd_info.n_gpus());
+    let mut machine_x: Machine<'_, Pointer, Rt> = Machine::empty(hd_info.n_gpus());
 
     let allocators = &mut allocators_x;
     let machine = &mut machine_x;
@@ -125,15 +125,18 @@ where
                     .map(|rv| machine.undefined_reg_for(&rv.clone().assume_pointed()))
                     .collect::<Vec<_>>();
 
-                machine.emit(Instruction::new(
-                    InstructionNode::Type2 {
-                        ids: output_regs,
-                        temp: temp_regs,
-                        vertex: node,
-                        vid,
-                    },
-                    src,
-                ));
+                machine.emit_type2(
+                    Instruction::new(
+                        InstructionNode::Type2 {
+                            ids: output_regs,
+                            temp: temp_regs,
+                            vertex: node,
+                            vid,
+                        },
+                        src,
+                    ),
+                    aux.obj_info(),
+                );
 
                 // Free temporary tuple registers
                 temporary_tuple_registers.into_iter().for_each(|reg| {
@@ -162,15 +165,18 @@ where
         }
     }
 
-    Ok((type3::Chunk {
-        instructions: machine_x.instructions,
-        register_types: machine_x.reg_booking.export_reg_types(),
-        register_devices: machine_x.reg_booking.export_reg_devices(),
-        reg_memory_blocks: machine_x.reg_booking.export_memory_blocks(),
-        reg_id_allocator: machine_x.reg_booking.reg_id_allocator(),
-        obj_id_allocator: object_id_allocator,
-        lbss,
-        libs,
-        _phantom: PhantomData,
-    }, machine_x.statistics))
+    Ok((
+        type3::Chunk {
+            instructions: machine_x.instructions,
+            register_types: machine_x.reg_booking.export_reg_types(),
+            register_devices: machine_x.reg_booking.export_reg_devices(),
+            reg_memory_blocks: machine_x.reg_booking.export_memory_blocks(),
+            reg_id_allocator: machine_x.reg_booking.reg_id_allocator(),
+            obj_id_allocator: object_id_allocator,
+            lbss,
+            libs,
+            _phantom: PhantomData,
+        },
+        machine_x.statistics,
+    ))
 }
