@@ -494,6 +494,10 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
             compute_stream.sync();
             d2h_stream.sync();
 
+            h2d_stream.destroy();
+            compute_stream.destroy();
+            d2h_stream.destroy();
+
             Ok(())
         };
         Function {
