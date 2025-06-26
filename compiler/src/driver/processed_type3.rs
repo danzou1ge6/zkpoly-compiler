@@ -11,6 +11,7 @@ pub struct ProcessedType3<'s, Rt: RuntimeType> {
     pub(super) constant_table: type2::ConstantTable<Rt>,
     pub(super) constants_device: Heap<ConstantId, type3::Device>,
     pub(super) execution_devices: BTreeMap<type2::VertexId, type2::Device>,
+    pub(super) memory_statistics: type2::memory_planning::Statistics,
 }
 
 impl<'s, Rt: RuntimeType> ProcessedType3<'s, Rt> {
@@ -25,6 +26,7 @@ impl<'s, Rt: RuntimeType> ProcessedType3<'s, Rt> {
             constant_table: t2const_tab,
             constants_device,
             execution_devices,
+            memory_statistics,
         } = self;
 
         // - Track Splitting
@@ -99,6 +101,7 @@ impl<'s, Rt: RuntimeType> ProcessedType3<'s, Rt> {
             chunk: rt_chunk,
             constant_table: t2const_tab,
             constant_devices: constants_device,
+            memory_statistics,
         })
     }
 }

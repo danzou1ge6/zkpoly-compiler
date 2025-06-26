@@ -5,7 +5,7 @@ use super::{Stream, StreamSpecific, Track};
 use zkpoly_common::arith::{self, ArithUnrOp, BinOp, Operation, UnrOp};
 use zkpoly_runtime::args::RuntimeType;
 use zkpoly_runtime::functions::FusedKernelMeta;
-use zkpoly_runtime::{args::VariableId, functions::FunctionId, instructions::Instruction};
+use zkpoly_runtime::{args::VariableId, functions::FunctionId, instructions::InstructionNode};
 
 pub fn emit_func<'s, Rt: RuntimeType>(
     t3idx: InstructionIndex,
@@ -17,7 +17,7 @@ pub fn emit_func<'s, Rt: RuntimeType>(
     stream2variable_id: &StreamSpecific<VariableId>,
     f_info: (FunctionId, Option<FusedKernelMeta>),
     t3chunk: &crate::transit::type3::Chunk<'s, Rt>,
-    emit: &mut impl FnMut(Instruction), // function to emit instruction
+    emit: &mut impl FnMut(InstructionNode), // function to emit instruction
 ) {
     let (f_id, fused_meta) = f_info;
     let stream = Stream::of_track(track).map(|t| stream2variable_id.get(t).clone());
@@ -106,7 +106,7 @@ pub fn emit_func<'s, Rt: RuntimeType>(
                     ));
                 }
 
-                emit(Instruction::FuncCall {
+                emit(InstructionNode::FuncCall {
                     func_id: f_id,
                     arg_mut,
                     arg,
@@ -192,7 +192,7 @@ pub fn emit_func<'s, Rt: RuntimeType>(
         }
         VertexNode::AssmblePoly(_, scalars) => {
             let target = reg_id2var_id(outputs[0]);
-            emit(Instruction::FuncCall {
+            emit(InstructionNode::FuncCall {
                 func_id: f_id,
                 arg_mut: vec![target],
                 arg: scalars.iter().map(|r| reg_id2var_id(*r)).collect(),
@@ -201,7 +201,7 @@ pub fn emit_func<'s, Rt: RuntimeType>(
         VertexNode::DistributePowers { poly, powers } => {
             let poly = reg_id2var_id(*poly);
             let powers = reg_id2var_id(*powers);
-            emit(Instruction::FuncCall {
+            emit(InstructionNode::FuncCall {
                 func_id: f_id,
                 arg_mut: vec![poly],
                 arg: vec![powers, stream.unwrap()],
@@ -212,7 +212,7 @@ pub fn emit_func<'s, Rt: RuntimeType>(
         } => {
             let transcript = reg_id2var_id(*transcript);
             let value = reg_id2var_id(*value);
-            emit(Instruction::FuncCall {
+            emit(InstructionNode::FuncCall {
                 func_id: f_id,
                 arg_mut: vec![transcript],
                 arg: vec![value],
@@ -222,7 +222,7 @@ pub fn emit_func<'s, Rt: RuntimeType>(
             let xs = xs.iter().map(|id| reg_id2var_id(*id)).collect::<Vec<_>>();
             let ys = ys.iter().map(|id| reg_id2var_id(*id)).collect::<Vec<_>>();
             let target = reg_id2var_id(outputs[0]);
-            emit(Instruction::FuncCall {
+            emit(InstructionNode::FuncCall {
                 func_id: f_id,
                 arg_mut: vec![target],
                 arg: xs.into_iter().chain(ys).collect(),
@@ -233,7 +233,7 @@ pub fn emit_func<'s, Rt: RuntimeType>(
             assert_eq!(outputs[0], *transcript);
             let transcript = reg_id2var_id(*transcript);
             let out_scalar = reg_id2var_id(outputs[1]); // outputs[0] is the transcript
-            emit(Instruction::FuncCall {
+            emit(InstructionNode::FuncCall {
                 func_id: f_id,
                 arg_mut: vec![transcript, out_scalar],
                 arg: vec![],
@@ -244,13 +244,13 @@ pub fn emit_func<'s, Rt: RuntimeType>(
             let device = t3chunk.register_devices[&outputs[0]];
             let target = reg_id2var_id(*val);
             if device == Device::Cpu {
-                emit(Instruction::FuncCall {
+                emit(InstructionNode::FuncCall {
                     func_id: f_id,
                     arg_mut: vec![target],
                     arg: vec![],
                 });
             } else {
-                emit(Instruction::FuncCall {
+                emit(InstructionNode::FuncCall {
                     func_id: f_id,
                     arg_mut: vec![target],
                     arg: vec![stream.unwrap()],
@@ -264,7 +264,7 @@ pub fn emit_func<'s, Rt: RuntimeType>(
                 .map(|id| reg_id2var_id(*id))
                 .collect::<Vec<_>>();
 
-            emit(Instruction::FuncCall {
+            emit(InstructionNode::FuncCall {
                 func_id: f_id,
                 arg_mut: targets,
                 arg: args,
@@ -277,7 +277,7 @@ pub fn emit_func<'s, Rt: RuntimeType>(
                     let rhs = reg_id2var_id(*rhs);
                     let target = reg_id2var_id(outputs[0]);
                     let stream = stream.unwrap();
-                    emit(Instruction::FuncCall {
+                    emit(InstructionNode::FuncCall {
                         func_id: f_id,
                         arg_mut: vec![target],
                         arg: vec![lhs, rhs, stream],
@@ -288,7 +288,7 @@ pub fn emit_func<'s, Rt: RuntimeType>(
                     let rhs = reg_id2var_id(*rhs);
                     let target = reg_id2var_id(outputs[0]);
                     let stream = stream.unwrap();
-                    emit(Instruction::FuncCall {
+                    emit(InstructionNode::FuncCall {
                         func_id: f_id,
                         arg_mut: vec![target],
                         arg: vec![lhs, rhs, stream],
@@ -300,13 +300,13 @@ pub fn emit_func<'s, Rt: RuntimeType>(
                 let target = reg_id2var_id(*target);
                 let device = t3chunk.register_devices[&outputs[0]];
                 if device == Device::Cpu {
-                    emit(Instruction::FuncCall {
+                    emit(InstructionNode::FuncCall {
                         func_id: f_id,
                         arg_mut: vec![target],
                         arg: vec![],
                     });
                 } else {
-                    emit(Instruction::FuncCall {
+                    emit(InstructionNode::FuncCall {
                         func_id: f_id,
                         arg_mut: vec![target],
                         arg: vec![stream.unwrap()],
@@ -322,7 +322,7 @@ pub fn emit_func<'s, Rt: RuntimeType>(
             let output_input = reg_id2var_id(outputs[0]);
             let output_table = reg_id2var_id(outputs[1]);
             let stream = stream.unwrap();
-            emit(Instruction::FuncCall {
+            emit(InstructionNode::FuncCall {
                 func_id: f_id,
                 arg_mut: vec![output_input, output_table, temp_buffer],
                 arg: vec![input, table, stream],
@@ -337,9 +337,9 @@ fn generate_ntt_precompute(
     twiddle: VariableId,
     stream: VariableId,
     func_id: FunctionId,
-    emit: &mut impl FnMut(Instruction), // function to emit instruction
+    emit: &mut impl FnMut(InstructionNode), // function to emit instruction
 ) {
-    emit(Instruction::FuncCall {
+    emit(InstructionNode::FuncCall {
         func_id,
         arg_mut: vec![poly],
         arg: vec![twiddle, stream],
@@ -352,9 +352,9 @@ fn generate_ntt_recompute(
     omega: VariableId,
     stream: VariableId,
     func_id: FunctionId,
-    emit: &mut impl FnMut(Instruction), // function to emit instruction
+    emit: &mut impl FnMut(InstructionNode), // function to emit instruction
 ) {
-    emit(Instruction::FuncCall {
+    emit(InstructionNode::FuncCall {
         func_id,
         arg_mut: vec![poly],
         arg: vec![pq, omega, stream],
@@ -367,7 +367,7 @@ fn generate_msm(
     temp_buffers: &Vec<VariableId>,
     answers: &Vec<VariableId>,
     func_id: FunctionId,
-    emit: &mut impl FnMut(Instruction), // function to emit instruction
+    emit: &mut impl FnMut(InstructionNode), // function to emit instruction
 ) {
     let mut arg = Vec::new();
     for i in 0..precompute_points.len() {
@@ -383,7 +383,7 @@ fn generate_msm(
     for i in 0..answers.len() {
         arg_mut.push(answers[i]);
     }
-    emit(Instruction::FuncCall {
+    emit(InstructionNode::FuncCall {
         func_id,
         arg,
         arg_mut,
@@ -395,9 +395,9 @@ fn generate_batched_invert(
     temp: VariableId,
     stream: VariableId,
     func_id: FunctionId,
-    emit: &mut impl FnMut(Instruction), // function to emit instruction
+    emit: &mut impl FnMut(InstructionNode), // function to emit instruction
 ) {
-    emit(Instruction::FuncCall {
+    emit(InstructionNode::FuncCall {
         func_id,
         arg_mut: vec![temp, poly],
         arg: vec![stream],
@@ -411,9 +411,9 @@ fn generate_kate_division(
     temp: VariableId,
     stream: VariableId,
     func_id: FunctionId,
-    emit: &mut impl FnMut(Instruction), // function to emit instruction
+    emit: &mut impl FnMut(InstructionNode), // function to emit instruction
 ) {
-    emit(Instruction::FuncCall {
+    emit(InstructionNode::FuncCall {
         func_id,
         arg_mut: vec![temp, res],
         arg: vec![poly, b, stream],
@@ -427,9 +427,9 @@ fn generate_scan_mul(
     x0: VariableId,
     stream: VariableId,
     func_id: FunctionId,
-    emit: &mut impl FnMut(Instruction), // function to emit instruction
+    emit: &mut impl FnMut(InstructionNode), // function to emit instruction
 ) {
-    emit(Instruction::FuncCall {
+    emit(InstructionNode::FuncCall {
         func_id,
         arg_mut: vec![temp, res],
         arg: vec![poly, x0, stream],
@@ -443,9 +443,9 @@ fn generate_eval_poly(
     x: VariableId,
     stream: VariableId,
     func_id: FunctionId,
-    emit: &mut impl FnMut(Instruction), // function to emit instruction
+    emit: &mut impl FnMut(InstructionNode), // function to emit instruction
 ) {
-    emit(Instruction::FuncCall {
+    emit(InstructionNode::FuncCall {
         func_id,
         arg_mut: vec![temp, res],
         arg: vec![poly, x, stream],
@@ -456,9 +456,9 @@ fn generate_arith(
     var: Vec<VariableId>,
     var_mut: Vec<VariableId>,
     func_id: FunctionId,
-    emit: &mut impl FnMut(Instruction), // function to emit instruction
+    emit: &mut impl FnMut(InstructionNode), // function to emit instruction
 ) {
-    emit(Instruction::FuncCall {
+    emit(InstructionNode::FuncCall {
         func_id,
         arg_mut: var_mut,
         arg: var,

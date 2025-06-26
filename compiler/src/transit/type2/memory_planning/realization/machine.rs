@@ -225,7 +225,7 @@ where
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Statistics {
     /// The number of bytes transferred from device to device
     transfer_sizes: DeviceSpecific<DeviceSpecific<u64>>,

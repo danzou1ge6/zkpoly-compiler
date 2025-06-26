@@ -1,25 +1,24 @@
 use std::{
     collections::{BTreeSet, HashMap},
-    sync::{mpsc::Sender, Arc, Mutex},
+    sync::{Arc, Mutex},
     thread,
-    time::Instant,
 };
 
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 pub use threadpool::ThreadPool;
 
-use zkpoly_common::{devices::DeviceType, load_dynamic::Libs};
+use zkpoly_common::{devices::DeviceType, load_dynamic::Libs, typ::Typ};
 
 use crate::{
     args::{new_variable_table, ConstantTable, EntryTable, RuntimeType, Variable, VariableTable},
     async_rng::AsyncRng,
-    debug::{DebugInfo, DebugInfoCollector},
-    devices::{new_thread_table, Event, EventTable, ThreadTable},
+    debug,
+    devices::{Event, EventTable},
     functions::{FuncMeta, FunctionTable},
-    instructions::Instruction,
+    instructions::{Instruction, InstructionNode},
 };
 
-use zkpoly_cuda_api::{bindings::cudaDeviceSynchronize, cuda_check, mem::CudaAllocator};
+use zkpoly_cuda_api::{mem::CudaAllocator, stream::CudaEvent};
 
 use zkpoly_memory_pool::{static_allocator::CpuStaticAllocator, BuddyDiskPool};
 
@@ -34,7 +33,6 @@ pub struct Runtime<T: RuntimeType> {
     constant: ConstantTable<T>,
     funcs: FunctionTable<T>,
     events: EventTable,
-    threads: ThreadTable,
     pub mem_allocator: Option<CpuStaticAllocator>,
     gpu_allocator: HashMap<i32, CudaAllocator>,
     disk_allocator: Vec<BuddyDiskPool>,
@@ -43,12 +41,50 @@ pub struct Runtime<T: RuntimeType> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
-pub enum RuntimeDebug {
-    RecordTime,
-    BenchKernel,
-    DebugInstruction,
-    RecordTimeAsync,
-    None,
+pub struct RuntimeDebug {
+    pub bench_kernel: bool,
+    pub print_instruction: bool,
+    pub record_time: bool,
+    pub serial_execution: bool,
+}
+
+impl RuntimeDebug {
+    pub fn none() -> Self {
+        Self {
+            bench_kernel: false,
+            print_instruction: false,
+            record_time: false,
+            serial_execution: false,
+        }
+    }
+
+    pub fn with_bench_kernel(self, bench_mark: bool) -> Self {
+        Self {
+            bench_kernel: bench_mark,
+            ..self
+        }
+    }
+
+    pub fn with_print_instruction(self, print_instruction: bool) -> Self {
+        Self {
+            print_instruction,
+            ..self
+        }
+    }
+
+    pub fn with_record_time(self, record_time: bool) -> Self {
+        Self {
+            record_time,
+            ..self
+        }
+    }
+
+    pub fn with_serial_execution(self, serial_execution: bool) -> Self {
+        Self {
+            serial_execution,
+            ..self
+        }
+    }
 }
 
 impl<T: RuntimeType> Runtime<T> {
@@ -76,7 +112,6 @@ impl<T: RuntimeType> Runtime<T> {
             constant,
             funcs,
             events,
-            threads: new_thread_table(n_threads),
             mem_allocator: Some(mem_allocator),
             gpu_allocator,
             disk_allocator,
@@ -104,26 +139,18 @@ impl<T: RuntimeType> Runtime<T> {
         input_table: &EntryTable<T>,
         debug_opt: RuntimeDebug,
     ) -> (
-        (
-            Option<Variable<T>>,
-            Option<DebugInfoCollector>,
-            RuntimeInfo<T>,
-        ),
+        (Option<Variable<T>>, debug::Log, RuntimeInfo<T>),
         CpuStaticAllocator,
     ) {
-        let bench_start = if RuntimeDebug::RecordTime == debug_opt
-            || RuntimeDebug::RecordTimeAsync == debug_opt
-        {
-            Some(Instant::now())
-        } else {
-            None
-        };
-        let executed_kernels = if RuntimeDebug::BenchKernel == debug_opt {
+        let executed_kernels = if debug_opt.bench_kernel {
             Some(Arc::new(Mutex::new(BTreeSet::new())))
         } else {
             None
         };
-        let debug_instruction = RuntimeDebug::DebugInstruction == debug_opt;
+
+        let logger = debug::Logger::new();
+        let logger_handle = logger.spawn();
+
         let info = RuntimeInfo {
             gpu_mapping: self.gpu_mapping.clone(),
             variable: &mut self.variable as *mut VariableTable<T>,
@@ -131,26 +158,25 @@ impl<T: RuntimeType> Runtime<T> {
             inputs: input_table as *const EntryTable<T>,
             funcs: &mut self.funcs as *mut FunctionTable<T>,
             events: &self.events as *const EventTable,
-            threads: &mut self.threads as *mut ThreadTable,
             rng: self.rng.clone(),
             main_thread: true,
-            bench_start,
             executed_kernels,
-            debug_instruction,
+            debug_option: debug_opt,
+            debug_writer: logger_handle.writer(),
+            global_mutex: Arc::new(Mutex::new(())),
         };
-        let (r, debug_info) = unsafe {
+        let r = unsafe {
             info.run(
-                self.instructions.clone(),
+                &self.instructions,
                 Some(&mut self.mem_allocator.as_mut().unwrap()),
                 Some(&mut self.gpu_allocator),
                 Some(&mut self.disk_allocator),
-                None,
                 0,
-                Arc::new(std::sync::Mutex::new(())),
-                debug_opt,
             )
         };
-        ((r, debug_info, info), self.mem_allocator.take().unwrap())
+
+        let log = logger_handle.join();
+        ((r, log, info), self.mem_allocator.take().unwrap())
     }
 }
 
@@ -162,12 +188,13 @@ pub struct RuntimeInfo<T: RuntimeType> {
     pub inputs: *const EntryTable<T>,
     pub funcs: *mut FunctionTable<T>,
     pub events: *const EventTable,
-    pub threads: *mut ThreadTable,
     pub rng: AsyncRng,
     pub main_thread: bool,
-    pub bench_start: Option<Instant>,
+    /// If this is Some, the runtime will only execute each kernel once
     pub executed_kernels: Option<Arc<Mutex<BTreeSet<FuncMeta>>>>,
-    debug_instruction: bool,
+    debug_option: RuntimeDebug,
+    debug_writer: debug::Writer,
+    global_mutex: Arc<Mutex<()>>,
 }
 
 unsafe impl<T: RuntimeType> Send for RuntimeInfo<T> {}
@@ -177,57 +204,34 @@ impl<T: RuntimeType> RuntimeInfo<T> {
     #[allow(dangerous_implicit_autorefs)]
     pub unsafe fn run(
         &self,
-        instructions: Vec<Instruction>,
+        instructions: &[Instruction],
         mut mem_allocator: Option<&mut CpuStaticAllocator>,
         mut gpu_allocator: Option<&mut HashMap<i32, CudaAllocator>>,
         mut disk_allocator: Option<&mut Vec<BuddyDiskPool>>,
-        epilogue: Option<Sender<Option<DebugInfoCollector>>>,
         _thread_id: usize,
-        global_mutex: Arc<Mutex<()>>,
-        debug_option: RuntimeDebug,
-    ) -> (Option<Variable<T>>, Option<DebugInfoCollector>) {
-        let mut debug_infos = if debug_option == RuntimeDebug::RecordTimeAsync {
-            Some(DebugInfoCollector {
-                debug_info: Vec::new(),
-                sub_thread_debug_info: HashMap::new(),
-            })
-        } else {
-            None
-        };
+    ) -> Option<Variable<T>> {
         for (i, instruction) in instructions.into_iter().enumerate() {
-            let _guard: Option<std::sync::MutexGuard<'_, ()>> = if debug_option
-                == RuntimeDebug::RecordTime
-                || debug_option == RuntimeDebug::BenchKernel
-                || debug_option == RuntimeDebug::DebugInstruction
-            {
-                Some(global_mutex.lock().unwrap())
+            let _guard: Option<std::sync::MutexGuard<'_, ()>> =
+                if self.debug_option.serial_execution {
+                    Some(self.global_mutex.lock().unwrap())
+                } else {
+                    None
+                };
+
+            if self.debug_option.print_instruction {
+                println!("{:?}", &instruction);
+            }
+
+            let ibg = if self.debug_option.record_time {
+                Some(self.debug_writer.begin_instruction(instruction.clone()))
             } else {
                 None
             };
 
-            let (start_time, instruct_copy) = if self.bench_start.is_some() {
-                if debug_option == RuntimeDebug::RecordTime {
-                    unsafe {
-                        cuda_check!(cudaDeviceSynchronize()); // wait for all previous cuda calls
-                    }
-                }
-                let instruct_copy = if let Instruction::AssertEq { .. } = &instruction {
-                    None
-                } else {
-                    Some(instruction.clone())
-                };
-                (Some(Instant::now()), instruct_copy)
-            } else {
-                (None, None)
-            };
-
-            if self.debug_instruction {
-                println!("{:?}", &instruction);
-            }
-
-            let mut function_name = None;
-            match instruction {
-                Instruction::Allocate {
+            let mut function_meta = None;
+            use InstructionNode::*;
+            match instruction.node().clone() {
+                Allocate {
                     device,
                     typ,
                     id,
@@ -237,16 +241,30 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     assert!(self.main_thread);
                     let guard = &mut (*self.variable)[id];
                     assert!(guard.is_none());
-                    *guard = Some(self.allocate(
-                        device,
-                        typ,
+
+                    let var = self.allocate(
+                        device.clone(),
+                        typ.clone(),
                         alloc_method,
                         &mut mem_allocator,
                         &mut gpu_allocator,
                         &mut disk_allocator,
-                    ));
+                    );
+
+                    if let Typ::Stream = &typ {
+                        let event = CudaEvent::new((self.gpu_mapping)(device.unwrap_gpu()));
+                        let stream = var.unwrap_stream();
+                        event.record(stream);
+                        self.debug_writer.new_stream(
+                            instruction.unwrap_stream(),
+                            stream.clone(),
+                            event,
+                        );
+                    }
+
+                    *guard = Some(var);
                 }
-                Instruction::Deallocate { id, alloc_method } => {
+                Deallocate { id, alloc_method } => {
                     // only main thread can deallocate memory
                     assert!(self.main_thread);
                     let guard = &mut (*self.variable)[id];
@@ -264,7 +282,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                         panic!("deallocate a non-existing variable");
                     }
                 }
-                Instruction::Transfer {
+                Transfer {
                     src_device,
                     dst_device,
                     stream,
@@ -275,7 +293,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     let dst = (*self.variable)[dst_id].as_mut().unwrap();
                     self.transfer(src, dst, src_device, dst_device, stream);
                 }
-                Instruction::FuncCall {
+                FuncCall {
                     func_id,
                     arg_mut,
                     arg,
@@ -309,7 +327,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                         })
                         .collect();
 
-                    function_name = Some((*self.funcs)[func_id].meta.name.clone());
+                    function_meta = Some((*self.funcs)[func_id].meta.clone());
                     if self.executed_kernels.is_some() {
                         let meta = (*self.funcs)[func_id].meta.clone();
                         let mut executed_kernels =
@@ -323,7 +341,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     let f = &mut (*self.funcs)[func_id].f;
                     f(args_mut, args, self.gpu_mapping.clone()).unwrap();
                 }
-                Instruction::Wait {
+                Wait {
                     slave,
                     stream,
                     event: event_id,
@@ -354,7 +372,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     }
                     // println!("event{:?} done", event_id);
                 }
-                Instruction::Record { stream, event } => {
+                Record { stream, event } => {
                     let ref event = (*self.events)[event];
                     match event {
                         Event::GpuEvent(cuda_event) => {
@@ -370,38 +388,20 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                         }
                     }
                 }
-                Instruction::Fork {
+                Fork {
                     new_thread,
                     instructions,
                 } => {
-                    let (tx, rx) = std::sync::mpsc::channel();
-                    (*self.threads)[new_thread].replace(rx);
                     let mut sub_info = self.clone();
                     sub_info.main_thread = false;
-                    let global_mutex = global_mutex.clone();
+                    sub_info.debug_writer = sub_info.debug_writer.with_thread_id(new_thread);
+
                     thread::spawn(move || {
-                        sub_info.run(
-                            instructions,
-                            None,
-                            None,
-                            None,
-                            Some(tx),
-                            new_thread.into(),
-                            global_mutex,
-                            debug_option.clone(),
-                        );
+                        sub_info.run(&instructions, None, None, None, new_thread.into());
                     });
                 }
-                Instruction::Join { thread } => {
-                    let rx = (*self.threads)[thread].take().unwrap();
-                    let sub_debug_info = rx.recv().unwrap();
-                    if let Some(debug_infos) = &mut debug_infos {
-                        debug_infos
-                            .sub_thread_debug_info
-                            .insert(thread, Box::new(sub_debug_info.unwrap()));
-                    }
-                }
-                Instruction::Rotation { src, dst, shift } => {
+                Join { .. } => {}
+                Rotation { src, dst, shift } => {
                     let guard = &(*self.variable)[src];
                     let mut poly = guard.as_ref().unwrap().unwrap_scalar_array().clone();
                     poly.rotate(shift);
@@ -409,7 +409,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     assert!(guard.is_none());
                     *guard = Some(Variable::ScalarArray(poly));
                 }
-                Instruction::Slice {
+                Slice {
                     src,
                     dst,
                     start,
@@ -425,13 +425,13 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     assert!(dst_guard.is_none());
                     *dst_guard = Some(Variable::ScalarArray(slice));
                 }
-                Instruction::LoadConstant { src, dst } => {
+                LoadConstant { src, dst } => {
                     let constant = (*self.constant)[src].clone();
                     let guard = &mut (*self.variable)[dst];
                     assert!(guard.is_none());
                     *guard = Some(constant.value);
                 }
-                Instruction::AssembleTuple { vars, dst } => {
+                AssembleTuple { vars, dst } => {
                     let mut assemble = Vec::new();
                     for var in vars.iter() {
                         let guard = &(*self.variable)[*var];
@@ -441,24 +441,24 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     assert!(guard.is_none());
                     *guard = Some(Variable::Tuple(assemble));
                 }
-                Instruction::RemoveRegister { id } => {
+                RemoveRegister { id } => {
                     let guard = &mut (*self.variable)[id];
                     assert!(guard.is_some());
                     *guard = None;
                 }
-                Instruction::Blind { dst, start, end } => {
+                Blind { dst, start, end } => {
                     let guard = &mut (*self.variable)[dst];
                     let poly = guard.as_mut().unwrap().unwrap_scalar_array_mut();
                     poly.blind(start, end, self.rng.clone());
                 }
-                Instruction::Return(var_id) => {
+                Return(var_id) => {
                     if !self.main_thread {
                         panic!("can only return from main thread");
                     }
                     let var = (*self.variable)[var_id].take().unwrap();
-                    return (Some(var), debug_infos);
+                    return Some(var);
                 }
-                Instruction::SetSliceMeta {
+                SetSliceMeta {
                     src,
                     dst,
                     offset,
@@ -481,7 +481,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     assert!(dst_guard.is_none());
                     *dst_guard = Some(Variable::ScalarArray(poly.unwrap()));
                 }
-                Instruction::GetScalarFromArray {
+                GetScalarFromArray {
                     src,
                     dst,
                     idx,
@@ -506,14 +506,14 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                         DeviceType::Disk => unreachable!("scalar can't be on disk"),
                     }
                 }
-                Instruction::LoadInput { src, dst } => {
+                LoadInput { src, dst } => {
                     let input_guard = &(*self.inputs)[src];
                     let input = input_guard.clone();
                     let guard = &mut (*self.variable)[dst];
                     assert!(guard.is_none());
                     *guard = Some(input); // the compiled instructions will ensure that the input is not modified
                 }
-                Instruction::MoveRegister { src, dst } => {
+                MoveRegister { src, dst } => {
                     if src == dst {
                         continue;
                     }
@@ -522,7 +522,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     let dst_guard = &mut (*self.variable)[dst];
                     *dst_guard = Some(var);
                 }
-                Instruction::AssertEq {
+                AssertEq {
                     value: value_id,
                     expected: expected_id,
                     msg,
@@ -546,18 +546,18 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                         );
                     }
                 }
-                Instruction::Print(value_id, label) => {
+                Print(value_id, label) => {
                     let value_guard = &(*self.variable)[value_id];
                     let value = value_guard.as_ref().unwrap();
                     println!("{}({:?}) = {:?}", label, value_id, value)
                 }
-                Instruction::CopyRegister { src, dst } => {
+                CopyRegister { src, dst } => {
                     let src_guard = &(*self.variable)[src];
                     let var = src_guard.as_ref().unwrap().clone();
                     let dst_guard = &mut (*self.variable)[dst];
                     *dst_guard = Some(var);
                 }
-                Instruction::SliceBuffer {
+                SliceBuffer {
                     src,
                     dst,
                     offset,
@@ -571,52 +571,13 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     *dst_guard = Some(Variable::GpuBuffer(buf))
                 }
             }
-            if self.bench_start.is_some() && instruct_copy.is_some() {
-                if debug_option == RuntimeDebug::RecordTime {
-                    unsafe {
-                        cuda_check!(cudaDeviceSynchronize());
-                    }
-                }
-                let start_duration = start_time
-                    .unwrap()
-                    .saturating_duration_since(self.bench_start.clone().unwrap());
-                let end_duration =
-                    Instant::now().saturating_duration_since(self.bench_start.clone().unwrap());
-                if debug_option == RuntimeDebug::RecordTime {
-                    if let Some(func_name) = function_name {
-                        println!(
-                            "thread {:?} instruction FuncCall {} {:?} start: {:?} end: {:?}",
-                            _thread_id,
-                            func_name,
-                            instruct_copy.unwrap(),
-                            start_duration.as_micros(),
-                            end_duration.as_micros()
-                        );
-                    } else {
-                        println!(
-                            "thread {:?} instruction {:?} start: {:?} end: {:?}",
-                            _thread_id,
-                            instruct_copy.unwrap(),
-                            start_duration.as_micros(),
-                            end_duration.as_micros()
-                        );
-                    }
-                } else {
-                    debug_infos.as_mut().unwrap().debug_info.push(DebugInfo {
-                        instruction: instruct_copy.unwrap(),
-                        start_duration,
-                        end_duration,
-                    });
-                }
+
+            if self.debug_option.record_time {
+                self.debug_writer
+                    .end_instruction(ibg.unwrap(), function_meta);
             }
         }
-        if !self.main_thread {
-            epilogue
-                .unwrap()
-                .send(debug_infos)
-                .expect("channel will be there waiting for the pool");
-        }
 
-        (None, None)
+        None
     }
 }

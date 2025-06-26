@@ -247,6 +247,10 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
             serde_json::from_reader(&mut chunk_f)?;
         let rt_chunk = rt_chunk_deserializer.deserialize_into_chunk(self.prog.user_function_table);
 
+        let mut statistics_f = std::fs::File::open(dir.as_ref().join("memory-statistics.json"))?;
+        let statistics: type2::memory_planning::Statistics =
+            serde_json::from_reader(&mut statistics_f)?;
+
         let mut ct_header_f = std::fs::File::open(dir.as_ref().join("constants-manifest.json"))?;
         let ct_header: args::serialization::Header = serde_json::from_reader(&mut ct_header_f)?;
 
@@ -261,6 +265,7 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
         Ok(Artifect {
             chunk: rt_chunk,
             constant_table: self.prog.consant_table,
+            memory_statistics: statistics,
         })
     }
 

@@ -7,18 +7,28 @@ use zkpoly_runtime::{
     devices::instantizate_event_table,
 };
 
+use crate::transit::type2;
+
 use super::{type3, ConstantPool, HardwareInfo};
 
 #[derive(Clone)]
 pub struct Artifect<Rt: RuntimeType> {
     pub(super) chunk: type3::lowering::Chunk<Rt>,
     pub(super) constant_table: args::ConstantTable<Rt>,
+    pub(super) memory_statistics: type2::memory_planning::Statistics
 }
 
 pub struct SemiArtifect<Rt: RuntimeType> {
     pub(super) chunk: type3::lowering::Chunk<Rt>,
     pub(super) constant_table: args::ConstantTable<Rt>,
     pub(super) constant_devices: Heap<ConstantId, type3::Device>,
+    pub(super) memory_statistics: type2::memory_planning::Statistics,
+}
+
+impl<Rt: RuntimeType> Artifect<Rt> {
+    pub fn memory_statistics(&self) -> &type2::memory_planning::Statistics {
+        &self.memory_statistics
+    }
 }
 
 impl<Rt: RuntimeType> SemiArtifect<Rt> {
@@ -36,6 +46,7 @@ impl<Rt: RuntimeType> SemiArtifect<Rt> {
         Artifect {
             chunk: self.chunk,
             constant_table,
+            memory_statistics: self.memory_statistics,
         }
     }
 
@@ -48,6 +59,9 @@ impl<Rt: RuntimeType> SemiArtifect<Rt> {
 
         let mut chunk_f = std::fs::File::create(dir.as_ref().join("chunk.json"))?;
         serde_json::to_writer_pretty(&mut chunk_f, &self.chunk)?;
+
+        let mut statistics_f = std::fs::File::create(dir.as_ref().join("memory-statistics.json"))?;
+        serde_json::to_writer_pretty(&mut statistics_f, &self.memory_statistics)?;
 
         let mut ct_header_f = std::fs::File::create(dir.as_ref().join("constants-manifest.json"))?;
         let ct_header = args::serialization::Header::build(&self.constant_table);

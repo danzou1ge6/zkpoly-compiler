@@ -7,7 +7,7 @@ use zkpoly_compiler::driver::{Artifect, HardwareInfo};
 use zkpoly_memory_pool::static_allocator::CpuStaticAllocator;
 use zkpoly_runtime::args::{EntryTable, RuntimeType, Variable};
 use zkpoly_runtime::async_rng::AsyncRng;
-use zkpoly_runtime::debug::DebugInfoCollector;
+use zkpoly_runtime::debug::Log;
 use zkpoly_runtime::runtime::{RuntimeDebug, RuntimeInfo};
 
 // 资源需求结构体
@@ -95,7 +95,7 @@ pub enum TaskStatus {
 struct Task<Rt: RuntimeType> {
     artifect: Artifect<Rt>,
     status: Arc<Mutex<TaskStatus>>,
-    result_sender: mpsc::Sender<(Option<Variable<Rt>>, Option<DebugInfoCollector>, RuntimeInfo<Rt>)>, // 用于发送任务结果
+    result_sender: mpsc::Sender<(Option<Variable<Rt>>, Log, RuntimeInfo<Rt>)>, // 用于发送任务结果
     hardware_info: HardwareInfo,
     rng: AsyncRng,
     inputs: EntryTable<Rt>,
@@ -175,11 +175,11 @@ impl<Rt: RuntimeType> Scheduler<Rt> {
                         task.resource_requirement.disk_space_mb
                     );
 
-                    let result: (Option<Variable<Rt>>, Option<DebugInfoCollector>, RuntimeInfo<Rt>);
+                    let result: (Option<Variable<Rt>>, Log, RuntimeInfo<Rt>);
                     let pools = task.artifect.create_pools(&task.hardware_info, true);
                     let mut runtime = task.artifect.prepare_dispatcher(
                         pools,
-                       task.rng,
+                        task.rng,
                         gpu_mapping.clone(),
                     );
 
@@ -228,13 +228,21 @@ impl<Rt: RuntimeType> Scheduler<Rt> {
         rng: AsyncRng,
         inputs: EntryTable<Rt>,
         debug_opt: RuntimeDebug,
-        resource_requirement: ResourceRequirement,
     ) -> (
         Arc<Mutex<TaskStatus>>,
-        mpsc::Receiver<(Option<Variable<Rt>>, Option<DebugInfoCollector>, RuntimeInfo<Rt>)>,
+        mpsc::Receiver<(Option<Variable<Rt>>, Log, RuntimeInfo<Rt>)>,
     ) {
         let (result_sender, result_receiver) = mpsc::channel();
         let status = Arc::new(Mutex::new(TaskStatus::Pending));
+
+        let apply_utilization_ratio = |need: u64| -> u64 {
+            ((need as f64) * 1.2) as u64
+        };
+
+        let resource_requirement = ResourceRequirement {
+            cpu_memory_mb: request.memory_statistics().cpu_peak_usage.div_ceil(2u64.pow(20)),
+            disk_space_mb: apply_utilization_ratio(request.memory_statistics().disk_peak_usage).div_ceil(2u64.pow(20)),
+        };
 
         let task = Task {
             artifect: request,

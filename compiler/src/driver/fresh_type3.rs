@@ -12,6 +12,7 @@ pub struct FreshType3<'s, Rt: RuntimeType> {
     pub(super) constant_table: type2::ConstantTable<Rt>,
     pub(super) constants_device: Heap<ConstantId, type3::Device>,
     pub(super) execution_devices: BTreeMap<type2::VertexId, type2::Device>,
+    pub(super) memory_statistics: type2::memory_planning::Statistics
 }
 
 impl<'s, Rt: RuntimeType> FreshType3<'s, Rt> {
@@ -40,6 +41,7 @@ impl<'s, Rt: RuntimeType> FreshType3<'s, Rt> {
             constant_table: self.constant_table,
             constants_device: self.constants_device,
             execution_devices: self.execution_devices,
+            memory_statistics: self.memory_statistics
         })
     }
 }

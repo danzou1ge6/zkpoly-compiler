@@ -14,7 +14,7 @@ use zkpoly_common::typ::Typ;
 use zkpoly_runtime::args::{RuntimeType, VariableId};
 use zkpoly_runtime::devices::{EventId, EventType, EventTypeTable, ThreadId};
 use zkpoly_runtime::functions::FunctionTable;
-use zkpoly_runtime::instructions::{AllocMethod, Instruction};
+use zkpoly_runtime::instructions::{AllocMethod, Instruction, InstructionNode};
 
 mod emit_func;
 mod kernel_gen;
@@ -110,10 +110,14 @@ impl MultithreadChunk {
     pub fn emit_fork(&mut self, pthread: PrimaryThread, fork_to: ThreadId) {
         let fork_inst_id = self.emit_primary(
             pthread,
-            Instruction::Fork {
-                new_thread: fork_to,
-                instructions: Vec::new(),
-            },
+            Instruction::new(
+                InstructionNode::Fork {
+                    new_thread: fork_to,
+                    instructions: Vec::new(),
+                },
+                Track::Cpu.into(),
+                None,
+            ),
         );
         self.forks.insert(
             fork_to,
@@ -141,7 +145,7 @@ impl MultithreadChunk {
             let aux_inst = self.thread_instructions(fork_to).cloned().collect();
 
             let fork_inst = &mut self.instructions[fork_inst_id];
-            if let Instruction::Fork { instructions, .. } = &mut fork_inst.inst {
+            if let InstructionNode::Fork { instructions, .. } = fork_inst.inst.node_mut() {
                 *instructions = aux_inst;
             } else {
                 panic!("expect to fillback to a fork instruction")
@@ -243,6 +247,18 @@ pub enum Stream {
     GpuMemory,
 }
 
+impl From<Stream> for zkpoly_runtime::instructions::Stream {
+    fn from(value: Stream) -> Self {
+        use Stream::*;
+        match value {
+            ToGpu => Self::ToGpu,
+            FromGpu => Self::FromGpu,
+            Gpu => Self::Gpu,
+            GpuMemory => Self::GpuMemory,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct StreamSpecific<T> {
     to_gpu: T,
@@ -330,8 +346,22 @@ fn lower_instruction<'s, Rt: RuntimeType>(
     stream2variable_id: &StreamSpecific<VariableId>,
     t3chunk: &super::Chunk<'s, Rt>,
     generated_functions: &GeneratedFunctions,
-    emit: &mut impl FnMut(Instruction),
+    emit_inst: &mut impl FnMut(Instruction),
 ) {
+    let mut emit = |inode: InstructionNode| {
+        let track = match &inode {
+            InstructionNode::MoveRegister { .. } => Track::Cpu,
+            InstructionNode::CopyRegister { .. } => Track::Cpu,
+            _ => track,
+        };
+
+        emit_inst(Instruction::new(
+            inode,
+            track.into(),
+            Stream::of_track(track).map(|x| x.into()),
+        ))
+    };
+
     match &inst.node {
         super::InstructionNode::Type2 {
             ids, temp, vertex, ..
@@ -339,7 +369,7 @@ fn lower_instruction<'s, Rt: RuntimeType>(
             ids.iter()
                 .filter_map(|(id, inplace)| Some((*id, inplace.as_ref()?)))
                 .for_each(|(id, &inplace)| {
-                    emit(Instruction::MoveRegister {
+                    emit(InstructionNode::MoveRegister {
                         src: reg_id2var_id(inplace),
                         dst: reg_id2var_id(id),
                     })
@@ -357,7 +387,7 @@ fn lower_instruction<'s, Rt: RuntimeType>(
             match &vertex {
                 VertexNode::Constant(constant_id) => {
                     assert!(ids.len() == 1);
-                    emit(Instruction::LoadConstant {
+                    emit(InstructionNode::LoadConstant {
                         src: *constant_id,
                         dst: reg_id2var_id(ids[0]),
                     })
@@ -366,7 +396,7 @@ fn lower_instruction<'s, Rt: RuntimeType>(
                     assert!(ids.len() == 1);
                     assert!(ids[0] == *id);
                     let dst = reg_id2var_id(*id);
-                    emit(Instruction::Blind {
+                    emit(InstructionNode::Blind {
                         dst,
                         start: *start_pos as usize,
                         end: *end_pos as usize,
@@ -374,17 +404,17 @@ fn lower_instruction<'s, Rt: RuntimeType>(
                 }
                 VertexNode::Entry(idx) => {
                     assert!(ids.len() == 1);
-                    emit(Instruction::LoadInput {
+                    emit(InstructionNode::LoadInput {
                         src: *idx,
                         dst: reg_id2var_id(ids[0]),
                     })
                 }
-                VertexNode::Return(id) => emit(Instruction::Return(reg_id2var_id(*id))),
+                VertexNode::Return(id) => emit(InstructionNode::Return(reg_id2var_id(*id))),
                 VertexNode::IndexPoly(operand, idx) => {
                     let operand = reg_id2var_id(*operand);
                     let target = reg_id2var_id(ids[0]);
                     let stream = Stream::of_track(track).map(|t| stream2variable_id.get(t).clone());
-                    emit(Instruction::GetScalarFromArray {
+                    emit(InstructionNode::GetScalarFromArray {
                         src: operand,
                         dst: target,
                         idx: *idx as usize,
@@ -395,20 +425,20 @@ fn lower_instruction<'s, Rt: RuntimeType>(
                     assert!(ids.len() == 1);
                     let src = reg_id2var_id(*src);
                     let truth = reg_id2var_id(*truth);
-                    emit(Instruction::AssertEq {
+                    emit(InstructionNode::AssertEq {
                         value: src,
                         expected: truth,
                         msg: msg.clone(),
                     });
-                    emit(Instruction::CopyRegister {
+                    emit(InstructionNode::CopyRegister {
                         src,
                         dst: reg_id2var_id(ids[0]),
                     })
                 }
                 VertexNode::Print(id, s) => {
                     assert!(ids.len() == 1);
-                    emit(Instruction::Print(reg_id2var_id(*id), s.clone()));
-                    emit(Instruction::CopyRegister {
+                    emit(InstructionNode::Print(reg_id2var_id(*id), s.clone()));
+                    emit(InstructionNode::CopyRegister {
                         src: reg_id2var_id(*id),
                         dst: reg_id2var_id(ids[0]),
                     })
@@ -424,7 +454,7 @@ fn lower_instruction<'s, Rt: RuntimeType>(
                         stream2variable_id,
                         generated_functions.at(t3idx),
                         t3chunk,
-                        emit,
+                        &mut emit,
                     );
                 }
             }
@@ -432,18 +462,18 @@ fn lower_instruction<'s, Rt: RuntimeType>(
         super::InstructionNode::Malloc { id, addr, device } => {
             let var_id = reg_id2var_id(*id);
 
-            emit(Instruction::Allocate {
+            emit(InstructionNode::Allocate {
                 device: DeviceType::from(device.clone()),
                 typ: t3chunk.register_types[*id].erase_p(),
                 id: var_id,
                 alloc_method: addr.clone(),
             });
         }
-        super::InstructionNode::Free { id, variant, .. } => emit(Instruction::Deallocate {
+        super::InstructionNode::Free { id, variant, .. } => emit(InstructionNode::Deallocate {
             id: reg_id2var_id(*id),
             alloc_method: *variant,
         }),
-        super::InstructionNode::Transfer { id, from } => emit(Instruction::Transfer {
+        super::InstructionNode::Transfer { id, from } => emit(InstructionNode::Transfer {
             src_device: DeviceType::from(t3chunk.register_devices[from]),
             dst_device: DeviceType::from(t3chunk.register_devices[id]),
             stream: Stream::of_track(track).map(|s| *stream2variable_id.get(s)),
@@ -451,32 +481,32 @@ fn lower_instruction<'s, Rt: RuntimeType>(
             dst_id: reg_id2var_id(*id),
         }),
         super::InstructionNode::TransferToDefed { id, to, from } => {
-            emit(Instruction::Transfer {
+            emit(InstructionNode::Transfer {
                 src_device: DeviceType::from(t3chunk.register_devices[from]),
                 dst_device: DeviceType::from(t3chunk.register_devices[to]),
                 stream: Stream::of_track(track).map(|s| *stream2variable_id.get(s)),
                 src_id: reg_id2var_id(*from),
                 dst_id: reg_id2var_id(*to),
             });
-            emit(Instruction::MoveRegister {
+            emit(InstructionNode::MoveRegister {
                 src: reg_id2var_id(*to),
                 dst: reg_id2var_id(*id),
             })
         }
-        super::InstructionNode::StackFree { id } => emit(Instruction::RemoveRegister {
+        super::InstructionNode::StackFree { id } => emit(InstructionNode::RemoveRegister {
             id: reg_id2var_id(*id),
         }),
         super::InstructionNode::Tuple { id, oprands } => {
             let dst = reg_id2var_id(*id);
             let vars = oprands.iter().map(|&id| reg_id2var_id(id)).collect();
-            emit(Instruction::AssembleTuple { vars, dst });
+            emit(InstructionNode::AssembleTuple { vars, dst });
         }
         super::InstructionNode::SetPolyMeta {
             id,
             from,
             offset,
             len,
-        } => emit(Instruction::SetSliceMeta {
+        } => emit(InstructionNode::SetSliceMeta {
             src: reg_id2var_id(*from),
             dst: reg_id2var_id(*id),
             offset: *offset as usize,
@@ -487,21 +517,21 @@ fn lower_instruction<'s, Rt: RuntimeType>(
             let device = t3chunk.register_devices[operand];
             let dst = reg_id2var_id(*operand);
             if device == super::Device::Cpu {
-                emit(Instruction::FuncCall {
+                emit(InstructionNode::FuncCall {
                     func_id: f_id,
                     arg_mut: vec![dst],
                     arg: vec![],
                 });
             } else {
                 let stream = Stream::of_track(track).map(|t| stream2variable_id.get(t).clone());
-                emit(Instruction::FuncCall {
+                emit(InstructionNode::FuncCall {
                     func_id: f_id,
                     arg_mut: vec![dst],
                     arg: vec![stream.unwrap()],
                 });
             }
 
-            emit(Instruction::MoveRegister {
+            emit(InstructionNode::MoveRegister {
                 src: reg_id2var_id(*operand),
                 dst: reg_id2var_id(*id),
             })
@@ -511,7 +541,7 @@ fn lower_instruction<'s, Rt: RuntimeType>(
             operand,
             offset,
             len,
-        } => emit(Instruction::SliceBuffer {
+        } => emit(InstructionNode::SliceBuffer {
             src: reg_id2var_id(*operand),
             dst: reg_id2var_id(*id),
             offset: *offset,
@@ -540,23 +570,32 @@ fn lower_cpu_waits_any(
                     let event_id = event_table.push(EventType::new_gpu(0)); // one card for now
                     instruct2gpu_event.insert(depended_t3idx, event_id);
 
+                    // Record/Wait are not considered to be on GPU
                     chunk.append_at(
                         depended_t3idx,
-                        Instruction::Record {
-                            stream: Some(*stream2variable_id.get(depended_stream)),
-                            event: event_id,
-                        },
+                        Instruction::new(
+                            InstructionNode::Record {
+                                stream: Some(*stream2variable_id.get(depended_stream)),
+                                event: event_id,
+                            },
+                            Track::Cpu.into(),
+                            None,
+                        ),
                     );
                     event_id
                 });
 
             chunk.emit(
                 thread,
-                Instruction::Wait {
-                    slave: DeviceType::CPU,
-                    stream: None,
-                    event: event_id,
-                },
+                Instruction::new(
+                    InstructionNode::Wait {
+                        slave: DeviceType::CPU,
+                        stream: None,
+                        event: event_id,
+                    },
+                    Track::Cpu.into(),
+                    None,
+                ),
             );
         }
         None => {
@@ -569,21 +608,29 @@ fn lower_cpu_waits_any(
 
                     chunk.append_at(
                         depended_t3idx,
-                        Instruction::Record {
-                            stream: None,
-                            event: event_id,
-                        },
+                        Instruction::new(
+                            InstructionNode::Record {
+                                stream: None,
+                                event: event_id,
+                            },
+                            Track::Cpu.into(),
+                            None,
+                        ),
                     );
                     event_id
                 });
 
             chunk.emit(
                 thread,
-                Instruction::Wait {
-                    slave: DeviceType::CPU,
-                    stream: None,
-                    event: event_id,
-                },
+                Instruction::new(
+                    InstructionNode::Wait {
+                        slave: DeviceType::CPU,
+                        stream: None,
+                        event: event_id,
+                    },
+                    Track::Cpu.into(),
+                    None,
+                ),
             );
         }
     }
@@ -610,23 +657,31 @@ fn lower_gpu_waits_gpu(
 
             chunk.append_at(
                 depended_t3idx,
-                Instruction::Record {
-                    stream: Some(
-                        *stream2variable_id.get(Stream::of_track(depended_track).unwrap()),
-                    ),
-                    event: event_id,
-                },
+                Instruction::new(
+                    InstructionNode::Record {
+                        stream: Some(
+                            *stream2variable_id.get(Stream::of_track(depended_track).unwrap()),
+                        ),
+                        event: event_id,
+                    },
+                    Track::Cpu.into(),
+                    None,
+                ),
             );
             event_id
         });
 
     chunk.emit(
         launch_thread,
-        Instruction::Wait {
-            slave: DeviceType::GPU { device_id: 0 },
-            stream: Some(*stream2variable_id.get(stream)),
-            event: event_id,
-        },
+        Instruction::new(
+            InstructionNode::Wait {
+                slave: DeviceType::GPU { device_id: 0 },
+                stream: Some(*stream2variable_id.get(stream)),
+                event: event_id,
+            },
+            Track::Cpu.into(),
+            None,
+        ),
     );
 }
 
@@ -911,13 +966,17 @@ pub fn lower<'s, Rt: RuntimeType>(
     let mut instructions = Vec::new();
 
     // Create streams
-    stream2variable_id.iter().for_each(|(_stream, &var_id)| {
-        instructions.push(Instruction::Allocate {
-            device: DeviceType::GPU { device_id: 0 },
-            typ: Typ::Stream,
-            id: var_id,
-            alloc_method: AllocMethod::default(),
-        })
+    stream2variable_id.iter().for_each(|(stream, &var_id)| {
+        instructions.push(Instruction::new(
+            InstructionNode::Allocate {
+                device: DeviceType::GPU { device_id: 0 },
+                typ: Typ::Stream,
+                id: var_id,
+                alloc_method: AllocMethod::default(),
+            },
+            Track::Cpu.into(),
+            Some(stream.into()),
+        ))
     });
 
     // Fillback auxiliary threads
@@ -929,10 +988,14 @@ pub fn lower<'s, Rt: RuntimeType>(
         .iter()
         .filter(|(pthread, _)| *pthread != PrimaryThread::main())
         .for_each(|(_pthread, &thread)| {
-            instructions.push(Instruction::Fork {
-                new_thread: thread,
-                instructions: mt_chunk.thread_instructions(thread).cloned().collect(),
-            })
+            instructions.push(Instruction::new(
+                InstructionNode::Fork {
+                    new_thread: thread,
+                    instructions: mt_chunk.thread_instructions(thread).cloned().collect(),
+                },
+                Track::Cpu.into(),
+                None,
+            ))
         });
 
     // Emit main thread instructions

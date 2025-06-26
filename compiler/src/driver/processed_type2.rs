@@ -209,6 +209,7 @@ impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
             constant_table: t2const_tab,
             constants_device,
             execution_devices: devices,
+            memory_statistics: statistics,
         })
     }
 

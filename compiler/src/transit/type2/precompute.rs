@@ -211,12 +211,16 @@ pub fn precompute<'s, Rt: RuntimeType>(
                                 Some("precompute points for msm".to_string()),
                                 t.clone(),
                             );
-                            let c = zkpoly_runtime::args::move_constant(
-                                c,
-                                DeviceType::Disk,
-                                allocator.deref_mut(),
-                                disk_allocator.as_deref_mut(),
-                            );
+                            let c = if let Some(disk_allocator) = disk_allocator.as_deref_mut() {
+                                zkpoly_runtime::args::move_constant(
+                                    c,
+                                    DeviceType::Disk,
+                                    allocator.deref_mut(),
+                                    Some(disk_allocator),
+                                )
+                            } else {
+                                c
+                            };
                             constant_tb.push(c)
                         })
                         .collect::<Vec<_>>();

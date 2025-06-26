@@ -4,18 +4,11 @@ use std::sync::{mpsc::Receiver, Arc};
 use zkpoly_common::{cpu_event::CpuEvent, heap};
 use zkpoly_cuda_api::stream::CudaEvent;
 
-use crate::debug::DebugInfoCollector;
-
 zkpoly_common::define_usize_id!(EventId);
 zkpoly_common::define_usize_id!(ThreadId);
 
 pub type EventTypeTable = heap::Heap<EventId, EventType>;
 pub type EventTable = heap::Heap<EventId, Event>;
-pub type ThreadTable = heap::Heap<ThreadId, Option<Receiver<Option<DebugInfoCollector>>>>;
-
-pub fn new_thread_table(len: usize) -> ThreadTable {
-    heap::Heap::repeat_with(|| (None), len)
-}
 
 #[derive(Clone, Serialize, Deserialize)]
 pub enum EventType {

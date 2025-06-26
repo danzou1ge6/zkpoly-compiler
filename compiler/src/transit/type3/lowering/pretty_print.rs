@@ -4,7 +4,7 @@ use zkpoly_runtime::{
     args::{RuntimeType, VariableId},
     functions::FunctionTable,
     instructions::{
-        instruction_label, labeled_mutable_uses, labeled_uses, static_args, stream, Instruction,
+        instruction_label, labeled_mutable_uses, labeled_uses, static_args, stream, Instruction, InstructionNode,
     },
 };
 
@@ -249,24 +249,24 @@ fn print_inst<Rt: RuntimeType>(
     v2s: &V2S,
     writer: &mut impl Write,
 ) -> std::io::Result<()> {
-    let id = match inst {
-        Instruction::Fork { new_thread, .. } => {
+    let id = match inst.node() {
+        InstructionNode::Fork { new_thread, .. } => {
             Some((format!("row-fork-{}", usize::from(*new_thread)), "row-fork"))
         }
-        Instruction::Join { thread, .. } => {
+        InstructionNode::Join { thread, .. } => {
             Some((format!("row-join-{}", usize::from(*thread)), "row-join"))
         }
-        Instruction::Record { event, .. } => {
+        InstructionNode::Record { event, .. } => {
             Some((format!("row-record-{}", usize::from(*event)), "row-record"))
         }
-        Instruction::Wait { event, .. } => {
+        InstructionNode::Wait { event, .. } => {
             Some((format!("row-wait-{}", usize::from(*event)), "row-wait"))
         }
         _ => None,
     };
 
-    let mutable_uses = labeled_mutable_uses(inst);
-    let uses = labeled_uses(inst);
+    let mutable_uses = labeled_mutable_uses(inst.node());
+    let uses = labeled_uses(inst.node());
 
     let classes: Vec<_> = id
         .as_ref()
@@ -297,9 +297,9 @@ fn print_inst<Rt: RuntimeType>(
         "    <td>{}</td>",
         t3idx.map_or_else(|| "".to_string(), |t3idx| format!("{}", usize::from(t3idx)))
     )?;
-    writeln!(writer, "    <td>{}</td>", instruction_label(inst, ftab))?;
+    writeln!(writer, "    <td>{}</td>", instruction_label(inst.node(), ftab))?;
 
-    if let Some(s) = stream(inst) {
+    if let Some(s) = stream(inst.node()) {
         writeln!(writer, "    <td>{}</td>", R(s, v2s))?;
     } else {
         writeln!(writer, "    <td></td>")?;
@@ -311,7 +311,7 @@ fn print_inst<Rt: RuntimeType>(
         LabeledVars::<RMut>::new(mutable_uses, v2s)
     )?;
 
-    if let Some(args) = static_args(inst) {
+    if let Some(args) = static_args(inst.node()) {
         writeln!(writer, "    <td>{}</td>", args)?;
     } else {
         writeln!(writer, "    <td>{}</td>", LabeledVars::<R>::new(uses, v2s))?;

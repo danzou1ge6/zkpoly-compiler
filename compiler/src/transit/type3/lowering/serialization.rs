@@ -1,4 +1,7 @@
-use crate::{ast::lowering::UserFunctionId, transit::type2::{self, object_analysis::size::{IntegralSize, LogBlockSizes}}};
+use crate::{
+    ast::lowering::UserFunctionId,
+    transit::type2::{self, object_analysis::size::LogBlockSizes},
+};
 
 use super::{kernel_gen::load_function, Chunk};
 use serde::{ser::SerializeStruct, Deserialize, Serialize};

@@ -84,7 +84,7 @@ pub mod auxiliary;
 pub mod planning;
 pub mod realization;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Statistics {
     pub realization_statistics: realization::machine::Statistics,
     pub disk_peak_usage: u64,

@@ -4,6 +4,7 @@ use crate::args::{ConstantId, EntryId, RuntimeType, VariableId};
 use crate::devices::{EventId, ThreadId};
 use crate::functions::{self, FunctionId};
 use serde::{Deserialize, Serialize};
+use zkpoly_common::define_usize_id;
 use zkpoly_common::devices::DeviceType;
 use zkpoly_common::typ::Typ;
 
@@ -46,8 +47,9 @@ impl std::fmt::Debug for AllocMethod {
     }
 }
 
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum Instruction {
+pub enum InstructionNode {
     Allocate {
         device: DeviceType,
         typ: Typ,
@@ -176,11 +178,83 @@ pub enum Instruction {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Track {
+    MemoryManagement,
+    CoProcess,
+    Gpu(usize),
+    Cpu,
+    ToGpu,
+    FromGpu,
+    GpuMemory(usize),
+    ToDisk,
+    FromDisk,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum Stream {
+    ToGpu,
+    FromGpu,
+    Gpu,
+    GpuMemory,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Instruction {
+    node: InstructionNode,
+    track: Track,
+    stream: Option<Stream>
+}
+
+impl Instruction {
+    pub fn new(node: InstructionNode, track: Track, stream: Option<Stream>) -> Self {
+        Self {
+            node,
+            track,
+            stream,
+        }
+    }
+
+    pub fn node(&self) -> &InstructionNode {
+        &self.node
+    }
+
+    pub fn node_mut(&mut self) -> &mut InstructionNode {
+        &mut self.node
+    }
+
+    pub fn track(&self) -> Track {
+        self.track
+    }
+
+    pub fn is_gpu(&self) -> bool {
+        self.stream.is_some()
+    }
+
+    /// The stream related to this instruction
+    pub fn stream(&self) -> Option<Stream> {
+        self.stream
+    }
+
+    /// Only returns some if this instruction need timing using stream
+    pub fn need_timing_stream(&self) -> Option<Stream> {
+        match self.node() {
+            // Allocating a stream is not timed using stream
+            InstructionNode::Allocate { .. } => None,
+            _ => self.stream()
+        }
+    }
+
+    pub fn unwrap_stream(&self) -> Stream {
+        self.stream.unwrap()
+    }
+}
+
 pub fn instruction_label<Rt: RuntimeType>(
-    inst: &Instruction,
+    inst: &InstructionNode,
     ftab: &functions::FunctionTable<Rt>,
 ) -> String {
-    use Instruction::*;
+    use InstructionNode::*;
     match inst {
         Allocate { device, .. } => format!("Allocate({:?})", device),
         Deallocate { .. } => "Deallocate".to_string(),
@@ -227,8 +301,8 @@ pub fn instruction_label<Rt: RuntimeType>(
     }
 }
 
-pub fn static_args(inst: &Instruction) -> Option<String> {
-    use Instruction::*;
+pub fn static_args(inst: &InstructionNode) -> Option<String> {
+    use InstructionNode::*;
     match inst {
         Allocate {
             typ, alloc_method, ..
@@ -243,8 +317,8 @@ pub fn static_args(inst: &Instruction) -> Option<String> {
     }
 }
 
-pub fn labeled_mutable_uses(inst: &Instruction) -> Vec<(VariableId, String)> {
-    use Instruction::*;
+pub fn labeled_mutable_uses(inst: &InstructionNode) -> Vec<(VariableId, String)> {
+    use InstructionNode::*;
     match inst {
         Allocate { id, .. } => vec![(*id, "".to_string())],
         Deallocate { id, .. } => vec![(*id, "".to_string())],
@@ -272,8 +346,8 @@ pub fn labeled_mutable_uses(inst: &Instruction) -> Vec<(VariableId, String)> {
     }
 }
 
-pub fn labeled_uses(inst: &Instruction) -> Vec<(VariableId, String)> {
-    use Instruction::*;
+pub fn labeled_uses(inst: &InstructionNode) -> Vec<(VariableId, String)> {
+    use InstructionNode::*;
     match inst {
         Allocate { .. } | Deallocate { .. } | RemoveRegister { .. } => vec![],
         Transfer { src_id, .. } => vec![(*src_id, "".to_string())],
@@ -301,8 +375,8 @@ pub fn labeled_uses(inst: &Instruction) -> Vec<(VariableId, String)> {
     }
 }
 
-pub fn stream(inst: &Instruction) -> Option<VariableId> {
-    use Instruction::*;
+pub fn stream(inst: &InstructionNode) -> Option<VariableId> {
+    use InstructionNode::*;
     match inst {
         Transfer { stream, .. }
         | Wait { stream, .. }
@@ -319,10 +393,10 @@ fn print_instructions_indented(
 ) -> std::io::Result<()> {
     let prefix = " ".repeat(spaces);
     for (idx, instruct) in instructions.iter().enumerate() {
-        if let Instruction::Fork {
+        if let InstructionNode::Fork {
             new_thread,
             instructions,
-        } = instruct
+        } = instruct.node()
         {
             writeln!(writer, "{}{}: Fork: {:?}", prefix, idx, new_thread)?;
             print_instructions_indented(instructions, spaces + 2, writer)?;

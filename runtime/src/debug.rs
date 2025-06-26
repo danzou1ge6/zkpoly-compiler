@@ -1,15 +1,246 @@
-use std::{collections::HashMap, time::Duration};
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Mutex, MutexGuard},
+    time::{Duration, Instant},
+};
 
-use crate::{devices::ThreadId, instructions::Instruction};
+use zkpoly_cuda_api::stream::{CudaEvent, CudaStream};
 
-#[derive(Clone, Debug)]
-pub struct DebugInfo {
-    pub instruction: Instruction,
-    pub start_duration: Duration, // Duration since the start of the program
-    pub end_duration: Duration, // Duration since the start of the program
+use crate::{
+    devices::ThreadId,
+    functions::FuncMeta,
+    instructions::{self, Instruction},
+};
+
+type StreamTable = BTreeMap<instructions::Stream, (CudaStream, CudaEvent)>;
+
+#[derive(Clone)]
+pub struct Writer {
+    sender: crossbeam_channel::Sender<Message>,
+    thread: ThreadId,
+    streams: Arc<Mutex<StreamTable>>,
+    run_begin_time: Instant,
 }
 
-pub struct DebugInfoCollector {
-    pub debug_info: Vec<DebugInfo>,
-    pub sub_thread_debug_info: HashMap<ThreadId, Box<DebugInfoCollector>>,
+enum RuntimeUptime {
+    Stream(CudaEvent),
+    Sync(Duration),
+}
+
+pub struct InstructionBeginGuard<'a> {
+    inst: Instruction,
+    /// Only some when the instruction is a kernel launch instruction
+    launch_guard: Option<MutexGuard<'a, StreamTable>>,
+    begin_uptime: RuntimeUptime,
+}
+
+impl Writer {
+    pub fn with_thread_id(self, thread: ThreadId) -> Self {
+        Self { thread, ..self }
+    }
+
+    fn stream_uptime(
+        &self,
+        guard: &MutexGuard<StreamTable>,
+        stream_number: instructions::Stream,
+    ) -> CudaEvent {
+        let (stream, stream_begin) = guard.get(&stream_number).unwrap();
+        let event = CudaEvent::new(stream_begin.get_device());
+        event.record(stream);
+        event
+    }
+
+    fn sync_uptime(&self) -> Duration {
+        let dur = Instant::now().duration_since(self.run_begin_time);
+        dur
+    }
+
+    pub fn begin_instruction<'a>(&'a self, inst: Instruction) -> InstructionBeginGuard<'a> {
+        if let Some(stream_number) = inst.need_timing_stream() {
+            let guard = self.streams.lock().unwrap();
+            let begin_uptime = self.stream_uptime(&guard, stream_number);
+
+            InstructionBeginGuard {
+                inst,
+                launch_guard: Some(guard),
+                begin_uptime: RuntimeUptime::Stream(begin_uptime),
+            }
+        } else {
+            let begin_uptime = self.sync_uptime();
+
+            InstructionBeginGuard {
+                inst,
+                launch_guard: None,
+                begin_uptime: RuntimeUptime::Sync(begin_uptime),
+            }
+        }
+    }
+
+    pub fn end_instruction(&self, ibg: InstructionBeginGuard<'_>, function_meta: Option<FuncMeta>) {
+        if let Some(guard) = ibg.launch_guard {
+            let end_uptime = self.stream_uptime(&guard, ibg.inst.unwrap_stream());
+
+            self.sender
+                .send(Message {
+                    thread: self.thread,
+                    node: MessageNode::InstructionExecuted(InstructionExecution {
+                        instruction: ibg.inst,
+                        start: ibg.begin_uptime,
+                        end: RuntimeUptime::Stream(end_uptime),
+                        function_meta,
+                    }),
+                })
+                .expect("channel closed");
+
+            drop(guard);
+        } else {
+            let end_uptime = self.sync_uptime();
+
+            self.sender
+                .send(Message {
+                    thread: self.thread,
+                    node: MessageNode::InstructionExecuted(InstructionExecution {
+                        instruction: ibg.inst,
+                        start: ibg.begin_uptime,
+                        end: RuntimeUptime::Sync(end_uptime),
+                        function_meta,
+                    }),
+                })
+                .expect("channel closed");
+        }
+    }
+
+    pub fn new_stream(
+        &self,
+        stream_number: instructions::Stream,
+        stream: CudaStream,
+        begin_event: CudaEvent,
+    ) {
+        self.streams
+            .lock()
+            .unwrap()
+            .insert(stream_number, (stream, begin_event));
+    }
+}
+
+pub struct Logger {
+    executed_instructions: Vec<InstructionExecution<RuntimeUptime>>,
+}
+
+impl Logger {
+    pub fn new() -> Self {
+        Self {
+            executed_instructions: Vec::new(),
+        }
+    }
+
+    pub fn spawn(self) -> LoggerHandle {
+        let (sender, receiver) = crossbeam_channel::unbounded::<Message>();
+        let handle = std::thread::spawn(move || {
+            let mut logger = self;
+            loop {
+                use MessageNode::*;
+                match receiver.recv().expect("channel closed").node {
+                    Terminate => break,
+                    InstructionExecuted(ie) => logger.executed_instructions.push(ie),
+                }
+            }
+            logger
+        });
+        LoggerHandle {
+            writer: Writer {
+                sender: sender,
+                thread: ThreadId::from(0),
+                streams: Arc::new(Mutex::new(BTreeMap::new())),
+                run_begin_time: Instant::now(),
+            },
+            join_handle: handle,
+        }
+    }
+}
+
+pub struct LoggerHandle {
+    join_handle: std::thread::JoinHandle<Logger>,
+    writer: Writer,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Log {
+    executed_instructions: Vec<InstructionExecution<Uptime>>,
+}
+
+impl LoggerHandle {
+    pub fn writer(&self) -> Writer {
+        self.writer.clone()
+    }
+
+    pub fn join(self) -> Log {
+        self.writer
+            .sender
+            .send(Message {
+                thread: ThreadId::from(0),
+                node: MessageNode::Terminate,
+            })
+            .expect("channel closed");
+
+        let logger = self.join_handle.join().expect("thread panicked");
+        Log {
+            executed_instructions: logger
+                .executed_instructions
+                .into_iter()
+                .map(|ie| {
+                    let stream_number = ie.instruction.stream();
+                    InstructionExecution {
+                        instruction: ie.instruction,
+                        start: ie.start.realize(&self.writer, stream_number),
+                        end: ie.end.realize(&self.writer, stream_number),
+                        function_meta: ie.function_meta,
+                    }
+                })
+                .collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Uptime {
+    nanos: u128,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InstructionExecution<U> {
+    instruction: Instruction,
+    start: U,
+    end: U,
+    function_meta: Option<FuncMeta>,
+}
+
+impl RuntimeUptime {
+    pub fn realize(self, writer: &Writer, stream_number: Option<instructions::Stream>) -> Uptime {
+        use RuntimeUptime::*;
+        match self {
+            Stream(event) => {
+                let guard = writer.streams.lock().unwrap();
+                let stream_begin = &guard.get(&stream_number.unwrap()).unwrap().1;
+                let t = event.elapsed(stream_begin);
+                Uptime {
+                    nanos: (t * 1e9) as u128,
+                }
+            }
+            Sync(dur) => Uptime {
+                nanos: dur.as_nanos(),
+            },
+        }
+    }
+}
+
+enum MessageNode {
+    InstructionExecuted(InstructionExecution<RuntimeUptime>),
+    Terminate,
+}
+
+struct Message {
+    thread: ThreadId,
+    node: MessageNode,
 }

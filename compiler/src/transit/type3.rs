@@ -52,7 +52,7 @@ impl Device {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DeviceSpecific<T> {
     pub gpu: Vec<T>,
     pub cpu: T,
@@ -312,6 +312,23 @@ pub enum Track {
     GpuMemory(usize),
     ToDisk,
     FromDisk,
+}
+
+impl From<Track> for zkpoly_runtime::instructions::Track {
+    fn from(track: Track) -> Self {
+        use Track::*;
+        match track {
+            MemoryManagement => Self::MemoryManagement,
+            CoProcess => Self::CoProcess,
+            Gpu(i) => Self::Gpu(i),
+            Cpu => Self::Cpu,
+            ToGpu => Self::ToGpu,
+            FromGpu => Self::FromGpu,
+            GpuMemory(i) => Self::GpuMemory(i),
+            ToDisk => Self::ToDisk,
+            FromDisk => Self::FromDisk,
+        }
+    }
 }
 
 impl Track {
