@@ -15,7 +15,9 @@ use nix::sys::{statfs, uio};
 use nix::unistd;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use zkpoly_cuda_api::bindings::{
-    cuFileHandleDeregister, cuFileRead, cuFileWrite, cudaSetDevice, CUfileDescr_t, CUfileHandle_t,
+    cuFileHandleDeregister, cuFileRead, cuFileWrite, cudaMemcpy,
+    cudaMemcpyKind_cudaMemcpyDeviceToHost, cudaMemcpyKind_cudaMemcpyHostToDevice, cudaSetDevice,
+    CUfileDescr_t, CUfileHandle_t,
 };
 use zkpoly_cuda_api::cuda_check;
 use zkpoly_cuda_api::file::register_cufile;
@@ -948,8 +950,120 @@ pub fn gpu_read_from_disk(
         });
 }
 
+pub fn gpu_write_to_disk_no_direct(
+    ptr: *const u8,
+    disk_pos: &Vec<DiskAllocInfo>,
+    size: usize,
+    device_id: i32,
+    temp_buffers: &Vec<*mut u8>, // temporary cpu buffer for transfer, may have multiple buffer for one disk for pipelining
+    temp_size: usize,
+) {
+    assert_eq!(temp_buffers.len(), disk_pos.len()); // no pipelining for now, one buffer per disk
+    let safe_ptr = SafePtr { ptr };
+    let part_size = size / disk_pos.len();
+    let temp_buffers = temp_buffers
+        .iter()
+        .map(|buf| SafePtrMut { ptr: *buf })
+        .collect::<Vec<_>>();
+    disk_pos
+        .par_iter()
+        .zip(temp_buffers.par_iter())
+        .enumerate()
+        .for_each(|(disk_id, (alloc_info, temp_buffer))| {
+            let safe_ptr_clone = safe_ptr.clone();
+            let ptr = safe_ptr_clone.ptr;
+            let mut offset = alloc_info.offset.clone();
+            let fd = alloc_info.fd.clone();
+            let mut gpu_offset = part_size * disk_id;
+
+            // as the os has limit on the size of one write call, we need to split the write into parts
+            let mut res_size = part_size;
+
+            while res_size > 0 {
+                let write_size = res_size.min(temp_size);
+                unsafe {
+                    cuda_check!(cudaSetDevice(device_id));
+                    cuda_check!(cudaMemcpy(
+                        temp_buffer.ptr.cast(),
+                        ptr.add(gpu_offset).cast(),
+                        write_size,
+                        cudaMemcpyKind_cudaMemcpyDeviceToHost
+                    ));
+                    let res = libc::pwrite(fd, temp_buffer.ptr.cast(), write_size, offset as i64);
+                    if res < write_size as isize {
+                        panic!(
+                            "Failed to write {} bytes to disk {} at offset {}: {}",
+                            write_size, disk_id, offset, res
+                        );
+                    }
+                }
+                res_size -= write_size;
+                offset += write_size;
+                gpu_offset += write_size;
+            }
+        });
+}
+
+pub fn gpu_read_from_disk_no_direct(
+    ptr: *mut u8,
+    disk_pos: &Vec<DiskAllocInfo>,
+    size: usize,
+    device_id: i32,
+    temp_buffers: &Vec<*mut u8>, // temporary cpu buffer for transfer, may have multiple buffer for one disk for pipelining
+    temp_size: usize,
+) {
+    let safe_ptr = SafePtrMut { ptr };
+    let part_size = size / disk_pos.len();
+    let temp_buffers = temp_buffers
+        .iter()
+        .map(|buf| SafePtrMut { ptr: *buf })
+        .collect::<Vec<_>>();
+
+    disk_pos
+        .par_iter()
+        .zip(temp_buffers.par_iter())
+        .enumerate()
+        .for_each(|(disk_id, (alloc_info, temp_buf))| {
+            let safe_ptr_clone = safe_ptr.clone();
+            let ptr = safe_ptr_clone.ptr;
+            let (fd, mut offset) = (alloc_info.fd.clone(), alloc_info.offset.clone());
+            let mut gpu_offset = part_size * disk_id;
+
+            // as the os has limit on the size of one read call, we need to split the read into parts
+            let mut res_size = part_size;
+            while res_size > 0 {
+                let read_size = res_size.min(temp_size);
+
+                unsafe {
+                    cuda_check!(cudaSetDevice(device_id));
+                    // Read into temporary buffer first
+                    let res = libc::pread(fd, temp_buf.ptr.cast(), read_size, offset as i64);
+                    if res < read_size as isize {
+                        panic!(
+                            "Failed to read {} bytes from disk {} at offset {}: {}",
+                            read_size, disk_id, offset, res
+                        );
+                    }
+                    // Then copy to GPU memory
+                    cuda_check!(cudaMemcpy(
+                        ptr.add(gpu_offset).cast(),
+                        temp_buf.ptr.cast(),
+                        read_size,
+                        cudaMemcpyKind_cudaMemcpyHostToDevice
+                    ));
+                }
+
+                offset += read_size;
+                gpu_offset += read_size;
+                res_size -= read_size;
+            }
+        });
+}
+
 #[cfg(test)]
 mod tests {
+    use zkpoly_cuda_api::{bindings::cuFileReadAsync, cufile_check};
+
     use super::*;
     use std::alloc::{alloc, dealloc, Layout};
 
@@ -1160,5 +1274,49 @@ mod tests {
         pool.deallocate(off1).unwrap();
         let off2 = pool.allocate(max_block_size).unwrap();
         pool.deallocate(off2).unwrap();
+    }
+
+    #[test]
+    fn test_cufile_async() {
+        // This test requires a CUDA-capable device and cuFile support.
+        // It should be run in an environment where cuFile is available.
+        let sys_align = 1024 * 1024 * 1024 * 10;
+        let max_block_size = sys_align * 4;
+        let mut pool = BuddyDiskPool::new(max_block_size, None).unwrap();
+
+        let mut alloc_size = sys_align * 2; // Request 2 minimum blocks
+        let offset = pool.allocate(alloc_size).unwrap();
+
+        let alloc_info = DiskAllocInfo::new(offset, &pool);
+        let stream = zkpoly_cuda_api::stream::CudaStream::new(0); // Assuming device 0 is available
+        let gpu_buffer = stream.allocate::<u8>(alloc_size);
+
+        let start = std::time::Instant::now();
+        let mut buf_offset = 0i64;
+        let mut bytes_read: isize = 0;
+        let mut offset_i = offset as i64;
+        let start = std::time::Instant::now();
+        // Write to GPU buffer
+        unsafe {
+            use zkpoly_cuda_api::bindings::CUfileOpError;
+            cufile_check!(cuFileReadAsync(
+                alloc_info.cu_file_handle,
+                gpu_buffer.cast(),
+                &mut alloc_size as *mut usize,
+                &mut offset_i as *mut i64,
+                &mut buf_offset as *mut i64,
+                &mut bytes_read as *mut isize,
+                stream.raw()
+            ));
+        }
+        let end_dispatch = std::time::Instant::now();
+        stream.sync(); // Wait for the read to complete
+        let end_sync = std::time::Instant::now();
+        println!(
+            "cuFile read async took: {:?} (dispatch) + {:?} (sync)",
+            end_dispatch.duration_since(start),
+            end_sync.duration_since(end_dispatch)
+        );
+        println!("Bytes read: {}", bytes_read);
     }
 }
