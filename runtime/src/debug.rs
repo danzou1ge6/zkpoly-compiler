@@ -4,6 +4,7 @@ use std::{
     sync::{Arc, Mutex, MutexGuard},
     time::{Duration, Instant},
 };
+use zkpoly_common::bijection::Bijection;
 
 use zkpoly_cuda_api::stream::{CudaEvent, CudaStream};
 
@@ -89,6 +90,7 @@ impl Writer {
                         start: ibg.begin_uptime,
                         end: RuntimeUptime::Stream(end_uptime),
                         function_meta,
+                        thread: self.thread,
                     }),
                 })
                 .expect("channel closed");
@@ -105,6 +107,7 @@ impl Writer {
                         start: ibg.begin_uptime,
                         end: RuntimeUptime::Sync(end_uptime),
                         function_meta,
+                        thread: self.thread,
                     }),
                 })
                 .expect("channel closed");
@@ -196,6 +199,7 @@ impl LoggerHandle {
                         start: ie.start.realize(&self.writer, stream_number),
                         end: ie.end.realize(&self.writer, stream_number),
                         function_meta: ie.function_meta,
+                        thread: ie.thread,
                     }
                 })
                 .collect(),
@@ -214,6 +218,7 @@ pub struct InstructionExecution<U> {
     start: U,
     end: U,
     function_meta: Option<FuncMeta>,
+    thread: ThreadId,
 }
 
 impl RuntimeUptime {
@@ -223,9 +228,9 @@ impl RuntimeUptime {
             Stream(event) => {
                 let guard = writer.streams.lock().unwrap();
                 let stream_begin = &guard.get(&stream_number.unwrap()).unwrap().1;
-                let t = event.elapsed(stream_begin);
+                let t = stream_begin.elapsed(&event);
                 Uptime {
-                    nanos: (t * 1e9) as u128,
+                    nanos: (t * 1e6) as u128,
                 }
             }
             Sync(dur) => Uptime {
@@ -243,4 +248,64 @@ enum MessageNode {
 struct Message {
     thread: ThreadId,
     node: MessageNode,
+}
+
+impl Log {
+    pub fn waterfall(&self) -> waterfall::Builder {
+        let mut builder = waterfall::Builder::new("Runtime Statistics".to_string());
+
+        let mut track_id_acc: usize = 0;
+        let track_ids = self
+            .executed_instructions
+            .iter()
+            .fold(Bijection::new(), |mut acc, ie| {
+                let track = ie.instruction.track();
+                if acc.get_forward(&track).is_none() {
+                    acc.insert(track, track_id_acc);
+                    track_id_acc += 1;
+                }
+                acc
+            });
+
+        let mut track_ids_list = track_ids.iter().collect::<Vec<_>>();
+        track_ids_list.sort_by_key(|(_, x)| **x);
+
+        track_ids_list
+            .into_iter()
+            .zip(waterfall::color_loop())
+            .for_each(|((track, _), color)| {
+                builder.add_category(waterfall::Category::new(
+                    format!("{:?}", track),
+                    color.to_string(),
+                ));
+            });
+
+        self.executed_instructions
+            .iter()
+            .enumerate()
+            .for_each(|(idx, ie)| {
+                let tid = track_ids.get_forward(&ie.instruction.track()).unwrap();
+
+                use instructions::InstructionNode::*;
+                match ie.instruction.node() {
+                    Wait { .. } | Record { .. } | Fork { .. } => {},
+                    _ => builder.add_entry(
+                        *tid,
+                        waterfall::Entry {
+                            id: format!("{}", idx),
+                            label: instructions::instruction_label_by_meta(
+                                ie.instruction.node(),
+                                ie.function_meta.as_ref(),
+                            ),
+                            start: ie.start.nanos,
+                            end: ie.end.nanos,
+                            success: true,
+                            worker: format!("Thread {}", usize::from(ie.thread)),
+                        },
+                    ),
+                };
+            });
+
+        builder
+    }
 }

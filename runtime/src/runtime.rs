@@ -18,7 +18,7 @@ use crate::{
     instructions::{Instruction, InstructionNode},
 };
 
-use zkpoly_cuda_api::{mem::CudaAllocator, stream::CudaEvent};
+use zkpoly_cuda_api::{bindings::cudaDeviceSynchronize, cuda_check, mem::CudaAllocator, stream::CudaEvent};
 
 use zkpoly_memory_pool::{static_allocator::CpuStaticAllocator, BuddyDiskPool};
 

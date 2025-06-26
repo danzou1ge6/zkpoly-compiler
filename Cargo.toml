@@ -9,4 +9,5 @@ members = [
     "core",
     "cytoscape_visualizer",
     "scheduler",
+    "waterfall",
 ]

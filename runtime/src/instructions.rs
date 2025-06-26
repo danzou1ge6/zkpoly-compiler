@@ -2,7 +2,7 @@ use std::io::Write;
 
 use crate::args::{ConstantId, EntryId, RuntimeType, VariableId};
 use crate::devices::{EventId, ThreadId};
-use crate::functions::{self, FunctionId};
+use crate::functions::{self, FuncMeta, FunctionId};
 use serde::{Deserialize, Serialize};
 use zkpoly_common::define_usize_id;
 use zkpoly_common::devices::DeviceType;
@@ -46,7 +46,6 @@ impl std::fmt::Debug for AllocMethod {
         }
     }
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum InstructionNode {
@@ -178,7 +177,7 @@ pub enum InstructionNode {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Track {
     MemoryManagement,
     CoProcess,
@@ -203,7 +202,7 @@ pub enum Stream {
 pub struct Instruction {
     node: InstructionNode,
     track: Track,
-    stream: Option<Stream>
+    stream: Option<Stream>,
 }
 
 impl Instruction {
@@ -241,7 +240,7 @@ impl Instruction {
         match self.node() {
             // Allocating a stream is not timed using stream
             InstructionNode::Allocate { .. } => None,
-            _ => self.stream()
+            _ => self.stream(),
         }
     }
 
@@ -256,6 +255,17 @@ pub fn instruction_label<Rt: RuntimeType>(
 ) -> String {
     use InstructionNode::*;
     match inst {
+        FuncCall { func_id, .. } => instruction_label_by_meta(inst, Some(&ftab[*func_id].meta)),
+        _ => instruction_label_by_meta(inst, None),
+    }
+}
+
+pub fn instruction_label_by_meta(
+    inst: &InstructionNode,
+    meta: Option<&FuncMeta>,
+) -> String {
+    use InstructionNode::*;
+    match inst {
         Allocate { device, .. } => format!("Allocate({:?})", device),
         Deallocate { .. } => "Deallocate".to_string(),
         RemoveRegister { .. } => "RemoveRegister".to_string(),
@@ -267,11 +277,7 @@ pub fn instruction_label<Rt: RuntimeType>(
             format!("Transfer({:?}->{:?})", src_device, dst_device)
         }
         FuncCall { func_id, .. } => {
-            format!(
-                "Call({}: {})",
-                usize::from(*func_id),
-                &ftab[*func_id].meta.name
-            )
+            format!("Call({}: {})", usize::from(*func_id), &meta.unwrap().name)
         }
         Wait { stream, .. } => {
             stream.map_or_else(|| format!("WaitThread"), |_| format!("WaitStream"))

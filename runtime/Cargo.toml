@@ -19,6 +19,7 @@ serde = { version = "1.0", features = ["derive"] }
 rayon = "1.10.0"
 libc = "0.2"
 scopeguard = "1.2.0"
+waterfall = { path = "../waterfall" }
 
 [dev-dependencies]
 zkpoly_core = { path = "../core" }

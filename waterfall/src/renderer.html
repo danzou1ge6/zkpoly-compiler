@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{title}}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #0f2027;
+            color: #fff;
+            padding: 10px;
+            min-height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            padding: 12px;
+            background: rgba(20, 30, 48, 0.9);
+            border-radius: 8px;
+            margin-bottom: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            min-width: 250px;
+            background: rgba(30, 40, 60, 0.7);
+            padding: 12px;
+            border-radius: 6px;
+        }
+
+        .control-group h3 {
+            margin-bottom: 8px;
+            font-size: 1rem;
+            color: #4facfe;
+        }
+
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .slider-container label {
+            min-width: 100px;
+            font-weight: 500;
+            font-size: 0.9rem;
+        }
+
+        input[type="range"] {
+            flex: 1;
+            height: 5px;
+            background: #4a4a6a;
+            border-radius: 3px;
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            background: #4facfe;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 0 8px rgba(79, 172, 254, 0.7);
+        }
+
+        .waterfall-container {
+            flex: 1;
+            position: relative;
+            background: rgba(10, 15, 30, 0.95);
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+            touch-action: none;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #timeline {
+            height: 30px;
+            background: rgba(20, 25, 45, 0.95);
+            border-bottom: 1px solid #4a4a6a;
+            position: relative;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+
+        #waterfall {
+            flex: 1;
+            overflow: auto;
+            position: relative;
+        }
+
+        #rows-container {
+            position: relative;
+        }
+
+        .row {
+            height: 35px;
+            border-bottom: 1px solid #2a2a4a;
+            position: relative;
+        }
+
+        .row-label {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 180px;
+            height: 100%;
+            padding: 0 12px;
+            display: flex;
+            align-items: center;
+            background: rgba(30, 35, 60, 0.9);
+            border-right: 1px solid #3a3a5a;
+            font-weight: 500;
+            font-size: 0.9rem;
+            z-index: 10;
+        }
+
+        .task {
+            position: absolute;
+            height: 25px;
+            top: 5px;
+            border-radius: 3px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: 500;
+            color: rgba(0, 0, 0, 0.8);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            padding: 0 6px;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .task:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
+            z-index: 20;
+        }
+
+        .tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 0.85rem;
+            pointer-events: none;
+            z-index: 100;
+            max-width: 280px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(10px);
+            display: none;
+            line-height: 1.4;
+        }
+
+        .loading-indicator {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 1rem;
+            color: #4facfe;
+            display: none;
+            z-index: 1000;
+        }
+
+        .stats {
+            position: absolute;
+            top: 5px;
+            right: 8px;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 5px 12px;
+            border-radius: 15px;
+            font-size: 0.8rem;
+            z-index: 50;
+        }
+
+        .zoom-info {
+            position: absolute;
+            top: 5px;
+            left: 8px;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 5px 12px;
+            border-radius: 15px;
+            font-size: 0.8rem;
+            z-index: 50;
+        }
+
+        .drag-instruction {
+            position: absolute;
+            bottom: 5px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.5);
+            padding: 3px 12px;
+            border-radius: 15px;
+            font-size: 0.75rem;
+            z-index: 50;
+            color: #a0a0c0;
+        }
+
+        .type-selector {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            padding: 8px 0;
+        }
+
+        .type-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            padding: 4px 10px;
+            background: rgba(40, 50, 80, 0.7);
+            border-radius: 15px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .type-item:hover {
+            background: rgba(60, 80, 120, 0.8);
+        }
+
+        .type-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 3px;
+        }
+
+        .type-item.active {
+            background: #4facfe;
+            color: #000;
+            font-weight: 500;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="controls">
+        <div class="control-group">
+            <h3>缩放控制</h3>
+            <div class="slider-container">
+                <label for="zoom">时间缩放:</label>
+                <input type="range" id="zoom" min="0" max="11" value="1" step="0.05">
+                <span id="zoom-value">10</span>
+            </div>
+            <div class="slider-container">
+                <label for="offset">时间偏移:</label>
+                <input type="range" id="offset" min="0" max="100" value="0">
+                <span id="offset-value">0%</span>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <h3>显示设置</h3>
+            <div class="slider-container">
+                <label for="row-height">行高度:</label>
+                <input type="range" id="row-height" min="20" max="60" value="35">
+                <span id="row-height-value">35px</span>
+            </div>
+            <div class="slider-container">
+                <label for="min-duration">最小任务宽度:</label>
+                <input type="range" id="min-duration" min="1" max="20" value="4">
+                <span id="min-duration-value">4px</span>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <h3>任务类型</h3>
+            <div class="type-selector" id="type-selector">
+                <!-- 类型将通过JavaScript动态生成 -->
+            </div>
+        </div>
+    </div>
+
+    <div class="waterfall-container" id="waterfall-container">
+        <div id="timeline">
+        </div>
+        <div id="waterfall">
+            <div id="rows-container"></div>
+            <div class="loading-indicator" id="loading">加载中...</div>
+        </div>
+    </div>
+
+    <div class="tooltip" id="tooltip"></div>
+
+    <script>
+        // 集中定义任务类型
+        /* const TASK_TYPES = [
+            { id: 1, name: "API请求", color: "#4facfe" },
+            { id: 2, name: "数据库查询", color: "#a6c0fe" },
+            { id: 3, name: "文件处理", color: "#f093fb" },
+            { id: 4, name: "网络传输", color: "#f5576c" },
+            { id: 5, name: "数据处理", color: "#5ee7df" },
+            { id: 6, name: "缓存读取", color: "#38ef7d" },
+            { id: 7, name: "计算任务", color: "#f6d365" },
+            { id: 8, name: "日志记录", color: "#a8edea" }
+        ]; */
+        {{categories}}
+
+        const formatter = Intl.NumberFormat('en-US', {
+            maximumFractionDigits: 0
+        });
+
+
+        // 瀑布图渲染器类
+        class WaterfallRenderer {
+            constructor(containerId, timelineId, waterfallId, taskGroups) {
+                this.container = document.getElementById(containerId);
+                this.timeline = document.getElementById(timelineId);
+                this.waterfall = document.getElementById(waterfallId);
+                this.rowsContainer = document.getElementById('rows-container');
+                this.loadingIndicator = document.getElementById('loading');
+                this.typeSelector = document.getElementById('type-selector');
+                this.taskGroups = taskGroups; // 任务分组（按类型）
+                this.rowHeight = 35;
+                this.visibleDuration = 10;
+                this.timeOffset = 0;
+                this.minTime = 0;
+                this.maxTime = 0;
+                this.dragging = false;
+                this.lastX = 0;
+                this.scrollPos = 0;
+                this.minTaskWidth = 4;
+                this.dragStartX = 0;
+                this.dragStartOffset = 0;
+                this.activeTypes = new Set(TASK_TYPES.map(t => t.id));
+                
+                this.init();
+            }
+
+            init() {
+                // 生成模拟数据
+                
+                // 初始化类型选择器
+                this.setupTypeSelector();
+
+                // 计算时间范围
+                this.calculateTimeRange();
+
+                // 初始化事件监听
+                this.setupEventListeners();
+
+                // 初始渲染
+                this.render();
+            }
+
+            setupTypeSelector() {
+                TASK_TYPES.forEach(type => {
+                    const typeItem = document.createElement('div');
+                    typeItem.className = 'type-item active';
+                    typeItem.dataset.typeId = type.id;
+
+                    const colorBox = document.createElement('div');
+                    colorBox.className = 'type-color';
+                    colorBox.style.background = type.color;
+
+                    const nameSpan = document.createElement('span');
+                    nameSpan.textContent = type.name;
+
+                    typeItem.appendChild(colorBox);
+                    typeItem.appendChild(nameSpan);
+
+                    typeItem.addEventListener('click', () => {
+                        if (this.activeTypes.has(type.id)) {
+                            this.activeTypes.delete(type.id);
+                            typeItem.classList.remove('active');
+                        } else {
+                            this.activeTypes.add(type.id);
+                            typeItem.classList.add('active');
+                        }
+                        this.render();
+                    });
+
+                    this.typeSelector.appendChild(typeItem);
+                });
+            }
+
+            generateWaterfallData() {
+                this.taskGroups = [];
+                const now = Date.now();
+                
+                // 为每种类型生成任务
+                TASK_TYPES.forEach(type => {
+                    const tasks = [];
+                    const taskCount = 150 + Math.floor(Math.random() * 50); // 每种类型150-200个任务
+                    
+                    for (let i = 0; i < taskCount; i++) {
+                        const duration = Math.random() * 5000 + 100; // 任务时长在100ms-5s之间
+                        const start = now - 24 * 60 * 60 * 1000 + Math.random() * 48 * 60 * 60 * 1000;
+                        
+                        tasks.push({
+                            id: `task_${type.id}_${i}`,
+                            typeId: type.id,
+                            name: `${type.name} #${i+1}`,
+                            start: start,
+                            end: start + duration,
+                            color: type.color,
+                            metadata: {
+                                status: Math.random() > 0.2 ? "success" : "failed",
+                                duration: duration.toFixed(2) + "ms",
+                                worker: `Worker #${Math.floor(Math.random() * 8) + 1}`
+                            }
+                        });
+                    }
+                    
+                    this.taskGroups.push({
+                        type: type,
+                        tasks: tasks
+                    });
+                });
+            }
+
+            calculateTimeRange() {
+                // 收集所有任务的时间
+                const allTasks = this.taskGroups.flatMap(group => group.tasks);
+                this.minTime = Math.min(...allTasks.map(t => t.start));
+                this.maxTime = Math.max(...allTasks.map(t => t.end));
+
+                // 增加10%的边界
+                const range = this.maxTime - this.minTime;
+                this.minTime -= range * 0.1;
+                this.maxTime += range * 0.1;
+            }
+
+            setupEventListeners() {
+                // 行高控制
+                document.getElementById('row-height').addEventListener('input', (e) => {
+                    this.rowHeight = parseInt(e.target.value);
+                    document.getElementById('row-height-value').textContent = `${this.rowHeight}px`;
+                    this.render();
+                });
+
+                // 缩放控制
+                document.getElementById('zoom').addEventListener('input', (e) => {
+                    this.visibleDuration = Math.pow(10, parseFloat(e.target.value));
+                    let formattedDuration = formatter.format(this.visibleDuration);
+
+                    document.getElementById('zoom-value').textContent = `${formattedDuration}`;
+                    this.render();
+                });
+
+                // 时间偏移控制
+                document.getElementById('offset').addEventListener('input', (e) => {
+                    this.timeOffset = parseInt(e.target.value);
+                    document.getElementById('offset-value').textContent = `${this.timeOffset}%`;
+                    this.render();
+                });
+
+                // 最小任务宽度控制
+                document.getElementById('min-duration').addEventListener('input', (e) => {
+                    this.minTaskWidth = parseInt(e.target.value);
+                    document.getElementById('min-duration-value').textContent = `${this.minTaskWidth}px`;
+                    this.render();
+                });
+
+                // 拖拽事件
+                this.container.addEventListener('mousedown', this.startDrag.bind(this));
+                this.container.addEventListener('touchstart', this.startDragTouch.bind(this), { passive: false });
+
+                document.addEventListener('mousemove', this.handleDrag.bind(this));
+                document.addEventListener('touchmove', this.handleDragTouch.bind(this), { passive: false });
+
+                document.addEventListener('mouseup', this.endDrag.bind(this));
+                document.addEventListener('touchend', this.endDrag.bind(this));
+
+                // 滚动事件（懒加载）
+                this.waterfall.addEventListener('scroll', this.handleScroll.bind(this));
+
+                // 窗口大小变化时重新渲染
+                window.addEventListener('resize', () => {
+                    this.render();
+                });
+            }
+
+            startDrag(e) {
+                this.dragging = true;
+                this.lastX = e.clientX;
+                this.dragStartX = e.clientX;
+                this.dragStartOffset = this.timeOffset;
+                this.container.style.cursor = 'grabbing';
+                e.preventDefault();
+            }
+
+            startDragTouch(e) {
+                if (e.touches.length === 1) {
+                    this.dragging = true;
+                    this.lastX = e.touches[0].clientX;
+                    this.dragStartX = e.touches[0].clientX;
+                    this.dragStartOffset = this.timeOffset;
+                    this.container.style.cursor = 'grabbing';
+                    e.preventDefault();
+                }
+            }
+
+            handleDrag(e) {
+                if (!this.dragging) return;
+
+                const clientX = e.clientX;
+                const deltaX = clientX - this.lastX;
+                this.lastX = clientX;
+
+                this.updateOffset(deltaX);
+                e.preventDefault();
+            }
+
+            handleDragTouch(e) {
+                if (!this.dragging || e.touches.length !== 1) return;
+
+                const clientX = e.touches[0].clientX;
+                const deltaX = clientX - this.lastX;
+                this.lastX = clientX;
+
+                this.updateOffset(deltaX);
+                e.preventDefault();
+            }
+
+            updateOffset(deltaX) {
+                // 计算时间偏移百分比
+                const containerWidth = this.container.clientWidth;
+                const offsetPercentage = -(deltaX / containerWidth) * 100 * this.visibleDuration / (this.maxTime - this.minTime);
+
+                // 更新偏移量（限制在0-100之间）
+                this.timeOffset = Math.max(0, Math.min(100, this.timeOffset + offsetPercentage));
+                document.getElementById('offset').value = this.timeOffset;
+                document.getElementById('offset-value').textContent = `${Math.round(this.timeOffset)}%`;
+
+                this.render();
+            }
+
+            endDrag() {
+                this.dragging = false;
+                this.container.style.cursor = 'default';
+            }
+
+            handleScroll(e) {
+                this.scrollPos = this.waterfall.scrollTop;
+                this.render();
+            }
+
+            render() {
+                // 显示加载指示器
+                this.loadingIndicator.style.display = 'block';
+
+                // 使用requestAnimationFrame优化渲染
+                requestAnimationFrame(() => {
+                    this.renderTimeline();
+                    this.renderTasks();
+
+                    // 隐藏加载指示器
+                    this.loadingIndicator.style.display = 'none';
+                });
+            }
+
+            renderTimeline() {
+                this.timeline.innerHTML = '';
+
+                const width = this.timeline.clientWidth;
+                const visibleDuration = this.visibleDuration;
+                const startTime = this.minTime + (this.timeOffset / 100) * (this.maxTime - this.minTime - visibleDuration);
+                const endTime = startTime + visibleDuration;
+
+                // 计算合适的时间间隔
+                const totalDuration = endTime - startTime;
+                const targetDivisions = 10;
+                const interval = this.calculateTimeInterval(totalDuration, targetDivisions);
+
+                // 绘制时间线
+                for (let time = startTime; time <= endTime; time += interval) {
+                    const position = ((time - startTime) / visibleDuration) * width;
+                    const timeLabel = formatter.format(time);
+
+                    const tick = document.createElement('div');
+                    tick.className = 'timeline-tick';
+                    tick.style.position = 'absolute';
+                    tick.style.left = `${position}px`;
+                    tick.style.height = '100%';
+                    tick.style.width = '1px';
+                    tick.style.background = 'rgba(255, 255, 255, 0.3)';
+
+                    const label = document.createElement('div');
+                    label.className = 'timeline-label';
+                    label.textContent = timeLabel;
+                    label.style.position = 'absolute';
+                    label.style.left = `${position + 5}px`;
+                    label.style.bottom = '5px';
+                    label.style.color = '#a0a0c0';
+                    label.style.fontSize = '11px';
+
+                    this.timeline.appendChild(tick);
+                    this.timeline.appendChild(label);
+                }
+            }
+
+            calculateTimeInterval(totalDuration, targetDivisions) {
+                const baseIntervals = [1, 10, 50, 100, 500, 1000, 5000, 10000, 50000, 100000, 500000, 1000000, 5000000, 10000000, 50000000, 100000000, 500000000, 1000000000, 5000000000];
+                const targetInterval = totalDuration / targetDivisions;
+
+                // 找到最接近的间隔
+                for (const interval of baseIntervals) {
+                    if (interval >= targetInterval) {
+                        return interval;
+                    }
+                }
+
+                return baseIntervals[baseIntervals.length - 1];
+            }
+
+            renderTasks() {
+                const container = this.waterfall;
+                const height = container.clientHeight;
+                const width = container.clientWidth;
+
+                // 计算可见区域
+                const visibleDuration = this.visibleDuration;
+                const startTime = this.minTime + (this.timeOffset / 100) * (this.maxTime - this.minTime - visibleDuration);
+                const endTime = startTime + visibleDuration;
+
+                // 过滤活跃的类型
+                const activeGroups = this.taskGroups.filter(group => this.activeTypes.has(group.type.id));
+
+                // 计算可见行范围
+                const startRow = Math.floor(this.scrollPos / this.rowHeight);
+                const visibleRowCount = Math.ceil(height / this.rowHeight) + 1;
+                const endRow = Math.min(activeGroups.length, startRow + visibleRowCount);
+
+                // 清除现有行
+                this.rowsContainer.innerHTML = '';
+
+                // 设置容器高度（用于滚动）
+                this.rowsContainer.style.height = `${activeGroups.length * this.rowHeight}px`;
+
+                // 渲染可见行
+                for (let i = startRow; i < endRow; i++) {
+                    const group = activeGroups[i];
+
+                    // 创建行容器
+                    const row = document.createElement('div');
+                    row.className = 'row';
+                    row.style.height = `${this.rowHeight}px`;
+                    row.style.top = `${i * this.rowHeight}px`;
+
+                    // 添加行标签
+                    const label = document.createElement('div');
+                    label.className = 'row-label';
+                    label.textContent = group.type.name;
+                    label.style.background = group.type.color.replace(')', ', 0.7)').replace('rgb', 'rgba');
+                    row.appendChild(label);
+
+                    // 渲染该类型的所有任务（仅当前时间范围内的）
+                    group.tasks.forEach(task => {
+                        if (task.start <= endTime && task.end >= startTime) {
+                            const taskElement = document.createElement('div');
+                            taskElement.className = 'task';
+                            taskElement.textContent = task.name;
+                            taskElement.style.background = task.color;
+
+                            // 计算任务位置和宽度 - 修复位置计算问题
+                            const left = (Math.max(task.start - startTime, 0) / visibleDuration) * width;
+                            const taskWidth = ((task.end - Math.max(task.start, startTime)) / visibleDuration) * width;
+                            
+                            // 确保任务位置正确，即使开始时间在可视区域外
+                            taskElement.style.left = `${left}px`;
+                            taskElement.style.width = `${Math.max(this.minTaskWidth, taskWidth)}px`;
+                            
+                            // 如果任务部分在可视区域外，设置合适的可见区域
+                            // if (left < 0) {
+                            //     taskElement.style.clipPath = `inset(0 ${-left}px 0 0)`;
+                            // } else if (left + taskWidth > width) {
+                            //     const overflow = left + taskWidth - width;
+                            //     taskElement.style.clipPath = `inset(0 0 0 ${overflow}px)`;
+                            // } else {
+                            //     taskElement.style.clipPath = '';
+                            // }
+
+                            // 添加悬停提示
+                            taskElement.addEventListener('mousemove', (e) => {
+                                const tooltip = document.getElementById('tooltip');
+                                tooltip.innerHTML = `
+                                    <div><strong>${task.name}</strong></div>
+                                    <div>类型: ${group.type.name}</div>
+                                    <div>开始: ${formatter.format(task.start)}</div>
+                                    <div>结束: ${formatter.format(task.end)}</div>
+                                    <div>耗时: ${task.metadata.duration}</div>
+                                    <div>状态: <span style="color:${task.metadata.status === 'success' ? '#4caf50' : '#f44336'}">${task.metadata.status}</span></div>
+                                    <div>执行者: ${task.metadata.worker}</div>
+                                `;
+                                tooltip.style.display = 'block';
+                                tooltip.style.left = `${e.pageX + 15}px`;
+                                tooltip.style.top = `${e.pageY + 15}px`;
+                            });
+
+                            taskElement.addEventListener('mouseleave', () => {
+                                document.getElementById('tooltip').style.display = 'none';
+                            });
+
+                            row.appendChild(taskElement);
+                        }
+                    });
+
+                    this.rowsContainer.appendChild(row);
+                }
+
+                // 恢复滚动位置
+                this.waterfall.scrollTop = this.scrollPos;
+            }
+        }
+
+
+        {{data}}
+
+        // 初始化瀑布图渲染器
+        document.addEventListener('DOMContentLoaded', () => {
+            const waterfall = new WaterfallRenderer('waterfall-container', 'timeline', 'waterfall', taskGroups);
+        });
+    </script>
+</body>
+
+</html>
