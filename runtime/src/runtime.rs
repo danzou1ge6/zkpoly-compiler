@@ -18,7 +18,7 @@ use crate::{
     instructions::{Instruction, InstructionNode},
 };
 
-use zkpoly_cuda_api::{bindings::cudaDeviceSynchronize, cuda_check, mem::CudaAllocator, stream::CudaEvent};
+use zkpoly_cuda_api::{bindings::cudaDeviceSynchronize, cuda_check, mem::CudaAllocator, stream::{CudaEvent, CudaEventRaw}};
 
 use zkpoly_memory_pool::{static_allocator::CpuStaticAllocator, BuddyDiskPool};
 
@@ -252,7 +252,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     );
 
                     if let Typ::Stream = &typ {
-                        let event = CudaEvent::new((self.gpu_mapping)(device.unwrap_gpu()));
+                        let event = CudaEventRaw::new();
                         let stream = var.unwrap_stream();
                         event.record(stream);
                         self.debug_writer.new_stream(

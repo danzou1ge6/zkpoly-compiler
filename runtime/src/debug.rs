@@ -6,7 +6,7 @@ use std::{
 };
 use zkpoly_common::bijection::Bijection;
 
-use zkpoly_cuda_api::stream::{CudaEvent, CudaStream};
+use zkpoly_cuda_api::stream::{CudaEventRaw, CudaStream};
 
 use crate::{
     devices::ThreadId,
@@ -14,7 +14,7 @@ use crate::{
     instructions::{self, Instruction},
 };
 
-type StreamTable = BTreeMap<instructions::Stream, (CudaStream, CudaEvent)>;
+type StreamTable = BTreeMap<instructions::Stream, (CudaStream, CudaEventRaw, Instant)>;
 
 #[derive(Clone)]
 pub struct Writer {
@@ -25,7 +25,7 @@ pub struct Writer {
 }
 
 enum RuntimeUptime {
-    Stream(CudaEvent),
+    Stream(CudaEventRaw),
     Sync(Duration),
 }
 
@@ -45,9 +45,9 @@ impl Writer {
         &self,
         guard: &MutexGuard<StreamTable>,
         stream_number: instructions::Stream,
-    ) -> CudaEvent {
-        let (stream, stream_begin) = guard.get(&stream_number).unwrap();
-        let event = CudaEvent::new(stream_begin.get_device());
+    ) -> CudaEventRaw {
+        let (stream, _stream_begin, _) = guard.get(&stream_number).unwrap();
+        let event = CudaEventRaw::new();
         event.record(stream);
         event
     }
@@ -118,12 +118,12 @@ impl Writer {
         &self,
         stream_number: instructions::Stream,
         stream: CudaStream,
-        begin_event: CudaEvent,
+        begin_event: CudaEventRaw,
     ) {
         self.streams
             .lock()
             .unwrap()
-            .insert(stream_number, (stream, begin_event));
+            .insert(stream_number, (stream, begin_event, Instant::now()));
     }
 }
 
@@ -227,10 +227,14 @@ impl RuntimeUptime {
         match self {
             Stream(event) => {
                 let guard = writer.streams.lock().unwrap();
-                let stream_begin = &guard.get(&stream_number.unwrap()).unwrap().1;
+                let (_, stream_begin, stream_begin_instant) =
+                    &guard.get(&stream_number.unwrap()).unwrap();
                 let t = stream_begin.elapsed(&event);
                 Uptime {
-                    nanos: (t * 1e6) as u128,
+                    nanos: (t * 1e6) as u128
+                        + stream_begin_instant
+                            .duration_since(writer.run_begin_time)
+                            .as_nanos(),
                 }
             }
             Sync(dur) => Uptime {
@@ -288,7 +292,7 @@ impl Log {
 
                 use instructions::InstructionNode::*;
                 match ie.instruction.node() {
-                    Wait { .. } | Record { .. } | Fork { .. } => {},
+                    Wait { .. } | Record { .. } | Fork { .. } => {}
                     _ => builder.add_entry(
                         *tid,
                         waterfall::Entry {
@@ -301,6 +305,7 @@ impl Log {
                             end: ie.end.nanos,
                             success: true,
                             worker: format!("Thread {}", usize::from(ie.thread)),
+                            content: format!("{:?}", &ie.instruction),
                         },
                     ),
                 };

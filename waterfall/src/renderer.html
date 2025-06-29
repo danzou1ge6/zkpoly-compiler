@@ -422,6 +422,7 @@
                             end: start + duration,
                             color: type.color,
                             metadata: {
+                                content: `Task ${i+1} of type ${type.name}`,
                                 status: Math.random() > 0.2 ? "success" : "failed",
                                 duration: duration.toFixed(2) + "ms",
                                 worker: `Worker #${Math.floor(Math.random() * 8) + 1}`
@@ -709,6 +710,7 @@
                                     <div>耗时: ${task.metadata.duration}</div>
                                     <div>状态: <span style="color:${task.metadata.status === 'success' ? '#4caf50' : '#f44336'}">${task.metadata.status}</span></div>
                                     <div>执行者: ${task.metadata.worker}</div>
+                                    <div>详情: ${task.metadata.content}</div>
                                 `;
                                 tooltip.style.display = 'block';
                                 tooltip.style.left = `${e.pageX + 15}px`;

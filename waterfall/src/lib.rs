@@ -39,6 +39,7 @@ pub struct Entry {
     pub end: u128,
     pub success: bool,
     pub worker: String,
+    pub content: String,
 }
 
 #[derive(Debug, Clone)]
@@ -121,7 +122,7 @@ impl Builder {
 
             writeln!(
                 writer,
-                "    {{ id: \"{}\", typeId: {}, name: \"{}\", start: {}, end: {}, color: \"{}\", metadata: {{ status: \"{}\", duration: \"{}\", worker: \"{}\" }} }},",
+                "    {{ id: \"{}\", typeId: {}, name: \"{}\", start: {}, end: {}, color: \"{}\", metadata: {{ status: \"{}\", duration: \"{}\", worker: \"{}\", content: \"{}\" }} }},",
                 entry.id,
                 i,
                 entry.label,
@@ -130,7 +131,8 @@ impl Builder {
                 self.categories[i].color,
                 status,
                 entry.end - entry.start,
-                entry.worker
+                entry.worker,
+                entry.content
             )?;
         }
 

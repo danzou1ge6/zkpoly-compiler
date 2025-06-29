@@ -108,7 +108,7 @@ impl CudaEventRaw {
         self.event
     }
 
-    pub fn elapsed(&self, other: &CudaEvent) -> f32 {
+    pub fn elapsed(&self, other: &CudaEventRaw) -> f32 {
         let mut elapsed: f32 = 0.0;
         unsafe {
             cuda_check!(cudaEventElapsedTime(&mut elapsed, self.event, other.event));
@@ -256,6 +256,9 @@ unsafe impl Sync for CudaStream {}
 
 unsafe impl Send for CudaEvent {}
 unsafe impl Sync for CudaEvent {}
+
+unsafe impl Send for CudaEventRaw {}
+unsafe impl Sync for CudaEventRaw {}
 
 #[test]
 fn test_cuda_stream() {
