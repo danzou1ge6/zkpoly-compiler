@@ -346,15 +346,15 @@ where
 
                 machine.emit(Operation::Type2(vid, outputs, node, temps.clone(), src));
 
-                // Deallocate temporary spaces right away, for clearity
-                temps.first()
-                    .map(|rv| {
-                        if planning!(rv.device()) {
-                            assert!(rv.pointer().is_some());
-                            allocators.handle(rv.device(), machine, aux)
-                                .deallocate(&rv.object_id());
-                        }
-                    });
+                // We are not deallocating temporary memories right away to allow double buffering
+                // temps.first()
+                //     .map(|rv| {
+                //         if planning!(rv.device()) {
+                //             assert!(rv.pointer().is_some());
+                //             allocators.handle(rv.device(), machine, aux)
+                //                 .deallocate(&rv.object_id());
+                //         }
+                //     });
             }
             Clone(new_object, device, sliced_object, slice) if planning_or_unplanned!(device) => {
 
@@ -617,10 +617,12 @@ where
         }
 
         // For objects that will not be used on any unplanned devices nor any planning devices,
-        // deallocate them on all planning and unplanned devices
+        // deallocate them on all planning and unplanned devices that have no parents.
+        // This is because we hope to delay deallocations so that next immediate computation
+        // does not depend on result of previous one, if no data dependency exists.
         for (object, _) in object_uses {
             if aux.dead(object) {
-                for d in planning_devices.iter().chain(unplanned_devices.iter()) {
+                for d in planning_devices.iter().chain(unplanned_devices.iter()).filter(|d| d.parent().is_none()) {
                     if allocators
                         .handle(*d, machine, aux)
                         .completeness(object)
@@ -632,6 +634,12 @@ where
                     }
                 }
             }
+        }
+
+        // Some objects' next use may have been set to its trailing use,
+        // and we must manually flush their next use after trailing use ends.
+        for (object, device) in aux.to_update_trailing_uses() {
+            let _ = allocators.handle(device, machine, aux).access(&object);
         }
     }
 

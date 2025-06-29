@@ -88,6 +88,15 @@ impl<T> DeviceSpecific<T> {
         }
     }
 
+    pub fn map_with_device<U>(self, mut f: impl FnMut(Device, T) -> U) -> DeviceSpecific<U> {
+        DeviceSpecific {
+            gpu: self.gpu.into_iter().enumerate().map(|(i, t)| f(Device::Gpu(i), t)).collect(),
+            cpu: (&mut f)(Device::Cpu, self.cpu),
+            stack: f(Device::Stack, self.stack),
+            disk: f(Device::Stack, self.disk),
+        }
+    }
+
     pub fn default(n_gpus: usize) -> Self
     where
         T: Default,

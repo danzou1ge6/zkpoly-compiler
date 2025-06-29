@@ -1,4 +1,5 @@
 #![allow(type_alias_bounds)]
+#![feature(btree_cursors)]
 
 pub mod ast;
 pub mod driver;
