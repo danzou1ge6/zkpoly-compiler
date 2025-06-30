@@ -126,13 +126,14 @@ where
     }
 }
 
-pub struct InvTopologyIterator<'g, I, V> {
+pub struct OwnInvTopologyIterator<'g, I, V> {
     g: &'g Digraph<I, V>,
     deg: Heap<I, usize>,
     queue: VecDeque<I>,
+    predecessors: Heap<I, BTreeSet<I>>,
 }
 
-impl<'g, I, V> Iterator for InvTopologyIterator<'g, I, V>
+impl<'g, I, V> Iterator for OwnInvTopologyIterator<'g, I, V>
 where
     I: UsizeId,
     V: Predecessors<I>,
@@ -140,7 +141,7 @@ where
     type Item = (I, &'g V);
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(i) = self.queue.pop_front() {
-            for pred in self.g.vertex(i).predecessors() {
+            for pred in self.predecessors[i].iter().cloned() {
                 self.deg[pred] -= 1;
                 if self.deg[pred] == 0 {
                     self.queue.push_back(pred)
@@ -152,6 +153,8 @@ where
         }
     }
 }
+
+pub type Successors<I> = Heap<I, BTreeSet<I>>;
 
 impl<I, V> Digraph<I, V>
 where
@@ -240,6 +243,13 @@ where
         deg
     }
 
+    /// Predecessors of each vertex, not counting multiedges
+    pub fn predecessors_no_multiedge(&self) -> Heap<I, BTreeSet<I>> {
+        self.0
+            .map_by_ref(&mut |_, v| v.predecessors().collect::<BTreeSet<_>>())
+    }
+
+    /// Successors of each vertex, not counting multiedges
     pub fn successors(&self) -> Heap<I, BTreeSet<I>> {
         let mut succ = Heap::repeat(BTreeSet::new(), self.order());
         for (vid, v) in self.0.iter_with_id() {
@@ -294,10 +304,11 @@ where
             .iter_with_id()
             .filter_map(|(id, d)| if *d == 0 { Some(id) } else { None })
             .collect();
-        InvTopologyIterator {
+        OwnInvTopologyIterator {
             g: self,
             deg,
             queue,
+            predecessors: self.predecessors_no_multiedge(),
         }
     }
 }
@@ -338,9 +349,11 @@ impl<I, V> Digraph<I, V> {
     }
 }
 
+/// A subgraph of a digraph
 pub struct SubDigraph<'g, I, V> {
     g: &'g Digraph<I, V>,
     selector: Heap<I, bool>,
+    /// Only contains successors in the subgraph
     successors: Heap<I, BTreeSet<I>>,
     order: usize,
     degrees_in: Heap<I, usize>,
@@ -379,6 +392,7 @@ where
         let deg = self.degrees_in.clone();
         let queue: VecDeque<I> = deg
             .iter_with_id()
+            .filter(|(id, _)| self.selector[*id])
             .filter_map(|(id, d)| if *d == 0 { Some(id) } else { None })
             .collect();
         TopologyIterator {
@@ -389,8 +403,35 @@ where
         }
     }
 
+    /// Successors of a vertex, not counting multiedges.
     pub fn successors_of<'a>(&'a self, v: I) -> impl Iterator<Item = I> + 'a {
         self.successors[v].iter().copied()
+    }
+
+    /// Predecessors of a vertex, counting multiedges.
+    pub fn predecessors_of<'a>(&'a self, v: I) -> impl Iterator<Item = I> + 'a {
+        self.g
+            .vertex(v)
+            .predecessors()
+            .filter(|&id| self.selector[id])
+    }
+
+    /// Predecessors of a vertex, not counting multiedges.
+    pub fn predecessors_of_no_multiedge<'a>(&'a self, v: I) -> impl Iterator<Item = I> {
+        self.g
+            .vertex(v)
+            .predecessors()
+            .filter(|&id| self.selector[id])
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+    }
+
+    /// Out-degree of a vertex, not counting multiedges.
+    pub fn deg_out(&self, v: I) -> usize {
+        if !self.selector[v] {
+            panic!("vertex not in subgraph")
+        }
+        self.successors[v].len()
     }
 
     pub fn vertex(&self, i: I) -> &V {
@@ -405,7 +446,45 @@ where
     }
 
     pub fn remove_vertex(&mut self, i: I) {
+        if !self.selector[i] {
+            panic!("vertex not in subgraph")
+        }
         self.selector[i] = false;
         self.order -= 1;
+    }
+
+    /// In-degrees of each vertex, including those not in subgraph, not counting multiedges.
+    pub fn degrees_in(&self) -> &Heap<I, usize> {
+        &self.degrees_in
+    }
+
+    /// Out-degrees of each vertex, including those not in subgraph, not counting multiedges.
+    pub fn degrees_out(&self) -> Heap<I, usize> {
+        self.successors
+            .map_by_ref(&mut |_, successors| successors.len())
+    }
+
+    /// In-degree of a vertex in the subgraph, not counting multiedges.
+    pub fn deg_in(&self, v: I) -> usize {
+        if !self.selector[v] {
+            panic!("vertex not in subgraph")
+        }
+        self.degrees_in[v]
+    }
+
+    pub fn topology_sort_inv(&self) -> OwnInvTopologyIterator<'g, I, V> {
+        let deg_out = self.degrees_out();
+        let queue: VecDeque<I> = deg_out
+            .iter_with_id()
+            .filter(|(i, v)| self.selector[*i] && **v == 0)
+            .map(|(i, _)| i)
+            .collect();
+
+        OwnInvTopologyIterator {
+            g: &self.g,
+            deg: deg_out,
+            queue,
+            predecessors: self.g.predecessors_no_multiedge(),
+        }
     }
 }

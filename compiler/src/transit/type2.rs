@@ -15,6 +15,7 @@ pub use ast::lowering::{Constant, ConstantId, ConstantTable};
 pub use typ::Typ;
 use zkpoly_common::arith::{self, ArithUnrOp, UnrOp};
 use zkpoly_common::digraph;
+use zkpoly_common::digraph::internal::SubDigraph;
 use zkpoly_common::heap::UsizeId;
 use zkpoly_common::load_dynamic::Libs;
 pub use zkpoly_common::typ::PolyType;
@@ -684,6 +685,7 @@ where
 
 /// Invariants are same as those of [`tree::tree1::Cg`]
 pub type Cg<'s, Rt> = transit::Cg<VertexId, Vertex<'s, Rt>>;
+pub type CgSubgraph<'g, 's, Rt> = SubDigraph<'g, VertexId, Vertex<'s, Rt>>;
 
 impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
     pub fn temporary_space_needed(

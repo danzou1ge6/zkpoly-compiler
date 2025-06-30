@@ -96,6 +96,14 @@ impl<P> MemoryBlock<P> {
     pub fn with_object_id(self, object: ObjectId) -> Self {
         Self(self.0, self.1, object)
     }
+
+    pub fn object(&self) -> ObjectId {
+        self.2
+    }
+
+    pub fn device(&self) -> Device {
+        self.0
+    }
 }
 
 impl<P> RegBooking<P>
