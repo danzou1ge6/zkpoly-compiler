@@ -102,10 +102,10 @@ fn prettify_inst<'s, Rt: RuntimeType>(
         .ids_inplace()
         .map(|(def, inplace)| {
             let typ = &chunk.register_types[def];
-            let dev = chunk
-                .register_devices
-                .get(&def)
-                .map_or_else(|| "ERROR".to_string(), |dev| format!("{:?}", dev));
+            let dev = chunk.reg_memory_blocks.get(&def).map_or_else(
+                || "ERROR".to_string(),
+                |mb| format!("{:?}@{:?}", mb.object(), mb.device()),
+            );
             let def_str = inplace.map_or_else(
                 || reg_id2str_def(def),
                 |inplace| format!("{}<-{}", reg_id2str_def(def), reg_id2str_use(inplace)),
