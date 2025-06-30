@@ -113,19 +113,17 @@ pub struct PageAllocator<'f, P, Rt: RuntimeType, D: DeviceMarker> {
     living_objects: BTreeMap<ObjectId, (P, Size)>,
     page_mapping: Heap<P, (Vec<PageId>, Size)>,
     page_objects: Heap<PageId, Option<ObjectId>>,
-    good_occupancy: f32,
     _phantom: PhantomData<(&'f Rt, D)>,
 }
 
 impl<'f, P, Rt: RuntimeType, D: DeviceMarker> PageAllocator<'f, P, Rt, D> {
-    pub fn new(number_pages: usize, page_size: u64, good_occupancy: f32) -> Self {
+    pub fn new(number_pages: usize, page_size: u64) -> Self {
         Self {
             page_size,
             pages: Pages::new(number_pages),
             living_objects: BTreeMap::new(),
             page_mapping: Heap::new(),
             page_objects: Heap::repeat(None, number_pages),
-            good_occupancy,
             _phantom: PhantomData,
         }
     }

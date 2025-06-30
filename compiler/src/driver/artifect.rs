@@ -51,7 +51,7 @@ impl<Rt: RuntimeType> SemiArtifect<Rt> {
     }
 
     pub fn dump(
-        &mut self,
+        &self,
         dir: impl AsRef<std::path::Path>,
         constant_pool: &mut ConstantPool,
     ) -> std::io::Result<()> {
