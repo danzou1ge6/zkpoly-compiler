@@ -28,6 +28,17 @@ mod pages {
             }
         }
 
+        fn debug(&mut self) {
+            println!("Pages:");
+            for (i, occupied) in self.occupied.iter_with_id() {
+                let next_use = self
+                    .next_use
+                    .query_max_info(usize::from(i), usize::from(i))
+                    .map(|x| x.value);
+                println!("page {:?}: occupied={}, next_use={:?}", i, occupied, next_use);
+            }
+        }
+
         /// Mark a page as occupied. The page cannot already be occupied.
         pub fn occupy(&mut self, page: PageId, next_use: Option<Index>) {
             if self.occupied[page] {
@@ -60,13 +71,17 @@ mod pages {
 
         /// Find the page with maximum next_use.
         /// Returns none if no page is occupied.
-        pub fn decide_victim(&mut self) -> Option<PageId> {
-            let index = self
+        pub fn decide_victim(&mut self, pc: Index) -> Option<PageId> {
+            let query_result = self
                 .next_use
                 .query_max_info(0, self.occupied.len() - 1)
-                .unwrap()
-                .index;
-            let index = PageId::from(index);
+                .unwrap();
+            let index = PageId::from(query_result.index);
+
+            if query_result.value <= usize::from(pc) as u64 {
+                self.debug();
+                panic!("deciding victim {:?} to be less than pc {:?}", index, pc);
+            }
 
             if self.occupied[index] {
                 Some(index)
@@ -223,13 +238,16 @@ where
         }
 
         if let Some(pages) = self.allocator.pages.try_find_free_pages(number) {
+            // fixme
+            println!("{:?} allocating {} pages for {:?} with size {:?}", self.device(), pages.len(), t, size);
+
             let p = self.allocate_pages(pages, *t, next_use, size);
             Response::Complete(Ok(p))
         } else {
             let victim_page = self
                 .allocator
                 .pages
-                .decide_victim()
+                .decide_victim(self.aux.pc())
                 .expect("since there are occupied pages, a victim page must can be found");
             let victim_object = self.allocator.page_objects[victim_page]
                 .expect("an occupied page must belong to some object");
