@@ -234,10 +234,10 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
             let (tmp_buffers, mut_var) = mut_var.split_at_mut(2);
             let arg_buffer = tmp_buffers[0].unwrap_gpu_buffer(); // buffer for pointers
             let local_buffer = tmp_buffers[1].unwrap_gpu_buffer(); // buffer for local spills
-            // check the buffer size
+                                                                   // check the buffer size
             assert!(
-                arg_buffer.size >=
-                (2 * num_of_vars + 3 * num_of_mut_vars) * std::mem::size_of::<PolyPtr>()
+                arg_buffer.size
+                    >= (2 * num_of_vars + 3 * num_of_mut_vars) * std::mem::size_of::<PolyPtr>()
             );
 
             assert!((mut_var.len() - 2 * num_mut_scalars) % 4 == 0);
@@ -262,9 +262,9 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
 
             let device_id = gpu_mapping(device_id);
             // get streams
-            let ref h2d_stream = CudaStream::new(device_id);
-            let ref compute_stream = CudaStream::new(device_id);
-            let ref d2h_stream = CudaStream::new(device_id);
+            let h2d_stream = CudaStream::new(device_id);
+            let compute_stream = CudaStream::new(device_id);
+            let d2h_stream = CudaStream::new(device_id);
 
             // get scalars
             let mut mut_scalars = Vec::new();
@@ -298,18 +298,15 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
 
             // transfer scalars to gpu
             for (host_scalar, gpu_scalar) in mut_scalars.iter().zip(mut_gpu_scalars.iter_mut()) {
-                host_scalar.cpu2gpu(gpu_scalar, h2d_stream);
+                host_scalar.cpu2gpu(gpu_scalar, &h2d_stream);
             }
             for (host_scalar, gpu_scalar) in scalars.iter().zip(gpu_scalars.iter_mut()) {
-                host_scalar.cpu2gpu(gpu_scalar, h2d_stream);
+                host_scalar.cpu2gpu(gpu_scalar, &h2d_stream);
             }
 
             let mut chunks = 1; // if there is no disk, we can use one chunk
 
-            fn update_chunk_num(
-                disks: usize,
-                chunks: &mut usize,
-            ) {
+            fn update_chunk_num(disks: usize, chunks: &mut usize) {
                 if disks > 0 {
                     if *chunks == 1 {
                         *chunks = disks;
@@ -448,7 +445,11 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
             }
 
             for buffer_id in 0..2 {
-                h2d_stream.memcpy_h2d(d_ptrs.d_vars[buffer_id], vars[buffer_id].as_ptr(), num_of_vars);
+                h2d_stream.memcpy_h2d(
+                    d_ptrs.d_vars[buffer_id],
+                    vars[buffer_id].as_ptr(),
+                    num_of_vars,
+                );
             }
             for mut_buffer_id in 0..3 {
                 h2d_stream.memcpy_h2d(
@@ -460,10 +461,10 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
 
             // transfer scalars to gpu
             for (host_scalar, gpu_scalar) in mut_scalars.iter().zip(mut_gpu_scalars.iter_mut()) {
-                host_scalar.cpu2gpu(gpu_scalar, h2d_stream);
+                host_scalar.cpu2gpu(gpu_scalar, &h2d_stream);
             }
             for (host_scalar, gpu_scalar) in scalars.iter().zip(gpu_scalars.iter_mut()) {
-                host_scalar.cpu2gpu(gpu_scalar, h2d_stream);
+                host_scalar.cpu2gpu(gpu_scalar, &h2d_stream);
             }
 
             struct TransferInfo<T: RuntimeType> {
@@ -475,7 +476,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                 /// assume we use 8 as a size for GPU computation, then we need to transfer [0, 3] and [16, 19]
                 /// first to fully utilize the disks
                 /// and we have to do the same thing even when data is on cpu to maintain consistency
-                chunks: usize, 
+                chunks: usize,
                 len: usize,
             }
 
@@ -493,46 +494,56 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
             let (gpu_poly2slice_ok_sender, gpu_poly2slice_ok_receiver) = channel::<()>();
             let (gpu_slice2poly_ok_sender, gpu_slice2poly_ok_receiver) = channel::<()>();
             let (compute_ok_sender, compute_ok_receiver) = channel::<()>();
-            
+
             // the thread for cpu to gpu transfer
-            thread::spawn(move || {
-                while let Ok(info) = cpu2gpu_receiver.recv() {
-                    // transfer data from CPU to GPU
-                    assert!(info.src.len() % info.chunks == 0);
-                    let part_len = info.src.len() / info.chunks;
-                    let part_offset = info.offset / info.chunks;
-                    let part_transfer_len = info.len / info.chunks;
-                    for i in 0..info.chunks {
-                        let src_offset = i * part_len + part_offset;
-                        let dst_offset = part_transfer_len * i;
-                        let src_sliced = info.src.slice(src_offset, src_offset + part_transfer_len);
-                        let dst_sliced = info.dst.slice(dst_offset, dst_offset + part_transfer_len);
-                        src_sliced.cpu2gpu(&mut dst_sliced, h2d_stream);
+            thread::spawn({
+                let h2d_stream = h2d_stream.clone();
+                move || {
+                    while let Ok(info) = cpu2gpu_receiver.recv() {
+                        // transfer data from CPU to GPU
+                        assert!(info.src.len() % info.chunks == 0);
+                        let part_len = info.src.len() / info.chunks;
+                        let part_offset = info.offset / info.chunks;
+                        let part_transfer_len = info.len / info.chunks;
+                        for i in 0..info.chunks {
+                            let src_offset = i * part_len + part_offset;
+                            let dst_offset = part_transfer_len * i;
+                            let src_sliced =
+                                info.src.slice(src_offset, src_offset + part_transfer_len);
+                            let mut dst_sliced =
+                                info.dst.slice(dst_offset, dst_offset + part_transfer_len);
+                            src_sliced.cpu2gpu(&mut dst_sliced, &h2d_stream);
+                        }
+                        h2d_stream.sync();
+                        // confirm the transfer
+                        cpu2gpu_ok_sender.send(()).unwrap();
                     }
-                    h2d_stream.sync();
-                    // confirm the transfer
-                    cpu2gpu_ok_sender.send(()).unwrap();
                 }
             });
 
             // the thread for gpu to cpu transfer
-            thread::spawn(move || {
-                while let Ok(info) = gpu2cpu_receiver.recv() {
-                    // transfer data from GPU to CPU
-                    assert!(info.src.len() % info.chunks == 0);
-                    let part_len = info.src.len() / info.chunks;
-                    let part_offset = info.offset / info.chunks;
-                    let part_transfer_len = info.len / info.chunks;
-                    for i in 0..info.chunks {
-                        let src_offset = part_transfer_len * i;
-                        let dst_offset = i * part_len + part_offset;
-                        let src_sliced = info.src.slice(src_offset, src_offset + part_transfer_len);
-                        let dst_sliced = info.dst.slice(dst_offset, dst_offset + part_transfer_len);
-                        src_sliced.gpu2cpu(&mut dst_sliced, d2h_stream);
+            thread::spawn({
+                let d2h_stream = d2h_stream.clone();
+                move || {
+                    while let Ok(info) = gpu2cpu_receiver.recv() {
+                        // transfer data from GPU to CPU
+                        assert!(info.src.len() % info.chunks == 0);
+                        let part_len = info.src.len() / info.chunks;
+                        let part_offset = info.offset / info.chunks;
+                        let part_transfer_len = info.len / info.chunks;
+                        for i in 0..info.chunks {
+                            let src_offset = part_transfer_len * i;
+                            let dst_offset = i * part_len + part_offset;
+                            let src_sliced =
+                                info.src.slice(src_offset, src_offset + part_transfer_len);
+                            let mut dst_sliced =
+                                info.dst.slice(dst_offset, dst_offset + part_transfer_len);
+                            src_sliced.gpu2cpu(&mut dst_sliced, &d2h_stream);
+                        }
+                        d2h_stream.sync();
+                        // confirm the transfer
+                        gpu2cpu_ok_sender.send(()).unwrap();
                     }
-                    d2h_stream.sync();
-                    // confirm the transfer
-                    gpu2cpu_ok_sender.send(()).unwrap();
                 }
             });
 
@@ -541,7 +552,14 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                 while let Ok(info) = disk2gpu_receiver.recv() {
                     // transfer data from disk to GPU
                     assert!(info.src.len() % info.chunks == 0);
-                    gpu_read_from_disk(info.dst.values.cast(), &info.src.disk_pos, info.src.len * size_of::<T::Field>(), device_id, info.len * size_of::<T::Field>(), info.offset * size_of::<T::Field>());
+                    gpu_read_from_disk(
+                        info.dst.values.cast(),
+                        &info.src.disk_pos,
+                        info.src.len * size_of::<T::Field>(),
+                        device_id,
+                        info.len * size_of::<T::Field>(),
+                        info.offset * size_of::<T::Field>(),
+                    );
                     // ok
                     disk2gpu_ok_sender.send(()).unwrap();
                 }
@@ -552,12 +570,19 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                 while let Ok(info) = gpu2disk_receiver.recv() {
                     // transfer data from GPU to disk
                     assert!(info.src.len() % info.chunks == 0);
-                    gpu_write_to_disk(info.src.values.cast(), &info.dst.disk_pos, info.dst.len * size_of::<T::Field>(), device_id, info.len * size_of::<T::Field>(), info.offset * size_of::<T::Field>());
+                    gpu_write_to_disk(
+                        info.src.values.cast(),
+                        &info.dst.disk_pos,
+                        info.dst.len * size_of::<T::Field>(),
+                        device_id,
+                        info.len * size_of::<T::Field>(),
+                        info.offset * size_of::<T::Field>(),
+                    );
                     // ok
                     gpu2disk_ok_sender.send(()).unwrap();
                 }
             });
-            
+
             // the thread for gpu poly to slice transfer
             thread::spawn(move || {
                 let stream = CudaStream::new(device_id);
@@ -571,7 +596,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                         let src_offset = i * part_len + part_offset;
                         let dst_offset = part_transfer_len * i;
                         let src_sliced = info.src.slice(src_offset, src_offset + part_transfer_len);
-                        let dst_sliced = info.dst.slice(dst_offset, dst_offset + part_transfer_len);
+                        let mut dst_sliced =
+                            info.dst.slice(dst_offset, dst_offset + part_transfer_len);
                         src_sliced.gpu2gpu(&mut dst_sliced, &stream);
                     }
                     stream.sync();
@@ -594,7 +620,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                         let src_offset = part_transfer_len * i;
                         let dst_offset = i * part_len + part_offset;
                         let src_sliced = info.src.slice(src_offset, src_offset + part_transfer_len);
-                        let dst_sliced = info.dst.slice(dst_offset, dst_offset + part_transfer_len);
+                        let mut dst_sliced =
+                            info.dst.slice(dst_offset, dst_offset + part_transfer_len);
                         src_sliced.gpu2gpu(&mut dst_sliced, &stream);
                     }
                     stream.sync();
@@ -610,70 +637,81 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                 }
             }
 
-            let mut_polys_clone = mut_polys.clone();            
+            let mut_polys_clone = mut_polys.clone();
 
             let c_func_clone = c_func.clone();
             // the thread for compute
-            thread::spawn(move || {
-                let mut mut_buffer_id = 0;
-                let mut buffer_id = 0;
+            thread::spawn({
+                struct SafePtr(*mut c_void);
+                unsafe impl Send for SafePtr {}
 
-                // start computing
-                for chunk_id in 0..divide_parts {
+                let local_buffer_ptr = SafePtr(local_buffer.ptr as *mut c_void);
+                let d_ptrs = d_ptrs.clone();
+                let mut_gpu_polys = mut_gpu_polys.clone();
+                let gpu_poly2slice_sender = gpu_poly2slice_sender.clone();
+                let compute_stream = compute_stream.clone();
 
-                    // wait for the signal to start compute
-                    wait_ok(&cpu2gpu_ok_receiver, num_mut_poly_cpu);
-                    wait_ok(&disk2gpu_ok_receiver, num_mut_poly_disk);
-                    wait_ok(&gpu_poly2slice_ok_receiver, num_poly_gpu);
-                    wait_ok(&cpu2gpu_ok_receiver, num_poly_cpu);
-                    wait_ok(&disk2gpu_ok_receiver, num_poly_disk);
-                    wait_ok(&gpu_poly2slice_ok_receiver, num_poly_gpu);
-                    let d_ptrs = d_ptrs.clone();
-                    // compute
-                    unsafe {
-                        cuda_check!(cudaSetDevice(compute_stream.get_device()));
-                        cuda_check!((c_func_clone)(
-                            d_ptrs.d_vars[buffer_id],
-                            d_ptrs.d_mut_vars[mut_buffer_id],
-                            chunk_len.try_into().unwrap(),
-                            chunk_id == 0,
-                            local_buffer.ptr as *mut c_void,
-                            compute_stream.raw()
-                        ));
-                    }
-                    compute_stream.sync();
-                    compute_ok_sender.send(()).unwrap();
+                move || {
+                    let mut mut_buffer_id = 0;
+                    let mut buffer_id = 0;
 
-                    // trigger the transfer back
-                    for i in 0..num_mut_poly {
-                        let transfer_info = TransferInfo {
-                            dst: mut_polys_clone[i].clone(),
-                            src: mut_gpu_polys[mut_buffer_id][i].clone(),
-                            chunks: chunks,
-                            offset: chunk_id * chunk_len,
-                            len: chunk_len,
-                        };
-
-                        match mut_polys_clone[i].device {
-                            zkpoly_common::devices::DeviceType::CPU => {
-                                gpu2cpu_sender.send(transfer_info).unwrap();
-                            },
-                            zkpoly_common::devices::DeviceType::GPU { device_id } => {
-                                gpu_poly2slice_sender.send(transfer_info).unwrap();
-                            },
-                            zkpoly_common::devices::DeviceType::Disk => {
-                                gpu2disk_sender.send(transfer_info).unwrap();
-                            },
+                    // start computing
+                    for chunk_id in 0..divide_parts {
+                        // wait for the signal to start compute
+                        wait_ok(&cpu2gpu_ok_receiver, num_mut_poly_cpu);
+                        wait_ok(&disk2gpu_ok_receiver, num_mut_poly_disk);
+                        wait_ok(&gpu_poly2slice_ok_receiver, num_poly_gpu);
+                        wait_ok(&cpu2gpu_ok_receiver, num_poly_cpu);
+                        wait_ok(&disk2gpu_ok_receiver, num_poly_disk);
+                        wait_ok(&gpu_poly2slice_ok_receiver, num_poly_gpu);
+                        // compute
+                        let _ = &local_buffer_ptr;
+                        let _ = &d_ptrs;
+                        unsafe {
+                            cuda_check!(cudaSetDevice(compute_stream.get_device()));
+                            cuda_check!((c_func_clone)(
+                                d_ptrs.d_vars[buffer_id],
+                                d_ptrs.d_mut_vars[mut_buffer_id],
+                                chunk_len.try_into().unwrap(),
+                                chunk_id == 0,
+                                local_buffer_ptr.0,
+                                compute_stream.raw()
+                            ));
                         }
-                    }
+                        compute_stream.sync();
+                        compute_ok_sender.send(()).unwrap();
 
-                    mut_buffer_id = (mut_buffer_id + 1) % 3;
-                    buffer_id = (buffer_id + 1) % 2;
+                        // trigger the transfer back
+                        for i in 0..num_mut_poly {
+                            let transfer_info = TransferInfo {
+                                dst: mut_polys_clone[i].clone(),
+                                src: mut_gpu_polys[mut_buffer_id][i].clone(),
+                                chunks: chunks,
+                                offset: chunk_id * chunk_len,
+                                len: chunk_len,
+                            };
+
+                            match mut_polys_clone[i].device {
+                                zkpoly_common::devices::DeviceType::CPU => {
+                                    gpu2cpu_sender.send(transfer_info).unwrap();
+                                }
+                                zkpoly_common::devices::DeviceType::GPU { .. } => {
+                                    gpu_poly2slice_sender.send(transfer_info).unwrap();
+                                }
+                                zkpoly_common::devices::DeviceType::Disk => {
+                                    gpu2disk_sender.send(transfer_info).unwrap();
+                                }
+                            }
+                        }
+
+                        mut_buffer_id = (mut_buffer_id + 1) % 3;
+                        buffer_id = (buffer_id + 1) % 2;
+                    }
                 }
             });
 
-            let mut mut_buffer_id_raw = 0;
-            let mut buffer_id_raw = 0;
+            let mut_buffer_id_raw = 0;
+            let buffer_id_raw = 0;
 
             // start computing
             for chunk_id in 0..divide_parts {
@@ -691,13 +729,13 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                         match mut_polys[i].device {
                             zkpoly_common::devices::DeviceType::CPU => {
                                 gpu2cpu_ok_receiver.recv().unwrap();
-                            },
-                            zkpoly_common::devices::DeviceType::GPU { device_id } => {
+                            }
+                            zkpoly_common::devices::DeviceType::GPU { .. } => {
                                 gpu_slice2poly_ok_receiver.recv().unwrap();
-                            },
+                            }
                             zkpoly_common::devices::DeviceType::Disk => {
                                 gpu2disk_ok_receiver.recv().unwrap();
-                            },
+                            }
                         }
                     }
                 }
@@ -714,13 +752,13 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                     match mut_polys[i].device {
                         zkpoly_common::devices::DeviceType::CPU => {
                             cpu2gpu_sender.send(transfer_info).unwrap();
-                        },
-                        zkpoly_common::devices::DeviceType::GPU { device_id } => {
+                        }
+                        zkpoly_common::devices::DeviceType::GPU {..} => {
                             gpu_poly2slice_sender.send(transfer_info).unwrap();
-                        },
+                        }
                         zkpoly_common::devices::DeviceType::Disk => {
                             disk2gpu_sender.send(transfer_info).unwrap();
-                        },
+                        }
                     }
                 }
                 // now trigger the transfer to GPU for polys
@@ -735,20 +773,20 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                     match polys[i].device {
                         zkpoly_common::devices::DeviceType::CPU => {
                             cpu2gpu_sender.send(transfer_info).unwrap();
-                        },
-                        zkpoly_common::devices::DeviceType::GPU { device_id } => {
+                        }
+                        zkpoly_common::devices::DeviceType::GPU { .. } => {
                             gpu_poly2slice_sender.send(transfer_info).unwrap();
-                        },
+                        }
                         zkpoly_common::devices::DeviceType::Disk => {
                             disk2gpu_sender.send(transfer_info).unwrap();
-                        },
+                        }
                     }
                 }
             }
 
             // transfer back scalars
             for (host_scalar, gpu_scalar) in mut_scalars.iter_mut().zip(mut_gpu_scalars.iter()) {
-                gpu_scalar.gpu2cpu(host_scalar, d2h_stream);
+                gpu_scalar.gpu2cpu(host_scalar, &d2h_stream);
             }
 
             h2d_stream.sync();
