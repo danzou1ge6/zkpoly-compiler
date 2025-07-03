@@ -10,11 +10,11 @@ zkpoly_common = { path = "../common" }
 libloading = "0.8"
 group = "0.13"
 serde = { version = "1.0", features = ["derive"] }
+zkpoly_memory_pool = { path = "../memory_pool" }
 
 [dev-dependencies]
 rand_xorshift = "0.3.0"
 halo2_proofs = { git = "https://github.com/privacy-scaling-explorations/halo2.git ", tag = "v0.3.0", features =  ["circuit-params", "derive_serde"] }
-zkpoly_memory_pool = { path = "../memory_pool" }
 halo2curves = { version = "0.6.0", default-features = false }
 rand_core = { version = "0.6", default-features = false }
 rayon = "1.5.1"
