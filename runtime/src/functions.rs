@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::args::{RuntimeType, Variable};
 use crate::error::RuntimeError;
 use serde::{Deserialize, Serialize};
+use zkpoly_common::devices::DeviceType;
 use zkpoly_common::heap;
 use zkpoly_common::msm_config::MsmConfig;
 
@@ -34,6 +35,7 @@ pub struct FusedKernelMeta {
     pub num_vars: usize,
     pub num_mut_vars: usize,
     pub pipelined_meta: Option<PipelinedMeta>,
+    pub device: DeviceType,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, PartialOrd, Eq, Ord)]

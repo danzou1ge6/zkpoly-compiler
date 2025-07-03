@@ -135,6 +135,7 @@ pub fn gen_fused_kernels<'s, Rt: RuntimeType>(
                         num_vars: op.vars.len(),
                         num_mut_vars: op.mut_vars.len(),
                         pipelined_meta: pipelined_meta,
+                        device: zkpoly_common::devices::DeviceType::GPU { device_id: 0 } // currently, we only use gpu 0
                     },
                 );
             }

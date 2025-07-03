@@ -1086,6 +1086,8 @@ impl<F: Field> Transfer for ScalarArray<F> {
                 &target.disk_pos,
                 alligned_size,
                 device_id,
+                alligned_size,
+                0,
             );
         } else {
             panic!("gpu2disk is only supported for GPU arrays");
@@ -1104,6 +1106,8 @@ impl<F: Field> Transfer for ScalarArray<F> {
                 &self.disk_pos,
                 alligned_size,
                 device_id,
+                alligned_size,
+                0,
             );
         } else {
             panic!("disk2gpu is only supported for GPU arrays");

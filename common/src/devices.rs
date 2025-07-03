@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, PartialOrd, Eq, Ord)]
 pub enum DeviceType {
     CPU,
     GPU { device_id: i32 },

@@ -873,32 +873,37 @@ pub fn gpu_write_to_disk(
     disk_pos: &Vec<DiskAllocInfo>,
     size: usize,
     device_id: i32,
+    // the following parameters are used for arith to transfer part of the data
+    write_size: usize,
+    offset: usize,
 ) {
     let safe_ptr = SafePtr { ptr };
-    let part_size = size / disk_pos.len();
+    let part_write_size = write_size / disk_pos.len();
+    let part_offset = offset / disk_pos.len();
+
     disk_pos
         .par_iter()
         .enumerate()
         .for_each(|(disk_id, alloc_info)| {
             let safe_ptr_clone = safe_ptr.clone();
             let ptr = safe_ptr_clone.ptr;
-            let offset = alloc_info.offset.clone();
+            let offset = alloc_info.offset.clone() + part_offset;
             let file_handle = alloc_info.cu_file_handle.clone();
-            let cpu_offset = part_size * disk_id;
+            let gpu_offset = part_write_size * disk_id;
 
             unsafe {
                 cuda_check!(cudaSetDevice(device_id));
                 let res = cuFileWrite(
                     file_handle,
                     ptr as *const c_void,
-                    part_size,
+                    part_write_size,
                     offset as i64,
-                    cpu_offset as i64,
+                    gpu_offset as i64,
                 );
-                if res < part_size as isize {
+                if res < part_write_size as isize {
                     panic!(
                         "Failed to write {} bytes to disk {} at offset {}: {}",
-                        part_size, disk_id, offset, res
+                        part_write_size, disk_id, offset, res
                     );
                 }
             }
@@ -910,9 +915,13 @@ pub fn gpu_read_from_disk(
     disk_pos: &Vec<DiskAllocInfo>,
     size: usize,
     device_id: i32,
+    // the following parameters are used for arith to transfer part of the data
+    read_size: usize,
+    offset: usize,
 ) {
     let safe_ptr = SafePtrMut { ptr };
-    let part_size = size / disk_pos.len();
+    let part_read_size = read_size / disk_pos.len();
+    let part_offset = offset / disk_pos.len();
 
     disk_pos
         .par_iter()
@@ -921,19 +930,19 @@ pub fn gpu_read_from_disk(
             let safe_ptr_clone = safe_ptr.clone();
             let ptr = safe_ptr_clone.ptr;
             let file_handle = alloc_info.cu_file_handle.clone();
-            let offset = alloc_info.offset.clone();
-            let cpu_offset = part_size * disk_id;
+            let offset = alloc_info.offset.clone() + part_offset;
+            let gpu_offset = part_read_size * disk_id;
 
             unsafe {
                 cuda_check!(cudaSetDevice(device_id));
                 let res = cuFileRead(
                     file_handle,
                     ptr as *mut c_void,
-                    part_size,
+                    part_read_size,
                     offset as i64,
-                    cpu_offset as i64,
+                    gpu_offset as i64,
                 );
-                if res < part_size as isize {
+                if res < part_read_size as isize {
                     let msg = if res == -1 {
                         // syscall error
                         let errorno = std::io::Error::last_os_error().raw_os_error().unwrap();
@@ -943,7 +952,7 @@ pub fn gpu_read_from_disk(
                     };
                     panic!(
                         "Failed to read {} bytes from disk {} at offset {}: {}",
-                        part_size, disk_id, offset, msg
+                        part_read_size, disk_id, offset, msg
                     );
                 }
             }
