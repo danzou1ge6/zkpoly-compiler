@@ -388,6 +388,10 @@ where
         self.order
     }
 
+    pub fn full_order(&self) -> usize {
+        self.g.order()
+    }
+
     pub fn topology_sort(&self) -> impl Iterator<Item = (I, &V)> {
         let deg = self.degrees_in.clone();
         let queue: VecDeque<I> = deg

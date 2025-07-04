@@ -1,6 +1,6 @@
 //! Common data structures for Transit IR's
 
-use zkpoly_common::digraph::internal::Digraph;
+use zkpoly_common::{digraph::internal::{Digraph, Predecessors, SubDigraph}, heap::UsizeId};
 
 use crate::ast;
 
@@ -114,6 +114,13 @@ pub enum PolyInit {
 pub struct Cg<I, V> {
     pub(crate) output: I,
     pub(crate) g: Digraph<I, V>,
+}
+
+impl<I, V> Cg<I, V> where I: UsizeId, V: Predecessors<I> {
+    pub fn connected_subgraph<'g>(&'g self) -> SubDigraph<'g, I, V> {
+        let connected_component = self.g.connected_component(self.output);
+        SubDigraph::new(&self.g, connected_component)
+    }
 }
 
 #[derive(
