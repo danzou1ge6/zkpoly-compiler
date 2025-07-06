@@ -261,10 +261,6 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
             assert!(len % divide_parts == 0);
 
             let device_id = gpu_mapping(device_id);
-            // get streams
-            let h2d_stream = CudaStream::new(device_id);
-            let compute_stream = CudaStream::new(device_id);
-            let d2h_stream = CudaStream::new(device_id);
 
             // get scalars
             let mut mut_scalars = Vec::new();
@@ -297,6 +293,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
             }
 
             // transfer scalars to gpu
+            let h2d_stream = CudaStream::new(device_id);
             for (host_scalar, gpu_scalar) in mut_scalars.iter().zip(mut_gpu_scalars.iter_mut()) {
                 host_scalar.cpu2gpu(gpu_scalar, &h2d_stream);
             }
@@ -467,6 +464,10 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                 host_scalar.cpu2gpu(gpu_scalar, &h2d_stream);
             }
 
+            h2d_stream.sync();
+            h2d_stream.destroy();
+
+            #[derive(Debug, Clone)]
             struct TransferInfo<T: RuntimeType> {
                 src: ScalarArray<T::Field>,
                 dst: ScalarArray<T::Field>,
@@ -497,15 +498,18 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
 
             // the thread for cpu to gpu transfer
             thread::spawn({
-                let h2d_stream = h2d_stream.clone();
                 move || {
+                    let h2d_stream = CudaStream::new(device_id);
                     while let Ok(info) = cpu2gpu_receiver.recv() {
+                        println!("cpu2gpu: info with chunk {}, len {}", info.chunks, info.len);
                         // transfer data from CPU to GPU
                         assert!(info.src.len() % info.chunks == 0);
                         let part_len = info.src.len() / info.chunks;
                         let part_offset = info.offset / info.chunks;
                         let part_transfer_len = info.len / info.chunks;
+                        println!("cpu2gpu: part_len = {}, part_offset = {}, part_transfer_len = {}", part_len, part_offset, part_transfer_len);
                         for i in 0..info.chunks {
+                            println!("cpu2gpu: transfer part {} of {}", i, info.chunks);
                             let src_offset = i * part_len + part_offset;
                             let dst_offset = part_transfer_len * i;
                             let src_sliced =
@@ -514,17 +518,21 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                                 info.dst.slice(dst_offset, dst_offset + part_transfer_len);
                             src_sliced.cpu2gpu(&mut dst_sliced, &h2d_stream);
                         }
+                        println!("cpu2gpu: transfer dispatch done");
                         h2d_stream.sync();
+                        println!("cpu2gpu: transfer sync done");
                         // confirm the transfer
                         cpu2gpu_ok_sender.send(()).unwrap();
+                        println!("cpu2gpu: transfer ok sent");
                     }
+                    h2d_stream.destroy();
                 }
             });
 
             // the thread for gpu to cpu transfer
             thread::spawn({
-                let d2h_stream = d2h_stream.clone();
                 move || {
+                    let d2h_stream = CudaStream::new(device_id);
                     while let Ok(info) = gpu2cpu_receiver.recv() {
                         // transfer data from GPU to CPU
                         assert!(info.src.len() % info.chunks == 0);
@@ -542,8 +550,10 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                         }
                         d2h_stream.sync();
                         // confirm the transfer
+                        println!("sending gpu2cpu ok");
                         gpu2cpu_ok_sender.send(()).unwrap();
                     }
+                    d2h_stream.destroy();
                 }
             });
 
@@ -648,15 +658,16 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                 let local_buffer_ptr = SafePtr(local_buffer.ptr as *mut c_void);
                 let d_ptrs = d_ptrs.clone();
                 let mut_gpu_polys = mut_gpu_polys.clone();
-                let gpu_poly2slice_sender = gpu_poly2slice_sender.clone();
-                let compute_stream = compute_stream.clone();
+                let gpu_slice2poly_sender = gpu_slice2poly_sender.clone();
 
                 move || {
                     let mut mut_buffer_id = 0;
                     let mut buffer_id = 0;
+                    let compute_stream = CudaStream::new(device_id);
 
                     // start computing
                     for chunk_id in 0..divide_parts {
+                        println!("compute chunk {}", chunk_id);
                         // wait for the signal to start compute
                         wait_ok(&cpu2gpu_ok_receiver, num_mut_poly_cpu);
                         wait_ok(&disk2gpu_ok_receiver, num_mut_poly_disk);
@@ -664,6 +675,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                         wait_ok(&cpu2gpu_ok_receiver, num_poly_cpu);
                         wait_ok(&disk2gpu_ok_receiver, num_poly_disk);
                         wait_ok(&gpu_poly2slice_ok_receiver, num_poly_gpu);
+
+                        println!("start compute chunk {}", chunk_id);
                         // compute
                         let _ = &local_buffer_ptr;
                         let _ = &d_ptrs;
@@ -681,6 +694,10 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                         compute_stream.sync();
                         compute_ok_sender.send(()).unwrap();
 
+                        println!("finish compute chunk {}", chunk_id);
+
+                        println!("num to transfer back: {}", num_mut_poly);
+
                         // trigger the transfer back
                         for i in 0..num_mut_poly {
                             let transfer_info = TransferInfo {
@@ -696,7 +713,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                                     gpu2cpu_sender.send(transfer_info).unwrap();
                                 }
                                 zkpoly_common::devices::DeviceType::GPU { .. } => {
-                                    gpu_poly2slice_sender.send(transfer_info).unwrap();
+                                    gpu_slice2poly_sender.send(transfer_info).unwrap();
                                 }
                                 zkpoly_common::devices::DeviceType::Disk => {
                                     gpu2disk_sender.send(transfer_info).unwrap();
@@ -707,23 +724,25 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                         mut_buffer_id = (mut_buffer_id + 1) % 3;
                         buffer_id = (buffer_id + 1) % 2;
                     }
+                    compute_stream.destroy();
                 }
             });
 
-            let mut_buffer_id_raw = 0;
-            let buffer_id_raw = 0;
-
             // start computing
             for chunk_id in 0..divide_parts {
-                let mut_buffer_id = mut_buffer_id_raw % 3;
-                let buffer_id = buffer_id_raw % 2;
+                let mut_buffer_id = chunk_id % 3;
+                let buffer_id = chunk_id % 2;
+                println!("transfer chunk {}: mut_buffer_id = {}, buffer_id = {}", chunk_id, mut_buffer_id, buffer_id);
 
-                if buffer_id_raw >= 2 {
+                if chunk_id >= 2 {
                     // start to reuse the buffer, so we need to wait for the previous compute to finish
+                    println!("wait for compute to finish");
                     compute_ok_receiver.recv().unwrap();
+                    println!("received compute ok for chunk {}", chunk_id);
                 }
 
-                if mut_buffer_id_raw >= 3 {
+                if chunk_id >= 3 {
+                    println!("wait for transfer back to finish");
                     // start to reuse the buffer, so we need to wait for the previous transfer back to finish
                     for i in 0..num_mut_poly {
                         match mut_polys[i].device {
@@ -740,6 +759,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                     }
                 }
 
+                println!("transfer chunk {}: mut_buffer_id = {}, buffer_id = {}", chunk_id, mut_buffer_id, buffer_id);
                 // now trigger the transfer to GPU
                 for i in 0..num_mut_poly {
                     let transfer_info = TransferInfo {
@@ -761,6 +781,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                         }
                     }
                 }
+
+                println!("transfer chunk {}: mut_buffer_id = {}, buffer_id = {}", chunk_id, mut_buffer_id, buffer_id);
                 // now trigger the transfer to GPU for polys
                 for i in 0..num_poly {
                     let transfer_info = TransferInfo {
@@ -784,17 +806,36 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                 }
             }
 
+            println!("waiting for compute to finish");
+            compute_ok_receiver.recv().unwrap();
+            println!("waiting for compute to finish");
+            compute_ok_receiver.recv().unwrap();
+
+            for _ in 0..3 {
+                println!("waiting for transfer back to finish");
+                for i in 0..num_mut_poly {
+                    match mut_polys[i].device {
+                        zkpoly_common::devices::DeviceType::CPU => {
+                            gpu2cpu_ok_receiver.recv().unwrap();
+                        }
+                        zkpoly_common::devices::DeviceType::GPU { .. } => {
+                            gpu_slice2poly_ok_receiver.recv().unwrap();
+                        }
+                        zkpoly_common::devices::DeviceType::Disk => {
+                            gpu2disk_ok_receiver.recv().unwrap();
+                        }
+                    }
+                    println!("got tranfer back")
+                }
+            }
+            
+            let d2h_stream = CudaStream::new(device_id);
             // transfer back scalars
             for (host_scalar, gpu_scalar) in mut_scalars.iter_mut().zip(mut_gpu_scalars.iter()) {
                 gpu_scalar.gpu2cpu(host_scalar, &d2h_stream);
             }
 
-            h2d_stream.sync();
-            compute_stream.sync();
             d2h_stream.sync();
-
-            h2d_stream.destroy();
-            compute_stream.destroy();
             d2h_stream.destroy();
 
             Ok(())
