@@ -8,7 +8,7 @@ use std::{
     ops::Deref,
 };
 
-use super::{value, ObjectId};
+use super::{value, ObjectId, lower_typ};
 use crate::transit::{
     type2::{self, VertexId},
     type3::{Device, DeviceSpecific},
@@ -60,25 +60,6 @@ pub struct DefUse {
     /// Caution that there can be cases when some outputs of a vertex are used,
     /// but others are not. This vertex is still in the connected component of the graph.
     pub(super) object_dies_after: BTreeMap<ObjectId, DeviceSpecific<Option<VertexId>>>,
-}
-
-/// Determine where outputs and inputs of a vertex are, based on where it is executed.
-fn decide_device<'s, Rt: RuntimeType>(
-    v: &type2::Vertex<'s, Rt>,
-    execution_device: type2::Device,
-    constants_device: &Heap<ConstantId, Device>,
-) -> Device {
-    match v.node() {
-        type2::VertexNode::Constant(cid) => constants_device[*cid],
-        _ => decide_device_for_non_constant(execution_device),
-    }
-}
-
-pub fn decide_device_for_non_constant(execution_device: type2::Device) -> Device {
-    match execution_device {
-        type2::Device::Cpu => Device::Cpu,
-        type2::Device::Gpu(i) => Device::Gpu(i),
-    }
 }
 
 /// Mark that `object_id` is used at vertex `vid` on `device`.
@@ -260,24 +241,7 @@ fn vertex_input_of<'s, Rt: RuntimeType>(
     inputs
 }
 
-/// Determine [`ValueNode`] for a freshly defined Type2 type.
-/// That is, no slice, no rotation.
-fn lower_typ<Rt: RuntimeType>(t2typ: &type2::Typ<Rt>) -> ValueNode {
-    use type2::typ::template::Typ::*;
-    match t2typ {
-        Poly((_, deg0)) => ValueNode::plain_scalar_array(*deg0 as usize),
-        Scalar => ValueNode::Scalar,
-        Point => ValueNode::Point,
-        PointBase { log_n } => ValueNode::PointBase {
-            len: 2usize.pow(*log_n),
-        },
-        Transcript => ValueNode::Transcript,
-        Tuple(..) => panic!("tuple unexpected"),
-        Array(..) => panic!("array unexpected"),
-        Any(tid, size) => ValueNode::Any(tid.clone().into(), *size as usize),
-        _Phantom(_) => unreachable!(),
-    }
-}
+
 
 /// Collect output values of a vertex.
 ///

@@ -9,6 +9,10 @@ impl<I, V> Digraph<I, V> {
     pub fn new() -> Self {
         Self(Heap::new())
     }
+
+    pub fn from_vertices(vs: Heap<I, V>) -> Self {
+        Self(vs)
+    }
 }
 
 impl<I, V> Default for Digraph<I, V> {

@@ -26,6 +26,22 @@ impl Slice {
     pub fn is_plain(&self, deg: u64) -> bool {
         self.0 == 0 && self.1 == deg
     }
+
+    pub fn rotated(&self, delta: i64, deg: u64) -> Self {
+        let offset = self.begin() as i64 + delta;
+        Slice(offset.rem_euclid(deg as i64) as u64, self.1)
+    }
+
+    pub fn is_contained_in(&self, other: &Self) -> bool {
+        self.begin() >= other.begin() && self.end() <= other.end()
+    }
+
+    pub fn relative_to(&self, other: &Self) -> Self {
+        if !self.is_contained_in(other) {
+            panic!("slice {:?} is not contained in {:?}, cannot get relative slice", self, other);
+        }
+        Slice(self.0 - other.0, self.1)
+    }
 }
 
 #[derive(

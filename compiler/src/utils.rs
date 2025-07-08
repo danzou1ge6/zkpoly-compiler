@@ -81,6 +81,10 @@ pub fn div_ceil(x: usize, y: usize) -> usize {
     (x + y - 1) / y
 }
 
+pub fn div_ceil_u64(x: u64, y: u64) -> u64 {
+    (x + y - 1) / y
+}
+
 pub fn human_readable_size(size: u64) -> String {
     const KB: u64 = 1024;
     const MB: u64 = KB * 1024;

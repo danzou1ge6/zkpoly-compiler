@@ -155,9 +155,20 @@ pub mod alt_label {
         Arith<I>,
         ConstantId,
         user_function::Id,
-        sliceable_subgraph::alt_label::Cg<'s, I, Rt>,
+        sliceable_subgraph::alt_label::Cg<'s, sliceable_subgraph::VertexId, I, Rt>,
     >;
     pub type Vertex<'s, I, Rt> = transit::Vertex<VertexNode<'s, I, Rt>, Typ<Rt>, SourceInfo<'s>>;
+}
+
+pub mod alt_label_no_subgraph {
+    use super::*;
+    pub type VertexNode<I> = template::VertexNode<
+        I,
+        Arith<I>,
+        ConstantId,
+        user_function::Id,
+        ()
+    >;
 }
 
 pub type VertexNode<'s, Rt> = alt_label::VertexNode<'s, VertexId, Rt>;
@@ -266,16 +277,17 @@ where
     }
 }
 
-impl<'s, I, C, E, Rt: RuntimeType>
+impl<'s, I, Is, C, E, Rt: RuntimeType>
     template::VertexNode<
         I,
         arith::ArithGraph<I, arith::ExprId>,
         C,
         E,
-        sliceable_subgraph::alt_label::Cg<'s, I, Rt>,
+        sliceable_subgraph::alt_label::Cg<'s, Is, I, Rt>,
     >
 where
     I: Clone,
+    Is: Clone,
     C: Clone,
     E: Clone,
 {
@@ -288,7 +300,7 @@ where
             arith::ArithGraph<I2, arith::ExprId>,
             C,
             E,
-            sliceable_subgraph::alt_label::Cg<'s, I2, Rt>,
+            sliceable_subgraph::alt_label::Cg<'s, Is, I2, Rt>,
         >,
         Er,
     > {
@@ -368,7 +380,7 @@ where
         arith::ArithGraph<I2, arith::ExprId>,
         C,
         E,
-        sliceable_subgraph::alt_label::Cg<'s, I2, Rt>,
+        sliceable_subgraph::alt_label::Cg<'s, Is, I2, Rt>,
     > {
         self.try_relabeled::<_, ()>(|i| Ok(mapping(i))).unwrap()
     }
@@ -445,6 +457,8 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
                 // We are using only one gpu for now
                 on_gpu(Device::Gpu(0)),
             )),
+            Sliceable(Slice2(..)) => None,
+            Subgraph(..) => None,
             Sliceable(NewPoly(..)) => None,
             Sliceable(Constant(..)) => None,
             UnsliceableConstant(..) => None,

@@ -1,4 +1,4 @@
-use zkpoly_common::msm_config::MsmConfig;
+use zkpoly_common::{digraph, msm_config::MsmConfig};
 use zkpoly_runtime::args::EntryId;
 
 use super::{arith, transit, DevicePreference, NttAlgorithm, PolyInit, PolyType};
@@ -11,12 +11,26 @@ pub enum SliceableNode<I, A, C> {
     Constant(C),
     SingleArith(arith::Arith<I>),
     ScalarInvert(I),
-    Arith { arith: A, chunking: Option<u64> },
+    Arith {
+        arith: A,
+        chunking: Option<u64>,
+    },
     RotateIdx(I, i32),
     Blind(I, u64, u64),
     BatchedInvert(I),
-    ScanMul { x0: I, poly: I },
-    DistributePowers { poly: I, powers: I },
+    /// `ScanMul` in a sliceable subgraph also outputs the product
+    ///   x0 a0 a1 ... an
+    /// Which is used as the `x0` of calculation of `ScanMul` in next slice
+    ScanMul {
+        x0: I,
+        poly: I,
+    },
+    DistributePowers {
+        poly: I,
+        powers: I,
+    },
+    /// `Slice2(a, b, offset)` means concatenating two slices, then produce a new slice at `offset`
+    Slice2(I, I, u64),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, serde::Serialize, serde::Deserialize)]
@@ -44,6 +58,21 @@ where
 {
     fn inputs(&self) -> impl Iterator<Item = &'_ I>;
     fn inputs_mut(&mut self) -> impl Iterator<Item = &'_ mut I>;
+}
+
+impl<I> SubgraphNode<I> for ()
+where
+    I: 'static,
+{
+    fn inputs(&self) -> impl Iterator<Item = &'_ I> {
+        #[allow(unreachable_code)]
+        std::iter::once(panic!("variant Subgraph is not expected in this type"))
+    }
+
+    fn inputs_mut(&mut self) -> impl Iterator<Item = &'_ mut I> {
+        #[allow(unreachable_code)]
+        std::iter::once(panic!("variant Subgraph is not expected in this type"))
+    }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, serde::Serialize, serde::Deserialize)]
@@ -78,8 +107,8 @@ pub enum VertexNode<I, A, C, E, S> {
     /// Returns (transcript, scalar)
     SqueezeScalar(I),
     PolyPermute(I, I, usize),
-    TupleGet(I, usize),
     ArrayGet(I, usize),
+    TupleGet(I, usize),
     UserFunction(E, Vec<I>),
     KateDivision(I, I),
     IndexPoly(I, u64),
@@ -104,6 +133,7 @@ where
             BatchedInvert(x) => Box::new([x].into_iter()),
             ScanMul { x0, poly } => Box::new([x0, poly].into_iter()),
             DistributePowers { poly, powers } => Box::new([poly, powers].into_iter()),
+            Slice2(a, b, ..) => Box::new([a, b].into_iter()),
         }
     }
 
@@ -120,6 +150,7 @@ where
             BatchedInvert(x) => Box::new([x].into_iter()),
             ScanMul { x0, poly } => Box::new([x0, poly].into_iter()),
             DistributePowers { poly, powers } => Box::new([poly, powers].into_iter()),
+            Slice2(a, b, ..) => Box::new([a, b].into_iter()),
         }
     }
 
@@ -147,6 +178,7 @@ where
             BatchedInvert(..) => Gpu,
             ScanMul { .. } => Gpu,
             DistributePowers { .. } => Gpu,
+            Slice2(..) => PreferGpu,
         }
     }
 
@@ -224,6 +256,9 @@ where
                 poly: mapping(poly.clone())?,
                 powers: mapping(powers.clone())?,
             },
+            Slice2(a, b, offset) => {
+                Slice2(mapping(a.clone())?, mapping(b.clone())?, offset.clone())
+            }
         })
     }
 
@@ -267,6 +302,10 @@ where
             BatchedInvert(..) => currespounding_gpu(device),
             ScanMul { .. } => currespounding_gpu(device),
             DistributePowers { .. } => currespounding_gpu(device),
+            Slice2(..) => match device {
+                super::Device::Gpu(i) => GpuMemory(i),
+                super::Device::Cpu => Cpu,
+            },
         }
     }
 }
@@ -365,17 +404,32 @@ where
     }
 }
 
+#[derive(PartialEq, Eq)]
+pub enum SliceableProperty {
+    /// This vertex is always sliceable
+    Always,
+    /// This vertex is sliceable if it is output vertex of the sliceable subgraph
+    Last,
+    /// This vertex is sliceable if at all its inputs are within the sliceable subgraph
+    NonFirst,
+    /// This vertex is not sliceable
+    No,
+}
+
 impl<I, C, E, S> VertexNode<I, super::Arith<I>, C, E, S>
 where
     I: Clone + 'static,
     S: SubgraphNode<I>,
 {
-    pub fn is_sliceable(&self) -> bool {
-        matches!(self, Self::Sliceable(_))
-    }
-
-    pub fn is_last_sliceable(&self) -> bool {
-        matches!(self, Self::LastSliceable(_))
+    pub fn sliceable_property(&self) -> SliceableProperty {
+        use SliceableProperty::*;
+        use VertexNode::*;
+        match self {
+            Sliceable(..) => Always,
+            LastSliceable(..) => Last,
+            TupleGet(..) => NonFirst,
+            _ => No,
+        }
     }
 
     pub fn unwrap_constant(&self) -> &C {

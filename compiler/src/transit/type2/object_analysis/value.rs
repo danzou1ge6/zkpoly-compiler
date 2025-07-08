@@ -1,4 +1,5 @@
-use crate::transit::type2::VertexId;
+use std::ops::Deref;
+
 use crate::transit::type3::Device;
 use zkpoly_common::arith::Mutability;
 use zkpoly_common::define_usize_id;
@@ -15,34 +16,58 @@ impl From<&ObjectId> for ObjectId {
 
 pub type ValueNode = Typ<Slice>;
 
+/// An object is an immutable piece of data on some storage device.
+/// Objects belonging to the same [`ObjectId`] can be concatenated to a complete object,
+/// which now is a polynomial
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Object {
+    id: ObjectId,
+    slice: Option<Slice>,
+}
+
+impl Object {
+    pub fn new(object_id: ObjectId, slice: Option<Slice>) -> Self {
+        Object {
+            id: object_id,
+            slice,
+        }
+    }
+
+    pub fn not_sliced(object_id: ObjectId) -> Self {
+        Object {
+            id: object_id,
+            slice: None,
+        }
+    }
+
+    pub fn id(&self) -> ObjectId {
+        self.id
+    }
+
+    pub fn with_object_id(&self, object_id: ObjectId) -> Self {
+        Object {
+            id: object_id,
+            slice: self.slice.clone(),
+        }
+    }
+}
+
 /// Represents what we know now about what's inside a runtime register
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Value {
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Value<O, N> {
     /// The object it points to
-    object_id: ObjectId,
+    object: O,
     /// On which memory device the object resides.
     /// For [`super::Operation`]'s, this is determined by execution device of the operation.
     device: Device,
     /// Variant of the value
-    node: ValueNode,
+    node: N,
 }
 
-impl std::fmt::Debug for Value {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "(o{}, {:?}, {:?})",
-            usize::from(self.object_id()),
-            self.device(),
-            self.node()
-        )
-    }
-}
-
-impl Value {
-    pub fn new(object_id: ObjectId, device: Device, node: ValueNode) -> Self {
+impl<O, N> Value<O, N> {
+    pub fn new(object: O, device: Device, node: N) -> Self {
         Value {
-            object_id,
+            object,
             device,
             node,
         }
@@ -52,46 +77,74 @@ impl Value {
         self.device
     }
 
-    pub fn object_id(&self) -> ObjectId {
-        self.object_id
+    pub fn object(&self) -> &O {
+        &self.object
+    }
+    pub fn object_mut(&mut self) -> &mut O {
+        &mut self.object
     }
 
-    pub fn object_id_mut(&mut self) -> &mut ObjectId {
-        &mut self.object_id
-    }
-
-    pub fn with_object_id(&self, object_id: ObjectId) -> Self {
+    pub fn with_device(&self, device: Device) -> Self
+    where
+        N: Clone,
+        O: Clone,
+    {
         Value {
-            object_id,
+            node: self.node.clone(),
+            object: self.object.clone(),
+            device,
+        }
+    }
+
+    pub fn with_object(&self, object: O) -> Self
+    where
+        N: Clone,
+    {
+        Value {
+            object,
             device: self.device,
             node: self.node.clone(),
         }
     }
 
-    pub fn with_device(&self, device: Device) -> Self {
+    pub fn with_node(&self, node: N) -> Self
+    where
+        O: Clone,
+    {
         Value {
-            node: self.node.clone(),
-            object_id: self.object_id,
-            device,
-        }
-    }
-
-    pub fn with_node(&self, node: ValueNode) -> Self {
-        Value {
-            object_id: self.object_id,
+            object: self.object.clone(),
             device: self.device,
             node,
         }
     }
 
-    pub fn node(&self) -> &ValueNode {
+    pub fn node(&self) -> &N {
         &self.node
     }
 
-    pub fn node_mut(&mut self) -> &mut ValueNode {
+    pub fn node_mut(&mut self) -> &mut N {
         &mut self.node
     }
+}
 
+impl<N> Value<Object, N> {
+    pub fn with_object_id(&self, object_id: ObjectId) -> Self
+    where
+        N: Clone,
+    {
+        Value {
+            object: self.object.with_object_id(object_id),
+            device: self.device,
+            node: self.node.clone(),
+        }
+    }
+
+    pub fn object_id(&self) -> ObjectId {
+        self.object.id()
+    }
+}
+
+impl<O> Value<O, ValueNode> {
     pub fn object_size<Rt: RuntimeType>(&self) -> usize {
         use std::mem::size_of;
         match &self.node {
@@ -114,7 +167,10 @@ impl Value {
     ///
     /// # Panics
     /// When the value is not a [`Typ::ScalarArray`].
-    pub fn rotate(&self, delta: i32) -> Option<Self> {
+    pub fn rotate(&self, delta: i32) -> Option<Self>
+    where
+        O: Clone,
+    {
         match &self.node {
             Typ::ScalarArray { len, meta } => {
                 if meta.len() == *len as u64 {
@@ -136,7 +192,10 @@ impl Value {
     ///
     /// # Panics
     /// When the value is not a [`Typ::ScalarArray`].
-    pub fn slice(&self, begin: u64, end: u64) -> Self {
+    pub fn slice(&self, begin: u64, end: u64) -> Self
+    where
+        O: Clone,
+    {
         match &self.node {
             Typ::ScalarArray { len: deg, meta } => {
                 let offset = (meta.begin() + begin) % *deg as u64;
@@ -164,61 +223,59 @@ impl Value {
 /// If `.1` is [`Some`], it is the index of the input value taken inplace.
 /// A input value is said to be taken inplace if the underlying memory space is then used by the output.
 #[derive(Debug, Clone)]
-pub struct OutputValue(Value, Option<VertexId>);
+pub struct OutputValue<V, I>(V, Option<I>);
 
-impl std::ops::Deref for OutputValue {
-    type Target = Value;
+impl<V, I> std::ops::Deref for OutputValue<V, I> {
+    type Target = V;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl OutputValue {
-    pub fn new(value: Value, inplace: Option<VertexId>) -> Self {
+impl<V, I> std::ops::DerefMut for OutputValue<V, I> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<V, I> OutputValue<V, I> {
+    pub fn new(value: V, inplace: Option<I>) -> Self {
         OutputValue(value, inplace)
     }
 
-    pub fn non_inplace(value: Value) -> Self {
+    pub fn non_inplace(value: V) -> Self {
         OutputValue(value, None)
     }
 
-    pub fn inplace_of(&self) -> Option<VertexId> {
-        self.1
+    pub fn inplace_of(&self) -> Option<I>
+    where
+        I: Clone,
+    {
+        self.1.clone()
     }
 }
 
 /// A Type2 Vertex can either output a single value or a tuple of values.
 /// They are distinguished here to recognize subsequent TupleGet's.
 #[derive(Debug, Clone)]
-pub enum VertexOutput {
-    Tuple(Vec<OutputValue>),
-    Single(OutputValue),
+pub enum VertexOutput<V> {
+    Tuple(Vec<V>),
+    Single(V),
 }
 
-impl VertexOutput {
-    pub fn object_ids<'s>(&'s self) -> Box<dyn Iterator<Item = ObjectId> + 's> {
+impl<V> VertexOutput<V> {
+    pub fn object_ids<'s, N>(&'s self) -> Box<dyn Iterator<Item = ObjectId> + 's>
+    where
+        V: Deref<Target = Value<Object, N>>,
+    {
         use VertexOutput::*;
         match self {
-            Tuple(ss) => Box::new(ss.iter().map(|x| x.object_id())),
-            Single(s) => Box::new([s.object_id()].into_iter()),
+            Tuple(ss) => Box::new(ss.iter().map(|x| x.deref().object_id())),
+            Single(s) => Box::new([s.deref().object_id()].into_iter()),
         }
     }
 
-    pub fn with_device(&self, device: Device) -> Self {
-        use VertexOutput::*;
-        match self {
-            Tuple(ss) => VertexOutput::Tuple(
-                ss.iter()
-                    .map(|OutputValue(v, inplace)| OutputValue(v.with_device(device), *inplace))
-                    .collect(),
-            ),
-            Single(OutputValue(v, inplace)) => {
-                VertexOutput::Single(OutputValue(v.with_device(device), *inplace))
-            }
-        }
-    }
-
-    pub fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = &'a OutputValue> + 'a> {
+    pub fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = &'a V> + 'a> {
         use VertexOutput::*;
         match self {
             Tuple(ss) => Box::new(ss.iter()),
@@ -226,7 +283,7 @@ impl VertexOutput {
         }
     }
 
-    pub fn iter_mut<'a>(&'a mut self) -> Box<dyn Iterator<Item = &'a mut OutputValue> + 'a> {
+    pub fn iter_mut<'a>(&'a mut self) -> Box<dyn Iterator<Item = &'a mut V> + 'a> {
         use VertexOutput::*;
         match self {
             Tuple(ss) => Box::new(ss.iter_mut()),
@@ -234,7 +291,7 @@ impl VertexOutput {
         }
     }
 
-    pub fn try_unwrap_single(&self) -> Option<&OutputValue> {
+    pub fn try_unwrap_single(&self) -> Option<&V> {
         use VertexOutput::*;
         match self {
             Single(s) => Some(s),
@@ -242,7 +299,7 @@ impl VertexOutput {
         }
     }
 
-    pub fn unwrap_single(&self) -> &OutputValue {
+    pub fn unwrap_single(&self) -> &V {
         use VertexOutput::*;
         match self {
             Single(s) => s,
@@ -250,7 +307,7 @@ impl VertexOutput {
         }
     }
 
-    pub fn unwrap_single_mut(&mut self) -> &mut OutputValue {
+    pub fn unwrap_single_mut(&mut self) -> &mut V {
         use VertexOutput::*;
         match self {
             Single(s) => s,
@@ -258,6 +315,20 @@ impl VertexOutput {
         }
     }
 
+    pub fn unwrap_tuple(&self) -> &Vec<V> {
+        use VertexOutput::*;
+        match self {
+            Tuple(v) => v,
+            _ => panic!("called unwrap_tuple on VertexValue::Single"),
+        }
+    }
+}
+
+impl<O, N, I> VertexOutput<OutputValue<Value<O, N>, I>>
+where
+    O: Clone,
+    N: Clone,
+{
     pub fn with_no_inplace(self) -> Self {
         use VertexOutput::*;
         match self {
@@ -267,6 +338,26 @@ impl VertexOutput {
                     .collect(),
             ),
             Single(OutputValue(v, _)) => VertexOutput::Single(OutputValue(v.clone(), None)),
+        }
+    }
+
+    pub fn with_device(&self, device: Device) -> Self
+    where
+        I: Clone,
+    {
+        use VertexOutput::*;
+        match self {
+            Tuple(ss) => VertexOutput::Tuple(
+                ss.iter()
+                    .map(|OutputValue(v, inplace)| {
+                        OutputValue(v.with_device(device), inplace.as_ref().cloned())
+                    })
+                    .collect(),
+            ),
+            Single(OutputValue(v, inplace)) => VertexOutput::Single(OutputValue(
+                v.with_device(device),
+                inplace.as_ref().cloned(),
+            )),
         }
     }
 }
@@ -288,6 +379,14 @@ impl<V> Default for VertexInput<V> {
 
 impl<V> VertexInput<V> {
     pub fn unwrap_single(&self) -> (&V, &Mutability) {
+        use VertexInput::*;
+        match self {
+            Single(v, m) => (v, m),
+            _ => panic!("called unwrap_single on VertexInput::Tuple"),
+        }
+    }
+
+    pub fn unwrap_single_mut(&mut self) -> (&mut V, &mut Mutability) {
         use VertexInput::*;
         match self {
             Single(v, m) => (v, m),
@@ -325,6 +424,14 @@ impl<V> VertexInput<V> {
         }
     }
 
+    pub fn iter_mut<'a>(&'a mut self) -> Box<dyn Iterator<Item = &'a mut V> + 'a> {
+        use VertexInput::*;
+        match self {
+            Single(v, _) => Box::new(std::iter::once(v)),
+            Tuple(tuple) => Box::new(tuple.iter_mut()),
+        }
+    }
+
     pub fn mutable(&self) -> Option<&V> {
         match self {
             Self::Single(v, Mutability::Mut) => Some(v),
@@ -341,7 +448,10 @@ impl<V> VertexInput<V> {
     }
 }
 
-impl VertexInput<Value> {
+impl<N> VertexInput<Value<Object, N>>
+where
+    N: Clone,
+{
     pub fn with_object_id(&self, object_id: ObjectId) -> Self {
         use VertexInput::*;
         match self {

@@ -233,4 +233,14 @@ where
             _ => false,
         }
     }
+
+    pub fn is_poly_pow2(&self) -> bool {
+        use template::Typ::*;
+        match self {
+            Poly((_, deg)) => deg.is_power_of_two(),
+            Array(t, n) => t.is_poly_pow2(),
+            Tuple(ts) => ts.iter().all(|t| t.is_poly_pow2()),
+            _ => true,
+        }
+    }
 }

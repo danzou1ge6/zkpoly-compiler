@@ -1,9 +1,9 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use zkpoly_common::heap::Heap;
+use zkpoly_common::{digraph::internal::Digraph, heap::Heap};
 use zkpoly_runtime::args::RuntimeType;
 
-use super::{sliceable_subgraph, Typ, VertexId};
+use super::{sliceable_subgraph, template::SliceableProperty, Typ, VertexId};
 
 struct DenseSet(Heap<VertexId, bool>);
 
@@ -28,6 +28,10 @@ impl DenseSet {
 
     pub fn add(&mut self, v: VertexId) {
         self.0[v] = true;
+    }
+
+    pub fn remove(&mut self, v: VertexId) {
+        self.0[v] = false;
     }
 }
 
@@ -121,6 +125,7 @@ impl<'g, 's, Rt: RuntimeType> GrowingSubgraph<'g, 's, Rt> {
     }
 
     fn try_grow(&mut self) -> bool {
+        use super::template::SliceableProperty::*;
         if let Some(v) = self.frontier.pop_front() {
             for u in self
                 .subgraph
@@ -131,9 +136,12 @@ impl<'g, 's, Rt: RuntimeType> GrowingSubgraph<'g, 's, Rt> {
             {
                 if !self.subgraph.contains(u)
                     && !self.subgraph.is_backward_reachable(u)
-                    && !self.subgraph.g.vertex(v).node().is_last_sliceable()
-                    && (self.subgraph.g.vertex(u).node().is_sliceable()
-                        || self.subgraph.g.vertex(u).node().is_last_sliceable())
+                    && self.subgraph.g.vertex(v).node().sliceable_property() != Last
+                    && matches!(
+                        self.subgraph.g.vertex(u).node().sliceable_property(),
+                        Always | NonFirst | Last
+                    )
+                    && self.subgraph.g.vertex(u).typ().is_poly_pow2()
                 {
                     self.grow(u);
                 }
@@ -145,9 +153,15 @@ impl<'g, 's, Rt: RuntimeType> GrowingSubgraph<'g, 's, Rt> {
                 .collect::<Vec<_>>()
                 .into_iter()
             {
+                // We are allowing NonFirst here, and if we later find some NonFirst vertex becomes first,
+                // we will remove it from the subgraph before building the super vertex
                 if !self.subgraph.contains(u)
                     && !self.subgraph.is_forward_reachable(u)
-                    && self.subgraph.g.vertex(u).node().is_sliceable()
+                    && matches!(
+                        self.subgraph.g.vertex(u).node().sliceable_property(),
+                        Always | NonFirst
+                    )
+                    && self.subgraph.g.vertex(u).typ().is_poly_pow2()
                 {
                     self.grow(u);
                 }
@@ -170,8 +184,21 @@ fn fuse_sliceable_subgraphs_from<'s, Rt: RuntimeType>(
     fused_vids: &mut DenseSet,
     subgraph_minimum_order: usize,
 ) {
-    let (subgraph, connected_cg, subgraph_order) =
+    let (mut subgraph, connected_cg, subgraph_order) =
         GrowingSubgraph::start_with(v, cg.connected_subgraph()).as_large_as_possible();
+
+    // Remove those NonFirst vertices if they are first.
+    // CAUTION that for now, only TupleGet's are NonFirst, and tuples can't be nested,
+    // therefore we don't need to consider the case when removing a vertex causes other vertices
+    // to become first.
+    subgraph.ids().for_each(|v| {
+        if connected_cg.vertex(v).node().sliceable_property() == SliceableProperty::NonFirst
+            && !connected_cg.predecessors_of(v).all(|u| subgraph[u])
+        {
+            subgraph.remove(v)
+        }
+    });
+    let subgraph = subgraph;
 
     if subgraph_order < subgraph_minimum_order {
         return;
@@ -188,6 +215,25 @@ fn fuse_sliceable_subgraphs_from<'s, Rt: RuntimeType>(
             });
     sub2big.iter().for_each(|v| fused_vids.add(*v));
 
+    // Inputs are predecessors of the subgraph no in subgraph
+    let subgraph_inputs_vids = sub2big
+        .iter_with_id()
+        .map(|(_sub_v, v)| connected_cg.predecessors_of(*v).filter(|u| !subgraph[*u]))
+        .flatten()
+        .collect::<HashSet<_>>();
+    let subgraph_inputs_sub_vids = subgraph_inputs_vids
+        .iter()
+        .map(|v| sub2big.push(*v))
+        .collect::<Vec<_>>();
+    let sub2big = sub2big;
+
+    let big2sub = sub2big
+        .iter_with_id()
+        .fold(HashMap::new(), |mut acc, (sub_v, v)| {
+            acc.insert(*v, sub_v);
+            acc
+        });
+
     // Outputs are those in subgraph that have successors not in subgraph
     let subgraph_outputs = sub2big
         .iter_with_id()
@@ -199,24 +245,6 @@ fn fuse_sliceable_subgraphs_from<'s, Rt: RuntimeType>(
             }
         })
         .collect::<Vec<_>>();
-
-    // Inputs are predecessors of the subgraph no in subgraph
-    let subgraph_inputs_vids = sub2big
-        .iter_with_id()
-        .map(|(_sub_v, v)| connected_cg.predecessors_of(*v).filter(|u| !subgraph[*u]))
-        .flatten()
-        .collect::<HashSet<_>>();
-    let subgraph_inputs_sub_vids = subgraph_inputs_vids
-        .iter()
-        .map(|v| sub2big.push(*v))
-        .collect::<Vec<_>>();
-
-    let big2sub = sub2big
-        .iter_with_id()
-        .fold(HashMap::new(), |mut acc, (sub_v, v)| {
-            acc.insert(*v, sub_v);
-            acc
-        });
 
     // Relabel external vertices to subgraph vertices
     let mut sub_cg_vertices: Heap<sliceable_subgraph::VertexId, _> =
@@ -257,7 +285,7 @@ fn fuse_sliceable_subgraphs_from<'s, Rt: RuntimeType>(
     // Add subgraph to big graph
     let subgraph = sliceable_subgraph::Cg::new(
         subgraph_inputs_sub_vids.iter().cloned().collect(),
-        sub_cg_vertices,
+        Digraph::from_vertices(sub_cg_vertices),
         subgraph_return_vid,
     );
     let subgraph_vid = cg.g.add_vertex(super::Vertex::new(
@@ -276,7 +304,10 @@ pub fn fuse<'s, Rt: RuntimeType>(
     mut cg: super::Cg<'s, Rt>,
     subgraph_minimum_order: usize,
 ) -> super::Cg<'s, Rt> {
-    let seq = cg.g.dfs_from(cg.output).map(|(vid, _)| vid).collect::<Vec<_>>();
+    let seq =
+        cg.g.dfs_from(cg.output)
+            .map(|(vid, _)| vid)
+            .collect::<Vec<_>>();
     let mut fused_vids = DenseSet::empty(cg.g.order());
 
     for vid in seq {
@@ -284,12 +315,7 @@ pub fn fuse<'s, Rt: RuntimeType>(
             continue;
         }
 
-        fuse_sliceable_subgraphs_from(
-            vid,
-            &mut cg,
-            &mut fused_vids,
-            subgraph_minimum_order,
-        );
+        fuse_sliceable_subgraphs_from(vid, &mut cg, &mut fused_vids, subgraph_minimum_order);
     }
 
     cg
