@@ -5,7 +5,6 @@
 #include <iomanip>
 #include <tuple>
 #include <random>
-#include <cub/cub.cuh>
 
 #define BIG_INTEGER_CHUNKS8(c7, c6, c5, c4, c3, c2, c1, c0) {c0, c1, c2, c3, c4, c5, c6, c7}
 #define BIG_INTEGER_CHUNKS12(c11, c10, c9, c8, c7, c6, c5, c4, c3, c2, c1, c0) \
@@ -646,18 +645,6 @@ namespace mont
     __device__ __host__ __forceinline__
     Number() {}
 
-    // 辅助模板，用于将 Number 结构体转换为 tuple<&u32, &u32, ...>
-    template <std::size_t... Indices>
-    auto __device__ __host__ __forceinline__  to_tuple_impl(::cuda::std::index_sequence<Indices...>) {
-        // 使用 std::make_tuple 将数组中的每个元素转换为 tuple
-        return ::cuda::std::make_tuple((::cuda::std::ref(limbs[LIMBS - 1 - Indices]))...); // tuple里第一个是最高位，因此要反转
-    }
-
-    // 用于用户调用的主要转换函数
-    auto __device__ __host__ __forceinline__ to_tuple() {
-        return to_tuple_impl(::cuda::std::make_index_sequence<LIMBS>{});
-    }
-
     bool __device__ __host__ __forceinline__ operator < (const Number &rhs) const &
     {
       for (int i = LIMBS - 1; i >= 0; i--)
@@ -1241,49 +1228,6 @@ namespace mont
   {
     is >> e.n;
     return is;
-  }
-
-  template <typename Field, u32 io_group>
-  __forceinline__ __device__ auto load_exchange(u32 *data, typename cub::WarpExchange<u32, io_group, io_group>::TempStorage temp_storage[]) -> Field
-  {
-    using WarpExchangeT = cub::WarpExchange<u32, io_group, io_group>;
-    const static usize WORDS = Field::LIMBS;
-    const u32 io_id = threadIdx.x & (io_group - 1);
-    const u32 lid_start = threadIdx.x - io_id;
-    const int warp_id = static_cast<int>(threadIdx.x) / io_group;
-    u32 thread_data[io_group];
-#pragma unroll
-    for (u64 i = lid_start; i != lid_start + io_group; i++)
-    {
-      if (io_id < WORDS)
-      {
-        thread_data[i - lid_start] = data[i * WORDS + io_id];
-      }
-    }
-    WarpExchangeT(temp_storage[warp_id]).StripedToBlocked(thread_data, thread_data);
-    __syncwarp();
-    return Field::load(thread_data);
-  }
-  template <typename Field, u32 io_group>
-  __forceinline__ __device__ void store_exchange(Field ans, u32 *dst, typename cub::WarpExchange<u32, io_group, io_group>::TempStorage temp_storage[])
-  {
-    using WarpExchangeT = cub::WarpExchange<u32, io_group, io_group>;
-    const static usize WORDS = Field::LIMBS;
-    const u32 io_id = threadIdx.x & (io_group - 1);
-    const u32 lid_start = threadIdx.x - io_id;
-    const int warp_id = static_cast<int>(threadIdx.x) / io_group;
-    u32 thread_data[io_group];
-    ans.store(thread_data);
-    WarpExchangeT(temp_storage[warp_id]).BlockedToStriped(thread_data, thread_data);
-    __syncwarp();
-#pragma unroll
-    for (u64 i = lid_start; i != lid_start + io_group; i++)
-    {
-      if (io_id < WORDS)
-      {
-        dst[i * WORDS + io_id] = thread_data[i - lid_start];
-      }
-    }
   }
 
   __forceinline__ constexpr u32 pow2_ceiling(u32 x)

@@ -23,6 +23,4 @@ target("test_ssip")
 
 target("test_recompute")
     set_kind("binary")
-    add_cugencodes("native")
     add_files("tests/test_recompute.cu")
-    set_languages("c++17")

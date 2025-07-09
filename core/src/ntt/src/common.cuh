@@ -2,8 +2,6 @@
 #include "../../common/mont/src/field_impls.cuh"
 #include "../../common/error/src/check.cuh"
 #include "../../common/iter/src/iter.cuh"
-#include <cuda/barrier>
-#include <cub/cub.cuh>
 #include <algorithm>
 
 namespace detail {
