@@ -148,23 +148,7 @@ __global__ void ssip_ntt_stage2_warp_no_share_no_twiddle (SliceIterator<Field> d
     static_assert(WORDS % 4 == 0);
     constexpr u32 io_group = 1 << (log2_int(WORDS - 1) - 1);
 
-    using barrier = cuda::barrier<cuda::thread_scope_block>;
-    #pragma nv_diag_suppress static_var_with_dynamic_init
-    __shared__  barrier bar;
-
-    if (threadIdx.x == 0) {
-        init(&bar, blockDim.x); // Initialize the barrier with expected arrival count
-    }
-    __syncthreads();
-
-    const int warp_id = static_cast<int>(threadIdx.x) / io_group;
     uint4 thread_data[io_group];
-
-    // Specialize WarpExchange for a virtual warp of a threads owning b integer items each
-    using WarpExchangeT = cub::WarpExchange<uint4, io_group, io_group>;
-
-    // Allocate shared memory for WarpExchange
-    extern __shared__ typename WarpExchangeT::TempStorage temp_storage_uint4[];
 
     const u32 lid = threadIdx.x & (group_sz - 1);
     const u32 lsize = group_sz;
@@ -197,70 +181,7 @@ __global__ void ssip_ntt_stage2_warp_no_share_no_twiddle (SliceIterator<Field> d
     Field a, b, c, d;
 
     // Read data
-    if (cur_io_group == io_group) {
-        #pragma unroll
-        for (int tti = 0; tti < io_group; tti ++) {
-            int i = tti + lid_start;
-            if (io_id * 4 < WORDS) {
-                u32 group_offset = (i >> (deg - 1)) << (log_len - log_stride - 1);
-                u32 group_id = i & (subblock_sz - 1);
-                u64 gpos = group_offset + (group_id << (log_end_stride));
-
-                thread_data[tti] = reinterpret_cast<uint4*>(&data[gpos])[io_id];
-            }
-        }
-        WarpExchangeT(temp_storage_uint4[warp_id]).StripedToBlocked(thread_data, thread_data);
-        a = Field::load(reinterpret_cast<u32*>(thread_data));
-        __syncwarp();
-
-        #pragma unroll
-        for (int tti = 0; tti < io_group; tti ++) { 
-            int i = tti + lid_start;
-            if (io_id * 4 < WORDS) {
-                u32 group_offset = (i >> (deg - 1)) << (log_len - log_stride - 1);
-                u32 group_id = i & (subblock_sz - 1);
-                u64 gpos = group_offset + (group_id << (log_end_stride));
-
-                thread_data[tti] = reinterpret_cast<uint4*>(&data[(gpos+ (end_stride << (deg - 1)))])[io_id];
-            }
-        }
-
-        WarpExchangeT(temp_storage_uint4[warp_id]).StripedToBlocked(thread_data, thread_data);
-        b = Field::load(reinterpret_cast<u32*>(thread_data));
-        __syncwarp();
-
-        #pragma unroll 
-        for (int tti = 0; tti < io_group; tti ++) { 
-            int i = tti + lid_start;
-            if (io_id * 4 < WORDS) {
-                u32 group_offset = (i >> (deg - 1)) << (log_len - log_stride - 1);
-                u32 group_id = i & (subblock_sz - 1);
-                u64 gpos = group_offset + (group_id << (log_end_stride));
-
-                thread_data[tti] = reinterpret_cast<uint4*>(&data[(gpos+ end_pair_stride)])[io_id];
-            }
-        }
-
-        WarpExchangeT(temp_storage_uint4[warp_id]).StripedToBlocked(thread_data, thread_data);
-        c = Field::load(reinterpret_cast<u32*>(thread_data));
-        __syncwarp();
-
-        #pragma unroll 
-        for (int tti = 0; tti < io_group; tti ++) { 
-            int i = tti + lid_start;
-            if (io_id * 4 < WORDS) {
-                u32 group_offset = (i >> (deg - 1)) << (log_len - log_stride - 1);
-                u32 group_id = i & (subblock_sz - 1);
-                u64 gpos = group_offset + (group_id << (log_end_stride));
-
-                thread_data[tti] = reinterpret_cast<uint4*>(&data[(gpos + (end_stride << (deg - 1)) + end_pair_stride)])[io_id];
-            }
-        }
-
-        WarpExchangeT(temp_storage_uint4[warp_id]).StripedToBlocked(thread_data, thread_data);
-        d = Field::load(reinterpret_cast<u32*>(thread_data));
-        __syncwarp();
-    } else {
+    {
         u32 group_offset = (lid >> (deg - 1)) << (log_len - log_stride - 1);
         u32 group_id = lid & (subblock_sz - 1);
         u64 gpos = group_offset + (group_id << (log_end_stride));
@@ -270,8 +191,6 @@ __global__ void ssip_ntt_stage2_warp_no_share_no_twiddle (SliceIterator<Field> d
         c = data[(gpos + end_pair_stride)];
         d = data[(gpos + (end_stride << (deg - 1)) + end_pair_stride)];
     }
-    
-    barrier::arrival_token token = bar.arrive(); /* this thread arrives. Arrival does not block a thread */
 
     const u32 pqshift = log_len - 1 - log_stride;
 
@@ -309,132 +228,11 @@ __global__ void ssip_ntt_stage2_warp_no_share_no_twiddle (SliceIterator<Field> d
             d = d * w;
         }
     }
-        
-    bar.wait(std::move(token)); /* wait for all threads participating in the barrier to complete bar.arrive()*/
+
+    __syncthreads();
 
     // Write back
-    if (cur_io_group == io_group) {
-        a.store(reinterpret_cast<u32*>(thread_data));
-        WarpExchangeT(temp_storage_uint4[warp_id]).BlockedToStriped(thread_data, thread_data);
-        __syncwarp();
-
-        #pragma unroll 
-        for (int tti = 0; tti < io_group; tti ++) { 
-            int ti = tti + lid_start;
-            u32 p;
-            u32 second_half_l, gap;
-            u32 lid_l;
-            u32 group_offset, group_id;
-            u64 gpos;
-
-            p = __brev((ti << 1)) >> (32 - (deg << 1));
-            second_half_l = (p >= lsize * 2);
-
-            lid_l = (p - second_half_l * lsize * 2);
-            gap = lid_l & 1;
-            lid_l = lid_l >> 1;
-            
-
-            group_offset = (lid_l >> (deg - 1)) << (log_len - log_stride - 1);
-            group_id = lid_l & (subblock_sz - 1);
-            gpos = group_offset + (group_id << (log_end_stride + 1));
-            
-            if (io_id * 4  < WORDS) {
-                reinterpret_cast<uint4*>(&data[(gpos + second_half_l * end_pair_stride + gap * end_stride)])[io_id] = thread_data[tti];
-            }
-        }
-
-        b.store(reinterpret_cast<u32*>(thread_data));
-        WarpExchangeT(temp_storage_uint4[warp_id]).BlockedToStriped(thread_data, thread_data);
-        __syncwarp();
-
-        #pragma unroll 
-        for (int tti = 0; tti < io_group; tti ++) { 
-            int ti = tti + lid_start;
-            u32 p;
-            u32 second_half_l, gap;
-            u32 lid_l;
-            u32 group_offset, group_id;
-            u64 gpos;
-
-            p = __brev((ti << 1) + 1) >> (32 - (deg << 1));
-            second_half_l = (p >= lsize * 2);
-
-            lid_l = (p - second_half_l * lsize * 2);
-            gap = lid_l & 1;
-            lid_l = lid_l >> 1;
-            
-
-            group_offset = (lid_l >> (deg - 1)) << (log_len - log_stride - 1);
-            group_id = lid_l & (subblock_sz - 1);
-            gpos = group_offset + (group_id << (log_end_stride + 1));
-            
-            if (io_id * 4 < WORDS) {
-                reinterpret_cast<uint4*>(&data[(gpos + second_half_l * end_pair_stride + gap * end_stride)])[io_id] = thread_data[tti];
-            }
-        }
-
-        c.store(reinterpret_cast<u32*>(thread_data));
-        WarpExchangeT(temp_storage_uint4[warp_id]).BlockedToStriped(thread_data, thread_data);
-        __syncwarp();
-
-        #pragma unroll 
-        for (int tti = 0; tti < io_group; tti ++) { 
-            int ti = tti + lid_start;
-            u32 p;
-            u32 second_half_l, gap;
-            u32 lid_l;
-            u32 group_offset, group_id;
-            u64 gpos;
-
-            p = __brev((ti << 1) + lsize * 2) >> (32 - (deg << 1));
-            second_half_l = (p >= lsize * 2);
-
-            lid_l = (p - second_half_l * lsize * 2);
-            gap = lid_l & 1;
-            lid_l = lid_l >> 1;
-            
-
-            group_offset = (lid_l >> (deg - 1)) << (log_len - log_stride - 1);
-            group_id = lid_l & (subblock_sz - 1);
-            gpos = group_offset + (group_id << (log_end_stride + 1));
-            
-            if (io_id * 4 < WORDS) {
-                reinterpret_cast<uint4*>(&data[(gpos + second_half_l * end_pair_stride + gap * end_stride)])[io_id] = thread_data[tti];
-            }
-        }
-
-        d.store(reinterpret_cast<u32*>(thread_data));
-        WarpExchangeT(temp_storage_uint4[warp_id]).BlockedToStriped(thread_data, thread_data);
-
-        #pragma unroll 
-        for (int tti = 0; tti < io_group; tti ++) { 
-            int ti = tti + lid_start;
-            u32 p;
-            u32 second_half_l, gap;
-            u32 lid_l;
-            u32 group_offset, group_id;
-            u64 gpos;
-
-            p = __brev((ti << 1) + 1 + lsize * 2) >> (32 - (deg << 1));
-            second_half_l = (p >= lsize * 2);
-
-            lid_l = (p - second_half_l * lsize * 2);
-            gap = lid_l & 1;
-            lid_l = lid_l >> 1;
-            
-
-            group_offset = (lid_l >> (deg - 1)) << (log_len - log_stride - 1);
-            group_id = lid_l & (subblock_sz - 1);
-            gpos = group_offset + (group_id << (log_end_stride + 1));
-            
-            if (io_id * 4 < WORDS) {
-                reinterpret_cast<uint4*>(&data[(gpos + second_half_l * end_pair_stride + gap * end_stride)])[io_id] = thread_data[tti];
-            }
-        }
-
-    } else {
-        
+    {
         u32 p;
         u32 second_half_l, gap;
         u32 lid_l;
@@ -554,10 +352,9 @@ cudaError_t ssip_ntt(PolyPtr x, const u32 *twiddle, u32 log_len, cudaStream_t st
         assert(block_sz <= (1 << max_threads_stage2_log));
         u32 block_num = len / 4 / block_sz;
         assert(block_num * 4 * block_sz == len);
-        usize shared_size = (sizeof(typename cub::WarpExchange<uint4, io_group, io_group>::TempStorage) * (block_sz / io_group)); 
 
         auto kernel = ssip_ntt_stage2_warp_no_share_no_twiddle<Field>;
-        kernel <<< block_num, block_sz, shared_size, stream >>>(x_iter, log_len, log_stride, deg, ((1 << (deg << 1)) >> 2), twiddle);
+        kernel <<< block_num, block_sz, 0, stream >>>(x_iter, log_len, log_stride, deg, ((1 << (deg << 1)) >> 2), twiddle);
         CUDA_CHECK(cudaGetLastError());
 
         log_stride -= deg;
