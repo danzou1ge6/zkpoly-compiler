@@ -52,6 +52,10 @@ impl Value {
         self.device
     }
 
+    pub fn device_mut(&mut self) -> &mut Device {
+        &mut self.device
+    }
+
     pub fn object_id(&self) -> ObjectId {
         self.object_id
     }
@@ -322,6 +326,14 @@ impl<V> VertexInput<V> {
         match self {
             Single(v, _) => Box::new(std::iter::once(v)),
             Tuple(tuple) => Box::new(tuple.iter()),
+        }
+    }
+
+    pub fn iter_mut<'a>(&'a mut self) -> Box<dyn Iterator<Item = &'a mut V> + 'a> {
+        use VertexInput::*;
+        match self {
+            Single(v, _) => Box::new(std::iter::once(v)),
+            Tuple(tuple) => Box::new(tuple.iter_mut()),
         }
     }
 

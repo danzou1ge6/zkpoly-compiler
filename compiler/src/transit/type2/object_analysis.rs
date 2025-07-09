@@ -79,6 +79,12 @@ pub mod template {
         }
     }
 
+    impl<P> std::ops::DerefMut for ResidentalValue<P> {
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            &mut self.0
+        }
+    }
+
     impl<P> From<Value> for ResidentalValue<P>
     where
         P: Default,
@@ -107,7 +113,7 @@ pub mod template {
         ///
         /// Depending on current device of memory planning, some of the values' pointers
         /// may be unknown.
-        /// 
+        ///
         /// All temporary spaces belong to the same object.
         Type2(
             VertexId,

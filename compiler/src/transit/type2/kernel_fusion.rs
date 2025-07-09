@@ -451,7 +451,7 @@ fn _fuse_arith<'s, Rt: RuntimeType>(cg: Cg<'s, Rt>, hw_info: &HardwareInfo) -> (
                 .collect::<Vec<_>>();
             let poly_degree = get_poly_degree(&output_types);
             let poly_size = (poly_degree * size_of::<Rt::Field>()).max(1); // at least 1 byte, this is for the case of scalar i/o
-            let nodes_limit = hw_info.cpu().integral_space() as usize / poly_size / 2; // divide by 2 to ensure we have enough space for inputs and outputs
+            let nodes_limit = hw_info.cpu().integral_space() as usize / poly_size * 20; // divide by 2 to ensure we have enough space for inputs and outputs
             assert!(nodes_limit > 3); // two inputs and one output
 
             let (ags, arith2vids) = cg.split(&ag, arith2vid, nodes_limit);

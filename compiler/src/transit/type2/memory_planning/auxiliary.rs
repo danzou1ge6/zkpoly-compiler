@@ -43,6 +43,17 @@ impl<'i, Rt: RuntimeType> AuxiliaryInfo<'i, Rt> {
         Some(next_use)
     }
 
+    pub fn add_next_use_now(&mut self, object: ObjectId, device: Device) {
+        let pc = self.pc;
+        if !self.query_next_use(object, device).is_some_and(|i| i == pc) {
+            self.next_uses
+                .get_mut(&object)
+                .unwrap()
+                .get_mut(device)
+                .push_front(pc);
+        }
+    }
+
     /// Mark that we are using the obejct on the device now, so all uses before (and including) now
     /// are popped from the queue.
     /// We'll use the first index after the current pc as the next use, if any.

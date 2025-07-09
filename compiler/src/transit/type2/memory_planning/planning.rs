@@ -6,16 +6,18 @@ pub mod machine;
 
 /// Get input object to where it is needed.
 fn prepare_input<'s, 'a, 'i, P, Rt: RuntimeType>(
-    object: ObjectId,
-    device: Device,
+    vi: &mut ResidentalValue<Option<P>>,
     planning_devices: &BTreeSet<Device>,
     unplanned_devices: &BTreeSet<Device>,
     obj_info: &object_info::Info<Rt>,
     allocators: &mut AllocatorCollection<'a, 's, ObjectId, P, Rt>,
     machine: &mut Machine<'s, ObjectId, P>,
-    info: &mut AuxiliaryInfo<'i, Rt>
+    info: &mut AuxiliaryInfo<'i, Rt>,
+    arbitary_input_device: bool
 ) -> Result<(), Error<'s>> where P: std::fmt::Debug
 {
+    let device = vi.device();
+    let object = vi.object_id();
     if planning_devices.contains(&device) {
         // Prepare inputs for any planning device
         // - If input is already found on needed device, do nothing
@@ -36,10 +38,14 @@ fn prepare_input<'s, 'a, 'i, P, Rt: RuntimeType>(
                 info
             ).pop()
         {
-            let resp = allocators
-                .handle(device, machine, info)
-                .claim(&object, obj_info.size(object) , src_device);
-            resp.commit(allocators, machine, info)?;
+            if arbitary_input_device {
+                *vi.device_mut() = src_device;
+            } else {
+                let resp = allocators
+                    .handle(device, machine, info)
+                    .claim(&object, obj_info.size(object) , src_device);
+                resp.commit(allocators, machine, info)?;
+            }
 
         } else if let Some(src_device) = allocators
             .object_available_on(
@@ -49,10 +55,14 @@ fn prepare_input<'s, 'a, 'i, P, Rt: RuntimeType>(
                 info
             ).pop()
         {
-            let resp = allocators
-                .handle(device, machine, info)
-                .claim(&object, obj_info.size(object), src_device);
-            resp.commit(allocators, machine, info)?;
+            if arbitary_input_device {
+                *vi.device_mut() = src_device;
+            } else {
+                let resp = allocators
+                    .handle(device, machine, info)
+                    .claim(&object, obj_info.size(object), src_device);
+                resp.commit(allocators, machine, info)?;
+            }
         } else {
             panic!("expect to find {:?}, {:?} on either planning device or unplanned device", &object, &device);
         }
@@ -62,15 +72,18 @@ fn prepare_input<'s, 'a, 'i, P, Rt: RuntimeType>(
         //   and we'll consider this case when planning that device
         // - If input is found on a planning device, eject object from it.
         //   The input cannot only be found on a planned device, for the same reason as above.
-        if !allocators
+        if let Some(src_device) = allocators
             .object_available_on(
                 unplanned_devices .iter() .copied(),
                 object,
                 machine,
                 info
-            ).is_empty()
+            ).pop()
         {
-            // do nothing
+
+            if arbitary_input_device {
+                *vi.device_mut() = src_device;
+            }
         } else if let Some(src_device) = allocators
             .object_available_on(
                 planning_devices.iter() .copied(),
@@ -79,10 +92,14 @@ fn prepare_input<'s, 'a, 'i, P, Rt: RuntimeType>(
                 info
             ).pop()
         {
-            let resp = allocators
-                .handle(device, machine, info)
-                .claim(&object, obj_info.size(object), src_device);
-            resp.commit(allocators, machine, info)?;
+            if arbitary_input_device {
+                *vi.device_mut() = src_device;
+            } else {
+                let resp = allocators
+                    .handle(device, machine, info)
+                    .claim(&object, obj_info.size(object), src_device);
+                resp.commit(allocators, machine, info)?;
+            }
 
         } else {
             panic!("expect to find {:?}, {:?} on either planning device or unplanned device", &object, &device);
@@ -192,24 +209,57 @@ where
         println!("{:?}: op = {:?}", index, op);
 
         match op {
-            Type2(vid, outputs, node, temps, src) => {
+            Type2(vid, mut outputs, mut node, temps, src) => {
+                let arbitary_input_supported = match &node {
+                    type2::template::VertexNode::Arith {chunking, ..} if chunking.is_some() => true,
+                    _ => false
+                };
+                
+                if let Some(vo) = temps.first()
+                {
+                    if planning_or_unplanned!(vo.device()) {
+                        let resp = allocators.handle(vo.device(), machine, aux)
+                            .allocate(obj_info.size(vo.object_id()), &vo.object_id());
+                        resp.commit(allocators, machine, aux).map_err(|e| e.with_vid_src(vid, src.clone()))?;
+                    }
+                }
+
                 // Prepare inputs
                 for vi in node
-                    .uses_ref()
-                    .map(|vi| vi.iter())
+                    .uses_mut()
+                    .map(|vi| vi.iter_mut())
                     .flatten()
                 {
                     prepare_input(
-                        vi.object_id(),
-                        vi.device(),
+                        vi,
                         planning_devices,
                         unplanned_devices,
                         obj_info,
                         allocators,
                         machine,
-                        aux
+                        aux,
+                        arbitary_input_supported
                     )?;
+
+                    aux.add_next_use_now(vi.object_id(), vi.device());
+
+                    outputs.iter_mut().find(|(_, inplace_of)| inplace_of.is_some_and(|u| u == vi.object_id()))
+                        .map(|(rv, _)| {
+                            println!("reset output {:?} on {:?}", vi.object_id(), vi.device());
+                            *rv.device_mut() = vi.device();
+                        });
                 } 
+
+                if let type2::template::VertexNode::Arith {arith, ..} = &node {
+                    let (is, os) = arith.space_needed::<Rt::Field>();
+                    if is + os > hd_info.cpu().integral_space() as usize {
+                        outputs.iter_mut().filter(|(_, inplace_of)| inplace_of.is_none())
+                            .for_each(|(rv, _)| {*rv.device_mut() = Device::Disk; });
+                    }
+                }
+
+                let node = node;
+                let outputs = outputs;
 
                 // Allocate outputs and temporaries.
                 // We only care about objects on planning devices and unplanned devices.
@@ -239,15 +289,6 @@ where
                     }
                 }
 
-                if let Some(vo) = temps.first()
-                {
-                    if planning_or_unplanned!(vo.device()) {
-                        let resp = allocators.handle(vo.device(), machine, aux)
-                            .allocate(obj_info.size(vo.object_id()), &vo.object_id());
-                        resp.commit(allocators, machine, aux).map_err(|e| e.with_vid_src(vid, src.clone()))?;
-                    }
-                }
-
 
                 // Try to obtain pointer for inputs.
                 // We only care about objects on planning devices, and pointers to unplanned devices will be assigned
@@ -263,7 +304,7 @@ where
                                 .access(&rv.object_id())
                                 .ok_or_else(|| {
                                     Error::VertexInputsOutputsNotAccommodated(Some((vid, src.clone())))
-                                })?;
+                                }).unwrap_or_else(|_| panic!("can not find {:?} on {:?}", rv.object_id(), rv.device()));
                             if rv.pointer().is_some() {
                                 panic!("input {:?} of {:?} at {:?} has its pointer already assigned", rv, vid, index);
                             }
@@ -315,7 +356,7 @@ where
                                 .access(&rv.object_id())
                                 .ok_or_else(|| {
                                     Error::VertexInputsOutputsNotAccommodated(Some((vid, src.clone())))
-                                })?;
+                                }).unwrap();
                         if rv.pointer().is_some() {
                             panic!("output/temporary {:?} of {:?} at {:?} has its pointer already assigned", rv, vid, index);
                         }

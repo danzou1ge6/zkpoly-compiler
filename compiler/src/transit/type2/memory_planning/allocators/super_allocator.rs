@@ -142,7 +142,13 @@ where
             .allocator
             .mapping
             .remove(&old_object)
-            .unwrap_or_else(|| panic!("token {:?} not allocated", old_object));
+            .unwrap_or_else(|| {
+                panic!(
+                    "token {:?} not allocated on {:?}",
+                    old_object,
+                    self.device()
+                )
+            });
 
         // fixme
         println!("reuse object {:?} to {:?}", old_object, new_object);
