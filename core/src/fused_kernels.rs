@@ -501,7 +501,6 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                 move || {
                     let h2d_stream = CudaStream::new(device_id);
                     while let Ok(info) = cpu2gpu_receiver.recv() {
-                        println!("cpu2gpu: info with chunk {}, len {}", info.chunks, info.len);
                         // transfer data from CPU to GPU
                         assert!(info.src.len() % info.chunks == 0);
                         let part_len = info.src.len() / info.chunks;
@@ -509,7 +508,6 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                         let part_transfer_len = info.len / info.chunks;
                         println!("cpu2gpu: part_len = {}, part_offset = {}, part_transfer_len = {}", part_len, part_offset, part_transfer_len);
                         for i in 0..info.chunks {
-                            println!("cpu2gpu: transfer part {} of {}", i, info.chunks);
                             let src_offset = i * part_len + part_offset;
                             let dst_offset = part_transfer_len * i;
                             let src_sliced =
@@ -518,9 +516,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                                 info.dst.slice(dst_offset, dst_offset + part_transfer_len);
                             src_sliced.cpu2gpu(&mut dst_sliced, &h2d_stream);
                         }
-                        println!("cpu2gpu: transfer dispatch done");
                         h2d_stream.sync();
-                        println!("cpu2gpu: transfer sync done");
                         // confirm the transfer
                         cpu2gpu_ok_sender.send(()).unwrap();
                         println!("cpu2gpu: transfer ok sent");
@@ -642,8 +638,10 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
             });
 
             fn wait_ok(receiver: &std::sync::mpsc::Receiver<()>, num: usize) {
-                for _ in 0..num {
+                println!("waiting for {} ok", num);
+                for i in 0..num {
                     receiver.recv().unwrap();
+                    println!("received ok {}/{}", i + 1, num);
                 }
             }
 
@@ -669,11 +667,17 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                     for chunk_id in 0..divide_parts {
                         println!("compute chunk {}", chunk_id);
                         // wait for the signal to start compute
+                        println!("waiting cpu2gpu mut");
                         wait_ok(&cpu2gpu_ok_receiver, num_mut_poly_cpu);
+                        println!("waiting disk2gpu mut");
                         wait_ok(&disk2gpu_ok_receiver, num_mut_poly_disk);
-                        wait_ok(&gpu_poly2slice_ok_receiver, num_poly_gpu);
+                        println!("waiting gpu_poly2slice mut");
+                        wait_ok(&gpu_poly2slice_ok_receiver, num_mut_poly_gpu);
+                        println!("waiting cpu2gpu poly");
                         wait_ok(&cpu2gpu_ok_receiver, num_poly_cpu);
+                        println!("waiting disk2gpu poly");
                         wait_ok(&disk2gpu_ok_receiver, num_poly_disk);
+                        println!("waiting gpu_poly2slice poly");
                         wait_ok(&gpu_poly2slice_ok_receiver, num_poly_gpu);
 
                         println!("start compute chunk {}", chunk_id);
