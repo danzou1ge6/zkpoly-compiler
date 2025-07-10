@@ -28,7 +28,7 @@ impl Device {
     pub fn iter(n_gpus: usize) -> impl Iterator<Item = Device> {
         (0..n_gpus)
             .map(Self::Gpu)
-            .chain([Device::Cpu, Device::Stack].into_iter())
+            .chain([Device::Cpu, Device::Stack, Device::Disk].into_iter())
     }
 
     /// Returns the parent memory device of current one, if any.

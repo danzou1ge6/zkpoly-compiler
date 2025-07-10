@@ -254,6 +254,12 @@ struct Message {
     node: MessageNode,
 }
 
+impl InstructionExecution<Uptime> {
+    fn duration_nanos(&self) -> u128 {
+        self.end.nanos - self.start.nanos
+    }
+}
+
 impl Log {
     pub fn waterfall(&self) -> waterfall::Builder {
         let mut builder = waterfall::Builder::new("Runtime Statistics".to_string());
@@ -314,3 +320,5 @@ impl Log {
         builder
     }
 }
+
+pub mod statistics;
