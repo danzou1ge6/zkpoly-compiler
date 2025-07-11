@@ -199,8 +199,8 @@ impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
             let mut f =
                 std::fs::File::create(options.debug_dir.join("memory_planning_statistics.txt"))
                     .unwrap();
-            write!(&mut f, "{:?}", &statistics).unwrap();
-            println!("Memory Planning Statistics:\n{:?}", &statistics);
+            write!(&mut f, "{}", &statistics).unwrap();
+            println!("Memory Planning Statistics:\n{}", &statistics);
         }
 
         Ok(FreshType3 {
