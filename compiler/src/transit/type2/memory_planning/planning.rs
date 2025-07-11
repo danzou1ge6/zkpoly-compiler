@@ -16,6 +16,8 @@ fn prepare_input<'s, 'a, 'i, P, Rt: RuntimeType>(
     arbitary_input_device: bool
 ) -> Result<(), Error<'s>> where P: std::fmt::Debug
 {
+    let arbitary_input_device = arbitary_input_device && matches!(vi.node(), ValueNode::ScalarArray {..});
+    
     let device = vi.device();
     let object = vi.object_id();
     if planning_devices.contains(&device) {
@@ -254,6 +256,7 @@ where
                     let (is, os) = arith.space_needed::<Rt::Field>();
                     if is + os > hd_info.cpu().integral_space() as usize {
                         outputs.iter_mut().filter(|(_, inplace_of)| inplace_of.is_none())
+                            .filter(|(rv, _)| rv.node().can_on_disk::<Rt::Field, Rt::PointAffine>())
                             .for_each(|(rv, _)| {*rv.device_mut() = Device::Disk; });
                     }
                 }
