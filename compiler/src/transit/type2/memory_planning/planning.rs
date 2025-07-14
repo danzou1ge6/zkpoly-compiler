@@ -325,29 +325,39 @@ where
                     if planning_or_unplanned!(vo.device()) {
                         if let Some(inplace_of) = *inplace_of {
                             if let Some(target_device) = aux.next_used_device_except(
-                                inplace_of, vo.device()
+                            inplace_of, vo.device()
                             ) {
-                                // fixme
-                                println!("before reuse, send {:?} from {:?} to {:?}", inplace_of, vo.device(), target_device);
+                                if vo.device() == Device::Disk {
+                                    // fixme
+                                    println!("instead of reuse, make a clone from {:?} to {:?} on {:?} here", inplace_of, vo.object_id(), vo.device());
+                                    let r = allocators.handle(vo.device(), machine, aux)
+                                        .allocate(obj_info.size(vo.object_id()), &vo.object_id());
+                                    let to_pointer = r.commit(allocators, machine, aux)?;
 
-                                let from_pointer = allocators
-                                    .handle(vo.device(), machine, aux)
-                                    .access(&inplace_of)
-                                    .expect("i just found pointer to this input object on this device");
-                                let c = Continuation::simple_send(
-                                    target_device,
-                                    vo.device(),
-                                    from_pointer,
-                                    inplace_of,
-                                    obj_info.size(vo.object_id())
-                                );
-                                allocators.apply_continuation(c, machine, aux)?;
+                                    let c = Continuation::provide_object_sliced(vo.device(), inplace_of, vo.device(), vo.object_id(), to_pointer, None);
+                                    allocators.apply_continuation(c, machine, aux)?;
+
+                                } else {
+                                    // fixme
+                                    println!("before reuse, send {:?} from {:?} to {:?}", inplace_of, vo.device(), target_device);
+
+                                    let from_pointer = allocators
+                                        .handle(vo.device(), machine, aux)
+                                        .access(&inplace_of)
+                                        .expect("i just found pointer to this input object on this device");
+                                    let c = Continuation::simple_send(
+                                        target_device,
+                                        vo.device(),
+                                        from_pointer,
+                                        inplace_of,
+                                        obj_info.size(vo.object_id())
+                                    );
+                                    allocators.apply_continuation(c, machine, aux)?;
+                                }
                             }
- 
+
                             allocators.handle(vo.device(), machine, aux)
                                 .reuse(vo.object_id(), inplace_of);
-                        } else {
-                            // do nothing
                         }
                     }
                 }

@@ -686,6 +686,7 @@ fn lower_gpu_waits_gpu(
 }
 
 fn lower_dependency(
+    t3idx: super::InstructionIndex,
     depended_t3idx: super::InstructionIndex,
     thread: PrimaryThread,
     track: Track,
@@ -697,6 +698,8 @@ fn lower_dependency(
     instruct2gpu_event: &mut BTreeMap<super::InstructionIndex, EventId>,
 ) {
     let thread = *chunk.primary_thread_id.get(thread);
+    // fixme
+    println!("lower dependency {:?} on {:?}", t3idx, depended_t3idx);
     match (Stream::of_track(track), Stream::of_track(depended_track)) {
         (None, _) => lower_cpu_waits_any(
             depended_t3idx,
@@ -917,6 +920,7 @@ pub fn emit_multithread_instructions<'s, Rt: RuntimeType>(
             for &depended_t3idx in track_tasks.inst_depend[&t3idx].iter() {
                 let depended_track = track_tasks.inst_track[&depended_t3idx];
                 lower_dependency(
+                    t3idx,
                     depended_t3idx,
                     pthread,
                     track,
