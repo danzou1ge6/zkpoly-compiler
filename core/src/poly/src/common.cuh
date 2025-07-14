@@ -2,6 +2,7 @@
 #include "../../common/mont/src/field_impls.cuh"
 #include "../../common/error/src/check.cuh"
 #include "../../common/iter/src/iter.cuh"
+#include "../../../../third_party/cub/cub/cub.cuh"
 
 namespace detail {
 using mont::u32;
@@ -31,8 +32,8 @@ cudaError_t get_pow_series(void *temp_buf, usize *temp_buf_size, u32 *pow_series
     auto mul_op = [] __device__ __host__(const Field &a, const Field &b) { return a * b; };
 
     if (temp_buf == nullptr) {
-        usize temp_scan_size = 0;
-        CUDA_CHECK(cub::DeviceScan::InclusiveScan(nullptr, temp_scan_size, reinterpret_cast<Field*>(pow_series), mul_op, len));
+        size_t temp_scan_size = 0;
+        CUDA_CHECK(cub::DeviceScan::InclusiveScan((void*)nullptr, temp_scan_size, reinterpret_cast<Field*>(pow_series), reinterpret_cast<Field*>(pow_series), mul_op, (int)len, stream));
         *temp_buf_size = temp_scan_size;
     } else {
         u32 threads = 256;
@@ -46,9 +47,9 @@ cudaError_t get_pow_series(void *temp_buf, usize *temp_buf_size, u32 *pow_series
         usize temp_scan_size = 0;
 
         // calculate x^0, x^1, x^2, ..., x^(n-1)
-        CUDA_CHECK(cub::DeviceScan::InclusiveScan(d_temp_scan, temp_scan_size, reinterpret_cast<Field*>(pow_series), mul_op, len, stream));
+        CUDA_CHECK(cub::DeviceScan::InclusiveScan(d_temp_scan, temp_scan_size, reinterpret_cast<Field*>(pow_series), reinterpret_cast<Field*>(pow_series), mul_op, len, stream));
         d_temp_scan = temp_buf;
-        CUDA_CHECK(cub::DeviceScan::InclusiveScan(d_temp_scan, temp_scan_size, reinterpret_cast<Field*>(pow_series), mul_op, len, stream));
+        CUDA_CHECK(cub::DeviceScan::InclusiveScan(d_temp_scan, temp_scan_size, reinterpret_cast<Field*>(pow_series), reinterpret_cast<Field*>(pow_series), mul_op, len, stream));
     }
     return cudaSuccess;
 }
