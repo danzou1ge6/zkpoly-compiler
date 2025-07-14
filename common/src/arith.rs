@@ -241,6 +241,17 @@ impl<OuterId, ArithIndex> Operation<OuterId, ArithIndex> {
         }
     }
 
+    pub fn unwrap_input(&self) -> (&OuterId, &FusedType, &Mutability) {
+        match self {
+            Self::Input {
+                outer_id,
+                typ,
+                mutability,
+            } => (outer_id, typ, mutability),
+            _ => panic!("Vertex is not an input"),
+        }
+    }
+
     pub fn unwrap_output(&self) -> (&OuterId, &FusedType, &ArithIndex, &Option<ArithIndex>) {
         match self {
             Operation::Output {
