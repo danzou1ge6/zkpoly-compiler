@@ -103,7 +103,7 @@ cudaError_t permute(void *temp_buffer, usize *buffer_size, usize usable, ConstPo
     if (temp_buffer == nullptr) {
         usize temp_sort_size = 0, temp_scan_size = 0, temp_select_size = 0;
         CUDA_CHECK(cub::DeviceRadixSort::SortKeys(nullptr, temp_sort_size, temp_poly_ptr, useful_input_ptr, usable, decomposer_t<Number>()));
-        CUDA_CHECK(cub::DeviceScan::ExclusiveSum(nullptr, temp_scan_size, table_flag_ptr, table_flag_ptr, usable));
+        CUDA_CHECK(cub::DeviceScan::ExclusiveSum(nullptr, temp_scan_size, output_table_offset_ptr, output_table_offset_ptr, usable));
         CUDA_CHECK(cub::DeviceSelect::Flagged(nullptr, temp_select_size, temp_poly_ptr, table_flag_ptr, &selected_number, usable));
         // round up to 4 bytes
         temp_select_size = div_ceil(temp_select_size, 4) * 4;
