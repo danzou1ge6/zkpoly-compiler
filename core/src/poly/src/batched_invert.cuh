@@ -61,7 +61,7 @@ cudaError_t batched_invert(void* temp_buffer, usize *buffer_size, PolyPtr target
     usize inv_sz = sizeof(Field);
     auto mul_op = [] __device__ __host__(const Field &a, const Field &b) { return a * b; };
     usize temp_scan_size = 0;
-    CUDA_CHECK(cub::DeviceScan::ExclusiveScan(nullptr, temp_scan_size, target_iter, mul_op, Field::one(), len));
+    CUDA_CHECK(cub::DeviceScan::ExclusiveScan(nullptr, temp_scan_size, target_iter, target_iter, mul_op, Field::one(), len));
     if (temp_buffer == nullptr) {
         *buffer_size = temp_scan_size + mask_sz + copy_sz + inv_sz;
         return cudaSuccess;
@@ -78,10 +78,10 @@ cudaError_t batched_invert(void* temp_buffer, usize *buffer_size, PolyPtr target
     copy_and_check_zero<Field><<< grid, block, 0, stream>>>(target_iter, copy, bitmask, len);
     CUDA_CHECK(cudaGetLastError());
 
-    CUDA_CHECK(cub::DeviceScan::ExclusiveScan(d_temp_scan, temp_scan_size, target_iter, mul_op, Field::one(), len, stream));
-    
+    CUDA_CHECK(cub::DeviceScan::ExclusiveScan(d_temp_scan, temp_scan_size, target_iter, target_iter, mul_op, Field::one(), len, stream));
+
     invert_one<Field><<<1, 1, 0, stream>>>(target_iter, copy, len, inv);
-    CUDA_CHECK(cub::DeviceScan::ExclusiveScan(d_temp_scan, temp_scan_size, copy, mul_op, Field::one(), len, stream));
+    CUDA_CHECK(cub::DeviceScan::ExclusiveScan(d_temp_scan, temp_scan_size, copy, copy, mul_op, Field::one(), len, stream));
     invert<Field><<<div_ceil(len, block), block, 0, stream>>>(target_iter, copy, inv, len);
     CUDA_CHECK(cudaGetLastError());
 

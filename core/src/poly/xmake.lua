@@ -15,17 +15,13 @@ target("test_poly_eval")
 
 target("test_kate_division")
     add_files("tests/test_kate.cu")
-    add_cugencodes("native")
     add_cuflags("--extended-lambda")
     add_packages("doctest")
-    set_languages("c++17")
 
 target("test_invert")
     add_files("tests/test_invert.cu")
-    add_cugencodes("native")
     add_cuflags("--extended-lambda")
     add_packages("doctest")
-    set_languages("c++17")
 
 target("poly")
     set_kind("shared")
@@ -34,20 +30,14 @@ target("poly")
     if has_config("POLY_FIELD") then
         add_defines("POLY_FIELD="..get_config("POLY_FIELD").."::Element")
     end
-    add_cugencodes("native")
     set_optimize("fastest")
     add_cuflags("--extended-lambda")
-    set_languages("c++17")
 
 target("test_rotate")
     add_files("tests/test_rotate.cu")
-    add_cugencodes("native")
     add_cuflags("--extended-lambda")
     add_packages("doctest")
-    set_languages("c++17")
 
 target("test_permute")
     add_files("tests/test_permute.cu")
-    add_cugencodes("native")
     add_cuflags("--extended-lambda")
-    set_languages("c++17")

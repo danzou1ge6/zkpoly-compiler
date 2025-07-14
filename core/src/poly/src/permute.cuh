@@ -1,5 +1,4 @@
 #include "common.cuh"
-#include <cub/cub.cuh>
 
 namespace detail {
 
