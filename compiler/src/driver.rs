@@ -1,6 +1,6 @@
 use std::{
     collections::{BTreeMap, HashMap},
-    io::Write,
+    io::{Read, Write},
     panic::PanicHookInfo,
     path::PathBuf,
     process::Command,
@@ -18,6 +18,7 @@ use zkpoly_runtime::args::RuntimeType;
 use crate::{
     ast,
     transit::{type2, type3},
+    utils::human_readable_size,
 };
 
 pub use ast::ConstantPool;
@@ -137,24 +138,28 @@ impl DebugOptions {
         self
     }
 
-    fn log_suround<R, E>(
+    fn log_suround<R, E, S1, S2>(
         &self,
-        prologue: &str,
+        prologue: S1,
         f: impl FnOnce() -> Result<R, E>,
-        epilogue: &str,
-    ) -> Result<R, E> {
+        epilogue: S2,
+    ) -> Result<R, E>
+    where
+        S1: AsRef<str>,
+        S2: AsRef<str>,
+    {
         if self.log {
-            println!("[Compiler] {}", prologue);
+            println!("[Compiler] {}", prologue.as_ref());
         }
         let r = f()?;
         if self.log {
-            println!("[Compiler] {}", epilogue);
+            println!("[Compiler] {}", epilogue.as_ref());
         }
         Ok(r)
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct MemoryInfo {
     pub(crate) memory_limit: u64,
     pub(crate) smithereen_space: u64,
@@ -252,6 +257,10 @@ impl HardwareInfo {
         }
     }
 
+    pub fn with_cpu(self, cpu: MemoryInfo) -> Self {
+        HardwareInfo { cpu, ..self }
+    }
+
     pub fn with_disk(mut self, info: DiskMemoryInfo) -> Self {
         self.disk.push(info);
         self
@@ -305,6 +314,172 @@ impl HardwareInfo {
                 BuddyDiskPool::new(max_block, disk_path).expect("cannot create disk pool")
             })
             .collect()
+    }
+
+    pub fn smaller_cpus<'a>(&'a self) -> impl Iterator<Item = MemoryInfo> + 'a {
+        (1..=3).map(|p| {
+            MemoryInfo::new(
+                self.cpu.memory_limit / 2u64.pow(p),
+                self.cpu.smithereen_space,
+            )
+        })
+    }
+}
+
+struct VersionsHelper<'a> {
+    mem_info: &'a MemoryInfo,
+}
+
+impl<'a> VersionsHelper<'a> {
+    fn human_readable_name(&self) -> String {
+        human_readable_size(self.mem_info.memory_limit())
+    }
+
+    fn log_prologue<S>(&self, msg: S) -> String
+    where
+        S: AsRef<str>,
+    {
+        format!(
+            "{} for {}",
+            msg.as_ref(),
+            human_readable_size(self.mem_info.memory_limit())
+        )
+    }
+
+    fn debug_filename(&self, f: &'static str) -> String {
+        let pb = PathBuf::from(f);
+        let stem = pb.file_stem().unwrap().to_str().unwrap();
+        let ext = pb.extension().unwrap().to_str().unwrap();
+        pb.with_file_name(format!(
+            "{}_{}.{}",
+            stem,
+            human_readable_size(self.mem_info.memory_limit()),
+            ext
+        ))
+        .to_str()
+        .unwrap()
+        .to_string()
+    }
+}
+
+#[derive(Clone)]
+struct Versions<T>(Vec<(MemoryInfo, T)>);
+
+impl<T> Versions<T> {
+    pub fn build<'s, Rt: RuntimeType>(
+        hardware_info: &HardwareInfo,
+        mut f: impl for<'a> FnMut(&'a MemoryInfo, VersionsHelper<'a>) -> Result<T, Error<'s, Rt>>,
+    ) -> Result<Self, Error<'s, Rt>> {
+        Ok(Self(
+            hardware_info
+                .smaller_cpus()
+                .map(|cpu| {
+                    let t = f(&cpu, VersionsHelper { mem_info: &cpu })?;
+                    Ok((cpu, t))
+                })
+                .collect::<Result<_, _>>()?,
+        ))
+    }
+
+    pub fn map<'s, T2, Rt: RuntimeType>(
+        self,
+        mut f: impl for<'a> FnMut(&'a MemoryInfo, T, VersionsHelper<'a>) -> Result<T2, Error<'s, Rt>>,
+    ) -> Result<Versions<T2>, Error<'s, Rt>> {
+        Ok(Versions(
+            self.0
+                .into_iter()
+                .map(|(cpu, t)| {
+                    let t2 = f(&cpu, t, VersionsHelper { mem_info: &cpu })?;
+                    Ok((cpu, t2))
+                })
+                .collect::<Result<_, _>>()?,
+        ))
+    }
+
+    pub fn dump(
+        &self,
+        dir: impl AsRef<std::path::Path>,
+        mut write: impl FnMut(std::fs::File, &MemoryInfo, &T) -> std::io::Result<()>,
+    ) -> std::io::Result<()> {
+        for (cpu, t) in self.0.iter() {
+            let f = std::fs::File::create(dir.as_ref().join(format!(
+                "version_{}.json",
+                human_readable_size(cpu.memory_limit)
+            )))?;
+
+            write(f, cpu, t)?;
+        }
+        Ok(())
+    }
+
+    pub fn load(
+        dir: impl AsRef<std::path::Path>,
+        mut read: impl FnMut(std::fs::File) -> std::io::Result<(MemoryInfo, T)>,
+    ) -> std::io::Result<Self> {
+        let mut r = Vec::new();
+
+        for entry in dir.as_ref().read_dir()? {
+            let path = entry?.path();
+            if path
+                .file_stem()
+                .is_some_and(|f| f.to_string_lossy().into_owned().starts_with("versions_"))
+                && path.is_file()
+                && path
+                    .extension()
+                    .is_some_and(|ext| ext.to_string_lossy().into_owned() == "json")
+            {
+                let f = std::fs::File::open(path)?;
+
+                let x = read(f)?;
+                r.push(x);
+            }
+        }
+        Ok(Self(r))
+    }
+
+    pub fn load_buffered<'b>(
+        dir: impl AsRef<std::path::Path>,
+        buffers: &'b mut Vec<String>,
+        mut read: impl FnMut(&'b str) -> std::io::Result<(MemoryInfo, T)>,
+    ) -> std::io::Result<Self>
+    where
+        T: 'b,
+    {
+        let mut r = Vec::new();
+
+        for entry in dir.as_ref().read_dir()? {
+            let path = entry?.path();
+            if path
+                .file_stem()
+                .is_some_and(|f| f.to_string_lossy().into_owned().starts_with("versions_"))
+                && path.is_file()
+                && path
+                    .extension()
+                    .is_some_and(|ext| ext.to_string_lossy().into_owned() == "json")
+            {
+                let mut f = std::fs::File::open(path)?;
+
+                // SAFETY: All existing immutable reference to `buffers` are to elements before the one we are pushing here
+                unsafe {
+                    let mut buffer = String::new();
+                    f.read_to_string(&mut buffer);
+                    let buffers: *mut Vec<String> = buffers as *const _ as _;
+                    buffers.as_mut().unwrap().push(buffer);
+                }
+
+                let x = read(buffers.last().unwrap())?;
+                r.push(x);
+            }
+        }
+        Ok(Self(r))
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &MemoryInfo> {
+        self.0.iter().map(|(m, _)| m)
+    }
+
+    pub fn ref_of(&self, mem: &MemoryInfo) -> Option<&T> {
+        self.0.iter().find(|(m, _)| m == mem).map(|(_, t)| t)
     }
 }
 
@@ -603,6 +778,7 @@ pub mod fresh_type2;
 pub mod fresh_type3;
 pub mod processed_type2;
 pub mod processed_type3;
+pub mod unfused_type2;
 
 pub use artifect::Artifect;
 pub use fresh_type2::FreshType2;

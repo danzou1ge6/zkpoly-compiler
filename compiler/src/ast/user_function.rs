@@ -1,9 +1,9 @@
 use super::*;
-use std::cell::Cell;
+use std::{cell::Cell, sync::Arc};
 use zkpoly_runtime::error::{Result as RuntimeResult, RuntimeError};
 
 pub type ValueFn<Rt: RuntimeType> =
-    Box<dyn Fn(&mut Variable<Rt>, Vec<&Variable<Rt>>) -> RuntimeResult<()> + Send + Sync + 'static>;
+    Arc<dyn Fn(&mut Variable<Rt>, Vec<&Variable<Rt>>) -> RuntimeResult<()> + Send + Sync + 'static>;
 
 pub struct FunctionInCell<Rt: RuntimeType> {
     n_args: usize,
@@ -30,6 +30,7 @@ impl<Rt: RuntimeType> std::fmt::Debug for FunctionInCell<Rt> {
     }
 }
 
+#[derive(Clone)]
 pub struct Function<Rt: RuntimeType> {
     pub(crate) n_args: usize,
     pub(crate) value: ValueFn<Rt>,
@@ -70,8 +71,6 @@ impl<Rt: RuntimeType> FunctionUntyped<Rt> {
 }
 
 pub struct FnMarker;
-pub struct MutMarker;
-pub struct OnceMarker;
 
 pub type FunctionFn0<Rt: RuntimeType, R> = Phantomed<FunctionUntyped<Rt>, (R, FnMarker)>;
 
@@ -103,7 +102,7 @@ where
             Ok(())
         };
         let src = SourceInfo::new(Location::caller().clone(), Some(name.clone()));
-        Self::wrap(FunctionUntyped::new_fn(name, Box::new(f), 0, ret_typ, src))
+        Self::wrap(FunctionUntyped::new_fn(name, Arc::new(f), 0, ret_typ, src))
     }
 }
 
@@ -146,7 +145,7 @@ macro_rules! define_function_fn {
                         f(r, $($arg),+)
                     };
                     let src = SourceInfo::new(Location::caller().clone(), Some(name.clone()));
-                    Self::wrap(FunctionUntyped::new_fn(name, Box::new(f), $m, ret_typ, src))
+                    Self::wrap(FunctionUntyped::new_fn(name, Arc::new(f), $m, ret_typ, src))
                 }
             }
         )*

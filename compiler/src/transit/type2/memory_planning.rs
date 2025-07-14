@@ -130,7 +130,7 @@ pub fn plan<'s, Rt: RuntimeType>(
     mut obj_id_allocator: IdAllocator<ObjectId>,
     execution_device: impl Fn(VertexId) -> type2::Device,
     hd_info: &driver::HardwareInfo,
-    mut libs: Libs,
+    libs: &mut Libs,
 ) -> Result<(type3::Chunk<'s, Rt>, Statistics), Error<'s>> {
     let ops: OperationSeq<'_, ObjectId, Pointer> = OperationSeq::construct(
         cg,
@@ -139,7 +139,7 @@ pub fn plan<'s, Rt: RuntimeType>(
         &execution_device,
         &def_use,
         &mut obj_id_allocator,
-        &mut libs,
+        libs,
     );
 
     let obj_info = object_info::Info::<Rt>::collect(&ops);
@@ -244,11 +244,11 @@ pub fn plan<'s, Rt: RuntimeType>(
     let (chunk, realization_statistics) = realization::realize(
         ops,
         allocators,
-        libs,
         obj_id_allocator,
         &obj_info,
         hd_info,
         LogBlockSizes::new(lbss),
+        &execution_device,
     )?;
 
     let disk_allocator = disk_allocator.unwrap();

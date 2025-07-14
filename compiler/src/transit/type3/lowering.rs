@@ -733,7 +733,6 @@ pub struct Chunk<Rt: RuntimeType> {
     pub(crate) n_variables: usize,
     pub(crate) n_threads: usize,
     pub(crate) lbss: LogBlockSizes,
-    pub(crate) libs: Libs,
 }
 
 impl<Rt: RuntimeType> Chunk<Rt> {
@@ -798,6 +797,7 @@ pub fn emit_multithread_instructions<'s, Rt: RuntimeType>(
     track_tasks: &TrackTasks,
     mut t3chunk: super::Chunk<'s, Rt>,
     t2uf_table: type2::user_function::Table<Rt>,
+    libs: &mut Libs,
 ) -> (
     MultithreadChunk,
     FunctionTable<Rt>,
@@ -805,20 +805,13 @@ pub fn emit_multithread_instructions<'s, Rt: RuntimeType>(
     StreamSpecific<VariableId>,
     IdAllocator<VariableId>,
     LogBlockSizes,
-    Libs,
 ) {
     let mut event_table = EventTypeTable::new();
     let mut f_table = FunctionTable::<Rt>::new();
     let (mut variable_id_allcoator, reg_id2var_id) = t3chunk.take_reg_id_allocator().decompose();
-    let mut libs = t3chunk.take_libs();
 
-    let generated_functions = kernel_gen::get_function_id(
-        &mut f_table,
-        &t3chunk,
-        t2uf_table,
-        &reg_id2var_id,
-        &mut libs,
-    );
+    let generated_functions =
+        kernel_gen::get_function_id(&mut f_table, &t3chunk, t2uf_table, &reg_id2var_id, libs);
 
     let stream2variable_id = StreamSpecific::new(|| variable_id_allcoator.alloc());
 
@@ -950,7 +943,6 @@ pub fn emit_multithread_instructions<'s, Rt: RuntimeType>(
         stream2variable_id,
         variable_id_allcoator,
         t3chunk.lbss,
-        libs,
     )
 }
 
@@ -961,7 +953,7 @@ pub fn lower<'s, Rt: RuntimeType>(
     stream2variable_id: StreamSpecific<VariableId>,
     variable_id_allocator: IdAllocator<VariableId>,
     lbss: LogBlockSizes,
-    libs: Libs,
+    libs: &mut Libs,
 ) -> Chunk<Rt> {
     let mut instructions = Vec::new();
 
@@ -1012,7 +1004,6 @@ pub fn lower<'s, Rt: RuntimeType>(
         n_threads: mt_chunk.threads.len(),
         n_variables: variable_id_allocator.n_allocated(),
         lbss,
-        libs,
     }
 }
 

@@ -151,6 +151,7 @@ pub mod template {
             temp: Vec<I>,
             vertex: V,
             vid: type2::VertexId,
+            device: type2::Device,
         },
         Malloc {
             id: I,
@@ -465,11 +466,7 @@ fn determine_transfer_track(from: Device, to: Device) -> Track {
 }
 
 impl<'s> Instruction<'s> {
-    pub fn track(
-        &self,
-        execution_devices: impl Fn(type2::VertexId) -> type2::Device,
-        memory_devices: impl Fn(RegisterId) -> Device,
-    ) -> Track {
+    pub fn track(&self, memory_devices: impl Fn(RegisterId) -> Device) -> Track {
         use template::InstructionNode::*;
         use Track::*;
 
@@ -478,7 +475,7 @@ impl<'s> Instruction<'s> {
                 vertex: type2::template::VertexNode::Return(..),
                 ..
             } => MemoryManagement,
-            Type2 { vertex, vid, .. } => vertex.track(execution_devices(*vid)),
+            Type2 { vertex, device, .. } => vertex.track(*device),
             Malloc { .. } => MemoryManagement,
             Free { .. } => MemoryManagement,
             StackFree { .. } => MemoryManagement,
@@ -620,7 +617,6 @@ pub struct Chunk<'s, Rt: RuntimeType> {
     pub(crate) reg_memory_blocks: BTreeMap<RegisterId, MemoryBlock>,
     pub(crate) obj_id_allocator: IdAllocator<ObjectId>,
     pub(crate) lbss: LogBlockSizes,
-    pub(crate) libs: Libs,
     pub(crate) _phantom: PhantomData<Rt>,
 }
 
@@ -735,12 +731,6 @@ impl<'s, Rt: RuntimeType> Chunk<'s, Rt> {
         self2.register_devices = ra.register_devices;
         self2.obj_id_allocator = ra.obj_id_allocator;
         self2
-    }
-
-    pub fn take_libs(&mut self) -> Libs {
-        let mut x = Libs::new();
-        std::mem::swap(&mut self.libs, &mut x);
-        x
     }
 }
 
