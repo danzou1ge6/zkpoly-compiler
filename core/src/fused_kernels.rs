@@ -515,14 +515,15 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                         let part_offset = info.offset / info.chunks;
                         let part_transfer_len = info.len / info.chunks;
                         println!(
-                            "cpu2gpu: part_len = {}, part_offset = {}, part_transfer_len = {}",
-                            part_len, part_offset, part_transfer_len
+                            "cpu2gpu: part_len = {}, part_offset = {}, part_transfer_len = {}, chunks = {}",
+                            part_len, part_offset, part_transfer_len, info.chunks
                         );
                         for i in 0..info.chunks {
                             let src_offset = i * part_len + part_offset;
                             let dst_offset = part_transfer_len * i;
                             let src_sliced =
                                 info.src.slice(src_offset, src_offset + part_transfer_len);
+                            println!("i = {i} cpu2gpu from [{}, {}] to [{}, {}]", src_offset, src_offset + part_transfer_len, dst_offset, dst_offset + part_transfer_len);
                             let mut dst_sliced =
                                 info.dst.slice(dst_offset, dst_offset + part_transfer_len);
                             src_sliced.cpu2gpu(&mut dst_sliced, &h2d_stream);
@@ -543,7 +544,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                     while let Ok(info) = gpu2cpu_receiver.recv() {
                         // transfer data from GPU to CPU
                         assert!(info.src.len() % info.chunks == 0);
-                        let part_len = info.src.len() / info.chunks;
+                        let part_len = info.dst.len() / info.chunks;
                         let part_offset = info.offset / info.chunks;
                         let part_transfer_len = info.len / info.chunks;
                         for i in 0..info.chunks {
@@ -551,6 +552,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                             let dst_offset = i * part_len + part_offset;
                             let src_sliced =
                                 info.src.slice(src_offset, src_offset + part_transfer_len);
+                            println!("i = {i} gpu2cpu: [{}, {}] to [{}, {}]", src_offset, src_offset + part_transfer_len, dst_offset, dst_offset + part_transfer_len);
                             let mut dst_sliced =
                                 info.dst.slice(dst_offset, dst_offset + part_transfer_len);
                             src_sliced.gpu2cpu(&mut dst_sliced, &d2h_stream);
@@ -586,7 +588,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
             thread::spawn(move || {
                 while let Ok(info) = gpu2disk_receiver.recv() {
                     // transfer data from GPU to disk
-                    assert!(info.src.len() % info.chunks == 0);
+                    assert!(info.dst.len() % info.chunks == 0);
                     gpu_write_to_disk(
                         info.src.values.cast(),
                         &info.dst.disk_pos,
@@ -630,7 +632,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                 while let Ok(info) = gpu_slice2poly_receiver.recv() {
                     // transfer data from GPU slice to poly
                     assert!(info.src.len() % info.chunks == 0);
-                    let part_len = info.src.len() / info.chunks;
+                    let part_len = info.dst.len() / info.chunks;
                     let part_offset = info.offset / info.chunks;
                     let part_transfer_len = info.len / info.chunks;
                     for i in 0..info.chunks {
