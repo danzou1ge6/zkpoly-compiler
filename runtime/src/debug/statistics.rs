@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     ops::AddAssign,
+    path::Path,
 };
 
 use super::Log;
@@ -101,6 +102,7 @@ pub fn plot_percentage<DB: plt::DrawingBackend>(
 
     let mut categories = categories.into_iter().collect::<Vec<_>>();
     categories.sort_by(|(_, lhs), (_, rhs)| f64::total_cmp(lhs, rhs).reverse());
+    categories.truncate(top_k);
 
     let x_range = 0.0..(categories
         .iter()
@@ -122,4 +124,18 @@ pub fn plot_percentage<DB: plt::DrawingBackend>(
     )?;
 
     Ok(())
+}
+
+pub fn plot_percentage_to_file<'a, T: AsRef<Path> + ?Sized>(
+    log: &Log,
+    file: &'a T,
+    top_k: usize,
+) -> Result<(), plt::DrawingAreaErrorKind<<plt::SVGBackend<'a> as plt::DrawingBackend>::ErrorType>>
+{
+    let root = plt::SVGBackend::new(file, (1024, 1024));
+    let root = plt::DrawingArea::from(root);
+    let mut cb = plt::ChartBuilder::on(&root);
+    plot_percentage(log, &mut cb, top_k)?;
+
+    root.present()
 }
