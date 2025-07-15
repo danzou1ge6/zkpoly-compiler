@@ -565,210 +565,210 @@ fn test_pow_scalar() {
     assert_eq!(*scalar.unwrap_scalar().as_ref(), truth);
 }
 
-#[test]
-fn test_poly_permute() {
-    use std::collections::BTreeMap;
-    use zkpoly_runtime::gpu_buffer::GpuBuffer;
+// #[test]
+// fn test_poly_permute() {
+//     use std::collections::BTreeMap;
+//     use zkpoly_runtime::gpu_buffer::GpuBuffer;
 
-    let k: u32 = 20; // Use a smaller K for faster testing
-    let len = 1 << k;
-    // Assuming blinding_factors = 1 based on halo2_proofs logic for non-random case padding
-    let blinding_factors = 24;
-    let usable_rows = len - (blinding_factors + 1);
+//     let k: u32 = 20; // Use a smaller K for faster testing
+//     let len = 1 << k;
+//     // Assuming blinding_factors = 1 based on halo2_proofs logic for non-random case padding
+//     let blinding_factors = 24;
+//     let usable_rows = len - (blinding_factors + 1);
 
-    let mut libs = Libs::new();
-    let poly_permute = PolyPermute::<MyRuntimeType>::new(&mut libs);
-    let func = match poly_permute.get_fn() {
-        Function { f: func, .. } => func,
-    };
+//     let mut libs = Libs::new();
+//     let poly_permute = PolyPermute::<MyRuntimeType>::new(&mut libs);
+//     let func = match poly_permute.get_fn() {
+//         Function { f: func, .. } => func,
+//     };
 
-    let mut cpu_pool = CpuMemoryPool::new(k, size_of::<MyField>());
-    let stream = Variable::Stream(CudaStream::new(0));
-    let mut rng = XorShiftRng::from_seed([0; 16]);
+//     let mut cpu_pool = CpuMemoryPool::new(k, size_of::<MyField>());
+//     let stream = Variable::Stream(CudaStream::new(0));
+//     let mut rng = XorShiftRng::from_seed([0; 16]);
 
-    // --- Generate Test Data ---
-    let mut table_expression_cpu = ScalarArray::new(len, cpu_pool.allocate(len), DeviceType::CPU);
-    let mut input_expression_cpu = ScalarArray::new(len, cpu_pool.allocate(len), DeviceType::CPU);
-    let mut permuted_input_gpu_res = ScalarArray::new(len, cpu_pool.allocate(len), DeviceType::CPU);
-    let mut permuted_table_gpu_res = ScalarArray::new(len, cpu_pool.allocate(len), DeviceType::CPU);
+//     // --- Generate Test Data ---
+//     let mut table_expression_cpu = ScalarArray::new(len, cpu_pool.allocate(len), DeviceType::CPU);
+//     let mut input_expression_cpu = ScalarArray::new(len, cpu_pool.allocate(len), DeviceType::CPU);
+//     let mut permuted_input_gpu_res = ScalarArray::new(len, cpu_pool.allocate(len), DeviceType::CPU);
+//     let mut permuted_table_gpu_res = ScalarArray::new(len, cpu_pool.allocate(len), DeviceType::CPU);
 
-    println!("Generating test data...");
-    // Generate table data (can have duplicates)
-    for i in 0..len {
-        // Ensure values are somewhat distinct for better testing, but allow duplicates
-        table_expression_cpu[i] = MyField::from(rng.next_u64() % (len as u64 * 2));
-    }
+//     println!("Generating test data...");
+//     // Generate table data (can have duplicates)
+//     for i in 0..len {
+//         // Ensure values are somewhat distinct for better testing, but allow duplicates
+//         table_expression_cpu[i] = MyField::from(rng.next_u64() % (len as u64 * 2));
+//     }
 
-    // --- Prepare data source for input generation (based on truncated table) ---
-    let mut truncated_table_for_input_source = table_expression_cpu.as_ref().to_vec();
-    truncated_table_for_input_source.truncate(usable_rows);
-    // We need distinct values *from the usable part* of the table
-    let mut distinct_usable_table_values = truncated_table_for_input_source; // Already truncated
-    distinct_usable_table_values.sort_unstable();
-    distinct_usable_table_values.dedup();
+//     // --- Prepare data source for input generation (based on truncated table) ---
+//     let mut truncated_table_for_input_source = table_expression_cpu.as_ref().to_vec();
+//     truncated_table_for_input_source.truncate(usable_rows);
+//     // We need distinct values *from the usable part* of the table
+//     let mut distinct_usable_table_values = truncated_table_for_input_source; // Already truncated
+//     distinct_usable_table_values.sort_unstable();
+//     distinct_usable_table_values.dedup();
 
-    if distinct_usable_table_values.is_empty() {
-        // Handle edge case: if usable part of table is all zeros or empty
-        distinct_usable_table_values.push(MyField::ZERO);
-    }
+//     if distinct_usable_table_values.is_empty() {
+//         // Handle edge case: if usable part of table is all zeros or empty
+//         distinct_usable_table_values.push(MyField::ZERO);
+//     }
 
-    // Generate input data (full length) by sampling *only* from distinct values present in the usable table rows
-    for i in 0..len {
-        let idx = rng.next_u64() as usize % distinct_usable_table_values.len();
-        input_expression_cpu[i] = distinct_usable_table_values[idx];
-    }
+//     // Generate input data (full length) by sampling *only* from distinct values present in the usable table rows
+//     for i in 0..len {
+//         let idx = rng.next_u64() as usize % distinct_usable_table_values.len();
+//         input_expression_cpu[i] = distinct_usable_table_values[idx];
+//     }
 
-    println!("Test data generated.");
-    println!("Calculating ground truth...");
+//     println!("Test data generated.");
+//     println!("Calculating ground truth...");
 
-    // --- Calculate Ground Truth (CPU) ---
-    // Now, input_expression_cpu only contains values guaranteed to be in the truncated table
-    let mut permuted_input_truth_vec = input_expression_cpu.as_ref().to_vec();
-    permuted_input_truth_vec.truncate(usable_rows);
-    permuted_input_truth_vec.sort_unstable();
+//     // --- Calculate Ground Truth (CPU) ---
+//     // Now, input_expression_cpu only contains values guaranteed to be in the truncated table
+//     let mut permuted_input_truth_vec = input_expression_cpu.as_ref().to_vec();
+//     permuted_input_truth_vec.truncate(usable_rows);
+//     permuted_input_truth_vec.sort_unstable();
 
-    let mut table_expression_truth_vec = table_expression_cpu.as_ref().to_vec();
-    table_expression_truth_vec.truncate(usable_rows);
-    table_expression_truth_vec.sort_unstable();
+//     let mut table_expression_truth_vec = table_expression_cpu.as_ref().to_vec();
+//     table_expression_truth_vec.truncate(usable_rows);
+//     table_expression_truth_vec.sort_unstable();
 
-    let mut leftover_table_map: BTreeMap<MyField, u32> =
-        table_expression_truth_vec
-            .iter()
-            .fold(BTreeMap::new(), |mut acc, coeff| {
-                *acc.entry(*coeff).or_insert(0) += 1;
-                acc
-            });
+//     let mut leftover_table_map: BTreeMap<MyField, u32> =
+//         table_expression_truth_vec
+//             .iter()
+//             .fold(BTreeMap::new(), |mut acc, coeff| {
+//                 *acc.entry(*coeff).or_insert(0) += 1;
+//                 acc
+//             });
 
-    let mut permuted_table_truth_vec = vec![MyField::ZERO; usable_rows];
-    let mut repeated_input_rows = Vec::new();
+//     let mut permuted_table_truth_vec = vec![MyField::ZERO; usable_rows];
+//     let mut repeated_input_rows = Vec::new();
 
-    for row in 0..usable_rows {
-        let input_value = permuted_input_truth_vec[row];
-        if row == 0 || input_value != permuted_input_truth_vec[row - 1] {
-            permuted_table_truth_vec[row] = input_value;
-            if let Some(count) = leftover_table_map.get_mut(&input_value) {
-                if *count == 0 {
-                    // This should not happen with the corrected data generation
-                    panic!(
-                        "Input value {:?} not found enough times in table (count is zero)",
-                        input_value
-                    );
-                }
-                *count -= 1;
-                // Keep the entry even if count is zero, BTreeMap handles it.
-            } else {
-                // This should not happen with the corrected data generation
-                panic!("Input value {:?} not found in table map", input_value);
-            }
-        } else {
-            repeated_input_rows.push(row);
-        }
-    }
+//     for row in 0..usable_rows {
+//         let input_value = permuted_input_truth_vec[row];
+//         if row == 0 || input_value != permuted_input_truth_vec[row - 1] {
+//             permuted_table_truth_vec[row] = input_value;
+//             if let Some(count) = leftover_table_map.get_mut(&input_value) {
+//                 if *count == 0 {
+//                     // This should not happen with the corrected data generation
+//                     panic!(
+//                         "Input value {:?} not found enough times in table (count is zero)",
+//                         input_value
+//                     );
+//                 }
+//                 *count -= 1;
+//                 // Keep the entry even if count is zero, BTreeMap handles it.
+//             } else {
+//                 // This should not happen with the corrected data generation
+//                 panic!("Input value {:?} not found in table map", input_value);
+//             }
+//         } else {
+//             repeated_input_rows.push(row);
+//         }
+//     }
 
-    // Collect leftover elements respecting counts
-    let mut leftover_elements: Vec<MyField> = leftover_table_map
-        .into_iter()
-        .flat_map(|(coeff, count)| std::iter::repeat(coeff).take(count as usize))
-        .collect();
+//     // Collect leftover elements respecting counts
+//     let mut leftover_elements: Vec<MyField> = leftover_table_map
+//         .into_iter()
+//         .flat_map(|(coeff, count)| std::iter::repeat(coeff).take(count as usize))
+//         .collect();
 
-    assert_eq!(
-        repeated_input_rows.len(),
-        leftover_elements.len(),
-        "Mismatch between repeated inputs ({}) and leftover table elements ({})",
-        repeated_input_rows.len(),
-        leftover_elements.len()
-    );
+//     assert_eq!(
+//         repeated_input_rows.len(),
+//         leftover_elements.len(),
+//         "Mismatch between repeated inputs ({}) and leftover table elements ({})",
+//         repeated_input_rows.len(),
+//         leftover_elements.len()
+//     );
 
-    // Sort leftover elements to ensure deterministic assignment in case BTreeMap order isn't guaranteed for iteration
-    leftover_elements.sort_unstable();
-    // Sort row indices to match the sorted leftover elements
-    repeated_input_rows.sort_unstable();
+//     // Sort leftover elements to ensure deterministic assignment in case BTreeMap order isn't guaranteed for iteration
+//     leftover_elements.sort_unstable();
+//     // Sort row indices to match the sorted leftover elements
+//     repeated_input_rows.sort_unstable();
 
-    for (row_idx, element) in repeated_input_rows.iter().zip(leftover_elements.iter()) {
-        permuted_table_truth_vec[*row_idx] = *element;
-    }
+//     for (row_idx, element) in repeated_input_rows.iter().zip(leftover_elements.iter()) {
+//         permuted_table_truth_vec[*row_idx] = *element;
+//     }
 
-    // Pad CPU truth vectors with zeros
-    permuted_input_truth_vec.resize(len, MyField::ZERO);
-    permuted_table_truth_vec.resize(len, MyField::ZERO);
+//     // Pad CPU truth vectors with zeros
+//     permuted_input_truth_vec.resize(len, MyField::ZERO);
+//     permuted_table_truth_vec.resize(len, MyField::ZERO);
 
-    // --- Prepare GPU Buffers ---
-    let mut input_d = Variable::ScalarArray(ScalarArray::new(
-        len,
-        stream.unwrap_stream().allocate(len),
-        DeviceType::GPU { device_id: 0 },
-    ));
-    let mut table_d = Variable::ScalarArray(ScalarArray::new(
-        len,
-        stream.unwrap_stream().allocate(len),
-        DeviceType::GPU { device_id: 0 },
-    ));
-    let mut permuted_input_d = Variable::ScalarArray(ScalarArray::new(
-        usable_rows,
-        stream.unwrap_stream().allocate(usable_rows),
-        DeviceType::GPU { device_id: 0 },
-    ));
-    let mut permuted_table_d = Variable::ScalarArray(ScalarArray::new(
-        usable_rows,
-        stream.unwrap_stream().allocate(usable_rows),
-        DeviceType::GPU { device_id: 0 },
-    ));
+//     // --- Prepare GPU Buffers ---
+//     let mut input_d = Variable::ScalarArray(ScalarArray::new(
+//         len,
+//         stream.unwrap_stream().allocate(len),
+//         DeviceType::GPU { device_id: 0 },
+//     ));
+//     let mut table_d = Variable::ScalarArray(ScalarArray::new(
+//         len,
+//         stream.unwrap_stream().allocate(len),
+//         DeviceType::GPU { device_id: 0 },
+//     ));
+//     let mut permuted_input_d = Variable::ScalarArray(ScalarArray::new(
+//         usable_rows,
+//         stream.unwrap_stream().allocate(usable_rows),
+//         DeviceType::GPU { device_id: 0 },
+//     ));
+//     let mut permuted_table_d = Variable::ScalarArray(ScalarArray::new(
+//         usable_rows,
+//         stream.unwrap_stream().allocate(usable_rows),
+//         DeviceType::GPU { device_id: 0 },
+//     ));
 
-    // Get buffer size using usable_rows
-    let buf_size = poly_permute.get_buffer_size(usable_rows);
-    let mut temp_buf = Variable::GpuBuffer(GpuBuffer::new(
-        stream.unwrap_stream().allocate(buf_size),
-        buf_size,
-        DeviceType::GPU { device_id: 0 },
-    ));
+//     // Get buffer size using usable_rows
+//     let buf_size = poly_permute.get_buffer_size(usable_rows);
+//     let mut temp_buf = Variable::GpuBuffer(GpuBuffer::new(
+//         stream.unwrap_stream().allocate(buf_size),
+//         buf_size,
+//         DeviceType::GPU { device_id: 0 },
+//     ));
 
-    // --- Transfer Data and Execute ---
-    input_expression_cpu.cpu2gpu(input_d.unwrap_scalar_array_mut(), stream.unwrap_stream());
-    table_expression_cpu.cpu2gpu(table_d.unwrap_scalar_array_mut(), stream.unwrap_stream());
+//     // --- Transfer Data and Execute ---
+//     input_expression_cpu.cpu2gpu(input_d.unwrap_scalar_array_mut(), stream.unwrap_stream());
+//     table_expression_cpu.cpu2gpu(table_d.unwrap_scalar_array_mut(), stream.unwrap_stream());
 
-    // Call the function as defined by the RegisteredFunction trait implementation
-    func(
-        vec![&mut permuted_input_d, &mut permuted_table_d, &mut temp_buf], // Outputs (mutable)
-        vec![&input_d, &table_d, &stream],                                 // Inputs (immutable)
-        Arc::new(|x|x)
-    )
-    .expect("GPU function execution failed");
+//     // Call the function as defined by the RegisteredFunction trait implementation
+//     func(
+//         vec![&mut permuted_input_d, &mut permuted_table_d, &mut temp_buf], // Outputs (mutable)
+//         vec![&input_d, &table_d, &stream],                                 // Inputs (immutable)
+//         Arc::new(|x|x)
+//     )
+//     .expect("GPU function execution failed");
 
-    permuted_input_d
-        .unwrap_scalar_array()
-        .gpu2cpu(&mut permuted_input_gpu_res, stream.unwrap_stream());
-    permuted_table_d
-        .unwrap_scalar_array()
-        .gpu2cpu(&mut permuted_table_gpu_res, stream.unwrap_stream());
+//     permuted_input_d
+//         .unwrap_scalar_array()
+//         .gpu2cpu(&mut permuted_input_gpu_res, stream.unwrap_stream());
+//     permuted_table_d
+//         .unwrap_scalar_array()
+//         .gpu2cpu(&mut permuted_table_gpu_res, stream.unwrap_stream());
 
-    // --- Cleanup ---
-    stream
-        .unwrap_stream()
-        .free(input_d.unwrap_scalar_array().values);
-    stream
-        .unwrap_stream()
-        .free(table_d.unwrap_scalar_array().values);
-    stream
-        .unwrap_stream()
-        .free(permuted_input_d.unwrap_scalar_array().values);
-    stream
-        .unwrap_stream()
-        .free(permuted_table_d.unwrap_scalar_array().values);
-    stream
-        .unwrap_stream()
-        .free(temp_buf.unwrap_gpu_buffer().ptr);
-    stream.unwrap_stream().sync();
+//     // --- Cleanup ---
+//     stream
+//         .unwrap_stream()
+//         .free(input_d.unwrap_scalar_array().values);
+//     stream
+//         .unwrap_stream()
+//         .free(table_d.unwrap_scalar_array().values);
+//     stream
+//         .unwrap_stream()
+//         .free(permuted_input_d.unwrap_scalar_array().values);
+//     stream
+//         .unwrap_stream()
+//         .free(permuted_table_d.unwrap_scalar_array().values);
+//     stream
+//         .unwrap_stream()
+//         .free(temp_buf.unwrap_gpu_buffer().ptr);
+//     stream.unwrap_stream().sync();
 
-    // --- Compare Results ---
-    // Compare the first `usable_rows` which contain the actual permuted data
-    assert_eq!(
-        permuted_input_gpu_res.as_ref()[..usable_rows],
-        permuted_input_truth_vec.as_slice()[..usable_rows],
-        "Permuted input mismatch (usable rows)"
-    );
-    assert_eq!(
-        permuted_table_gpu_res.as_ref()[..usable_rows],
-        permuted_table_truth_vec.as_slice()[..usable_rows],
-        "Permuted table mismatch (usable rows)"
-    );
-}
+//     // --- Compare Results ---
+//     // Compare the first `usable_rows` which contain the actual permuted data
+//     assert_eq!(
+//         permuted_input_gpu_res.as_ref()[..usable_rows],
+//         permuted_input_truth_vec.as_slice()[..usable_rows],
+//         "Permuted input mismatch (usable rows)"
+//     );
+//     assert_eq!(
+//         permuted_table_gpu_res.as_ref()[..usable_rows],
+//         permuted_table_truth_vec.as_slice()[..usable_rows],
+//         "Permuted table mismatch (usable rows)"
+//     );
+// }

@@ -27,10 +27,10 @@ pub trait Transfer {
     fn disk2cpu(&self, _: &mut Self) {
         unimplemented!("disk2cpu not implemented for {:?}", type_name::<Self>());
     }
-    fn disk2gpu(&self, _: &mut Self) {
+    fn disk2gpu(&self, _: &mut Self, _temp_buffer: &mut Vec<*mut u8>, _temp_size: usize) {
         unimplemented!("disk2gpu not implemented for {:?}", type_name::<Self>());
     }
-    fn gpu2disk(&self, _: &mut Self) {
+    fn gpu2disk(&self, _: &mut Self, _temp_buffer: &mut Vec<*mut u8>, _temp_size: usize) {
         unimplemented!("gpu2disk not implemented for {:?}", type_name::<Self>());
     }
 }
@@ -70,6 +70,9 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         src_device: DeviceType,
         dst_device: DeviceType,
         stream: Option<VariableId>,
+        disk2gpu_temp_buffer: &mut Vec<*mut u8>,
+        gpu2disk_temp_buffer: &mut Vec<*mut u8>,
+        temp_size: usize,
     ) {
         match src_device {
             DeviceType::CPU => match dst_device {
@@ -140,7 +143,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     match src {
                         Variable::ScalarArray(poly) => {
                             let dst = dst.unwrap_scalar_array_mut();
-                            poly.gpu2disk(dst);
+                            poly.gpu2disk(dst, gpu2disk_temp_buffer, temp_size);
                         }
                         _ => unimplemented!()
                     }
@@ -165,7 +168,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                         match src {
                             Variable::ScalarArray(poly) => {
                                 let dst = dst.unwrap_scalar_array_mut();
-                                poly.disk2gpu(dst);
+                                poly.disk2gpu(dst, disk2gpu_temp_buffer, temp_size);
                             }
                             _ => unimplemented!()
                         }

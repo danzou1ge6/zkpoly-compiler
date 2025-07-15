@@ -18,7 +18,7 @@ use crate::{
     instructions::{Instruction, InstructionNode},
 };
 
-use zkpoly_cuda_api::{bindings::cudaDeviceSynchronize, cuda_check, mem::CudaAllocator, stream::{CudaEvent, CudaEventRaw}};
+use zkpoly_cuda_api::{mem::CudaAllocator, stream::CudaEventRaw};
 
 use zkpoly_memory_pool::{static_allocator::CpuStaticAllocator, BuddyDiskPool};
 
@@ -210,6 +210,9 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         mut disk_allocator: Option<&mut Vec<BuddyDiskPool>>,
         _thread_id: usize,
     ) -> Option<Variable<T>> {
+        let mut disk2gpu_temp_buffer: Vec<*mut u8> = Vec::new();
+        let mut gpu2disk_temp_buffer: Vec<*mut u8> = Vec::new();
+        let temp_size: usize = 1024 * 1024 * 2; // 2MB temporary buffer size
         for (i, instruction) in instructions.into_iter().enumerate() {
             let _guard: Option<std::sync::MutexGuard<'_, ()>> =
                 if self.debug_option.serial_execution {
@@ -291,7 +294,8 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                 } => {
                     let src = (*self.variable)[src_id].as_ref().unwrap();
                     let dst = (*self.variable)[dst_id].as_mut().unwrap();
-                    self.transfer(src, dst, src_device, dst_device, stream);
+                    self.transfer(src, dst, src_device, dst_device, stream, 
+                                  &mut disk2gpu_temp_buffer, &mut gpu2disk_temp_buffer, temp_size);
                 }
                 FuncCall {
                     func_id,

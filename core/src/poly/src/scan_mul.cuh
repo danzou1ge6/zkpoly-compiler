@@ -11,7 +11,7 @@ cudaError_t scan_mul(void * temp_buffer, usize *buffer_size, PolyPtr target, cud
 
     if (temp_buffer == nullptr) {
         usize temp_scan_size = 0;
-        CUDA_CHECK(cub::DeviceScan::InclusiveScan(nullptr, temp_scan_size, target_iter, mul_op, len));
+        CUDA_CHECK(cub::DeviceScan::InclusiveScan(nullptr, temp_scan_size, target_iter, target_iter, mul_op, len));
         *buffer_size = temp_scan_size;
         return cudaSuccess;
     }
@@ -20,9 +20,9 @@ cudaError_t scan_mul(void * temp_buffer, usize *buffer_size, PolyPtr target, cud
     usize temp_scan_size = 0;
 
     // calculate x0, x0 * p0, x0 * p0 * p1, ...
-    CUDA_CHECK(cub::DeviceScan::InclusiveScan(d_temp_scan, temp_scan_size, target_iter, mul_op, len, stream));
+    CUDA_CHECK(cub::DeviceScan::InclusiveScan(d_temp_scan, temp_scan_size, target_iter, target_iter, mul_op, len, stream));
     d_temp_scan = temp_buffer;
-    CUDA_CHECK(cub::DeviceScan::InclusiveScan(d_temp_scan, temp_scan_size, target_iter, mul_op, len, stream));
+    CUDA_CHECK(cub::DeviceScan::InclusiveScan(d_temp_scan, temp_scan_size, target_iter, target_iter, mul_op, len, stream));
     return cudaSuccess;
 }
 

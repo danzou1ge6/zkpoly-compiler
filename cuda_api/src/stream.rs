@@ -162,10 +162,9 @@ impl CudaStream {
         let mut ptr: *mut T = std::ptr::null_mut();
         let size = std::mem::size_of::<T>() * len as usize;
         unsafe {
-            cuda_check!(cudaMallocAsync(
+            cuda_check!(cudaMalloc(
                 &mut ptr as *mut *mut T as *mut *mut std::ffi::c_void,
                 size,
-                self.stream
             ));
         }
         ptr
@@ -173,7 +172,7 @@ impl CudaStream {
 
     pub fn free<T: Sized>(&self, ptr: *mut T) {
         unsafe {
-            cuda_check!(cudaFreeAsync(ptr as *mut std::ffi::c_void, self.stream));
+            cuda_check!(cudaFree(ptr as *mut std::ffi::c_void));
         }
     }
 
@@ -187,7 +186,7 @@ impl CudaStream {
             cuda_check!(cudaStreamWaitEvent(
                 self.stream,
                 event.as_ptr(),
-                cudaEventWaitDefault
+                0,
             ));
         }
     }
@@ -197,7 +196,7 @@ impl CudaStream {
             cuda_check!(cudaStreamWaitEvent(
                 self.stream,
                 event.as_ptr(),
-                cudaEventWaitDefault
+                0,
             ));
         }
     }

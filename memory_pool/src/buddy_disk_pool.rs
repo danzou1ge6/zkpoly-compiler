@@ -15,12 +15,10 @@ use nix::sys::{statfs, uio};
 use nix::unistd;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use zkpoly_cuda_api::bindings::{
-    cuFileHandleDeregister, cuFileRead, cuFileWrite, cudaMemcpy,
-    cudaMemcpyKind_cudaMemcpyDeviceToHost, cudaMemcpyKind_cudaMemcpyHostToDevice, cudaSetDevice,
-    CUfileDescr_t, CUfileHandle_t,
+    cudaMemcpy, cudaMemcpyKind_cudaMemcpyDeviceToHost, cudaMemcpyKind_cudaMemcpyHostToDevice,
+    cudaSetDevice,
 };
 use zkpoly_cuda_api::cuda_check;
-use zkpoly_cuda_api::file::register_cufile;
 
 #[derive(Debug)]
 pub enum BuddyDiskPoolError {
@@ -95,8 +93,6 @@ pub struct BuddyDiskPool {
     file: File,
     file_path: PathBuf, // To aid in debugging or potential re-opening
     temp_dir_handle: Option<tempfile::TempDir>,
-    _cu_file_descr: CUfileDescr_t, // cuFile descriptor for GPU direct I/O
-    cu_file_handle: CUfileHandle_t, // cuFile handle for GPU direct I/O
 
     slabs: Vec<DiskSlabInfo>,
     free_slab_info_indices: Vec<usize>,
@@ -131,7 +127,6 @@ unsafe impl Send for BuddyDiskPool {}
 pub struct DiskAllocInfo {
     pub offset: usize, // offset in the file where the allocation starts
     pub fd: i32,       // file descriptor of the disk pool file
-    pub cu_file_handle: CUfileHandle_t, // cuFile handle for GPU direct I/O
 }
 
 // Safety: cuFile api is thread-safe
@@ -143,7 +138,6 @@ impl DiskAllocInfo {
         DiskAllocInfo {
             offset,
             fd: disk_pool.get_fd(),
-            cu_file_handle: disk_pool.cu_file_handle,
         }
     }
 }
@@ -240,9 +234,6 @@ impl BuddyDiskPool {
 
         let num_layers = (max_log_factor + 1) as usize;
 
-        // now we need to register the file to cuFile for GPU direct I/O
-        let (cu_file_descr, cu_file_handle) = register_cufile(&file);
-
         let mut pool = Self {
             file,
             file_path,
@@ -256,8 +247,6 @@ impl BuddyDiskPool {
             min_block_size,
             max_log_factor,
             max_block_size,
-            _cu_file_descr: cu_file_descr,
-            cu_file_handle,
         };
 
         // Initialize the first max-sized block
@@ -772,7 +761,6 @@ impl BuddyDiskPool {
 
 impl Drop for BuddyDiskPool {
     fn drop(&mut self) {
-        unsafe { cuFileHandleDeregister(self.cu_file_handle) };
         // The file is closed automatically when `self.file` (File object) is dropped.
         // The temporary directory `self._temp_dir_handle` (TempDir object)
         // and its contents (including our pool file) are removed when it's dropped.
@@ -864,88 +852,6 @@ pub fn cpu_read_from_disk(ptr: *mut u8, disk_pos: &Vec<DiskAllocInfo>, size: usi
                 offset += read_size;
                 cpu_offset += read_size;
                 res_size -= read_size;
-            }
-        });
-}
-
-pub fn gpu_write_to_disk(
-    ptr: *const u8,
-    disk_pos: &Vec<DiskAllocInfo>,
-    size: usize,
-    device_id: i32,
-) {
-    let safe_ptr = SafePtr { ptr };
-    let part_size = size / disk_pos.len();
-    disk_pos
-        .par_iter()
-        .enumerate()
-        .for_each(|(disk_id, alloc_info)| {
-            let safe_ptr_clone = safe_ptr.clone();
-            let ptr = safe_ptr_clone.ptr;
-            let offset = alloc_info.offset.clone();
-            let file_handle = alloc_info.cu_file_handle.clone();
-            let cpu_offset = part_size * disk_id;
-
-            unsafe {
-                cuda_check!(cudaSetDevice(device_id));
-                let res = cuFileWrite(
-                    file_handle,
-                    ptr as *const c_void,
-                    part_size,
-                    offset as i64,
-                    cpu_offset as i64,
-                );
-                if res < part_size as isize {
-                    panic!(
-                        "Failed to write {} bytes to disk {} at offset {}: {}",
-                        part_size, disk_id, offset, res
-                    );
-                }
-            }
-        });
-}
-
-pub fn gpu_read_from_disk(
-    ptr: *mut u8,
-    disk_pos: &Vec<DiskAllocInfo>,
-    size: usize,
-    device_id: i32,
-) {
-    let safe_ptr = SafePtrMut { ptr };
-    let part_size = size / disk_pos.len();
-
-    disk_pos
-        .par_iter()
-        .enumerate()
-        .for_each(|(disk_id, alloc_info)| {
-            let safe_ptr_clone = safe_ptr.clone();
-            let ptr = safe_ptr_clone.ptr;
-            let file_handle = alloc_info.cu_file_handle.clone();
-            let offset = alloc_info.offset.clone();
-            let cpu_offset = part_size * disk_id;
-
-            unsafe {
-                cuda_check!(cudaSetDevice(device_id));
-                let res = cuFileRead(
-                    file_handle,
-                    ptr as *mut c_void,
-                    part_size,
-                    offset as i64,
-                    cpu_offset as i64,
-                );
-                if res < part_size as isize {
-                    let msg = if res == -1 {
-                        // syscall error
-                        let errorno = std::io::Error::last_os_error().raw_os_error().unwrap();
-                        format!("syscall errorno {}", errorno)
-                    } else {
-                        format!("cufile errorno {}", res)
-                    };
-                    panic!(
-                        "Failed to read {} bytes from disk {} at offset {}: {}",
-                        part_size, disk_id, offset, msg
-                    );
-                }
             }
         });
 }
@@ -1062,8 +968,6 @@ pub fn gpu_read_from_disk_no_direct(
 
 #[cfg(test)]
 mod tests {
-    use zkpoly_cuda_api::{bindings::cuFileReadAsync, cufile_check};
-
     use super::*;
     use std::alloc::{alloc, dealloc, Layout};
 
@@ -1276,47 +1180,4 @@ mod tests {
         pool.deallocate(off2).unwrap();
     }
 
-    #[test]
-    fn test_cufile_async() {
-        // This test requires a CUDA-capable device and cuFile support.
-        // It should be run in an environment where cuFile is available.
-        let sys_align = 1024 * 1024 * 1024 * 10;
-        let max_block_size = sys_align * 4;
-        let mut pool = BuddyDiskPool::new(max_block_size, None).unwrap();
-
-        let mut alloc_size = sys_align * 2; // Request 2 minimum blocks
-        let offset = pool.allocate(alloc_size).unwrap();
-
-        let alloc_info = DiskAllocInfo::new(offset, &pool);
-        let stream = zkpoly_cuda_api::stream::CudaStream::new(0); // Assuming device 0 is available
-        let gpu_buffer = stream.allocate::<u8>(alloc_size);
-
-        let start = std::time::Instant::now();
-        let mut buf_offset = 0i64;
-        let mut bytes_read: isize = 0;
-        let mut offset_i = offset as i64;
-        let start = std::time::Instant::now();
-        // Write to GPU buffer
-        unsafe {
-            use zkpoly_cuda_api::bindings::CUfileOpError;
-            cufile_check!(cuFileReadAsync(
-                alloc_info.cu_file_handle,
-                gpu_buffer.cast(),
-                &mut alloc_size as *mut usize,
-                &mut offset_i as *mut i64,
-                &mut buf_offset as *mut i64,
-                &mut bytes_read as *mut isize,
-                stream.raw()
-            ));
-        }
-        let end_dispatch = std::time::Instant::now();
-        stream.sync(); // Wait for the read to complete
-        let end_sync = std::time::Instant::now();
-        println!(
-            "cuFile read async took: {:?} (dispatch) + {:?} (sync)",
-            end_dispatch.duration_since(start),
-            end_sync.duration_since(end_dispatch)
-        );
-        println!("Bytes read: {}", bytes_read);
-    }
 }

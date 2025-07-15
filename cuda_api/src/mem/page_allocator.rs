@@ -4,7 +4,7 @@ use zkpoly_common::devices::DeviceType;
 
 use crate::{
     bindings::{
-        cuInit, cuMemAddressFree, cuMemAddressReserve, cuMemCreate, cuMemGetAllocationGranularity, cuMemMap, cuMemRelease, cuMemSetAccess, cuMemUnmap, CUdeviceptr, CUmemAccessDesc, CUmemAccess_flags_enum_CU_MEM_ACCESS_FLAGS_PROT_READWRITE, CUmemAllocationGranularity_flags_enum_CU_MEM_ALLOC_GRANULARITY_MINIMUM, CUmemAllocationProp, CUmemAllocationType_enum_CU_MEM_ALLOCATION_TYPE_PINNED, CUmemGenericAllocationHandle, CUmemLocation, CUmemLocationType_enum_CU_MEM_LOCATION_TYPE_DEVICE, CUmemLocationType_enum_CU_MEM_LOCATION_TYPE_HOST_NUMA
+        cuInit, cuMemAddressFree, cuMemAddressReserve, cuMemCreate, cuMemGetAllocationGranularity, cuMemMap, cuMemRelease, cuMemSetAccess, cuMemUnmap, CUdeviceptr, CUmemAccessDesc, CUmemAccess_flags_enum_CU_MEM_ACCESS_FLAGS_PROT_READWRITE, CUmemAllocationGranularity_flags_enum_CU_MEM_ALLOC_GRANULARITY_MINIMUM, CUmemAllocationProp, CUmemAllocationType_enum_CU_MEM_ALLOCATION_TYPE_PINNED, CUmemGenericAllocationHandle, CUmemLocation, CUmemLocationType_enum_CU_MEM_LOCATION_TYPE_DEVICE
     },
     cuda_driver_check,
 };
@@ -19,8 +19,7 @@ fn get_location(device: &DeviceType) -> CUmemLocation {
     let mut location: CUmemLocation = unsafe { std::mem::zeroed() };
     match device {
         DeviceType::CPU => {
-            location.type_ = CUmemLocationType_enum_CU_MEM_LOCATION_TYPE_HOST_NUMA;
-            location.id = 0; // TODO: this should be the NUMA node id
+            panic!("CPU allocation is not supported in this cuda 10.2");
         }
         DeviceType::GPU { device_id } => {
             location.type_ = CUmemLocationType_enum_CU_MEM_LOCATION_TYPE_DEVICE;

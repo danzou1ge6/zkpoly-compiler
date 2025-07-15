@@ -2,13 +2,12 @@ use std::env;
 use std::path::PathBuf;
 
 fn main() {
-    let cuda_path = env::var("CUDA_PATH").unwrap_or("/usr/local/cuda".to_string());
+    let cuda_path = env::var("CUDA_PATH").unwrap_or("/usr/local/cuda-10.2".to_string());
 
     let cuda_lib_path = format!("{}/lib64", cuda_path);
     let cuda_header_path = format!("{}/include", cuda_path);
     let cuda_runtime_header_path = format!("{}/include/cuda_runtime.h", cuda_path);
     let cuda_driver_header_path = format!("{}/include/cuda.h", cuda_path);
-    let cufile_header_path = format!("{}/include/cufile.h", cuda_path);
 
     println!("cargo:rerun-if-env-changed=CUDA_PATH");
 
@@ -28,7 +27,6 @@ fn main() {
         // bindings for.
         .header(cuda_runtime_header_path)
         .header(cuda_driver_header_path)
-        .header(cufile_header_path)
         .clang_arg(format!("-I{}", cuda_header_path))
         // Tell cargo to invalidate the built crate whenever any of the
         // included header files changed.
