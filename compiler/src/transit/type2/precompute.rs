@@ -19,13 +19,17 @@ use zkpoly_runtime::{
 use crate::{
     ast::lowering::{Constant, ConstantTable},
     transit::{
-        type2::{typ::template::Typ, NttAlgorithm, VertexId, VertexNode},
-        SourceInfo, Vertex,
+        type2::{
+            template::{LastSliceableNode, SliceableNode},
+            typ::template::Typ,
+            unsliced, NttAlgorithm, VertexId,
+        },
+        SourceInfo,
     },
     utils::GenOmega,
 };
 
-use super::Cg;
+use unsliced::{Cg, Vertex, VertexNode};
 
 pub fn precompute<'s, Rt: RuntimeType>(
     mut cg: Cg<'s, Rt>,
@@ -90,7 +94,7 @@ pub fn precompute<'s, Rt: RuntimeType>(
                                 zkpoly_common::typ::Typ::scalar_array((len / 2) as usize),
                             ));
                             let load_c = cg.g.add_vertex(Vertex::new(
-                                VertexNode::Constant(c_id),
+                                VertexNode::UnsliceableConstant(c_id),
                                 Typ::Poly((PolyType::Coef, len / 2)),
                                 SourceInfo::new(
                                     vec![Location::caller().clone().into()],
@@ -119,7 +123,7 @@ pub fn precompute<'s, Rt: RuntimeType>(
                                     zkpoly_common::typ::Typ::scalar_array(recompute_omega_len),
                                 ));
                             let load_pq = cg.g.add_vertex(Vertex::new(
-                                VertexNode::Constant(pq_cid),
+                                VertexNode::UnsliceableConstant(pq_cid),
                                 Typ::Poly((PolyType::Coef, recompute_pq_len as u64)),
                                 SourceInfo::new(
                                     vec![Location::caller().clone().into()],
@@ -127,7 +131,7 @@ pub fn precompute<'s, Rt: RuntimeType>(
                                 ),
                             ));
                             let load_omegas = cg.g.add_vertex(Vertex::new(
-                                VertexNode::Constant(omegas_cid),
+                                VertexNode::UnsliceableConstant(omegas_cid),
                                 Typ::Poly((PolyType::Coef, recompute_omega_len as u64)),
                                 SourceInfo::new(
                                     vec![Location::caller().clone().into()],
@@ -145,7 +149,11 @@ pub fn precompute<'s, Rt: RuntimeType>(
                     precompute_ntts.insert((log_len, inv), alg);
                 }
             }
-            super::template::VertexNode::Msm { points, polys, .. } => {
+            super::template::VertexNode::LastSliceable(LastSliceableNode::Msm {
+                points,
+                polys,
+                ..
+            }) => {
                 assert_eq!(points.len(), 1);
                 let input_id = points[0];
                 let input_constant_id = cg.g.vertex(input_id).node().unwrap_constant();
@@ -228,7 +236,7 @@ pub fn precompute<'s, Rt: RuntimeType>(
                     let mut load_ids = vec![input_id];
                     for c_id in c_ids {
                         let load_id = cg.g.add_vertex(Vertex::new(
-                            VertexNode::Constant(c_id),
+                            VertexNode::Sliceable(SliceableNode::Constant(c_id)),
                             cg.g.vertex(input_id).typ().clone(),
                             cg.g.vertex(input_id).src().clone(),
                         ));

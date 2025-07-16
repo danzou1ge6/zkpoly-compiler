@@ -280,7 +280,7 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
     {
         let mut cg_f = std::fs::File::open(dir.as_ref().join("cg.json"))?;
         cg_f.read_to_string(str_buf)?;
-        let cg: type2::Cg<'de, Rt> = serde_json::from_str(str_buf)?;
+        let cg: type2::unsliced::Cg<'de, Rt> = serde_json::from_str(str_buf)?;
 
         let mut ct_header_f = std::fs::File::open(dir.as_ref().join("constants-manifest.json"))?;
         let ct_header: args::serialization::Header = serde_json::from_reader(&mut ct_header_f)?;

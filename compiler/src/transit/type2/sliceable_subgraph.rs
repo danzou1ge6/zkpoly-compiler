@@ -161,6 +161,9 @@ pub mod template {
         }
     }
 
+    #[derive(
+        Debug, Clone, Eq, PartialEq, Ord, PartialOrd, serde::Serialize, serde::Deserialize,
+    )]
     pub struct Cg<I, V> {
         pub(crate) inputs: Vec<I>,
         pub(crate) loop_inputs: Vec<I>,
@@ -181,12 +184,57 @@ pub mod template {
         }
     }
 
+    impl<I, Ie, C, T, S> Cg<I, transit::Vertex<VertexNode<I, Ie, C>, T, S>> {
+        pub fn try_relabeled<Ie2, Er>(
+            &self,
+            mut f: impl FnMut(Ie) -> Result<Ie2, Er>,
+        ) -> Result<Cg<I, transit::Vertex<VertexNode<I, Ie2, C>, T, S>>, Er>
+        where
+            Ie: Clone,
+            I: UsizeId,
+            C: Clone,
+            T: Clone,
+            S: Clone,
+        {
+            let g = self.g.map_by_ref_result(&mut |_,
+                                                    v: &transit::Vertex<
+                VertexNode<I, Ie, C>,
+                T,
+                S,
+            >| {
+                use VertexNode::*;
+                let node = match v.node() {
+                    Input(ie) => Input(f(ie.clone())?),
+                    Inner(inner) => Inner(inner.clone()),
+                    Last(last) => Last(last.clone()),
+                    TupleGet(t, i) => TupleGet(t.clone(), *i),
+                    Return(r) => Return(r.clone()),
+                };
+
+                Ok(transit::Vertex::new(node, v.typ().clone(), v.src().clone()))
+            })?;
+
+            Ok(Cg {
+                inputs: self.inputs.clone(),
+                output: self.output.clone(),
+                g,
+                loop_inputs: self.loop_inputs.clone(),
+                loop_output: self.loop_output.clone(),
+            })
+        }
+    }
+
     impl<I, Ie, C, T, S> super::super::template::SubgraphNode<Ie>
         for Cg<I, transit::Vertex<VertexNode<I, Ie, C>, T, S>>
     where
         I: 'static + UsizeId,
-        Ie: 'static,
+        Ie: 'static + Clone,
+        C: Clone,
+        T: Clone,
+        S: Clone,
     {
+        type AltLabeled<Ie2> = Cg<I, transit::Vertex<VertexNode<I, Ie2, C>, T, S>>;
+
         fn inputs(&self) -> impl Iterator<Item = &'_ Ie> {
             self.inputs
                 .iter()
@@ -200,6 +248,16 @@ pub mod template {
                     self.g.vertex_mut(*i).node_mut().unwrap_input_mut() as *mut _
                 })
                 .map(|p: *mut _| unsafe { p.as_mut().unwrap() })
+        }
+
+        fn try_relabeled<I2, Er>(
+            &self,
+            f: impl FnMut(Ie) -> Result<I2, Er>,
+        ) -> Result<Self::AltLabeled<I2>, Er>
+        where
+            I2: 'static,
+        {
+            self.try_relabeled(f)
         }
     }
 }
@@ -217,46 +275,7 @@ pub type Vertex<'s, Rt> = alt_label::Vertex<'s, VertexId, super::VertexId, super
 pub type Cg<'s, Rt> = alt_label::Cg<'s, VertexId, super::VertexId, Rt>;
 
 pub type CgPartialTyped<'s, T> =
-    template::Cg<VertexId, Vertex<'s, alt_label::Vertex<'s, VertexId, super::VertexId, T>>>;
-
-impl<'s, I, Ie, Rt: RuntimeType> alt_label::Cg<'s, I, Ie, Rt> {
-    pub fn try_relabeled<Ie2, Er>(
-        &self,
-        mut f: impl FnMut(Ie) -> Result<Ie2, Er>,
-    ) -> Result<alt_label::Cg<'s, I, Ie2, Rt>, Er>
-    where
-        Ie: Clone,
-        I: Clone,
-    {
-        let g =
-            self.g.map_by_ref_result(
-                &mut |_, v: &alt_label::Vertex<'s, I, Ie, super::Typ<Rt>>| {
-                    use template::VertexNode::*;
-                    let node = match v.node() {
-                        Input(ie) => Input(f(ie.clone())?),
-                        Inner(inner) => Inner(inner.clone()),
-                        Last(last) => Last(last.clone()),
-                        TupleGet(t, i) => TupleGet(t.clone(), *i),
-                        Return(r) => Return(r.clone()),
-                    };
-
-                    Ok(alt_label::Vertex::new(
-                        node,
-                        v.typ().clone(),
-                        v.src().clone(),
-                    ))
-                },
-            )?;
-
-        Ok(alt_label::Cg {
-            inputs: self.inputs.clone(),
-            output: self.output.clone(),
-            g,
-            loop_inputs: self.loop_inputs.clone(),
-            loop_output: self.loop_output.clone(),
-        })
-    }
-}
+    template::Cg<VertexId, alt_label::Vertex<'s, VertexId, super::VertexId, T>>;
 
 impl<I, Ie, T, C, S> digraph::internal::Predecessors<I>
     for transit::Vertex<template::VertexNode<I, Ie, C>, T, S>

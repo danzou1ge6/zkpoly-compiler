@@ -11,7 +11,7 @@ use super::{
 };
 
 pub struct ProcessedType2<'s, Rt: RuntimeType> {
-    pub(super) cg: type2::Cg<'s, Rt>,
+    pub(super) cg: type2::unsliced::Cg<'s, Rt>,
     pub(super) constant_table: type2::ConstantTable<Rt>,
     pub(super) uf_table: type2::user_function::Table<Rt>,
     pub(super) libs: Libs,

@@ -43,10 +43,13 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for PolyCoef<Rt> {
         cg.lookup_or_insert_with(self.as_ptr(), |cg| match &self.inner.t {
             Arith(arith) => {
                 let arith = arith.to_arith(cg);
-                new_vertex(VertexNode::SingleArith(arith), Some(Typ::coef()))
+                new_vertex(
+                    VertexNode::Sliceable(SliceableNode::SingleArith(arith)),
+                    Some(Typ::coef()),
+                )
             }
             New(init, deg) => new_vertex(
-                VertexNode::NewPoly(*deg, init.clone(), PolyType::Coef),
+                VertexNode::Sliceable(SliceableNode::NewPoly(*deg, init.clone(), PolyType::Coef)),
                 Some(Typ::coef()),
             ),
             Constant(data) => {
@@ -57,7 +60,7 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for PolyCoef<Rt> {
                     data.device.clone(),
                 );
                 new_vertex(
-                    VertexNode::Constant(constant_id),
+                    VertexNode::Sliceable(SliceableNode::Constant(constant_id)),
                     Some(Typ::coef_with_deg(data.len() as u64)),
                 )
             }
@@ -108,14 +111,17 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for PolyCoef<Rt> {
                 let poly = poly.erase(cg);
                 let powers = powers.erase(cg);
                 Vertex::new(
-                    VertexNode::DistributePowers { poly, powers },
+                    VertexNode::Sliceable(SliceableNode::DistributePowers { poly, powers }),
                     Some(Typ::coef()),
                     self.src_lowered(),
                 )
             }
             Blind(operand, begin, end) => {
                 let operand = operand.erase(cg);
-                new_vertex(VertexNode::Blind(operand, *begin, *end), Some(Typ::coef()))
+                new_vertex(
+                    VertexNode::Sliceable(SliceableNode::Blind(operand, *begin, *end)),
+                    Some(Typ::coef()),
+                )
             }
             KateDivision(lhs, b) => {
                 let lhs = lhs.erase(cg);

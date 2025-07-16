@@ -29,8 +29,6 @@ pub enum SliceableNode<I, A, C> {
         poly: I,
         powers: I,
     },
-    /// `Slice2(a, b, offset)` means concatenating two slices, then produce a new slice at `offset`
-    Slice2(I, I, u64),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, serde::Serialize, serde::Deserialize)]
@@ -56,14 +54,24 @@ pub trait SubgraphNode<I>
 where
     I: 'static,
 {
+    type AltLabeled<I2>;
+
     fn inputs(&self) -> impl Iterator<Item = &'_ I>;
     fn inputs_mut(&mut self) -> impl Iterator<Item = &'_ mut I>;
+    fn try_relabeled<I2, Er>(
+        &self,
+        f: impl FnMut(I) -> Result<I2, Er>,
+    ) -> Result<Self::AltLabeled<I2>, Er>
+    where
+        I2: 'static;
 }
 
 impl<I> SubgraphNode<I> for ()
 where
     I: 'static,
 {
+    type AltLabeled<I2> = ();
+
     fn inputs(&self) -> impl Iterator<Item = &'_ I> {
         #[allow(unreachable_code)]
         std::iter::once(panic!("variant Subgraph is not expected in this type"))
@@ -72,6 +80,17 @@ where
     fn inputs_mut(&mut self) -> impl Iterator<Item = &'_ mut I> {
         #[allow(unreachable_code)]
         std::iter::once(panic!("variant Subgraph is not expected in this type"))
+    }
+
+    fn try_relabeled<I2, Er>(
+        &self,
+        _f: impl FnMut(I) -> Result<I2, Er>,
+    ) -> Result<Self::AltLabeled<I2>, Er>
+    where
+        I2: 'static,
+    {
+        #[allow(unreachable_code)]
+        Ok(panic!("variant Subgraph is not expected in this type"))
     }
 }
 
@@ -133,7 +152,6 @@ where
             BatchedInvert(x) => Box::new([x].into_iter()),
             ScanMul { x0, poly } => Box::new([x0, poly].into_iter()),
             DistributePowers { poly, powers } => Box::new([poly, powers].into_iter()),
-            Slice2(a, b, ..) => Box::new([a, b].into_iter()),
         }
     }
 
@@ -150,7 +168,6 @@ where
             BatchedInvert(x) => Box::new([x].into_iter()),
             ScanMul { x0, poly } => Box::new([x0, poly].into_iter()),
             DistributePowers { poly, powers } => Box::new([poly, powers].into_iter()),
-            Slice2(a, b, ..) => Box::new([a, b].into_iter()),
         }
     }
 
@@ -178,7 +195,6 @@ where
             BatchedInvert(..) => Gpu,
             ScanMul { .. } => Gpu,
             DistributePowers { .. } => Gpu,
-            Slice2(..) => PreferGpu,
         }
     }
 
@@ -256,9 +272,6 @@ where
                 poly: mapping(poly.clone())?,
                 powers: mapping(powers.clone())?,
             },
-            Slice2(a, b, offset) => {
-                Slice2(mapping(a.clone())?, mapping(b.clone())?, offset.clone())
-            }
         })
     }
 
@@ -302,10 +315,6 @@ where
             BatchedInvert(..) => currespounding_gpu(device),
             ScanMul { .. } => currespounding_gpu(device),
             DistributePowers { .. } => currespounding_gpu(device),
-            Slice2(..) => match device {
-                super::Device::Gpu(i) => GpuMemory(i),
-                super::Device::Cpu => Cpu,
-            },
         }
     }
 }
@@ -579,3 +588,5 @@ where
         }
     }
 }
+
+pub mod pretty;

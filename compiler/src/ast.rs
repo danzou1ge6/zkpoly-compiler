@@ -8,7 +8,11 @@ use zkpoly_runtime::{
     args::{RuntimeType, Variable},
 };
 
-use self::transit::type2::{self, VertexId, VertexNode};
+use self::transit::type2::{
+    self,
+    template::{LastSliceableNode, SliceableNode, VertexNode},
+    VertexId,
+};
 
 pub mod lowering;
 
@@ -392,21 +396,18 @@ impl<S> ScalarArith<S> {
 #[derive(Debug)]
 pub struct ConstantPool {
     pub cpu: CpuMemoryPool,
-    pub disk: Option<DiskMemoryPool>
+    pub disk: Option<DiskMemoryPool>,
 }
 
 impl ConstantPool {
     pub fn only_cpu(cpu: CpuMemoryPool) -> Self {
-        Self {
-            cpu,
-            disk: None
-        }
+        Self { cpu, disk: None }
     }
 
     pub fn with_disk(cpu: CpuMemoryPool, disk: DiskMemoryPool) -> Self {
         Self {
             cpu,
-            disk: Some(disk)
+            disk: Some(disk),
         }
     }
 

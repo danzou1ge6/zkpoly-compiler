@@ -39,7 +39,7 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for WhateverUntyped<Rt> {
                         zkpoly_common::typ::Typ::Any(tid.clone().into(), *size),
                     );
                     new_vertex(
-                        VertexNode::Constant(constant),
+                        VertexNode::UnsliceableConstant(constant),
                         Some(Typ::Any(tid.clone().into(), *size)),
                     )
                 }
