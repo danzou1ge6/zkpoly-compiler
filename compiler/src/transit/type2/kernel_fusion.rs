@@ -507,7 +507,7 @@ fn _fuse_arith<'s, Rt: RuntimeType>(cg: Cg<'s, Rt>, hw_info: &HardwareInfo) -> (
                 // } else {
                 //     None
                 // };
-                let temp_spaces = temporary_space::arith::<Rt>(&ag, None);
+                let temp_spaces = temporary_space::arith::<VertexId, Rt>(&ag, None);
                 assert!(temp_spaces.len() == 2);
                 let chunking = ag.decide_chunking::<Rt::Field>(
                     hw_info.smallest_gpu_memory_integral_limit() - temp_spaces[0] - temp_spaces[1],

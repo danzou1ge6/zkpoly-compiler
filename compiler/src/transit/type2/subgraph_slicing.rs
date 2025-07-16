@@ -45,7 +45,7 @@ struct Subgraph<'g, 's, Rt: RuntimeType> {
 
 fn dfs<'s, 'g, It>(
     v: VertexId,
-    next_vertices: impl Fn(VertexId) -> It,
+    next_vertices: &impl Fn(VertexId) -> It,
     reachable: &mut DenseSet,
     subgraph: &DenseSet,
 ) where
@@ -58,7 +58,7 @@ fn dfs<'s, 'g, It>(
     reachable.add(v);
 
     for w in next_vertices(v) {
-        dfs(w, &next_vertices, reachable, subgraph);
+        dfs(w, next_vertices, reachable, subgraph);
     }
 }
 
@@ -80,13 +80,13 @@ impl<'s, 'g, Rt: RuntimeType> Subgraph<'g, 's, Rt> {
         self.vertices.add(v);
         dfs(
             v,
-            |u| self.g.predecessors_of(u),
+            &|u| self.g.predecessors_of(u),
             &mut self.backward_reachable,
             &self.vertices,
         );
         dfs(
             v,
-            |u| self.g.successors_of(u),
+            &|u| self.g.successors_of(u),
             &mut self.forward_reachable,
             &self.vertices,
         );
@@ -192,10 +192,12 @@ fn fuse_sliceable_subgraphs_from<'s, Rt: RuntimeType>(
     // therefore we don't need to consider the case when removing a vertex causes other vertices
     // to become first.
     subgraph.ids().for_each(|v| {
-        if connected_cg.vertex(v).node().sliceable_property() == SliceableProperty::NonFirst
-            && !connected_cg.predecessors_of(v).all(|u| subgraph[u])
-        {
-            subgraph.remove(v)
+        if subgraph[v] {
+            if connected_cg.vertex(v).node().sliceable_property() == SliceableProperty::NonFirst
+                && !connected_cg.predecessors_of(v).all(|u| subgraph[u])
+            {
+                subgraph.remove(v)
+            }
         }
     });
     let subgraph = subgraph;
@@ -246,15 +248,43 @@ fn fuse_sliceable_subgraphs_from<'s, Rt: RuntimeType>(
         })
         .collect::<Vec<_>>();
 
+    let input_bytes: u64 = subgraph_inputs_vids
+        .iter()
+        .map(|v| cg.g.vertex(*v).typ().size().total())
+        .sum();
+    let output_bytes: u64 = subgraph_outputs
+        .iter()
+        .map(|(_, v)| cg.g.vertex(*v).typ().size().total())
+        .sum();
+    let num_arith_subgraphs = sub2big
+        .iter()
+        .filter(|v| {
+            matches!(
+                cg.g.vertex(**v).node(),
+                super::template::VertexNode::Sliceable(
+                    super::template::SliceableNode::Arith { .. }
+                )
+            )
+        })
+        .count();
+    println!(
+        "fused subgraph size = {:?}, in bytes = {}, out bytes = {}, containing arith = {}",
+        subgraph_order, input_bytes, output_bytes, num_arith_subgraphs
+    );
+
     // Relabel external vertices to subgraph vertices
     let mut sub_cg_vertices: Heap<sliceable_subgraph::VertexId, _> =
         sub2big.map_by_ref(&mut |_sub_v, v| {
             let outer_vertex = connected_cg.vertex(*v);
-            let subgraph_node = sliceable_subgraph::VertexNode::relabeled_external_node(
-                *v,
-                outer_vertex.node(),
-                |v| big2sub[&v],
-            );
+            let subgraph_node = if subgraph_inputs_vids.contains(v) {
+                sliceable_subgraph::VertexNode::Input(*v)
+            } else {
+                sliceable_subgraph::VertexNode::relabeled_external_node(
+                    *v,
+                    outer_vertex.node(),
+                    |v| big2sub[&v],
+                )
+            };
             sliceable_subgraph::Vertex::new(
                 subgraph_node,
                 outer_vertex.typ().clone(),
@@ -301,9 +331,29 @@ fn fuse_sliceable_subgraphs_from<'s, Rt: RuntimeType>(
 }
 
 pub fn fuse<'s, Rt: RuntimeType>(
-    mut cg: super::Cg<'s, Rt>,
+    cg: super::unsliced::Cg<'s, Rt>,
     subgraph_minimum_order: usize,
 ) -> super::Cg<'s, Rt> {
+    let mut cg = cg.to_sliced();
+    let ccg = cg.connected_subgraph();
+    let arith_subgraph_count = ccg
+        .vertices()
+        .filter(|v| {
+            matches!(
+                ccg.vertex(*v).node(),
+                super::template::VertexNode::Sliceable(
+                    super::template::SliceableNode::Arith { .. }
+                )
+            )
+        })
+        .count();
+
+    println!(
+        "cg order = {}, containing arith = {}",
+        ccg.order(),
+        arith_subgraph_count
+    );
+
     let seq =
         cg.g.dfs_from(cg.output)
             .map(|(vid, _)| vid)
@@ -317,6 +367,8 @@ pub fn fuse<'s, Rt: RuntimeType>(
 
         fuse_sliceable_subgraphs_from(vid, &mut cg, &mut fused_vids, subgraph_minimum_order);
     }
+
+    println!("cg order after fuse = {}", cg.connected_subgraph().order());
 
     cg
 }

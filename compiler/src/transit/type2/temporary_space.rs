@@ -1,4 +1,4 @@
-use zkpoly_common::{arith::FusedType, load_dynamic::Libs, msm_config::MsmConfig};
+use zkpoly_common::{arith::FusedType, heap::UsizeId, load_dynamic::Libs, msm_config::MsmConfig};
 use zkpoly_core::{
     fused_kernels::FusedOp,
     msm::MSM,
@@ -46,7 +46,10 @@ pub fn poly_invert<Rt: RuntimeType>(len: usize, libs: &mut Libs) -> Vec<u64> {
     vec![poly_invert_impl.get_buffer_size(len) as u64]
 }
 
-pub fn arith<Rt: RuntimeType>(arith: &Arith, chunking: Option<u64>) -> Vec<u64> {
+pub fn arith<I, Rt: RuntimeType>(arith: &Arith<I>, chunking: Option<u64>) -> Vec<u64>
+where
+    I: UsizeId,
+{
     let local_size = FusedOp::new(
         arith.clone(),
         "temp".to_string(),

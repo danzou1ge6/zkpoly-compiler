@@ -167,8 +167,12 @@ impl<N, T, S> Vertex<N, T, S> {
     pub fn map_typ<T2>(self, f: impl FnOnce(T) -> T2) -> Vertex<N, T2, S> {
         Vertex(self.0, f(self.1), self.2)
     }
+
+    pub fn map_node<N2>(self, f: impl FnOnce(N) -> N2) -> Vertex<N2, T, S> {
+        Vertex(f(self.0), self.1, self.2)
+    }
 }
 
 // pub mod type1;
 pub mod type2;
-pub mod type3;
+// pub mod type3;

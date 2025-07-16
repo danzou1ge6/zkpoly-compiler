@@ -187,11 +187,58 @@ pub mod unsliced {
             template::VertexNode<I, Arith<I>, ConstantId, user_function::Id, ()>;
         pub type Vertex<'s, I, T> = transit::Vertex<VertexNode<I>, T, SourceInfo<'s>>;
         pub type Cg<'s, I, T> = transit::Cg<I, Vertex<'s, I, T>>;
+
+        impl<'s, I> VertexNode<I> {
+            pub fn to_sliced<Rt: RuntimeType>(self) -> alt_label::VertexNode<'s, I, Rt> {
+                use template::VertexNode::*;
+                match self {
+                    Sliceable(sn) => Sliceable(sn),
+                    LastSliceable(lsn) => LastSliceable(lsn),
+                    Subgraph(()) => panic!("not expecting subgraph"),
+                    Extend(i, deg) => Extend(i, deg),
+                    Entry(e) => Entry(e),
+                    Return(i) => Return(i),
+                    UnsliceableConstant(c) => UnsliceableConstant(c),
+                    Ntt { s, to, from, alg } => Ntt { s, to, from, alg },
+                    Slice(i, a, b) => Slice(i, a, b),
+                    Interpolate { xs, ys } => Interpolate { xs, ys },
+                    Array(arr) => Array(arr),
+                    AssmblePoly(deg, xs) => AssmblePoly(deg, xs),
+                    HashTranscript {
+                        transcript,
+                        value,
+                        typ,
+                    } => HashTranscript {
+                        transcript,
+                        value,
+                        typ,
+                    },
+                    SqueezeScalar(i) => SqueezeScalar(i),
+                    PolyPermute(a, b, s) => PolyPermute(a, b, s),
+                    ArrayGet(i, k) => ArrayGet(i, k),
+                    TupleGet(i, k) => TupleGet(i, k),
+                    UserFunction(e, x) => UserFunction(e, x),
+                    KateDivision(x, y) => KateDivision(x, y),
+                    IndexPoly(x, i) => IndexPoly(x, i),
+                    AssertEq(a, b, m) => AssertEq(a, b, m),
+                    Print(i, s) => Print(i, s),
+                }
+            }
+        }
     }
 
     pub type VertexNode = alt_label::VertexNode<super::VertexId>;
     pub type Vertex<'s, Rt> = alt_label::Vertex<'s, super::VertexId, super::Typ<Rt>>;
     pub type Cg<'s, Rt> = alt_label::Cg<'s, super::VertexId, super::Typ<Rt>>;
+
+    impl<'s, Rt: super::RuntimeType> Cg<'s, Rt> {
+        pub fn to_sliced(self) -> super::Cg<'s, Rt> {
+            super::Cg {
+                output: self.output,
+                g: self.g.map(&mut |_, v| v.map_node(|n| n.to_sliced())),
+            }
+        }
+    }
 }
 
 impl<I: UsizeId, C, E, T, S, Sg> digraph::internal::Predecessors<I>
@@ -365,151 +412,16 @@ where
         Ok(r)
     }
 
-    pub fn relabeled<I2: Default + Ord + std::fmt::Debug + Clone>(
+    pub fn relabeled<I2: Default + Ord + std::fmt::Debug + Clone + 'static>(
         &self,
         mut mapping: impl FnMut(I) -> I2,
     ) -> template::VertexNode<I2, arith::ArithGraph<I2, arith::ExprId>, C, E, S::AltLabeled<I2>>
     {
         self.try_relabeled::<_, ()>(|i| Ok(mapping(i))).unwrap()
     }
-
-    pub fn track(&self, device: Device) -> super::type3::Track {
-        use super::type3::Track::*;
-        use template::VertexNode::*;
-
-        let on_device = super::type3::Track::on_device;
-        let currespounding_gpu = |dev: Device| {
-            if !device.is_gpu() {
-                panic!("this vertex needs to be executed on some GPU");
-            }
-            on_device(dev)
-        };
-
-        let err_no_track = |name: &'static str| -> ! { panic!("no track for {}", name) };
-
-        match self {
-            Sliceable(sn) => sn.track(device),
-            LastSliceable(lsn) => lsn.track(device),
-            UnsliceableConstant(..) => Cpu,
-            Subgraph(..) => err_no_track("Subgraph"),
-            Extend(..) => on_device(device),
-            PolyPermute(..) => currespounding_gpu(device),
-            Entry(..) => Cpu,
-            Return(..) => MemoryManagement,
-            Ntt { .. } => currespounding_gpu(device),
-            Slice(..) => err_no_track("Slice"),
-            Interpolate { .. } => Cpu,
-            Array(..) => err_no_track("Array"),
-            AssmblePoly(..) => Cpu,
-            HashTranscript { .. } => Cpu,
-            SqueezeScalar(..) => Cpu,
-            TupleGet(..) => err_no_track("TupleGet"),
-            ArrayGet(..) => err_no_track("ArrayGet"),
-            UserFunction(..) => Cpu,
-            KateDivision(..) => currespounding_gpu(device),
-            IndexPoly(..) => on_device(device),
-            AssertEq(..) => Cpu,
-            Print(..) => Cpu,
-        }
-    }
 }
 
-impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
-    pub fn temporary_space_needed(
-        &self,
-        vid: VertexId,
-        device: Device,
-        libs: &mut Libs,
-    ) -> Option<(Vec<u64>, super::type3::Device)> {
-        use template::LastSliceableNode::*;
-        use template::SliceableNode::*;
-        use template::VertexNode::*;
-
-        let on_device = super::type3::Device::for_execution_on;
-        let on_gpu = |dev: Device| {
-            if !dev.is_gpu() {
-                panic!(
-                    "this vertex {:?} needs to be executed on some GPU, got {:?}",
-                    vid, device
-                );
-            }
-            on_device(dev)
-        };
-
-        match self.g.vertex(vid).node() {
-            Extend(..) => None,
-            Sliceable(ScalarInvert { .. }) => None,
-            Sliceable(SingleArith(..)) => None,
-            Sliceable(Arith { arith, chunking }) => Some((
-                temporary_space::arith::<Rt>(arith, chunking.clone()),
-                // We are using only one gpu for now
-                on_gpu(Device::Gpu(0)),
-            )),
-            Subgraph(..) => None,
-            Sliceable(NewPoly(..)) => None,
-            Sliceable(Constant(..)) => None,
-            UnsliceableConstant(..) => None,
-            Return(..) => None,
-            Entry(..) => None,
-            Ntt { .. } => None,
-            Sliceable(RotateIdx(..)) => None,
-            Slice(..) => None,
-            Interpolate { .. } => None,
-            Sliceable(Blind(..)) => None,
-            Array(..) => None,
-            AssmblePoly(..) => None,
-            LastSliceable(Msm { polys, alg, .. }) => {
-                let (_, len) = self.g.vertex(polys[0]).typ().unwrap_poly();
-                Some((
-                    temporary_space::msm::<Rt>(alg, *len as usize, libs),
-                    // We are using only one gpu for now
-                    on_device(Device::Gpu(0)),
-                ))
-            }
-            HashTranscript { .. } => None,
-            SqueezeScalar(..) => None,
-            TupleGet(..) => None,
-            ArrayGet(..) => None,
-            UserFunction(..) => None,
-            KateDivision(lhs, _) => {
-                let (_, len) = self.g.vertex(*lhs).typ().unwrap_poly();
-                Some((
-                    temporary_space::kate_division::<Rt>(*len as usize, libs),
-                    on_gpu(device),
-                ))
-            }
-            LastSliceable(EvaluatePoly { poly, .. }) => {
-                let (_, len) = self.g.vertex(*poly).typ().unwrap_poly();
-                Some((
-                    temporary_space::poly_eval::<Rt>(*len as usize, libs),
-                    on_device(device),
-                ))
-            }
-            PolyPermute(_, _, usable) => Some((
-                temporary_space::poly_permute::<Rt>(*usable as usize, libs),
-                on_gpu(device),
-            )),
-            Sliceable(BatchedInvert(poly)) => {
-                let (_, len) = self.g.vertex(*poly).typ().unwrap_poly();
-                Some((
-                    temporary_space::poly_invert::<Rt>(*len as usize, libs),
-                    on_gpu(device),
-                ))
-            }
-            Sliceable(ScanMul { poly, .. }) => {
-                let (_, len) = self.g.vertex(*poly).typ().unwrap_poly();
-                Some((
-                    temporary_space::poly_scan::<Rt>(*len as usize, libs),
-                    on_gpu(device),
-                ))
-            }
-            Sliceable(DistributePowers { .. }) => None,
-            IndexPoly(..) => None,
-            AssertEq(..) => None,
-            Print(..) => None,
-        }
-    }
-}
+impl<'s, Rt: RuntimeType> Cg<'s, Rt> {}
 
 pub struct Program<'s, Rt: RuntimeType> {
     pub(crate) cg: unsliced::Cg<'s, Rt>,
@@ -517,19 +429,19 @@ pub struct Program<'s, Rt: RuntimeType> {
     pub(crate) consant_table: ConstantTable<Rt>,
 }
 
-pub mod arith_decide_mutable;
+// pub mod arith_decide_mutable;
 pub mod common_subexpression_elimination;
 pub mod decide_device;
 pub mod graph_scheduling;
 pub mod intt_mending;
 pub mod kernel_fusion;
 pub mod manage_inverse;
-pub mod memory_planning;
-pub mod object_analysis;
+// pub mod memory_planning;
+// pub mod object_analysis;
 pub mod precompute;
-pub mod pretty_print;
+// pub mod pretty_print;
 pub mod subgraph_slicing;
 pub mod temporary_space;
 pub mod typ;
 pub mod user_function;
-pub mod visualize;
+// pub mod visualize;

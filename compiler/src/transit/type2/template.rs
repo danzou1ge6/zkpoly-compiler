@@ -285,38 +285,6 @@ where
     {
         self.try_relabeled::<I2, ()>(|x| Ok(mapping(x))).unwrap()
     }
-
-    pub fn track(&self, device: super::Device) -> super::super::type3::Track {
-        use super::super::type3::Track::*;
-        use SliceableNode::*;
-
-        let on_device = super::super::type3::Track::on_device;
-        let currespounding_gpu = |dev: super::Device| {
-            if !device.is_gpu() {
-                panic!("this vertex needs to be executed on some GPU");
-            }
-            on_device(dev)
-        };
-
-        match self {
-            NewPoly(..) => on_device(device),
-            Constant(..) => Cpu,
-            SingleArith(..) => currespounding_gpu(device),
-            ScalarInvert(..) => on_device(device),
-            Arith { chunking, .. } => {
-                if chunking.is_some() {
-                    CoProcess
-                } else {
-                    currespounding_gpu(device)
-                }
-            }
-            RotateIdx(..) => panic!("this vertex is not actually executed"),
-            Blind(..) => Cpu,
-            BatchedInvert(..) => currespounding_gpu(device),
-            ScanMul { .. } => currespounding_gpu(device),
-            DistributePowers { .. } => currespounding_gpu(device),
-        }
-    }
 }
 
 impl<I> LastSliceableNode<I>
@@ -392,24 +360,6 @@ where
         I2: Default + Ord + std::fmt::Debug + Clone,
     {
         self.try_relabeld::<I2, ()>(|x| Ok(mapping(x))).unwrap()
-    }
-
-    pub fn track(&self, device: super::Device) -> super::super::type3::Track {
-        use super::super::type3::Track::*;
-        use LastSliceableNode::*;
-
-        let on_device = super::super::type3::Track::on_device;
-        let currespounding_gpu = |dev: super::Device| {
-            if !device.is_gpu() {
-                panic!("this vertex needs to be executed on some GPU");
-            }
-            on_device(dev)
-        };
-
-        match self {
-            Msm { .. } => CoProcess,
-            EvaluatePoly { .. } => currespounding_gpu(device),
-        }
     }
 }
 

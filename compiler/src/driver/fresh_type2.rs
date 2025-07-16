@@ -3,10 +3,8 @@ use zkpoly_common::load_dynamic::Libs;
 use zkpoly_runtime::args::{self, RuntimeType};
 
 use super::{
-    artifect::{Artifect, SemiArtifect},
-    ast, check_type2_dag, debug_partial_typed_type2, debug_type2,
-    processed_type2::ProcessedType2,
-    type2, type3, ConstantPool, DebugOptions, Error, HardwareInfo, PanicJoinHandler,
+    ast, check_type2_dag, processed_type2::ProcessedType2, type2, ConstantPool, DebugOptions,
+    Error, HardwareInfo, PanicJoinHandler,
 };
 
 pub struct FreshType2<'s, Rt: RuntimeType> {
@@ -25,15 +23,6 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
             "Done.",
         )?;
 
-        if options.debug_fresh_type2 {
-            ctx.add(debug_type2(
-                options.debug_dir.join("type2_fresh.dot"),
-                &ast_cg.g,
-                output_vid,
-                options.type2_visualizer,
-            ));
-        }
-
         if options.debug_user_function_table {
             let mut f =
                 std::fs::File::create(&options.debug_dir.join("user_functions.txt")).unwrap();
@@ -46,14 +35,6 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
                 Ok(t2prog) => Ok(t2prog),
                 Err((e, g)) => {
                     let fpath = options.debug_dir.join("type2_type_inference.dot");
-                    debug_partial_typed_type2(
-                        fpath,
-                        &g,
-                        e.vid,
-                        output_vid,
-                        options.type2_visualizer,
-                    )
-                    .map(|j| j.join().unwrap());
 
                     Err(Error::Typ(e))
                 }
@@ -85,15 +66,6 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
 
         let mut libs = Libs::new();
 
-        if options.debug_type_inference {
-            ctx.add(debug_type2(
-                options.debug_dir.join("type2_type_inference.dot"),
-                &t2cg.g,
-                t2cg.output,
-                options.type2_visualizer,
-            ));
-        }
-
         // Apply Type2 passes
         // - INTT Mending: Append division by n to end of each INTT
         let t2cg = options.log_suround(
@@ -109,15 +81,6 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
             options.type2_visualizer,
         ) {
             panic!("graph is not a DAG after INTT Mending");
-        }
-
-        if options.debug_intt_mending {
-            ctx.add(debug_type2(
-                options.debug_dir.join("type2_intt_mending.dot"),
-                &t2cg.g,
-                t2cg.output,
-                options.type2_visualizer,
-            ));
         }
 
         // - Precompute NTT and MSM constants
@@ -145,15 +108,6 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
             panic!("graph is not a DAG after Precomputing");
         }
 
-        if options.debug_precompute {
-            ctx.add(debug_type2(
-                options.debug_dir.join("type2_precompute.dot"),
-                &t2cg.g,
-                t2cg.output,
-                options.type2_visualizer,
-            ));
-        }
-
         // - Manage Inversions: Rewrite inversions of scalars and polynomials to dedicated operators
         let t2cg = options.log_suround(
             "Managing inversions",
@@ -168,15 +122,6 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
             options.type2_visualizer,
         ) {
             panic!("graph is not a DAG after Managing Inversions");
-        }
-
-        if options.debug_manage_invers {
-            ctx.add(debug_type2(
-                options.debug_dir.join("type2_manage_invers.dot"),
-                &t2cg.g,
-                t2cg.output,
-                options.type2_visualizer,
-            ));
         }
 
         // - Common Subexpression Elimination
@@ -195,15 +140,6 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
             panic!("graph is not a DAG after CSE");
         }
 
-        if options.debug_cse {
-            ctx.add(debug_type2(
-                options.debug_dir.join("type2_cse.dot"),
-                &t2cg.g,
-                t2cg.output,
-                options.type2_visualizer,
-            ));
-        }
-
         // - Arithmetic Kernel Fusion
         let t2cg = options.log_suround(
             "Fusing arithmetic kernels",
@@ -220,109 +156,11 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
             panic!("graph is not a DAG after Arithmetic Kernel Fusion");
         }
 
-        if options.debug_kernel_fusion {
-            ctx.add(debug_type2(
-                options.debug_dir.join("type2_kernel_fusion.dot"),
-                &t2cg.g,
-                t2cg.output,
-                options.type2_visualizer,
-            ));
-        }
-
         Ok(ProcessedType2 {
             cg: t2cg,
             constant_table: t2const_tab,
             uf_table: t2uf_tab,
             libs,
         })
-    }
-
-    pub fn load_artifect(
-        mut self,
-        dir: impl AsRef<std::path::Path>,
-        constant_pool: &mut ConstantPool,
-    ) -> std::io::Result<Artifect<Rt>> {
-        let mut chunk_f = std::fs::File::open(dir.as_ref().join("chunk.json"))?;
-        let rt_chunk_deserializer: type3::lowering::serialization::ChunkDeserializer =
-            serde_json::from_reader(&mut chunk_f)?;
-        let rt_chunk = rt_chunk_deserializer.deserialize_into_chunk(self.prog.user_function_table);
-
-        let mut statistics_f = std::fs::File::open(dir.as_ref().join("memory-statistics.json"))?;
-        let statistics: type2::memory_planning::Statistics =
-            serde_json::from_reader(&mut statistics_f)?;
-
-        let mut ct_header_f = std::fs::File::open(dir.as_ref().join("constants-manifest.json"))?;
-        let ct_header: args::serialization::Header = serde_json::from_reader(&mut ct_header_f)?;
-
-        let mut ct_f = std::fs::File::open(dir.as_ref().join("constants.bin"))?;
-        ct_header.load_constant_table(
-            &mut self.prog.consant_table,
-            &mut ct_f,
-            &mut constant_pool.cpu,
-            constant_pool.disk.as_mut(),
-        )?;
-
-        Ok(Artifect {
-            chunk: rt_chunk,
-            constant_table: self.prog.consant_table,
-            memory_statistics: statistics,
-        })
-    }
-
-    pub fn load_processed_type2<'de>(
-        mut self,
-        str_buf: &'de mut String,
-        dir: impl AsRef<std::path::Path>,
-        constant_pool: &mut ConstantPool,
-    ) -> std::io::Result<ProcessedType2<'de, Rt>>
-    where
-        Rt: serde::Serialize + serde::Deserialize<'de>,
-    {
-        let mut cg_f = std::fs::File::open(dir.as_ref().join("cg.json"))?;
-        cg_f.read_to_string(str_buf)?;
-        let cg: type2::unsliced::Cg<'de, Rt> = serde_json::from_str(str_buf)?;
-
-        let mut ct_header_f = std::fs::File::open(dir.as_ref().join("constants-manifest.json"))?;
-        let ct_header: args::serialization::Header = serde_json::from_reader(&mut ct_header_f)?;
-
-        let mut ct_f = std::fs::File::open(dir.as_ref().join("constants.bin"))?;
-        ct_header.load_constant_table(
-            &mut self.prog.consant_table,
-            &mut ct_f,
-            &mut constant_pool.cpu,
-            constant_pool.disk.as_mut(),
-        )?;
-
-        Ok(ProcessedType2 {
-            cg,
-            constant_table: self.prog.consant_table,
-            uf_table: self.prog.user_function_table,
-            libs: Libs::new(),
-        })
-    }
-
-    pub fn to_artifect(
-        self,
-        options: &DebugOptions,
-        hardware_info: &HardwareInfo,
-        constant_pool: &mut ConstantPool,
-        ctx: &PanicJoinHandler,
-    ) -> Result<Artifect<Rt>, Error<'s, Rt>> {
-        Ok(self
-            .to_semi_artifect(options, hardware_info, constant_pool, ctx)?
-            .finish(constant_pool))
-    }
-
-    pub fn to_semi_artifect(
-        self,
-        options: &DebugOptions,
-        hardware_info: &HardwareInfo,
-        constant_pool: &mut ConstantPool,
-        ctx: &PanicJoinHandler,
-    ) -> Result<SemiArtifect<Rt>, Error<'s, Rt>> {
-        self.apply_passes(options, hardware_info, constant_pool, ctx)?
-            .to_type3(options, hardware_info, constant_pool, ctx)?
-            .apply_passes(options)?
-            .to_artifect(options, hardware_info)
     }
 }
