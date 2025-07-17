@@ -1,10 +1,7 @@
-use std::collections::HashMap;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use zkpoly_compiler::driver::artifect::Pools;
 use zkpoly_compiler::driver::{Artifect, HardwareInfo};
-use zkpoly_memory_pool::static_allocator::CpuStaticAllocator;
 use zkpoly_runtime::args::{EntryTable, RuntimeType, Variable};
 use zkpoly_runtime::async_rng::AsyncRng;
 use zkpoly_runtime::debug::Log;
@@ -13,8 +10,8 @@ use zkpoly_runtime::runtime::{RuntimeDebug, RuntimeInfo};
 // 资源需求结构体
 #[derive(Debug, Clone)]
 pub struct ResourceRequirement {
-    pub cpu_memory_mb: u64,    // CPU内存需求 (MB)
-    pub disk_space_mb: u64,    // 磁盘空间需求 (MB)
+    pub cpu_memory_mb: u64, // CPU内存需求 (MB)
+    pub disk_space_mb: u64, // 磁盘空间需求 (MB)
 }
 
 // 全局资源管理器
@@ -91,24 +88,57 @@ pub enum TaskStatus {
     Completed,
 }
 
-// 任务结构
-struct Task<Rt: RuntimeType> {
+// 执行任务结构，包含分配的卡片信息
+struct ExecuteTask<Rt: RuntimeType> {
+    task_id: u64,
     artifect: Artifect<Rt>,
-    status: Arc<Mutex<TaskStatus>>,
-    result_sender: mpsc::Sender<(Option<Variable<Rt>>, Log, RuntimeInfo<Rt>)>, // 用于发送任务结果
     hardware_info: HardwareInfo,
     rng: AsyncRng,
     inputs: EntryTable<Rt>,
     debug_opt: RuntimeDebug,
-    resource_requirement: ResourceRequirement, // 任务的资源需求
+    resource_requirement: ResourceRequirement,
+    assigned_cards: Vec<usize>,
+    status: Arc<Mutex<TaskStatus>>,
+    result_sender: mpsc::Sender<(
+        Option<Variable<Rt>>,
+        Option<DebugInfoCollector>,
+        RuntimeInfo<Rt>,
+    )>,
+}
+
+// 用户提交的任务结构
+struct UserTask<Rt: RuntimeType> {
+    task_id: u64,
+    artifect: Artifect<Rt>,
+    status: Arc<Mutex<TaskStatus>>,
+    result_sender: mpsc::Sender<(
+        Option<Variable<Rt>>,
+        Option<DebugInfoCollector>,
+        RuntimeInfo<Rt>,
+    )>,
+    hardware_info: HardwareInfo,
+    rng: AsyncRng,
+    inputs: EntryTable<Rt>,
+    debug_opt: RuntimeDebug,
+    resource_requirement: ResourceRequirement,
+}
+
+// 执行器状态
+#[derive(Debug, Clone)]
+struct ExecutorState {
+    id: usize,
+    assigned_cards: Vec<usize>,
+    is_busy: bool,
 }
 
 pub struct Scheduler<Rt: RuntimeType> {
     pub cards_per_request: usize,
     pub total_cards: usize,
-    sender: crossbeam_channel::Sender<Task<Rt>>,
-    _scheduler_threads: Vec<thread::JoinHandle<()>>,
+    task_sender: mpsc::Sender<UserTask<Rt>>,
+    _scheduler_thread: thread::JoinHandle<()>,
+    _executor_threads: Vec<thread::JoinHandle<()>>,
     resource_manager: Arc<GlobalResourceManager>,
+    next_task_id: Arc<Mutex<u64>>,
 }
 
 impl<Rt: RuntimeType> Scheduler<Rt> {
@@ -128,96 +158,212 @@ impl<Rt: RuntimeType> Scheduler<Rt> {
             total_disk_space_mb,
         ));
 
-        let (sender, receiver) = crossbeam_channel::unbounded();
-        let mut scheduler_threads = Vec::new();
+        let next_task_id = Arc::new(Mutex::new(0));
 
-        for i in (0..total_cards).step_by(cards_per_request) {
-            let receiver: crossbeam_channel::Receiver<Task<Rt>> = receiver.clone();
-            let resource_manager_clone = Arc::clone(&resource_manager);
-            let cur_cards = (i..(i + cards_per_request))
-                .into_iter()
-                .collect::<Vec<usize>>();
-            scheduler_threads.push(thread::spawn(move || {
-                let cur_cards_clone = cur_cards.clone();
-                let gpu_mapping = Arc::new(move |x: i32| cur_cards_clone[x as usize] as i32);
-                while let Ok(task) = receiver.recv() {
-                    // 等待资源可用
-                    while !resource_manager_clone.try_allocate(&task.resource_requirement) {
-                        println!(
-                            "Scheduler thread {}: Waiting for resources - need {}MB CPU memory, {}MB disk space",
-                            i / cards_per_request,
-                            task.resource_requirement.cpu_memory_mb,
-                            task.resource_requirement.disk_space_mb
-                        );
-                        let (available_cpu, available_disk) = resource_manager_clone.get_available_resources();
-                        println!(
-                            "Available resources: {}MB CPU memory, {}MB disk space",
-                            available_cpu, available_disk
-                        );
-                        thread::sleep(Duration::from_millis(100)); // 等待100ms后重试
+        // 创建任务接收通道（用户 -> 调度器）
+        let (task_sender, task_receiver) = mpsc::channel::<UserTask<Rt>>();
+
+        // 创建执行任务通道（调度器 -> 执行器）
+        let (exec_task_sender, exec_task_receiver) =
+            crossbeam_channel::unbounded::<ExecuteTask<Rt>>();
+
+        // 创建执行器状态通道（执行器 -> 调度器）
+        let (executor_status_sender, executor_status_receiver) =
+            crossbeam_channel::unbounded::<(usize, bool)>();
+
+        // 计算执行器数量（默认4个）
+        let num_executors = 4;
+
+        // 初始化执行器状态
+        let mut executors = Vec::new();
+        for i in 0..num_executors {
+            let start_card = (i * total_cards) / num_executors;
+            let end_card = ((i + 1) * total_cards) / num_executors;
+            let assigned_cards: Vec<usize> = (start_card..end_card).collect();
+
+            executors.push(ExecutorState {
+                id: i,
+                assigned_cards,
+                is_busy: false,
+            });
+        }
+
+        // 启动调度器线程
+        let resource_manager_clone = Arc::clone(&resource_manager);
+        let executor_status_receiver_clone = executor_status_receiver.clone();
+        let scheduler_thread = thread::spawn(move || {
+            let mut executors = executors;
+            let mut pending_tasks = Vec::<UserTask<Rt>>::new();
+
+            println!("调度器线程启动，管理 {} 个执行器", num_executors);
+
+            loop {
+                // 检查是否有新的用户任务
+                while let Ok(user_task) = task_receiver.try_recv() {
+                    println!("调度器接收到新任务 ID: {}", user_task.task_id);
+                    pending_tasks.push(user_task);
+                }
+
+                // 检查执行器状态更新
+                while let Ok((executor_id, is_busy)) = executor_status_receiver_clone.try_recv() {
+                    if let Some(executor) = executors.iter_mut().find(|e| e.id == executor_id) {
+                        executor.is_busy = is_busy;
+                        if !is_busy {
+                            println!(
+                                "执行器 {} 已空闲，卡片: {:?}",
+                                executor_id, executor.assigned_cards
+                            );
+                        }
                     }
+                }
 
-                    let mut status = task.status.lock().unwrap();
-                    assert!(
-                        matches!(*status, TaskStatus::Pending),
-                        "Task must be pending before running"
-                    );
-                    *status = TaskStatus::Running {
-                        assigned_cards: cur_cards.clone(),
-                    }; // 更新任务状态为运行中，并记录已分配的卡片
-                    drop(status); // 释放锁
+                // 尝试调度待处理的任务
+                let mut tasks_to_remove = Vec::new();
+                for (i, user_task) in pending_tasks.iter().enumerate() {
+                    // 寻找空闲的执行器
+                    if let Some(executor) = executors.iter().find(|e| !e.is_busy) {
+                        // 检查资源是否可用
+                        if resource_manager_clone.try_allocate(&user_task.resource_requirement) {
+                            // 更新任务状态
+                            {
+                                let mut status = user_task.status.lock().unwrap();
+                                *status = TaskStatus::Running {
+                                    assigned_cards: executor.assigned_cards.clone(),
+                                };
+                            }
+
+                            // 创建执行任务
+                            let execute_task = ExecuteTask {
+                                task_id: user_task.task_id,
+                                artifect: user_task.artifect.clone(),
+                                hardware_info: user_task.hardware_info.clone(),
+                                rng: user_task.rng.clone(),
+                                inputs: user_task.inputs.clone(),
+                                debug_opt: user_task.debug_opt,
+                                resource_requirement: user_task.resource_requirement.clone(),
+                                assigned_cards: executor.assigned_cards.clone(),
+                                status: Arc::clone(&user_task.status),
+                                result_sender: user_task.result_sender.clone(),
+                            };
+
+                            let executor_id = executor.id;
+
+                            // 发送任务给执行器
+                            if exec_task_sender.send(execute_task).is_ok() {
+                                println!(
+                                    "调度器分发任务 {} 给执行器 {}，卡片: {:?}，资源需求: {}MB CPU, {}MB 磁盘",
+                                    user_task.task_id,
+                                    executor_id,
+                                    executor.assigned_cards,
+                                    user_task.resource_requirement.cpu_memory_mb,
+                                    user_task.resource_requirement.disk_space_mb
+                                );
+
+                                // 标记执行器为忙碌
+                                if let Some(exec) =
+                                    executors.iter_mut().find(|e| e.id == executor_id)
+                                {
+                                    exec.is_busy = true;
+                                }
+
+                                tasks_to_remove.push(i);
+                                break;
+                            } else {
+                                // 如果发送失败，释放资源
+                                resource_manager_clone.release(&user_task.resource_requirement);
+                            }
+                        }
+                    }
+                }
+
+                // 移除已调度的任务
+                for &i in tasks_to_remove.iter().rev() {
+                    pending_tasks.remove(i);
+                }
+
+                // 短暂休眠避免忙等待
+                thread::sleep(Duration::from_millis(10));
+            }
+        });
+
+        // 启动执行器线程
+        let mut executor_threads = Vec::new();
+        for i in 0..num_executors {
+            let exec_task_receiver_clone = exec_task_receiver.clone();
+            let executor_status_sender_clone = executor_status_sender.clone();
+            let resource_manager_clone = Arc::clone(&resource_manager);
+
+            let executor_thread = thread::spawn(move || {
+                println!("执行器线程 {} 启动", i);
+
+                while let Ok(execute_task) = exec_task_receiver_clone.recv() {
+                    // 通知调度器此执行器正在忙碌
+                    let _ = executor_status_sender_clone.send((i, true));
 
                     println!(
-                        "Scheduler thread {}: Starting task with GPUs {:?}, allocated {}MB CPU memory, {}MB disk space",
-                        i / cards_per_request,
-                        cur_cards,
-                        task.resource_requirement.cpu_memory_mb,
-                        task.resource_requirement.disk_space_mb
+                        "执行器 {} 开始执行任务 {}，使用卡片: {:?}",
+                        i, execute_task.task_id, execute_task.assigned_cards
                     );
 
-                    let result: (Option<Variable<Rt>>, Log, RuntimeInfo<Rt>);
-                    let pools = task.artifect.create_pools(&task.hardware_info, true);
-                    let mut runtime = task.artifect.prepare_dispatcher(
-                        pools,
-                        task.rng,
-                        gpu_mapping.clone(),
-                    );
+                    // 创建GPU映射函数
+                    let cards = execute_task.assigned_cards.clone();
+                    let gpu_mapping =
+                        Arc::new(move |x: i32| cards[x as usize % cards.len()] as i32);
 
+                    // 执行任务
                     let start = std::time::Instant::now();
-                    (result, _) = runtime.run(&task.inputs, task.debug_opt);
+                    let pools = execute_task
+                        .artifect
+                        .create_pools(&execute_task.hardware_info, true);
+                    let mut runtime = execute_task.artifect.prepare_dispatcher(
+                        pools,
+                        execute_task.rng,
+                        gpu_mapping,
+                    );
+
+                    let (result, _) = runtime.run(&execute_task.inputs, execute_task.debug_opt);
                     let elapsed = start.elapsed();
 
                     // 释放资源
-                    resource_manager_clone.release(&task.resource_requirement);
+                    resource_manager_clone.release(&execute_task.resource_requirement);
 
                     // 更新任务状态为已完成
-                    let mut status = task.status.lock().unwrap();
-                    *status = TaskStatus::Completed;
-                    drop(status); // 释放锁
-                    
+                    {
+                        let mut status = execute_task.status.lock().unwrap();
+                        *status = TaskStatus::Completed;
+                    }
+
                     let (cpu_util, disk_util) = resource_manager_clone.get_utilization();
                     println!(
-                        "Scheduler thread {} completed task with GPUs {:?} in {:?}. Resource utilization: CPU {:.1}%, Disk {:.1}%",
-                        i / cards_per_request,
-                        cur_cards,
+                        "执行器 {} 完成任务 {} 在 {:?}。资源利用率: CPU {:.1}%, 磁盘 {:.1}%",
+                        i,
+                        execute_task.task_id,
                         elapsed,
                         cpu_util * 100.0,
                         disk_util * 100.0
                     );
 
-                    task.result_sender
-                        .send(result)
-                        .expect("Failed to send task result");
+                    // 发送结果
+                    if let Err(_) = execute_task.result_sender.send(result) {
+                        eprintln!("执行器 {} 发送任务 {} 结果失败", i, execute_task.task_id);
+                    }
+
+                    // 通知调度器此执行器已空闲
+                    let _ = executor_status_sender_clone.send((i, false));
                 }
-            }))
+            });
+
+            executor_threads.push(executor_thread);
         }
 
         Self {
             cards_per_request,
             total_cards,
-            sender,
-            _scheduler_threads: scheduler_threads,
+            task_sender,
+            _scheduler_thread: scheduler_thread,
+            _executor_threads: executor_threads,
             resource_manager,
+            next_task_id,
         }
     }
 
@@ -232,19 +378,17 @@ impl<Rt: RuntimeType> Scheduler<Rt> {
         Arc<Mutex<TaskStatus>>,
         mpsc::Receiver<(Option<Variable<Rt>>, Log, RuntimeInfo<Rt>)>,
     ) {
+        let task_id = {
+            let mut id = self.next_task_id.lock().unwrap();
+            *id += 1;
+            *id
+        };
+
         let (result_sender, result_receiver) = mpsc::channel();
         let status = Arc::new(Mutex::new(TaskStatus::Pending));
 
-        let apply_utilization_ratio = |need: u64| -> u64 {
-            ((need as f64) * 1.2) as u64
-        };
-
-        let resource_requirement = ResourceRequirement {
-            cpu_memory_mb: request.memory_statistics().cpu_peak_usage.div_ceil(2u64.pow(20)),
-            disk_space_mb: apply_utilization_ratio(request.memory_statistics().disk_peak_usage).div_ceil(2u64.pow(20)),
-        };
-
-        let task = Task {
+        let user_task = UserTask {
+            task_id,
             artifect: request,
             status: Arc::clone(&status),
             result_sender,
@@ -255,10 +399,11 @@ impl<Rt: RuntimeType> Scheduler<Rt> {
             resource_requirement,
         };
 
-        self.sender
-            .send(task)
-            .expect("Failed to send task to scheduler");
+        self.task_sender
+            .send(user_task)
+            .expect("调度器已关闭，无法发送任务");
 
+        println!("用户提交任务 ID: {}", task_id);
         (status, result_receiver)
     }
 
