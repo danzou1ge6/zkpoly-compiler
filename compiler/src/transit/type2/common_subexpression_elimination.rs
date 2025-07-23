@@ -31,10 +31,11 @@ pub type EquivalenceNode = template::VertexNode<
     zkpoly_runtime::functions::UserFunctionId,
 >;
 
-fn get_equivalence_class(
+fn get_equivalence_class<Rt: RuntimeType>(
     node2class: &BTreeMap<EquivalenceNode, EquivalenceClass>,
     node: &EquivalenceNode,
     id_allocator: &mut usize,
+    uf_table: &super::user_function::Table<Rt>,
 ) -> EquivalenceClass {
     match node {
         EquivalenceNode::RotateIdx(father, offset) => {
@@ -42,18 +43,24 @@ fn get_equivalence_class(
             class.rotate(*offset);
             class
         }
-        _ => node2class.get(&node).cloned().unwrap_or_else(|| {
+        _ if node.deterministic(uf_table) && node2class.contains_key(&node) => {
+            node2class.get(&node).unwrap().clone()
+        }
+        _ => {
             let id = *id_allocator;
             *id_allocator += 1;
             EquivalenceClass {
                 id: id.into(),
                 rotate: 0,
             }
-        }),
+        }
     }
 }
 
-pub fn cse<'s, Rt: RuntimeType>(cg: Cg<'s, Rt>) -> Cg<'s, Rt> {
+pub fn cse<'s, Rt: RuntimeType>(
+    cg: Cg<'s, Rt>,
+    uf_table: &super::user_function::Table<Rt>,
+) -> Cg<'s, Rt> {
     let mut vid2class: BTreeMap<VertexId, EquivalenceClass> = BTreeMap::new();
     let mut node2class: BTreeMap<EquivalenceNode, EquivalenceClass> = BTreeMap::new();
     let mut class2new_id: BTreeMap<EquivalenceClass, VertexId> = BTreeMap::new();
@@ -66,7 +73,7 @@ pub fn cse<'s, Rt: RuntimeType>(cg: Cg<'s, Rt>) -> Cg<'s, Rt> {
         let eq_node: EquivalenceNode =
             node.relabeled(&mut |vid| vid2class.get(&vid).cloned().unwrap());
 
-        let class = get_equivalence_class(&node2class, &eq_node, &mut id_allocator);
+        let class = get_equivalence_class(&node2class, &eq_node, &mut id_allocator, uf_table);
         vid2class.insert(vid, class.clone());
 
         // insert new node
@@ -108,7 +115,7 @@ pub fn cse<'s, Rt: RuntimeType>(cg: Cg<'s, Rt>) -> Cg<'s, Rt> {
         g: new_graph,
     });
     if changed {
-        cse(new_cg)
+        cse(new_cg, uf_table)
     } else {
         new_cg
     }

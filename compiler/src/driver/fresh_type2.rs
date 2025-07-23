@@ -186,7 +186,11 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
         // - Common Subexpression Elimination
         let t2cg = options.log_suround(
             "Eliminating common subexpressions",
-            || Ok(type2::common_subexpression_elimination::cse(t2cg)),
+            || {
+                Ok(type2::common_subexpression_elimination::cse(
+                    t2cg, &t2uf_tab,
+                ))
+            },
             "Done.",
         )?;
 
