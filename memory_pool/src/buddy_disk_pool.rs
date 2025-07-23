@@ -950,9 +950,12 @@ pub fn gpu_read_from_disk(
                     } else {
                         format!("cufile errorno {}", res)
                     };
+                    let file_name = std::fs::read_link(format!("/proc/self/fd/{}", alloc_info.fd))
+                        .map(|p| p.to_string_lossy().into_owned())
+                        .unwrap_or_else(|e| format!("(read_link error: {:?})", e));
                     panic!(
-                        "Failed to read {} bytes from disk {} at offset {}: {}",
-                        part_read_size, disk_id, offset, msg
+                        "Failed to read {} bytes from disk {}, file {} at offset {}: {}",
+                        part_read_size, disk_id, file_name, offset, msg
                     );
                 }
             }
