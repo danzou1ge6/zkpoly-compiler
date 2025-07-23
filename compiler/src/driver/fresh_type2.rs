@@ -1,4 +1,4 @@
-use std::io::{Read, Write};
+use std::io::Write;
 use zkpoly_common::load_dynamic::Libs;
 use zkpoly_runtime::args::{self, RuntimeType};
 
@@ -290,10 +290,17 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
         options: &DebugOptions,
         hardware_info: &HardwareInfo,
         constant_pool: &mut ConstantPool,
+        versions_cpu_memory_divisions: impl Iterator<Item = u32>,
         ctx: &PanicJoinHandler,
     ) -> Result<Artifect<Rt>, Error<'s, Rt>> {
         Ok(self
-            .to_semi_artifect(options, hardware_info, constant_pool, ctx)?
+            .to_semi_artifect(
+                options,
+                hardware_info,
+                constant_pool,
+                versions_cpu_memory_divisions,
+                ctx,
+            )?
             .finish(constant_pool))
     }
 
@@ -302,10 +309,11 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
         options: &DebugOptions,
         hardware_info: &HardwareInfo,
         constant_pool: &mut ConstantPool,
+        versions_cpu_memory_divisions: impl Iterator<Item = u32>,
         ctx: &PanicJoinHandler,
     ) -> Result<SemiArtifect<Rt>, Error<'s, Rt>> {
         self.apply_passes(options, hardware_info, constant_pool, ctx)?
-            .fuse(options, hardware_info, ctx)?
+            .fuse(options, hardware_info, versions_cpu_memory_divisions, ctx)?
             .to_type3(options, hardware_info, constant_pool, ctx)?
             .apply_passes(options)?
             .to_artifect(options, hardware_info)

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::MutexGuard;
 
 use group::prime::PrimeCurveAffine;
 use zkpoly_common::{devices::DeviceType, typ::Typ};
@@ -43,7 +44,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         alloc_method: AllocMethod,
         mem_allocator: &mut Option<&mut CpuStaticAllocator>,
         gpu_allocator: &mut Option<&mut HashMap<i32, CudaAllocator>>,
-        disk_allocator: &mut Option<&mut Vec<BuddyDiskPool>>,
+        disk_allocator: &mut Option<MutexGuard<Vec<BuddyDiskPool>>>,
     ) -> Variable<T> {
         match typ {
             Typ::ScalarArray { len, meta: _ } => {
@@ -192,7 +193,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         alloc_method: AllocVariant,
         mem_allocator: &mut Option<&mut CpuStaticAllocator>,
         gpu_allocator: &mut Option<&mut HashMap<i32, CudaAllocator>>,
-        disk_allocator: &mut Option<&mut Vec<BuddyDiskPool>>,
+        disk_allocator: &mut Option<MutexGuard<Vec<BuddyDiskPool>>>,
     ) {
         match var {
             Variable::ScalarArray(poly) => match poly.device {

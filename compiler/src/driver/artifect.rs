@@ -1,4 +1,7 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 use zkpoly_common::{devices::DeviceType, heap::Heap, load_dynamic::Libs};
 use zkpoly_memory_pool::{buddy_disk_pool::DiskMemoryPool, static_allocator::CpuStaticAllocator};
@@ -9,7 +12,7 @@ use zkpoly_runtime::{
 
 use crate::{driver::MemoryInfo, transit::type2};
 
-use super::{type3, ConstantPool, HardwareInfo, Versions};
+use super::{type3, ConstantPool, Versions};
 
 #[derive(Clone)]
 pub struct Version<Rt: RuntimeType> {
@@ -77,17 +80,7 @@ impl<Rt: RuntimeType> SemiArtifect<Rt> {
 pub struct Pools {
     pub cpu: CpuStaticAllocator,
     pub gpu: HashMap<i32, zkpoly_cuda_api::mem::CudaAllocator>,
-    pub disk: DiskMemoryPool,
-}
-
-impl Pools {
-    pub fn on(hd_info: &HardwareInfo, memory_check: bool, max_block: usize) -> Self {
-        Self {
-            cpu: hd_info.cpu_allocator(memory_check),
-            gpu: hd_info.gpu_allocators(memory_check),
-            disk: hd_info.disk_allocator(max_block),
-        }
-    }
+    pub disk: Arc<Mutex<DiskMemoryPool>>,
 }
 
 impl<Rt: RuntimeType> Artifect<Rt> {
@@ -95,29 +88,29 @@ impl<Rt: RuntimeType> Artifect<Rt> {
         self.versions.iter()
     }
 
-    pub fn create_pools(&self, hd_info: &HardwareInfo, memory_check: bool) -> Pools {
-        let version = self
+    pub fn max_bs(&self) -> usize {
+        let max_lbs = self
             .versions
-            .ref_of(hd_info.cpu())
-            .unwrap_or_else(|| panic!("no version found for {:?}", hd_info.cpu()));
-
-        let max_lbs = version.chunk.lbss.max();
+            .iter_items()
+            .map(|(_, v)| v.chunk.lbss.max())
+            .max()
+            .expect("no versions");
         let max_bs: usize = max_lbs.into();
 
-        Pools::on(hd_info, memory_check, max_bs)
+        max_bs
     }
 
-    pub fn prepare_dispatcher(
+    pub fn prepare_dispatcher<'d>(
         &self,
-        hd_info: &HardwareInfo,
+        version: &MemoryInfo,
         pools: Pools,
         rng: zkpoly_runtime::async_rng::AsyncRng,
         gpu_mapping: Arc<dyn Fn(i32) -> i32 + Send + Sync>,
     ) -> zkpoly_runtime::runtime::Runtime<Rt> {
         let version = self
             .versions
-            .ref_of(hd_info.cpu())
-            .unwrap_or_else(|| panic!("no version found for {:?}", hd_info.cpu()));
+            .ref_of(version)
+            .unwrap_or_else(|| panic!("no version found for {:?}", version));
 
         // self.chunk = self.chunk.adjust_gpu_device_ids(gpu_offset);
         zkpoly_runtime::runtime::Runtime::new(

@@ -50,7 +50,10 @@ pub struct CpuStaticAllocator {
     capacity: usize,
     checker: Option<SanityChecker>,
     base_ptr: *mut u8,
+    primary: bool,
 }
+
+unsafe impl Send for CpuStaticAllocator {}
 
 fn allocate_pinned_memory(capacity: usize) -> *mut u8 {
     let mut ptr: *mut c_void = std::ptr::null_mut();
@@ -75,6 +78,16 @@ impl CpuStaticAllocator {
                 None
             },
             base_ptr: allocate_pinned_memory(capacity),
+            primary: true,
+        }
+    }
+
+    pub fn slice(&self, offset: usize, size: usize) -> Self {
+        Self {
+            capacity: size,
+            checker: self.checker.as_ref().map(|_| SanityChecker::new()),
+            base_ptr: unsafe { self.base_ptr.byte_add(offset) },
+            primary: false,
         }
     }
 
@@ -91,9 +104,7 @@ impl CpuStaticAllocator {
             );
         }
 
-        unsafe {
-            self.base_ptr.add(left)
-        }
+        unsafe { self.base_ptr.add(left) }
     }
 
     pub fn deallocate(&mut self, ptr: *mut u8) {
@@ -106,6 +117,8 @@ impl CpuStaticAllocator {
 
 impl Drop for CpuStaticAllocator {
     fn drop(&mut self) {
-        free_pinned_memory(self.base_ptr);
+        if self.primary {
+            free_pinned_memory(self.base_ptr);
+        }
     }
 }
