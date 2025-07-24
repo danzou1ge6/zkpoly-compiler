@@ -21,6 +21,7 @@ impl<'s, Rt: RuntimeType> UnfusedType2<'s, Rt> {
         self,
         options: &DebugOptions,
         hardware_info: &HardwareInfo,
+        versions_cpu_memory_divisions: impl Iterator<Item = u32>,
         ctx: &PanicJoinHandler,
     ) -> Result<ProcessedType2<'s, Rt>, Error<'s, Rt>> {
         let UnfusedType2 {
@@ -31,40 +32,44 @@ impl<'s, Rt: RuntimeType> UnfusedType2<'s, Rt> {
         } = self;
 
         // - Arithmetic Kernel Fusion
-        let t2cg_versions = Versions::build(hardware_info, |cpu_size, helper| {
-            let t2cg = options.log_suround(
-                helper.log_prologue("Fusing arithmetic kernels"),
-                || {
-                    Ok(type2::kernel_fusion::fuse_arith(
-                        t2cg.clone(),
-                        &hardware_info.clone().with_cpu(cpu_size.clone()),
-                    ))
-                },
-                "Done.",
-            )?;
+        let t2cg_versions = Versions::build(
+            hardware_info,
+            versions_cpu_memory_divisions,
+            |cpu_size, helper| {
+                let t2cg = options.log_suround(
+                    helper.log_prologue("Fusing arithmetic kernels"),
+                    || {
+                        Ok(type2::kernel_fusion::fuse_arith(
+                            t2cg.clone(),
+                            &hardware_info.clone().with_cpu(cpu_size.clone()),
+                        ))
+                    },
+                    "Done.",
+                )?;
 
-            if !check_type2_dag(
-                options
-                    .debug_dir
-                    .join(helper.debug_filename("type2_kernel_fusion.dot")),
-                &t2cg.g,
-                t2cg.output,
-                options.type2_visualizer,
-            ) {
-                panic!("graph is not a DAG after Arithmetic Kernel Fusion");
-            }
-
-            if options.debug_kernel_fusion {
-                ctx.add(debug_type2(
-                    options.debug_dir.join("type2_kernel_fusion.dot"),
+                if !check_type2_dag(
+                    options
+                        .debug_dir
+                        .join(helper.debug_filename("type2_kernel_fusion.dot")),
                     &t2cg.g,
                     t2cg.output,
                     options.type2_visualizer,
-                ));
-            }
+                ) {
+                    panic!("graph is not a DAG after Arithmetic Kernel Fusion");
+                }
 
-            Ok(t2cg)
-        })?;
+                if options.debug_kernel_fusion {
+                    ctx.add(debug_type2(
+                        options.debug_dir.join("type2_kernel_fusion.dot"),
+                        &t2cg.g,
+                        t2cg.output,
+                        options.type2_visualizer,
+                    ));
+                }
+
+                Ok(t2cg)
+            },
+        )?;
 
         Ok(ProcessedType2 {
             cg: t2cg_versions,

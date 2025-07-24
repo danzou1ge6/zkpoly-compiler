@@ -28,6 +28,8 @@ pub struct StaticAllocator {
     ranges: BTreeMap<usize, usize>, // [left, right)
 }
 
+unsafe impl Send for StaticAllocator {}
+
 impl StaticAllocator {
     pub fn new(device_id: i32, max_size: usize, check_overlap: bool) -> Self {
         let mut base_ptr: *mut std::ffi::c_void = std::ptr::null_mut();

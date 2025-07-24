@@ -4,7 +4,14 @@ use zkpoly_common::devices::DeviceType;
 
 use crate::{
     bindings::{
-        cuInit, cuMemAddressFree, cuMemAddressReserve, cuMemCreate, cuMemGetAllocationGranularity, cuMemMap, cuMemRelease, cuMemSetAccess, cuMemUnmap, CUdeviceptr, CUmemAccessDesc, CUmemAccess_flags_enum_CU_MEM_ACCESS_FLAGS_PROT_READWRITE, CUmemAllocationGranularity_flags_enum_CU_MEM_ALLOC_GRANULARITY_MINIMUM, CUmemAllocationProp, CUmemAllocationType_enum_CU_MEM_ALLOCATION_TYPE_PINNED, CUmemGenericAllocationHandle, CUmemLocation, CUmemLocationType_enum_CU_MEM_LOCATION_TYPE_DEVICE, CUmemLocationType_enum_CU_MEM_LOCATION_TYPE_HOST_NUMA
+        cuInit, cuMemAddressFree, cuMemAddressReserve, cuMemCreate, cuMemGetAllocationGranularity,
+        cuMemMap, cuMemRelease, cuMemSetAccess, cuMemUnmap, CUdeviceptr, CUmemAccessDesc,
+        CUmemAccess_flags_enum_CU_MEM_ACCESS_FLAGS_PROT_READWRITE,
+        CUmemAllocationGranularity_flags_enum_CU_MEM_ALLOC_GRANULARITY_MINIMUM,
+        CUmemAllocationProp, CUmemAllocationType_enum_CU_MEM_ALLOCATION_TYPE_PINNED,
+        CUmemGenericAllocationHandle, CUmemLocation,
+        CUmemLocationType_enum_CU_MEM_LOCATION_TYPE_DEVICE,
+        CUmemLocationType_enum_CU_MEM_LOCATION_TYPE_HOST_NUMA,
     },
     cuda_driver_check,
 };
@@ -14,6 +21,8 @@ pub struct PageAllocator {
     page_size: usize,
     page_table: Vec<CUmemGenericAllocationHandle>, // handle for physical memory
 }
+
+unsafe impl Send for PageAllocator {}
 
 fn get_location(device: &DeviceType) -> CUmemLocation {
     let mut location: CUmemLocation = unsafe { std::mem::zeroed() };
@@ -226,7 +235,7 @@ mod tests {
             assert_eq!(host_data_write, host_data_read);
         }
         println!("Deallocating memory...");
-        allocator.deallocate(ptr, va_size,  num_pages_to_alloc);
+        allocator.deallocate(ptr, va_size, num_pages_to_alloc);
     }
 
     #[test]
@@ -397,7 +406,11 @@ mod tests {
                 .map(|j| (i + j) % 10) // Wrap around the available pages
                 .collect::<Vec<_>>();
             let ptr = allocator.allocate::<u8>(va_size, page_ids);
-            assert!(!ptr.is_null(), "Failed to allocate memory for iteration {}", i);
+            assert!(
+                !ptr.is_null(),
+                "Failed to allocate memory for iteration {}",
+                i
+            );
             println!("iteration {} successed", i);
         }
     }

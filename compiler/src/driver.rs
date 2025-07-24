@@ -177,6 +177,10 @@ impl MemoryInfo {
         self.memory_limit
     }
 
+    pub fn memory_limit_gigabytes(&self) -> f64 {
+        self.memory_limit as f64 / 2.0_f64.powi(30)
+    }
+
     pub fn smithereen_space(&self) -> u64 {
         self.smithereen_space
     }
@@ -307,6 +311,34 @@ impl HardwareInfo {
             .collect()
     }
 
+    pub fn gpu_allocators_for(
+        &self,
+        memory_check: bool,
+        device_ids: impl Iterator<Item = i32>,
+    ) -> HashMap<i32, CudaAllocator> {
+        use zkpoly_cuda_api::mem;
+        device_ids
+            .map(|id| {
+                let gpu = &self.gpus[id as usize];
+                (
+                    id as i32,
+                    CudaAllocator {
+                        statik: mem::StaticAllocator::new(
+                            0,
+                            gpu.smithereen_space() as usize,
+                            memory_check,
+                        ),
+                        page: mem::PageAllocator::new(
+                            zkpoly_common::devices::DeviceType::GPU { device_id: 0 },
+                            self.page_size() as usize,
+                            gpu.page_number(self.page_size()) as usize,
+                        ),
+                    },
+                )
+            })
+            .collect()
+    }
+
     pub fn disk_allocator(&self, max_block: usize) -> DiskMemoryPool {
         self.disks()
             .map(|disk_info| {
@@ -316,8 +348,11 @@ impl HardwareInfo {
             .collect()
     }
 
-    pub fn smaller_cpus<'a>(&'a self) -> impl Iterator<Item = MemoryInfo> + 'a {
-        (1..=3).map(|p| {
+    pub fn smaller_cpus<'a>(
+        &'a self,
+        divisions: impl Iterator<Item = u32> + 'a,
+    ) -> impl Iterator<Item = MemoryInfo> + 'a {
+        divisions.map(|p| {
             MemoryInfo::new(
                 self.cpu.memory_limit / 2u64.pow(p),
                 self.cpu.smithereen_space,
@@ -331,10 +366,6 @@ struct VersionsHelper<'a> {
 }
 
 impl<'a> VersionsHelper<'a> {
-    fn human_readable_name(&self) -> String {
-        human_readable_size(self.mem_info.memory_limit())
-    }
-
     fn log_prologue<S>(&self, msg: S) -> String
     where
         S: AsRef<str>,
@@ -368,11 +399,12 @@ struct Versions<T>(Vec<(MemoryInfo, T)>);
 impl<T> Versions<T> {
     pub fn build<'s, Rt: RuntimeType>(
         hardware_info: &HardwareInfo,
+        divisions: impl Iterator<Item = u32>,
         mut f: impl for<'a> FnMut(&'a MemoryInfo, VersionsHelper<'a>) -> Result<T, Error<'s, Rt>>,
     ) -> Result<Self, Error<'s, Rt>> {
         Ok(Self(
             hardware_info
-                .smaller_cpus()
+                .smaller_cpus(divisions)
                 .map(|cpu| {
                     let t = f(&cpu, VersionsHelper { mem_info: &cpu })?;
                     Ok((cpu, t))
@@ -476,6 +508,10 @@ impl<T> Versions<T> {
 
     pub fn iter(&self) -> impl Iterator<Item = &MemoryInfo> {
         self.0.iter().map(|(m, _)| m)
+    }
+
+    pub fn iter_items(&self) -> impl Iterator<Item = &(MemoryInfo, T)> {
+        self.0.iter()
     }
 
     pub fn ref_of(&self, mem: &MemoryInfo) -> Option<&T> {
