@@ -47,7 +47,7 @@ impl Writer {
         stream_number: instructions::Stream,
     ) -> CudaEventRaw {
         let (stream, _stream_begin, _) = guard.get(&stream_number).unwrap();
-        let event = CudaEventRaw::new();
+        let event = CudaEventRaw::new(stream.get_device());
         event.record(stream);
         event
     }

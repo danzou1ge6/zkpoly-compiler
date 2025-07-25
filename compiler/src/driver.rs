@@ -157,6 +157,11 @@ impl DebugOptions {
         }
         Ok(r)
     }
+
+    pub fn with_debug_dir(self, debug_dir: PathBuf) -> Self {
+        std::fs::create_dir_all(&debug_dir).unwrap();
+        Self { debug_dir, ..self }
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]

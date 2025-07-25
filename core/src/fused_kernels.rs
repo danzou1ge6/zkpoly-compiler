@@ -231,8 +231,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
             let local_buffer = tmp_buffers[1].unwrap_gpu_buffer();
             // check the buffer size
             assert!(
-                arg_buffer.size >=
-                (2 * num_of_vars + 3 * num_of_mut_vars) * std::mem::size_of::<PolyPtr>()
+                arg_buffer.size
+                    >= (2 * num_of_vars + 3 * num_of_mut_vars) * std::mem::size_of::<PolyPtr>()
             );
 
             assert!((mut_var.len() - 2 * num_mut_scalars) % 4 == 0);
@@ -406,23 +406,23 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
 
             // create events
             let mut_h2d_complete = [
-                CudaEventRaw::new(),
-                CudaEventRaw::new(),
-                CudaEventRaw::new(),
+                CudaEventRaw::new(0),
+                CudaEventRaw::new(0),
+                CudaEventRaw::new(0),
             ];
             let mut_compute_complete = [
-                CudaEventRaw::new(),
-                CudaEventRaw::new(),
-                CudaEventRaw::new(),
+                CudaEventRaw::new(0),
+                CudaEventRaw::new(0),
+                CudaEventRaw::new(0),
             ];
             let mut_d2h_complete = [
-                CudaEventRaw::new(),
-                CudaEventRaw::new(),
-                CudaEventRaw::new(),
+                CudaEventRaw::new(0),
+                CudaEventRaw::new(0),
+                CudaEventRaw::new(0),
             ];
 
-            let h2d_complete = [CudaEventRaw::new(), CudaEventRaw::new()];
-            let compute_complete = [CudaEventRaw::new(), CudaEventRaw::new()];
+            let h2d_complete = [CudaEventRaw::new(0), CudaEventRaw::new(0)];
+            let compute_complete = [CudaEventRaw::new(0), CudaEventRaw::new(0)];
 
             let mut mut_buffer_id = 0;
             let mut buffer_id = 0;

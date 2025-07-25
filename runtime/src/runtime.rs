@@ -259,8 +259,8 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                     );
 
                     if let Typ::Stream = &typ {
-                        let event = CudaEventRaw::new();
                         let stream = var.unwrap_stream();
+                        let event = CudaEventRaw::new(stream.get_device());
                         event.record(stream);
                         self.debug_writer.new_stream(
                             instruction.unwrap_stream(),
