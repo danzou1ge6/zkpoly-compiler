@@ -200,6 +200,7 @@ struct ExecutorHandle {
     thread: thread::JoinHandle<()>,
 }
 
+#[derive(Debug)]
 pub struct SchedulerHandle {
     shutdown_sender: mpsc::Sender<()>,
     thread: thread::JoinHandle<()>,
@@ -253,23 +254,39 @@ impl SchedulerConfig {
     }
 }
 
-pub struct Submitter<Rt: RuntimeType> {
-    sender: mpsc::Sender<Submit<Rt>>,
+pub enum SubmitterMessage<Rt: RuntimeType> {
+    Submit(Submit<Rt>),
+    Add(Artifect<Rt>, mpsc::Sender<ProgramId>),
 }
+
+#[derive(Debug, Clone)]
+pub struct Submitter<Rt: RuntimeType> {
+    sender: mpsc::Sender<SubmitterMessage<Rt>>,
+}
+
+pub type SubmitResult<T, Rt> = Result<T, mpsc::SendError<SubmitterMessage<Rt>>>;
 
 impl<Rt: RuntimeType> Submitter<Rt> {
     pub fn submit(
         &self,
         task: SubmittedTask<Rt>,
-    ) -> Result<crossbeam_channel::Receiver<RunReturn<Rt>>, mpsc::SendError<Submit<Rt>>> {
+    ) -> SubmitResult<crossbeam_channel::Receiver<RunReturn<Rt>>, Rt> {
         let (sender, receiver) = crossbeam_channel::unbounded::<RunReturn<Rt>>();
 
-        self.sender.send(Submit {
+        self.sender.send(SubmitterMessage::Submit(Submit {
             task,
             result_sender: sender,
-        })?;
+        }))?;
 
         Ok(receiver)
+    }
+
+    pub fn add_artifect(&self, artifect: Artifect<Rt>) -> SubmitResult<ProgramId, Rt> {
+        let (sender, receiver) = mpsc::channel::<ProgramId>();
+
+        self.sender.send(SubmitterMessage::Add(artifect, sender))?;
+
+        Ok(receiver.recv().unwrap())
     }
 }
 
@@ -300,7 +317,7 @@ impl Knowlede {
 }
 
 struct Control<Rt: RuntimeType> {
-    reception: mpsc::Receiver<Submit<Rt>>,
+    reception: mpsc::Receiver<SubmitterMessage<Rt>>,
     executors: Vec<ExecutorHandle>,
     shutdown_receiver: mpsc::Receiver<()>,
     task_launcher: crossbeam_channel::Sender<LaunchedTask<Rt>>,
@@ -325,7 +342,7 @@ mod core {
         resources: GlobalResources,
         pub programs: Heap<ProgramId, Artifect<Rt>>,
         task_id_allocator: IdAllocator<TaskId>,
-        knowledge: Knowlede,
+        pub knowledge: Knowlede,
     }
 
     impl<Rt: RuntimeType> Core<Rt> {
@@ -641,10 +658,23 @@ impl<Rt: RuntimeType> Scheduler<Rt> {
 
             loop {
                 // 检查是否有新的用户任务
-                while let Ok(submitted) = self.control.reception.try_recv() {
-                    let id = self.add_task(submitted);
-                    self.schedule_task();
-                    println!("调度器接收到新任务 {:?}", id);
+                while let Ok(msg) = self.control.reception.try_recv() {
+                    match msg {
+                        SubmitterMessage::Submit(submitted) => {
+                            let id = self.add_task(submitted);
+                            self.schedule_task();
+                            println!("调度器接收到新任务 {:?}", id);
+                        }
+                        SubmitterMessage::Add(ar, sender) => {
+                            self.core.knowledge.time_experience.push(
+                                ar.versions()
+                                    .map(|ver| (ver.clone(), Duration::from_secs(1)))
+                                    .collect(),
+                            );
+                            let id = self.core.programs.push(ar);
+                            let _ = sender.send(id);
+                        }
+                    }
                 }
 
                 // 执行器完成
@@ -679,7 +709,7 @@ impl<Rt: RuntimeType> Scheduler<Rt> {
     }
 }
 
-pub fn scheduler<Rt: RuntimeType>(
+pub fn make_scheduler<Rt: RuntimeType>(
     hd_info: HardwareInfo,
     config: SchedulerConfig,
     rng: AsyncRng,
@@ -692,7 +722,7 @@ pub fn scheduler<Rt: RuntimeType>(
     );
 
     // 创建任务接收通道（用户 -> 调度器）
-    let (task_submitter, task_reception) = mpsc::channel::<Submit<Rt>>();
+    let (task_submitter, task_reception) = mpsc::channel::<SubmitterMessage<Rt>>();
 
     // 创建执行任务通道（调度器 -> 执行器）
     let (task_launcher, task_spawn) = crossbeam_channel::unbounded::<LaunchedTask<Rt>>();
