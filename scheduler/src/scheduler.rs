@@ -1,19 +1,22 @@
-use std::collections::{HashMap, HashSet};
-use std::sync::{mpsc, Arc, Mutex};
-use std::thread::{self};
-use std::time::{Duration, Instant};
-use zkpoly_common::define_usize_id;
-use zkpoly_common::heap::{Heap, IdAllocator};
-use zkpoly_compiler::driver::artifect::Pools;
-use zkpoly_compiler::driver::{Artifect, HardwareInfo, MemoryInfo};
-use zkpoly_memory_pool::buddy_disk_pool::DiskMemoryPool;
-use zkpoly_memory_pool::static_allocator::CpuStaticAllocator;
-use zkpoly_runtime::args::{EntryTable, RuntimeType, Variable};
-use zkpoly_runtime::async_rng::AsyncRng;
-use zkpoly_runtime::debug::Log;
-use zkpoly_runtime::runtime::{Runtime, RuntimeDebug};
+mod prelude {
+    pub use std::collections::{HashMap, HashSet};
+    pub use std::sync::{mpsc, Arc, Mutex};
+    pub use std::thread::{self};
+    pub use std::time::{Duration, Instant};
+    pub use zkpoly_common::define_usize_id;
+    pub use zkpoly_common::heap::{Heap, IdAllocator, UsizeId};
+    pub use zkpoly_compiler::driver::artifect::{GpuMapping, Pools};
+    pub use zkpoly_compiler::driver::{Artifect, HardwareInfo, MemoryInfo};
+    pub use zkpoly_memory_pool::buddy_disk_pool::DiskMemoryPool;
+    pub use zkpoly_memory_pool::static_allocator::CpuStaticAllocator;
+    pub use zkpoly_runtime::args::{EntryTable, RuntimeType, Variable};
+    pub use zkpoly_runtime::async_rng::AsyncRng;
+    pub use zkpoly_runtime::debug::Log;
+    pub use zkpoly_runtime::runtime::{Runtime, RuntimeDebug};
+}
 
-define_usize_id!(ProgramId);
+use prelude::*;
+
 define_usize_id!(TaskId);
 
 #[derive(Debug)]
@@ -40,11 +43,7 @@ impl HalfMemory {
         self.assigned_tasks.is_empty()
     }
 
-    fn add_task<Rt: RuntimeType>(
-        &mut self,
-        task: &AcceptedTask<Rt>,
-        estimated_free_at: Instant,
-    ) -> usize {
+    fn add_task(&mut self, task: &AcceptedTask, estimated_free_at: Instant) -> usize {
         let offset = self.offset + self.used;
 
         let task_size = task.version.as_ref().unwrap().memory_limit() as usize;
@@ -119,7 +118,12 @@ impl GlobalResources {
     }
 }
 
-impl GlobalResources {}
+mod erased;
+mod submitter;
+
+pub use submitter::exposed::*;
+use submitter::ProgramId;
+pub use submitter::Submitter;
 
 #[derive(Debug)]
 pub enum TaskStatus {
@@ -128,36 +132,30 @@ pub enum TaskStatus {
     Completed,
 }
 
-pub struct RunReturn<Rt: RuntimeType> {
-    pub ret_value: Option<Variable<Rt>>,
-    pub log: Log,
-    pub time: Duration,
-}
-
-pub struct WorkerFinishRespond<Rt: RuntimeType> {
-    r: RunReturn<Rt>,
+pub struct WorkerFinishRespond {
+    r: submitter::RunReturn,
     id: TaskId,
     program: ProgramId,
     version: MemoryInfo,
     cards: Vec<i32>,
 }
 
-struct LaunchedTask<Rt: RuntimeType> {
+struct LaunchedTask {
     /// The `version`, `cards` and `memory_offset` fields in `accepted`
     /// are expected to be set here.
-    accepted: AcceptedTask<Rt>,
-    runtime: Runtime<Rt>,
+    accepted: AcceptedTask,
+    runtime: erased::BoxedRuntime,
 }
 
-struct AcceptedTask<Rt: RuntimeType> {
+struct AcceptedTask {
     id: TaskId,
-    submitted: SubmittedTask<Rt>,
+    submitted: submitter::SubmittedTask,
     version: Option<MemoryInfo>,
     cards: Vec<i32>,
     memory_offset: Option<usize>,
 }
 
-impl<Rt: RuntimeType> std::fmt::Debug for AcceptedTask<Rt> {
+impl std::fmt::Debug for AcceptedTask {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AcceptedTask")
             .field("id", &self.id)
@@ -166,34 +164,6 @@ impl<Rt: RuntimeType> std::fmt::Debug for AcceptedTask<Rt> {
             .field("memory_offset", &self.memory_offset)
             .finish()
     }
-}
-
-pub struct SubmittedTask<Rt: RuntimeType> {
-    program: ProgramId,
-    inputs: EntryTable<Rt>,
-    debug_opt: RuntimeDebug,
-}
-
-impl<Rt: RuntimeType> SubmittedTask<Rt> {
-    pub fn new(program: ProgramId, inputs: EntryTable<Rt>) -> Self {
-        Self {
-            program,
-            inputs,
-            debug_opt: RuntimeDebug::none(),
-        }
-    }
-
-    pub fn with_debug_opt(self, x: RuntimeDebug) -> Self {
-        Self {
-            debug_opt: x,
-            ..self
-        }
-    }
-}
-
-pub struct Submit<Rt: RuntimeType> {
-    task: SubmittedTask<Rt>,
-    result_sender: crossbeam_channel::Sender<RunReturn<Rt>>,
 }
 
 struct ExecutorHandle {
@@ -254,42 +224,6 @@ impl SchedulerConfig {
     }
 }
 
-pub enum SubmitterMessage<Rt: RuntimeType> {
-    Submit(Submit<Rt>),
-    Add(Artifect<Rt>, mpsc::Sender<ProgramId>),
-}
-
-#[derive(Debug, Clone)]
-pub struct Submitter<Rt: RuntimeType> {
-    sender: mpsc::Sender<SubmitterMessage<Rt>>,
-}
-
-pub type SubmitResult<T, Rt> = Result<T, mpsc::SendError<SubmitterMessage<Rt>>>;
-
-impl<Rt: RuntimeType> Submitter<Rt> {
-    pub fn submit(
-        &self,
-        task: SubmittedTask<Rt>,
-    ) -> SubmitResult<crossbeam_channel::Receiver<RunReturn<Rt>>, Rt> {
-        let (sender, receiver) = crossbeam_channel::unbounded::<RunReturn<Rt>>();
-
-        self.sender.send(SubmitterMessage::Submit(Submit {
-            task,
-            result_sender: sender,
-        }))?;
-
-        Ok(receiver)
-    }
-
-    pub fn add_artifect(&self, artifect: Artifect<Rt>) -> SubmitResult<ProgramId, Rt> {
-        let (sender, receiver) = mpsc::channel::<ProgramId>();
-
-        self.sender.send(SubmitterMessage::Add(artifect, sender))?;
-
-        Ok(receiver.recv().unwrap())
-    }
-}
-
 struct Knowlede {
     /// Duration for all versions are expected to be found here.
     /// There fore, they must be initialized to some estimations before hand.
@@ -316,289 +250,38 @@ impl Knowlede {
     }
 }
 
-struct Control<Rt: RuntimeType> {
-    reception: mpsc::Receiver<SubmitterMessage<Rt>>,
+struct Control {
+    reception: mpsc::Receiver<submitter::Message>,
     executors: Vec<ExecutorHandle>,
     shutdown_receiver: mpsc::Receiver<()>,
-    task_launcher: crossbeam_channel::Sender<LaunchedTask<Rt>>,
-    result_receiver: crossbeam_channel::Receiver<WorkerFinishRespond<Rt>>,
-    result_relayer: HashMap<TaskId, crossbeam_channel::Sender<RunReturn<Rt>>>,
+    task_launcher: crossbeam_channel::Sender<LaunchedTask>,
+    result_receiver: crossbeam_channel::Receiver<WorkerFinishRespond>,
+    result_relayer: HashMap<TaskId, crossbeam_channel::Sender<submitter::RunReturn>>,
 }
 
-mod core {
-
-    use super::*;
-
-    pub struct Core<Rt: RuntimeType> {
-        pub config: SchedulerConfig,
-        /// Newly submitted tasks go here
-        pending_tasks: Vec<AcceptedTask<Rt>>,
-        /// We schedule tasks window by window. by algorithms described in
-        ///   Approximate Algorithms for Scheduling Parallelizable Tasks
-        /// Takss from `pending_tasks` are dumped to this queue periodically
-        scheduling_window: Vec<AcceptedTask<Rt>>,
-        scheduling_window_sorted: bool,
-        scheduling_window_allotted: bool,
-        resources: GlobalResources,
-        pub programs: Heap<ProgramId, Artifect<Rt>>,
-        task_id_allocator: IdAllocator<TaskId>,
-        pub knowledge: Knowlede,
-    }
-
-    impl<Rt: RuntimeType> Core<Rt> {
-        pub fn new(
-            config: SchedulerConfig,
-            resources: GlobalResources,
-            programs: Heap<ProgramId, Artifect<Rt>>,
-        ) -> Self {
-            Self {
-                config: config,
-                pending_tasks: Vec::new(),
-                scheduling_window: Vec::new(),
-                scheduling_window_sorted: false,
-                scheduling_window_allotted: false,
-                resources: resources,
-                knowledge: Knowlede {
-                    time_experience: programs.map_by_ref(&mut |_, artifect| {
-                        artifect
-                            .versions()
-                            .map(|ver| (ver.clone(), Duration::from_secs(1)))
-                            .collect()
-                    }),
-                },
-                programs: programs,
-                task_id_allocator: IdAllocator::new(),
-            }
-        }
-        pub fn add_task(&mut self, submit: SubmittedTask<Rt>) -> TaskId {
-            let id = self.task_id_allocator.alloc();
-            let accepted = AcceptedTask {
-                id,
-                submitted: submit,
-                cards: Vec::new(),
-                version: None,
-                memory_offset: None,
-            };
-            self.pending_tasks.push(accepted);
-            id
-        }
-
-        fn dump_tasks_to_scheduling_window(&mut self) {
-            self.scheduling_window
-                .extend(std::mem::take(&mut self.pending_tasks).into_iter());
-            self.scheduling_window_sorted = false;
-            self.scheduling_window_allotted = false;
-        }
-
-        /// Determine CPU memory assigned to each task in the scheduling window.
-        /// Window must be non-empty>
-        fn allot_memory(&mut self) {
-            // Initially set
-            //   beta_j^1 = arg min_i t_j (i) dot i
-            // where beta_j^k is the CPU memory allocated to task j at iteration k,
-            // and t_j (i) is estimated execution of task j with i bytes assigned
-            self.scheduling_window.iter_mut().for_each(|task| {
-                let version = self.programs[task.submitted.program]
-                    .versions()
-                    .min_by_key(|m| {
-                        self.knowledge
-                            .estimate_time(task.submitted.program, *m)
-                            .mul_f64(m.memory_limit_gigabytes())
-                    })
-                    .expect("artifect does not provide any version");
-                task.version = Some(version.clone());
-            });
-
-            loop {
-                // In each iteration k, we find task j_0 such that
-                //   j0 = arg max t_j (beta_j^(k - 1))
-                // and allot more memory to it
-                //   beta_j0^k = arg min_(i > beta_j0^(k - 1)) t_j (i) dot i
-                // while maintaining
-                //   beta_j^k = beta_j^(k - 1)
-                // for all j != j0
-                let bottoleneck = self
-                    .scheduling_window
-                    .iter_mut()
-                    .max_by_key(|task| {
-                        self.knowledge
-                            .estimate_time(task.submitted.program, task.version.as_ref().unwrap())
-                    })
-                    .expect("empty schedule window");
-                let version = self.programs[bottoleneck.submitted.program]
-                    .versions()
-                    .filter(|m| {
-                        m.memory_limit() > bottoleneck.version.as_ref().unwrap().memory_limit()
-                    })
-                    .min_by_key(|m| {
-                        self.knowledge
-                            .estimate_time(bottoleneck.submitted.program, *m)
-                            .mul_f64(m.memory_limit_gigabytes())
-                    });
-                if let Some(version) = version {
-                    bottoleneck.version = Some(version.clone());
-                } else {
-                    self.scheduling_window_allotted = true;
-                    return;
-                }
-            }
-        }
-
-        /// Choose from schedule window a task to run.
-        /// The returned [`AcceptedTask`] guarantees that the `version`, `cards` and `memory_offset` fields are set.
-        pub fn schedule(&mut self) -> Option<AcceptedTask<Rt>> {
-            if self.scheduling_window.is_empty() {
-                self.dump_tasks_to_scheduling_window();
-            }
-
-            if self.scheduling_window.is_empty() {
-                return None;
-            }
-
-            println!(
-                "调度队列为 {:?}",
-                self.scheduling_window
-                    .iter()
-                    .map(|t| t.id)
-                    .collect::<Vec<_>>()
-            );
-
-            if !self.scheduling_window_allotted {
-                self.allot_memory();
-            }
-
-            // If there are tasks consuming more than half of total, try schedule them first
-            if let Some(j) = self.scheduling_window.iter().position(|task| {
-                task.version.as_ref().unwrap().memory_limit() * 2
-                    > self.resources.total_memory as u64
-            }) {
-                self.resources.available_memory.try_switch_to_intact();
-
-                if let Some(cards) = self.resources.try_take_cards(self.config.cards_per_request) {
-                    if let AvailableMemory::Intact(None) = self.resources.available_memory {
-                        let mut task = self.scheduling_window.remove(j);
-                        task.cards = cards;
-                        task.memory_offset = Some(0);
-                        self.resources.available_memory = AvailableMemory::Intact(Some(task.id));
-
-                        println!("调度任务 {:?} ，使用整块内存", &task);
-
-                        return Some(task);
-                    }
-                }
-                return None;
-            }
-
-            self.resources
-                .available_memory
-                .try_switch_to_halved(self.resources.total_memory);
-
-            // Otherwise, sort the schedule window by execution time,
-            // then try schedule first one to the half that is estimated to become free earlier
-            if !self.scheduling_window_sorted {
-                self.scheduling_window.sort_by(|a, b| {
-                    self.knowledge
-                        .estimate_time(a.submitted.program, b.version.as_ref().unwrap())
-                        .cmp(
-                            &self
-                                .knowledge
-                                .estimate_time(a.submitted.program, b.version.as_ref().unwrap()),
-                        )
-                        .reverse()
-                });
-                self.scheduling_window_sorted = true;
-            }
-
-            if let Some(task) = self.scheduling_window.last() {
-                if let AvailableMemory::Halved(halves) = &mut self.resources.available_memory {
-                    halves.sort_by_key(|halve| halve.estimated_free_at);
-
-                    for half in halves {
-                        if let Some(cards) = try_take_cards(
-                            &mut self.resources.available_cards,
-                            self.config.cards_per_request,
-                        ) {
-                            if half.space_left()
-                                >= task.version.as_ref().unwrap().memory_limit() as usize
-                            {
-                                let mut task = self.scheduling_window.pop().unwrap();
-                                let estimated_free_at = Instant::now()
-                                    + self.knowledge.estimate_time(
-                                        task.submitted.program,
-                                        task.version.as_ref().unwrap(),
-                                    );
-                                task.cards = cards;
-                                task.memory_offset = Some(half.add_task(&task, estimated_free_at));
-
-                                println!("调度任务 {:?} ，使用半块内存", &task);
-
-                                return Some(task);
-                            }
-                        }
-                    }
-                }
-                return None;
-            }
-
-            None
-        }
-
-        pub fn finish(
-            &mut self,
-            id: TaskId,
-            cards: &[i32],
-            program: ProgramId,
-            version: &MemoryInfo,
-            duration: Duration,
-        ) {
-            self.knowledge.update(program, version, duration);
-
-            match &mut self.resources.available_memory {
-                AvailableMemory::Intact(t) => {
-                    if t.is_some_and(|x| x == id) {
-                        self.resources.available_memory = AvailableMemory::Intact(None)
-                    } else {
-                        panic!(
-                            "finishing a task {:?} but availabel memory is Intact({:?})",
-                            id, t
-                        )
-                    }
-                }
-                AvailableMemory::Halved([h1, h2]) => {
-                    if !h1.assigned_tasks.remove(&id) && !h2.assigned_tasks.remove(&id) {
-                        panic!(
-                            "finishing a task {:?} but no memory is assigned to it in neither half",
-                            id
-                        );
-                    }
-                }
-            }
-
-            self.resources.available_cards.extend_from_slice(cards);
-        }
-    }
-}
+mod core;
 
 use core::Core;
+use std::marker::PhantomData;
 
-pub struct Scheduler<Rt: RuntimeType> {
+pub struct Scheduler {
     hd_info: HardwareInfo,
-    control: Control<Rt>,
-    core: Core<Rt>,
+    control: Control,
+    core: Core,
     cpu_memory: CpuStaticAllocator,
     disk_memory: Arc<Mutex<DiskMemoryPool>>,
     rng: AsyncRng,
     shutdown_sender: mpsc::Sender<()>,
 }
 
-impl<Rt: RuntimeType> Scheduler<Rt> {
-    fn add_task(&mut self, submit: Submit<Rt>) -> TaskId {
+impl Scheduler {
+    fn add_task(&mut self, submit: submitter::Submit) -> TaskId {
         let id = self.core.add_task(submit.task);
         self.control.result_relayer.insert(id, submit.result_sender);
         id
     }
 
-    fn finish_task(&mut self, resp: WorkerFinishRespond<Rt>) {
+    fn finish_task(&mut self, resp: WorkerFinishRespond) {
         self.core.finish(
             resp.id,
             &resp.cards,
@@ -660,12 +343,12 @@ impl<Rt: RuntimeType> Scheduler<Rt> {
                 // 检查是否有新的用户任务
                 while let Ok(msg) = self.control.reception.try_recv() {
                     match msg {
-                        SubmitterMessage::Submit(submitted) => {
+                        submitter::Message::Submit(submitted) => {
                             let id = self.add_task(submitted);
                             self.schedule_task();
                             println!("调度器接收到新任务 {:?}", id);
                         }
-                        SubmitterMessage::Add(ar, sender) => {
+                        submitter::Message::Add(ar, sender) => {
                             self.core.knowledge.time_experience.push(
                                 ar.versions()
                                     .map(|ver| (ver.clone(), Duration::from_secs(1)))
@@ -714,22 +397,21 @@ pub fn make_scheduler<Rt: RuntimeType>(
     config: SchedulerConfig,
     rng: AsyncRng,
     disk_pool: DiskMemoryPool,
-    programs: Heap<ProgramId, Artifect<Rt>>,
-) -> (Scheduler<Rt>, Submitter<Rt>) {
+    programs: Programs<Rt>,
+) -> (Scheduler, submitter::Submitter<Rt>) {
     assert!(
         hd_info.gpus().count() % config.cards_per_request == 0,
         "Total cards must be a multiple of cards per request"
     );
 
     // 创建任务接收通道（用户 -> 调度器）
-    let (task_submitter, task_reception) = mpsc::channel::<SubmitterMessage<Rt>>();
+    let (task_submitter, task_reception) = mpsc::channel::<submitter::Message>();
 
     // 创建执行任务通道（调度器 -> 执行器）
-    let (task_launcher, task_spawn) = crossbeam_channel::unbounded::<LaunchedTask<Rt>>();
+    let (task_launcher, task_spawn) = crossbeam_channel::unbounded::<LaunchedTask>();
 
     // 创建执行器状态通道（执行器 -> 调度器）
-    let (result_sender, result_receiver) =
-        crossbeam_channel::unbounded::<WorkerFinishRespond<Rt>>();
+    let (result_sender, result_receiver) = crossbeam_channel::unbounded::<WorkerFinishRespond>();
 
     let (shutdown_sender, shutdown_receiver) = mpsc::channel::<()>();
 
@@ -748,8 +430,8 @@ pub fn make_scheduler<Rt: RuntimeType>(
                     let start = std::time::Instant::now();
 
                     let mut runtime = task.runtime;
-                    let ((r, log, _), _) = runtime.run(
-                        &task.accepted.submitted.inputs,
+                    let (r, log) = runtime.run(
+                        task.accepted.submitted.inputs.as_ref(),
                         task.accepted.submitted.debug_opt,
                     );
                     let elapsed = start.elapsed();
@@ -761,7 +443,7 @@ pub fn make_scheduler<Rt: RuntimeType>(
 
                     // 发送结果
                     if let Err(e) = result_sender.send(WorkerFinishRespond {
-                        r: RunReturn {
+                        r: submitter::RunReturn {
                             ret_value: r,
                             log,
                             time: elapsed,
@@ -792,7 +474,7 @@ pub fn make_scheduler<Rt: RuntimeType>(
             (0..hd_info.gpus().count()).map(|x| x as i32).collect(),
             hd_info.cpu().memory_limit() as usize,
         ),
-        programs,
+        programs.erase(),
     );
 
     let control = Control {
@@ -814,8 +496,9 @@ pub fn make_scheduler<Rt: RuntimeType>(
         shutdown_sender,
     };
 
-    let smt = Submitter {
+    let smt = submitter::Submitter {
         sender: task_submitter,
+        _phantom: PhantomData,
     };
 
     (sch, smt)

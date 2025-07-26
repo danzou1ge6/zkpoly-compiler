@@ -83,6 +83,8 @@ pub struct Pools {
     pub disk: Arc<Mutex<DiskMemoryPool>>,
 }
 
+pub type GpuMapping = Arc<dyn Fn(i32) -> i32 + Send + Sync>;
+
 impl<Rt: RuntimeType> Artifect<Rt> {
     pub fn versions(&self) -> impl Iterator<Item = &MemoryInfo> {
         self.versions.iter()
@@ -105,7 +107,7 @@ impl<Rt: RuntimeType> Artifect<Rt> {
         version: &MemoryInfo,
         pools: Pools,
         rng: zkpoly_runtime::async_rng::AsyncRng,
-        gpu_mapping: Arc<dyn Fn(i32) -> i32 + Send + Sync>,
+        gpu_mapping: GpuMapping,
     ) -> zkpoly_runtime::runtime::Runtime<Rt> {
         let version = self
             .versions
