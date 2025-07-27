@@ -1,5 +1,5 @@
 use super::artifect::SemiArtifect;
-use std::io::Write;
+use std::{io::Write, path::PathBuf};
 use zkpoly_common::{heap::Heap, load_dynamic::Libs};
 use zkpoly_runtime::args::{ConstantId, RuntimeType};
 
@@ -21,13 +21,14 @@ impl<'s, Rt: RuntimeType> ProcessedType3<'s, Rt> {
         self,
         options: &DebugOptions,
         hardware_info: &HardwareInfo,
+        kernel_dir: Option<PathBuf>,
     ) -> Result<SemiArtifect<Rt>, Error<'s, Rt>> {
         let Self {
             versions,
             uf_table: t2uf_tab,
             constant_table: t2const_tab,
             constants_device,
-            libs: mut libs,
+            mut libs,
         } = self;
 
         let versions = versions.map(|cpu, version, helper| {
@@ -63,8 +64,7 @@ impl<'s, Rt: RuntimeType> ProcessedType3<'s, Rt> {
                             version.chunk,
                             t2uf_tab.clone(),
                             &mut libs,
-                            Some("/home/xinwei/code/zkp/halo2/zkpoly-compiler/tmp".to_string()), // TODO: pass target path
-                            // todo!("target_path"), // TODO: pass target path
+                            kernel_dir.clone(),
                         ))
                     },
                     "Done.",

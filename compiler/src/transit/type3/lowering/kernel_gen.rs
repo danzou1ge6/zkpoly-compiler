@@ -1,4 +1,5 @@
 use std::fmt::Write;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::ast::lowering::UserFunctionId;
@@ -95,7 +96,7 @@ const FUSED_PERFIX: &str = "fused_arith_";
 pub fn gen_fused_kernels<'s, Rt: RuntimeType>(
     program: &Chunk<'s, Rt>,
     reg_id2var_id: &impl Fn(RegisterId) -> VariableId,
-    target_path: Option<String>,
+    target_path: Option<PathBuf>,
 ) -> BTreeMap<InstructionIndex, FusedKernelMeta> {
     let mut cache = HashMap::new();
     let mut inst_idx2fused_meta = BTreeMap::new();
@@ -226,7 +227,7 @@ pub fn get_function_id<'s, Rt: RuntimeType>(
     user_ftable: type2::user_function::Table<Rt>,
     reg_id2var_id: &impl Fn(RegisterId) -> VariableId,
     libs: &mut Libs,
-    target_path: Option<String>,
+    target_path: Option<PathBuf>,
 ) -> GeneratedFunctions {
     let inst_idx2fused_meta = gen_fused_kernels(program, reg_id2var_id, target_path.clone());
     let mut uf_table: Heap<UserFunctionId, _> = user_ftable.map(&mut (|_, f| Some(f)));

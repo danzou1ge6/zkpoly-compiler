@@ -3,6 +3,7 @@ use std::{
     collections::{BTreeMap, VecDeque},
     fs,
     io::{Read, Write},
+    path::{Path, PathBuf},
 };
 
 use zkpoly_common::{
@@ -119,7 +120,7 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
         }
     }
 
-    fn compare_or_write(&self, path: &str, s: &str) {
+    fn compare_or_write(&self, path: &impl AsRef<Path>, s: &str) {
         if let Ok(mut f) = fs::File::open(path) {
             let mut old = String::new();
             f.read_to_string(&mut old).unwrap();
@@ -144,7 +145,7 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
         size
     }
 
-    pub fn gen(&self, head_annotation: impl Borrow<str>, target_path: Option<String>) {
+    pub fn gen(&self, head_annotation: impl Borrow<str>, target_path: Option<PathBuf>) {
         let (kernels, used_regs, spilled_regs) = self.gen_kernel();
         let header = format!(
             "{}\n{}",
@@ -155,34 +156,34 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
 
         let base_path = if target_path.is_some() {
             let target_path = target_path.unwrap();
-            let xmake_template_path = get_project_root() + "/core/src/fused_kernels/xmake.lua.template";
+            let xmake_template_path =
+                get_project_root() + "/core/src/fused_kernels/xmake.lua.template";
             let mut xmake_template = String::new();
             fs::File::open(xmake_template_path)
                 .unwrap()
                 .read_to_string(&mut xmake_template)
                 .unwrap();
-            let xmake_target_path = target_path.clone() + "/xmake.lua";
+            let xmake_target_path = target_path.clone().join("xmake.lua");
             self.compare_or_write(&xmake_target_path, &xmake_template);
             target_path
         } else {
-            get_project_root() + "/core/src/fused_kernels/src/" + self.name.as_str()
+            (get_project_root() + "/core/src/fused_kernels/src/").into()
         };
 
         // header file
-        let header_path = base_path.clone() + HEADER_SUFFIX;
+        let header_path = base_path.clone().join(self.name.clone() + HEADER_SUFFIX);
         self.compare_or_write(&header_path, &header);
 
         // wrapper file and kernel files has a suffix regarding the launch bounds
         // this is used to inform xmake to set maxregcount
         // because we find sometimes the auto maxregcount is not very efficient
         // wrapper file
-        let wrapper_path =
-            base_path.clone() + WRAPPER_SUFFIX + &format!("_regs{}.cu", self.reg_limit);
+        let wrapper_path = base_path.join(format!("{}_regs{}.cu", WRAPPER_SUFFIX, self.reg_limit));
         self.compare_or_write(&wrapper_path, &wrapper);
 
         for (id, kernel) in kernels.iter().enumerate() {
             let kernel_path =
-                base_path.clone() + &format!("_{SUB_FUNC_NAME}{id}_regs{}.cu", self.reg_limit);
+                base_path.join(format!("_{SUB_FUNC_NAME}{id}_regs{}.cu", self.reg_limit));
             self.compare_or_write(&kernel_path, kernel);
         }
     }

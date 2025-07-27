@@ -1,4 +1,7 @@
-use std::{path, process::Command};
+use std::{
+    path::{self, Path},
+    process::Command,
+};
 use zkpoly_common::get_project_root::get_project_root;
 
 pub fn resolve_type(name: &str) -> &str {
@@ -45,9 +48,9 @@ pub fn xmake_config(name: &str, value: &str) {
     }
 }
 
-pub fn xmake_run_absolute(target: &str, path: &str) {
+pub fn xmake_run_absolute(target: &str, path: impl AsRef<Path>) {
     if !Command::new("sh")
-        .current_dir(path::PathBuf::from(path))
+        .current_dir(path.as_ref())
         .arg("-c")
         .arg(format!("xmake build {}", target))
         .status()
@@ -59,9 +62,9 @@ pub fn xmake_run_absolute(target: &str, path: &str) {
     }
 }
 
-pub fn xmake_config_absolute(name: &str, value: &str, path: &str) {
+pub fn xmake_config_absolute(name: &str, value: &str, path: impl AsRef<Path>) {
     if !Command::new("sh")
-        .current_dir(path::PathBuf::from(path))
+        .current_dir(path.as_ref())
         .arg("-c")
         .arg(format!("xmake f --{}={}", name, value))
         .status()
