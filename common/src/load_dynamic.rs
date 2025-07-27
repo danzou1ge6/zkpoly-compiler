@@ -27,9 +27,31 @@ impl Libs {
         self.libs.contains_key(&absolute_path)
     }
 
-    pub fn load(&mut self, path: &str) -> &'static Library {
+    pub fn contains_absolute(&self, path: &str) -> bool {
+        let absolute_path = PathBuf::from(path)
+            .canonicalize()
+            .unwrap_or_else(|_| "".into())
+            .to_string_lossy()
+            .to_string();
+
+        self.libs.contains_key(&absolute_path)
+    }
+
+    pub fn load_relative(&mut self, path: &str) -> &'static Library {
         let path = PathBuf::from(get_project_root()).join("lib/").join(path);
         let absolute_path = path.canonicalize().unwrap().to_string_lossy().to_string();
+
+        self.libs
+            .entry(absolute_path.clone())
+            .or_insert_with(|| Box::leak(Box::new(unsafe { Library::new(path).unwrap() })))
+    }
+
+    pub fn load_absolute(&mut self, path: &str) -> &'static Library {
+        let absolute_path = PathBuf::from(path)
+            .canonicalize()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
 
         self.libs
             .entry(absolute_path.clone())

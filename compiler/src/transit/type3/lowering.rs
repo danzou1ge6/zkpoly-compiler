@@ -798,6 +798,7 @@ pub fn emit_multithread_instructions<'s, Rt: RuntimeType>(
     mut t3chunk: super::Chunk<'s, Rt>,
     t2uf_table: type2::user_function::Table<Rt>,
     libs: &mut Libs,
+    target_path: Option<String>
 ) -> (
     MultithreadChunk,
     FunctionTable<Rt>,
@@ -811,7 +812,7 @@ pub fn emit_multithread_instructions<'s, Rt: RuntimeType>(
     let (mut variable_id_allcoator, reg_id2var_id) = t3chunk.take_reg_id_allocator().decompose();
 
     let generated_functions =
-        kernel_gen::get_function_id(&mut f_table, &t3chunk, t2uf_table, &reg_id2var_id, libs);
+        kernel_gen::get_function_id(&mut f_table, &t3chunk, t2uf_table, &reg_id2var_id, libs, target_path);
 
     let stream2variable_id = StreamSpecific::new(|| variable_id_allcoator.alloc());
 

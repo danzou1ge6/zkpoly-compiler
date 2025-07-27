@@ -144,7 +144,7 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
         size
     }
 
-    pub fn gen(&self, head_annotation: impl Borrow<str>) {
+    pub fn gen(&self, head_annotation: impl Borrow<str>, target_path: Option<String>) {
         let (kernels, used_regs, spilled_regs) = self.gen_kernel();
         let header = format!(
             "{}\n{}",
@@ -153,8 +153,20 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
         );
         let wrapper = self.gen_wrapper(used_regs, spilled_regs);
 
-        let project_root = get_project_root();
-        let base_path = project_root + "/core/src/fused_kernels/src/" + self.name.as_str();
+        let base_path = if target_path.is_some() {
+            let target_path = target_path.unwrap();
+            let xmake_template_path = get_project_root() + "/core/src/fused_kernels/xmake.lua.template";
+            let mut xmake_template = String::new();
+            fs::File::open(xmake_template_path)
+                .unwrap()
+                .read_to_string(&mut xmake_template)
+                .unwrap();
+            let xmake_target_path = target_path.clone() + "/xmake.lua";
+            self.compare_or_write(&xmake_target_path, &xmake_template);
+            target_path
+        } else {
+            get_project_root() + "/core/src/fused_kernels/src/" + self.name.as_str()
+        };
 
         // header file
         let header_path = base_path.clone() + HEADER_SUFFIX;

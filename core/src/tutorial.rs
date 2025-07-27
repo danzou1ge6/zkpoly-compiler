@@ -35,7 +35,7 @@ impl<T: RuntimeType> SimpleFunc<T> {
         }
 
         // load the dynamic library
-        let lib = libs.load(&lib_path);
+        let lib = libs.load_relative(&lib_path);
         // get the function pointer
         let c_func = unsafe { lib.get(b"simple_add\0") }.unwrap();
         Self {

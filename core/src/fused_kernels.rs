@@ -27,6 +27,7 @@ use zkpoly_runtime::{
     functions::{FuncMeta, Function, KernelType, RegisteredFunction},
 };
 
+use crate::build_func::{xmake_config_absolute, xmake_run_absolute};
 use crate::{
     build_func::{resolve_type, xmake_config, xmake_run},
     poly_ptr::{ConstPolyPtr, PolyPtr},
@@ -74,12 +75,21 @@ pub struct FusedOp<OuterId, InnerId> {
 const FIELD_NAME: &str = "FUSED_FIELD";
 impl<T: RuntimeType> FusedKernel<T> {
     pub fn new(libs: &mut Libs, meta: FusedKernelMeta) -> Self {
-        if !libs.contains(LIB_NAME) {
-            let field_type = resolve_type(type_name::<T::Field>());
-            xmake_config(FIELD_NAME, field_type);
-            xmake_run("fused_kernels");
-        }
-        let lib = libs.load(LIB_NAME);
+        let lib = if meta.lib_path.is_none() {
+            if !libs.contains(LIB_NAME) {
+                let field_type = resolve_type(type_name::<T::Field>());
+                xmake_config(FIELD_NAME, field_type);
+                xmake_run("fused_kernels");
+            }
+            libs.load_relative(LIB_NAME)
+        } else {
+            if !libs.contains_absolute(meta.lib_path.as_ref().unwrap()) {
+                let field_type = resolve_type(type_name::<T::Field>());
+                xmake_config_absolute(FIELD_NAME, field_type, meta.lib_path.as_ref().unwrap());
+                xmake_run_absolute("fused_kernels", meta.lib_path.as_ref().unwrap());
+            }
+            libs.load_absolute(meta.lib_path.as_ref().unwrap())
+        };
         // get the function pointer with the provided name (with null terminator)
         let c_func = unsafe { lib.get(format!("{}\0", meta.name).as_bytes()) }
             .expect("Failed to load function pointer");

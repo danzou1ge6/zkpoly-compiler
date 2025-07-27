@@ -63,6 +63,8 @@ impl<'s, Rt: RuntimeType> ProcessedType3<'s, Rt> {
                             version.chunk,
                             t2uf_tab.clone(),
                             &mut libs,
+                            Some("/home/xinwei/code/zkp/halo2/zkpoly-compiler/tmp".to_string()), // TODO: pass target path
+                            // todo!("target_path"), // TODO: pass target path
                         ))
                     },
                     "Done.",

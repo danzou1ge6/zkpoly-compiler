@@ -154,7 +154,7 @@ impl<T: RuntimeType> MSMPrecompute<T> {
         }
 
         // load the dynamic library
-        let lib = libs.load(&lib_path);
+        let lib = libs.load_relative(&lib_path);
         // get the function pointer
         let c_func = unsafe { lib.get(b"msm_precompute\0") }.unwrap();
         Self {
@@ -196,7 +196,7 @@ impl<T: RuntimeType> MSM<T> {
         }
 
         // load the dynamic library
-        let lib = libs.load(&lib_path);
+        let lib = libs.load_relative(&lib_path);
         // get the function pointer
         let c_func = unsafe { lib.get(b"msm\0") }.unwrap();
         Self {
