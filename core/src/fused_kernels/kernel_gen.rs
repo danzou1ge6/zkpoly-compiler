@@ -178,12 +178,12 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
         // this is used to inform xmake to set maxregcount
         // because we find sometimes the auto maxregcount is not very efficient
         // wrapper file
-        let wrapper_path = base_path.join(format!("{}_regs{}.cu", WRAPPER_SUFFIX, self.reg_limit));
+        let wrapper_path = base_path.join(format!("{}{}_regs{}.cu", self.name, WRAPPER_SUFFIX, self.reg_limit));
         self.compare_or_write(&wrapper_path, &wrapper);
 
         for (id, kernel) in kernels.iter().enumerate() {
             let kernel_path =
-                base_path.join(format!("_{SUB_FUNC_NAME}{id}_regs{}.cu", self.reg_limit));
+                base_path.join(format!("{}_{SUB_FUNC_NAME}{id}_regs{}.cu", self.name, self.reg_limit));
             self.compare_or_write(&kernel_path, kernel);
         }
     }
@@ -207,9 +207,10 @@ impl<OuterId: UsizeId, InnerId: UsizeId + 'static> FusedOp<OuterId, InnerId> {
     fn gen_header(&self, used_regs: usize) -> String {
         let mut header = String::new();
         header.push_str("#pragma once\n");
-        header.push_str("#include \"../../common/mont/src/field_impls.cuh\"\n");
-        header.push_str("#include \"../../common/iter/src/iter.cuh\"\n");
-        header.push_str("#include \"../../common/error/src/check.cuh\"\n");
+        let project_root = get_project_root();
+        header.push_str(&format!("#include \"{project_root}/core/src/common/mont/src/field_impls.cuh\"\n"));
+        header.push_str(&format!("#include \"{project_root}/core/src/common/iter/src/iter.cuh\"\n"));
+        header.push_str(&format!("#include \"{project_root}/core/src/common/error/src/check.cuh\"\n"));
         header.push_str("#include <cuda_runtime.h>\n");
         header.push_str("using iter::SliceIterator;\n");
         header.push_str("using mont::u32;\n");

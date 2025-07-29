@@ -88,7 +88,7 @@ impl<T: RuntimeType> FusedKernel<T> {
                 xmake_config_absolute(FIELD_NAME, field_type, meta.lib_path.as_ref().unwrap());
                 xmake_run_absolute("fused_kernels", meta.lib_path.as_ref().unwrap());
             }
-            libs.load_absolute(meta.lib_path.as_ref().unwrap())
+            libs.load_absolute(meta.lib_path.as_ref().unwrap().join(LIB_NAME))
         };
         // get the function pointer with the provided name (with null terminator)
         let c_func = unsafe { lib.get(format!("{}\0", meta.name).as_bytes()) }
