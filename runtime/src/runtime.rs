@@ -214,7 +214,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         instructions: &[Instruction],
         mut mem_allocator: Option<&mut CpuStaticAllocator>,
         mut gpu_allocator: Option<&mut HashMap<i32, CudaAllocator>>,
-        mut disk_allocator: Option<&Mutex<Vec<BuddyDiskPool>>>,
+        disk_allocator: Option<&Mutex<Vec<BuddyDiskPool>>>,
         _thread_id: usize,
     ) -> Option<Variable<T>> {
         for (i, instruction) in instructions.into_iter().enumerate() {

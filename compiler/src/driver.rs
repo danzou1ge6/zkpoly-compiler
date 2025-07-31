@@ -329,12 +329,12 @@ impl HardwareInfo {
                     id as i32,
                     CudaAllocator {
                         statik: mem::StaticAllocator::new(
-                            0,
+                            id,
                             gpu.smithereen_space() as usize,
                             memory_check,
                         ),
                         page: mem::PageAllocator::new(
-                            zkpoly_common::devices::DeviceType::GPU { device_id: 0 },
+                            zkpoly_common::devices::DeviceType::GPU { device_id: id },
                             self.page_size() as usize,
                             gpu.page_number(self.page_size()) as usize,
                         ),
