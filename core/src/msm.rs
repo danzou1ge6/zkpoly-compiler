@@ -2,6 +2,7 @@ use std::any::type_name;
 use std::io::{BufRead, BufReader};
 use std::marker::PhantomData;
 use std::os::raw::{c_long, c_uint, c_ulonglong, c_void};
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::ptr::{null, null_mut};
 use std::sync::Arc;
@@ -150,6 +151,8 @@ impl<T: RuntimeType> MSMPrecompute<T> {
         let lib_path = "lib".to_string() + &lib_name + ".so";
         let target_name = "lib/".to_string() + &lib_path;
         if !libs.contains(&lib_path) {
+            let makefile_path = PathBuf::from(get_project_root()).join("Makefile.msm");
+            msm_makefile::ensure(makefile_path, config.cards.iter().cloned());
             make_run(&target_name, "Makefile.msm");
         }
 
@@ -186,12 +189,79 @@ impl<T: RuntimeType> MSMPrecompute<T> {
     }
 }
 
+mod msm_makefile {
+
+    use super::*;
+
+    fn gen_msm_makefile(file_path: impl AsRef<Path>, sm_version: &str) {
+        println!("Generating Makefile.msm for SM Version {sm_version}");
+        Command::new("python3")
+            .current_dir(
+                file_path
+                    .as_ref()
+                    .parent()
+                    .expect("provided makefile path does not have parent directory"),
+            )
+            .arg("utils/expand_targets.py")
+            .arg("--arch")
+            .arg(sm_version)
+            .status()
+            .expect("failed to generate makefile");
+    }
+
+    fn read_sm_version_in_makefile(file_path: impl AsRef<Path>) -> Option<String> {
+        let f = std::fs::File::open(file_path.as_ref()).expect("read file failure");
+        let f = std::io::BufReader::new(f);
+        let first_line = f.lines().next()?.expect("read file error");
+
+        if first_line.starts_with("# SM Version: ") {
+            let version = &first_line["# SM Version: ".len()..];
+            Some(version.to_owned())
+        } else {
+            None
+        }
+    }
+
+    /// Makesure the Makefile exists and have the correct SM version
+    pub fn ensure(file_path: impl AsRef<Path>, cards: impl Iterator<Item = u32>) {
+        let sm_versions = cards.map(|c| zkpoly_cuda_api::device_info::sm_version(c as i32));
+        let sm_version = sm_versions
+            .reduce(|a, b| {
+                if a != b {
+                    panic!("all devices for MSM must have identical SM version")
+                } else {
+                    a
+                }
+            })
+            .expect("no cards provided for MSM");
+
+        let p = file_path.as_ref();
+
+        if !p.exists() {
+            gen_msm_makefile(p, &sm_version);
+        }
+
+        if !p.is_file() {
+            panic!(
+                "something that is not file exists at provided Makefile path {:?}",
+                p
+            )
+        }
+
+        if read_sm_version_in_makefile(p).is_none_or(|fsmv| fsmv != sm_version) {
+            gen_msm_makefile(p, &sm_version);
+        }
+    }
+}
+
 impl<T: RuntimeType> MSM<T> {
     pub fn new(libs: &mut Libs, config: MsmConfig) -> Self {
         let lib_name = get_msm_lib_name::<T>(config.clone());
         let lib_path = "lib".to_string() + &lib_name + ".so";
         let target_name = "lib/".to_string() + &lib_path;
         if !libs.contains(&lib_path) {
+            let makefile_path = PathBuf::from(get_project_root()).join("Makefile.msm");
+            msm_makefile::ensure(makefile_path, config.cards.iter().cloned());
             make_run(&target_name, "Makefile.msm");
         }
 
