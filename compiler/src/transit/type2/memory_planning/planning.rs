@@ -188,9 +188,6 @@ where
 
         let object_uses = op.object_uses().collect::<Vec<_>>();
 
-        // fixme
-        println!("{:?}: op = {:?}", index, op);
-
         match op {
             Type2(vid, outputs, node, temps, src) => {
                 // Prepare inputs
@@ -283,8 +280,6 @@ where
                             if let Some(target_device) = aux.next_used_device_except(
                                 inplace_of, vo.device()
                             ) {
-                                // fixme
-                                println!("before reuse, send {:?} from {:?} to {:?}", inplace_of, vo.device(), target_device);
 
                                 let from_pointer = allocators
                                     .handle(vo.device(), machine, aux)
@@ -682,8 +677,6 @@ where
             .chain(std::iter::once((Device::Disk, disk_allocator as &mut dyn Allocator<ObjectId, P, Rt>)))
             .collect();
 
-        // fixme
-        println!("begin phase planning {:?}, unplanned {:?}, planned {:?}", &planning_devices, &unplanned_devices, &planned_devices);
 
         ops = plan_devices(
             ops,

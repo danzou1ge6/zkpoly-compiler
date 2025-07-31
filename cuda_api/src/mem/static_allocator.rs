@@ -52,7 +52,6 @@ impl StaticAllocator {
         let right = offset + len * std::mem::size_of::<F>();
         assert!(right <= self.max_size);
         if self.check_overlap {
-            println!("Allocating range: {} - {}", left, right);
             let gap = self.ranges.lower_bound(std::ops::Bound::Included(&left));
             if let Some((pred_start, pre_end)) = gap.peek_prev() {
                 if !(pre_end <= &left) {
@@ -79,7 +78,6 @@ impl StaticAllocator {
         if self.check_overlap {
             let offset = unsafe { (ptr as *mut c_void).offset_from(self.base_ptr) } as usize;
             assert!(self.ranges.contains_key(&offset));
-            println!("Freeing range: {}", offset);
             self.ranges.remove(&offset);
         }
     }

@@ -107,9 +107,6 @@ where
 
         let addr = self.allocator.objects_at.get_forward(t).copied();
 
-        // fixme
-        println!("{:?} access {:?} got {:?}", self.device(), t, addr);
-
         if let Some(addr) = addr {
             self.update_next_use(addr, updated_next_use);
         }
@@ -118,8 +115,6 @@ where
     }
 
     fn allocate(&mut self, size: Size, t: &ObjectId) -> allocator::AResp<'s, ObjectId, P, P, Rt> {
-        println!("{:?} allocating {:?}", self.device(), t);
-
         if self.allocator.objects_at.get_forward(t).is_some() {
             panic!("object {:?} already allocated", t);
         }
@@ -250,9 +245,6 @@ where
     fn deallocate(&mut self, t: &ObjectId) -> allocator::AResp<'s, ObjectId, P, (), Rt> {
         self.tick();
 
-        // fixme
-        println!("GPU deallocating {:?}", t);
-
         let addr_id = self
             .allocator
             .objects_at
@@ -279,9 +271,6 @@ where
     }
 
     fn reuse(&mut self, new_object: ObjectId, old_object: ObjectId) {
-        // fixme
-        println!("GPU reuse {:?} from {:?}", new_object, old_object);
-
         let addr_id = self
             .allocator
             .objects_at
@@ -302,9 +291,6 @@ where
         size: Size,
         from: Device,
     ) -> allocator::AResp<'s, ObjectId, P, (), Rt> {
-        // fixme
-        println!("GPU claim {:?} from {:?}", t, from);
-
         if self.allocator.objects_at.get_forward(t).is_some() {
             return Response::Complete(Ok(()));
         }
@@ -331,14 +317,6 @@ impl<'a, 'm, 's, 'au, 'i, 'f, P: UsizeId + 'static, Rt: RuntimeType, D: DeviceMa
     AllocatorRealizer<'s, ObjectId, P, Rt> for Realizer<'a, 'm, 's, 'au, 'i, 'f, P, Rt, D>
 {
     fn allocate(&mut self, t: &ObjectId, pointer: &P) {
-        // fixme
-        println!(
-            "{:?} allocated at {:?} on {:?}",
-            t,
-            pointer,
-            self.machine.device()
-        );
-
         let (addr, size) = self.allocator.mapping[p_inv(*pointer)];
         let vn = self.aux.obj_info().typ(*t).with_normalized_p();
         let rv = ResidentalValue::new(Value::new(*t, self.machine.device(), vn), *pointer);
@@ -347,14 +325,6 @@ impl<'a, 'm, 's, 'au, 'i, 'f, P: UsizeId + 'static, Rt: RuntimeType, D: DeviceMa
     }
 
     fn deallocate(&mut self, t: &ObjectId, pointer: &P) {
-        // fixme
-        println!(
-            "{:?} deallocated at {:?} on {:?}",
-            t,
-            pointer,
-            self.machine.device()
-        );
-
         self.machine
             .deallocate_object(*t, pointer, self.aux.obj_info(), AllocVariant::Offset);
     }

@@ -16,22 +16,10 @@ pub mod exposed {
     pub struct SubmittedTask<Rt: RuntimeType> {
         pub(super) program: ProgramToken<Rt>,
         pub(super) inputs: EntryTable<Rt>,
-        pub(super) debug_opt: RuntimeDebug,
     }
     impl<Rt: RuntimeType> SubmittedTask<Rt> {
         pub fn new(program: ProgramToken<Rt>, inputs: EntryTable<Rt>) -> Self {
-            Self {
-                program,
-                inputs,
-                debug_opt: RuntimeDebug::none(),
-            }
-        }
-
-        pub fn with_debug_opt(self, x: RuntimeDebug) -> Self {
-            Self {
-                debug_opt: x,
-                ..self
-            }
+            Self { program, inputs }
         }
     }
 
@@ -76,7 +64,6 @@ impl<Rt: RuntimeType> exposed::Programs<Rt> {
 pub(super) struct SubmittedTask {
     pub(super) program: ProgramId,
     pub(super) inputs: erased::BoxedVariableTable,
-    pub(super) debug_opt: RuntimeDebug,
 }
 
 pub(super) struct RunReturn {
@@ -90,7 +77,6 @@ impl<Rt: RuntimeType> From<exposed::SubmittedTask<Rt>> for SubmittedTask {
         Self {
             program: value.program.id,
             inputs: Box::new(value.inputs),
-            debug_opt: value.debug_opt,
         }
     }
 }

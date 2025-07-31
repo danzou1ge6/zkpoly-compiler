@@ -182,9 +182,6 @@ impl<'m, 's, T, P> MachineHandle<'m, 's, T, P> {
         T: std::fmt::Debug,
         P: std::fmt::Debug,
     {
-        // fixme
-        println!("Planning machine emit Allocate({:?}, {:?})", t, pointer);
-
         self.m.emit(Operation::Allocate(t, self.device, pointer))
     }
 
@@ -233,12 +230,6 @@ where
 
             // Dead object needs no ejection
             if aux.dead(object) {
-                // fixme
-                println!(
-                    "{:?} dead, no ejection needed from {:?}",
-                    object, from_device
-                );
-
                 return Ok(());
             }
 
@@ -252,12 +243,6 @@ where
                 .object_available_on(devices.into_iter(), object, machine, aux)
                 .pop()
             {
-                // fixme
-                println!(
-                    "{:?} is alive on {:?}, no ejection needed from {:?}",
-                    object, alive_on, from_device
-                );
-
                 return Ok(());
             }
 
@@ -272,12 +257,6 @@ where
                     to_device
                 );
             }
-
-            // fixme
-            println!(
-                "ejecting {:?} from {:?} to {:?}",
-                object, from_device, to_device
-            );
 
             let c =
                 Continuation::simple_receive(from_device, from_pointer, to_device, size, object);
@@ -305,12 +284,6 @@ where
             if slice.is_some() && from_device == Device::Disk {
                 panic!("slicing from disk is not supported");
             }
-
-            // fixme
-            println!(
-                "{:?} provide object {:?} for {:?} on {:?}",
-                from_device, from_object, to_object, to_device
-            );
 
             if aux.is_planning(to_device) {
                 if aux.is_planning(from_device) {
@@ -465,9 +438,6 @@ where
                     .access(&t)
                     .expect("i just allocated this object");
 
-                // fixme
-                println!("{:?} received {:?} from {:?}", to_device, t, from_device);
-
                 if aux.is_planning(to_device) {
                     machine.transfer(to_device, to_pointer, t, from_device, from_pointer);
                 } else if aux.is_unplanned(to_device) {
@@ -500,12 +470,6 @@ where
                     .handle(from_device, machine, aux)
                     .access(&t)
                     .expect("token not found");
-
-                // fixme
-                println!(
-                    "simple_provide({:?}, p, {:?}, {:?}), from_device is planning",
-                    &to_device, &from_device, t
-                );
 
                 // - planning -> planning/planned, use transfer
                 // - planning -> unplanned, use eject

@@ -35,7 +35,10 @@ mod pages {
                     .next_use
                     .query_max_info(usize::from(i), usize::from(i))
                     .map(|x| x.value);
-                println!("page {:?}: occupied={}, next_use={:?}", i, occupied, next_use);
+                println!(
+                    "page {:?}: occupied={}, next_use={:?}",
+                    i, occupied, next_use
+                );
             }
         }
 
@@ -238,9 +241,6 @@ where
         }
 
         if let Some(pages) = self.allocator.pages.try_find_free_pages(number) {
-            // fixme
-            println!("{:?} allocating {} pages for {:?} with size {:?}", self.device(), pages.len(), t, size);
-
             let p = self.allocate_pages(pages, *t, next_use, size);
             Response::Complete(Ok(p))
         } else {
@@ -260,9 +260,6 @@ where
                 .unwrap_or_else(|| panic!("object {:?} not allocated", victim_object));
             let t = *t;
             let this_device = self.device();
-
-            // fixme
-            println!("{:?} ejecting {:?}", this_device, victim_object);
 
             Response::Continue(
                 Continuation::simple_eject(

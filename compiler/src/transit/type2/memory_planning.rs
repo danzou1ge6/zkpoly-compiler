@@ -257,12 +257,6 @@ pub fn plan<'s, Rt: RuntimeType>(
         panic!("disk is not enabled but some objects are spilled to disk; this indicates insufficient CPU space");
     }
 
-    // fixme
-    println!(
-        "Disk peak memory usage is {}",
-        disk_allocator.peak_memory_usage()
-    );
-
     Ok((
         chunk,
         Statistics {

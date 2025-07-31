@@ -25,7 +25,7 @@ target("fused_kernels")
             local regcount = filename:match("(%d+)%.[^%.]+$")
             if regcount then
                 local flag = "--maxrregcount=" .. regcount
-                print("Applying to " .. filename .. ": " .. flag)
+                -- print("Applying to " .. filename .. ": " .. flag)
                 -- 为该源文件添加该选项
                 -- 256 is the biggest value for maxrregcount, so we don't need to set it
                 if tonumber(regcount) < 256 then

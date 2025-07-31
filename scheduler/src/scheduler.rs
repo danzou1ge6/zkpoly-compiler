@@ -145,6 +145,7 @@ struct LaunchedTask {
     /// are expected to be set here.
     accepted: AcceptedTask,
     runtime: erased::BoxedRuntime,
+    runtime_debug: RuntimeDebug,
 }
 
 struct AcceptedTask {
@@ -189,6 +190,7 @@ pub struct SchedulerConfig {
     cards_per_request: usize,
     num_executors: usize,
     memory_check: bool,
+    runtime_debug: RuntimeDebug,
 }
 
 impl Default for SchedulerConfig {
@@ -197,6 +199,7 @@ impl Default for SchedulerConfig {
             cards_per_request: 1,
             num_executors: 4,
             memory_check: true,
+            runtime_debug: RuntimeDebug::none(),
         }
     }
 }
@@ -219,6 +222,13 @@ impl SchedulerConfig {
     pub fn with_memory_check(self, x: bool) -> Self {
         Self {
             memory_check: x,
+            ..self
+        }
+    }
+
+    pub fn with_runtime_debug(self, x: RuntimeDebug) -> Self {
+        Self {
+            runtime_debug: x,
             ..self
         }
     }
@@ -322,7 +332,11 @@ impl Scheduler {
                 }),
             );
 
-            let launched = LaunchedTask { accepted, runtime };
+            let launched = LaunchedTask {
+                accepted,
+                runtime,
+                runtime_debug: self.core.config.runtime_debug.clone(),
+            };
             self.control
                 .task_launcher
                 .send(launched)
@@ -430,10 +444,8 @@ pub fn make_scheduler<Rt: RuntimeType>(
                     let start = std::time::Instant::now();
 
                     let mut runtime = task.runtime;
-                    let (r, log) = runtime.run(
-                        task.accepted.submitted.inputs.as_ref(),
-                        task.accepted.submitted.debug_opt,
-                    );
+                    let (r, log) =
+                        runtime.run(task.accepted.submitted.inputs.as_ref(), task.runtime_debug);
                     let elapsed = start.elapsed();
 
                     println!(

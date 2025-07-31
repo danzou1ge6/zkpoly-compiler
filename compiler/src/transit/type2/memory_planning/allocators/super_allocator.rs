@@ -113,9 +113,6 @@ where
             return Response::Complete(Ok(()));
         }
 
-        // fixme
-        println!("claim object {:?} from {:?}", t, from);
-
         let p = self.allocator.p_allocator.alloc();
         self.allocator.mapping.insert(t.clone(), (p, size));
 
@@ -143,9 +140,6 @@ where
             .mapping
             .remove(&old_object)
             .unwrap_or_else(|| panic!("token {:?} not allocated", old_object));
-
-        // fixme
-        println!("reuse object {:?} to {:?}", old_object, new_object);
 
         self.allocator.mapping.insert(new_object.clone(), p);
     }
