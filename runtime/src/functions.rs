@@ -39,7 +39,7 @@ pub struct FusedKernelMeta {
     pub num_vars: usize,
     pub num_mut_vars: usize,
     pub pipelined_meta: Option<PipelinedMeta>,
-    pub lib_path: Option<PathBuf>, // path to the library, if None, it uses the default one
+    pub lib_path: PathBuf, // path to the library, if None, it uses the default one
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, PartialOrd, Eq, Ord)]

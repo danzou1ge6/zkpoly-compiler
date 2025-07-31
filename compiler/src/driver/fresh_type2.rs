@@ -296,7 +296,7 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
         constant_pool: &mut ConstantPool,
         versions_cpu_memory_divisions: impl Iterator<Item = u32>,
         ctx: &PanicJoinHandler,
-        kernel_dir: Option<PathBuf>,
+        kernel_dir: PathBuf,
     ) -> Result<Artifect<Rt>, Error<'s, Rt>> {
         Ok(self
             .to_semi_artifect(
@@ -317,7 +317,7 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
         constant_pool: &mut ConstantPool,
         versions_cpu_memory_divisions: impl Iterator<Item = u32>,
         ctx: &PanicJoinHandler,
-        kernel_dir: Option<PathBuf>,
+        kernel_dir: PathBuf,
     ) -> Result<SemiArtifect<Rt>, Error<'s, Rt>> {
         self.apply_passes(options, hardware_info, constant_pool, ctx)?
             .fuse(options, hardware_info, versions_cpu_memory_divisions, ctx)?

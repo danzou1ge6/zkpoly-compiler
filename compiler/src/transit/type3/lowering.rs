@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use crate::transit::type2;
-use crate::transit::type2::object_analysis::size::{IntegralSize, LogBlockSizes};
+use crate::transit::type2::object_analysis::size::LogBlockSizes;
 
 use super::track_splitting::TrackTasks;
 use super::{Track, VertexNode};
@@ -799,7 +799,7 @@ pub fn emit_multithread_instructions<'s, Rt: RuntimeType>(
     mut t3chunk: super::Chunk<'s, Rt>,
     t2uf_table: type2::user_function::Table<Rt>,
     libs: &mut Libs,
-    kernel_dir: Option<PathBuf>,
+    kernel_dir: PathBuf,
 ) -> (
     MultithreadChunk,
     FunctionTable<Rt>,
@@ -812,9 +812,7 @@ pub fn emit_multithread_instructions<'s, Rt: RuntimeType>(
     let mut f_table = FunctionTable::<Rt>::new();
     let (mut variable_id_allcoator, reg_id2var_id) = t3chunk.take_reg_id_allocator().decompose();
 
-    let kernel_dir = kernel_dir.inspect(|dir| {
-        std::fs::create_dir_all(&dir);
-    });
+    std::fs::create_dir_all(&kernel_dir).expect("failed to create directory for kernels");
     let generated_functions = kernel_gen::get_function_id(
         &mut f_table,
         &t3chunk,
@@ -964,7 +962,6 @@ pub fn lower<'s, Rt: RuntimeType>(
     stream2variable_id: StreamSpecific<VariableId>,
     variable_id_allocator: IdAllocator<VariableId>,
     lbss: LogBlockSizes,
-    libs: &mut Libs,
 ) -> Chunk<Rt> {
     let mut instructions = Vec::new();
 

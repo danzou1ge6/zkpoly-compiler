@@ -21,7 +21,7 @@ impl<'s, Rt: RuntimeType> ProcessedType3<'s, Rt> {
         self,
         options: &DebugOptions,
         hardware_info: &HardwareInfo,
-        kernel_dir: Option<PathBuf>,
+        kernel_dir: PathBuf,
     ) -> Result<SemiArtifect<Rt>, Error<'s, Rt>> {
         let Self {
             versions,
@@ -64,7 +64,7 @@ impl<'s, Rt: RuntimeType> ProcessedType3<'s, Rt> {
                             version.chunk,
                             t2uf_tab.clone(),
                             &mut libs,
-                            kernel_dir.clone(),
+                            kernel_dir.join(helper.dirname("version")),
                         ))
                     },
                     "Done.",
@@ -95,7 +95,6 @@ impl<'s, Rt: RuntimeType> ProcessedType3<'s, Rt> {
                         stream2variable_id,
                         variable_id_allocator,
                         lbss,
-                        &mut libs,
                     ))
                 },
                 "Done.",

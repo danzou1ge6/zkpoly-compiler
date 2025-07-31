@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     io::{Read, Write},
     panic::PanicHookInfo,
     path::PathBuf,
@@ -396,6 +396,14 @@ impl<'a> VersionsHelper<'a> {
         .unwrap()
         .to_string()
     }
+
+    fn dirname(&self, f: &'static str) -> String {
+        format!(
+            "{}_{}",
+            f,
+            human_readable_size(self.mem_info.memory_limit())
+        )
+    }
 }
 
 #[derive(Clone)]
@@ -407,9 +415,20 @@ impl<T> Versions<T> {
         divisions: impl Iterator<Item = u32>,
         mut f: impl for<'a> FnMut(&'a MemoryInfo, VersionsHelper<'a>) -> Result<T, Error<'s, Rt>>,
     ) -> Result<Self, Error<'s, Rt>> {
+        let infos = hardware_info.smaller_cpus(divisions).collect::<Vec<_>>();
+        infos.iter().fold(HashMap::<String, MemoryInfo>::new(), |mut acc, e| {
+            let s = human_readable_size(e.memory_limit());
+            if let Some(m) = acc.get(&s) {
+                panic!("We are distinguishing versions of artifect using human readable CPU memory limits, but your configuration of versions are undistinguishable: One with size {}({}) and the other with {}", e.memory_limit(), s, m.memory_limit())
+            } else {
+                acc.insert(s, e.clone());
+                acc
+            }
+        });
+
         Ok(Self(
-            hardware_info
-                .smaller_cpus(divisions)
+            infos
+                .into_iter()
                 .map(|cpu| {
                     let t = f(&cpu, VersionsHelper { mem_info: &cpu })?;
                     Ok((cpu, t))
