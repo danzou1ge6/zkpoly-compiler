@@ -330,13 +330,13 @@ impl HardwareInfo {
                     CudaAllocator {
                         statik: mem::StaticAllocator::new(
                             id,
-                            gpu.smithereen_space() as usize,
+                            gpu.memory_limit() as usize,
                             memory_check,
                         ),
                         page: mem::PageAllocator::new(
                             zkpoly_common::devices::DeviceType::GPU { device_id: id },
                             self.page_size() as usize,
-                            gpu.page_number(self.page_size()) as usize,
+                            0,
                         ),
                     },
                 )

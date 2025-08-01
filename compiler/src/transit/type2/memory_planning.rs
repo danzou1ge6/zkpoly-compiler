@@ -150,15 +150,12 @@ pub fn plan<'s, Rt: RuntimeType>(
 
     let lbss = allocators::collect_integral_sizes(obj_info.sizes());
     let mut gpu_allocators: Vec<
-        SmithereenWrapper<PageAllocator<Pointer, Rt, Gpu>, Pointer, Rt, Gpu>,
+        SmithereenWrapper<SlabAllocator<Pointer, Rt, Gpu>, Pointer, Rt, Gpu>,
     > = hd_info
         .gpus()
         .map(|gpu| {
             SmithereenWrapper::new(
-                PageAllocator::new(
-                    gpu.page_number(hd_info.page_size()) as usize,
-                    hd_info.page_size(),
-                ),
+                SlabAllocator::new(gpu.integral_space(), gpu.smithereen_space(), lbss.clone()),
                 gpu.smithereen_space(),
                 0,
             )
