@@ -226,7 +226,7 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
          */
         let rust_func = move |mut mut_var: Vec<&mut Variable<T>>,
                               var: Vec<&Variable<T>>,
-                              _: Arc<dyn Fn(i32) -> i32 + Send + Sync>|
+                              device_mapping: Arc<dyn Fn(i32) -> i32 + Send + Sync>|
               -> Result<(), RuntimeError> {
             // the first of mut_var is the buffer for the arguments
             let (tmp_buffers, mut_var) = mut_var.split_at_mut(2);
@@ -237,6 +237,8 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
                 arg_buffer.size
                     >= (2 * num_of_vars + 3 * num_of_mut_vars) * std::mem::size_of::<PolyPtr>()
             );
+
+            let device = device_mapping(0);
 
             assert!((mut_var.len() - 2 * num_mut_scalars) % 4 == 0);
             assert!((var.len() - 2 * num_scalars) % 3 == 0);
@@ -259,9 +261,9 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
             assert!(len % divide_parts == 0);
 
             // get streams
-            let ref h2d_stream = CudaStream::new(0); // TODO: select the device
-            let ref compute_stream = CudaStream::new(0); // TODO: select the device
-            let ref d2h_stream = CudaStream::new(0); // TODO: select the device
+            let ref h2d_stream = CudaStream::new(device);
+            let ref compute_stream = CudaStream::new(device);
+            let ref d2h_stream = CudaStream::new(device);
 
             // get scalars
             let mut mut_scalars = Vec::new();
@@ -409,23 +411,23 @@ impl<T: RuntimeType> RegisteredFunction<T> for PipelinedFusedKernel<T> {
 
             // create events
             let mut_h2d_complete = [
-                CudaEventRaw::new(0),
-                CudaEventRaw::new(0),
-                CudaEventRaw::new(0),
+                CudaEventRaw::new(device),
+                CudaEventRaw::new(device),
+                CudaEventRaw::new(device),
             ];
             let mut_compute_complete = [
-                CudaEventRaw::new(0),
-                CudaEventRaw::new(0),
-                CudaEventRaw::new(0),
+                CudaEventRaw::new(device),
+                CudaEventRaw::new(device),
+                CudaEventRaw::new(device),
             ];
             let mut_d2h_complete = [
-                CudaEventRaw::new(0),
-                CudaEventRaw::new(0),
-                CudaEventRaw::new(0),
+                CudaEventRaw::new(device),
+                CudaEventRaw::new(device),
+                CudaEventRaw::new(device),
             ];
 
-            let h2d_complete = [CudaEventRaw::new(0), CudaEventRaw::new(0)];
-            let compute_complete = [CudaEventRaw::new(0), CudaEventRaw::new(0)];
+            let h2d_complete = [CudaEventRaw::new(device), CudaEventRaw::new(device)];
+            let compute_complete = [CudaEventRaw::new(device), CudaEventRaw::new(device)];
 
             let mut mut_buffer_id = 0;
             let mut buffer_id = 0;
