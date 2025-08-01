@@ -370,8 +370,18 @@ where
     }
 
     fn deallocate(&mut self, t: &ObjectId, pointer: &P) {
-        self.machine
-            .deallocate_object(*t, pointer, self.aux.obj_info(), AllocVariant::Paged);
+        let (pages, _) = &self.allocator.page_mapping[*pointer];
+        let vs = pages.len() * (self.allocator.page_size as usize);
+
+        self.machine.deallocate_object(
+            *t,
+            pointer,
+            self.aux.obj_info(),
+            AllocVariant::Paged {
+                size: vs,
+                pages: pages.len(),
+            },
+        );
     }
 
     fn transfer(

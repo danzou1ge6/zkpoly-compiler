@@ -21,7 +21,7 @@ use crate::{
 };
 
 use zkpoly_cuda_api::{
-    bindings::cudaDeviceSynchronize,
+    bindings::{cudaDeviceSynchronize, cudaSetDevice},
     cuda_check,
     mem::CudaAllocator,
     stream::{CudaEvent, CudaEventRaw},
@@ -298,7 +298,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                 } => {
                     let src = (*self.variable)[src_id].as_ref().unwrap();
                     let dst = (*self.variable)[dst_id].as_mut().unwrap();
-                    self.transfer(src, dst, src_device, dst_device, stream);
+                    self.transfer(src, dst, src_device.clone(), dst_device.clone(), stream);
                 }
                 FuncCall {
                     func_id,

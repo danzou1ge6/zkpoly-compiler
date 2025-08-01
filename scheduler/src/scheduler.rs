@@ -162,6 +162,7 @@ impl std::fmt::Debug for AcceptedTask {
             .field("id", &self.id)
             .field("version", &self.version)
             .field("cards", &self.cards)
+            .field("program", &self.submitted.program)
             .field("memory_offset", &self.memory_offset)
             .finish()
     }
@@ -447,6 +448,18 @@ pub fn make_scheduler<Rt: RuntimeType>(
                     let (r, log) =
                         runtime.run(task.accepted.submitted.inputs.as_ref(), task.runtime_debug);
                     let elapsed = start.elapsed();
+
+                    drop(runtime);
+
+                    unsafe {
+                        use zkpoly_cuda_api::bindings::cudaDeviceReset;
+                        use zkpoly_cuda_api::bindings::cudaSetDevice;
+                        use zkpoly_cuda_api::cuda_check;
+                        for card in task.accepted.cards.iter() {
+                            cuda_check!(cudaSetDevice(*card));
+                            cuda_check!(cudaDeviceReset());
+                        }
+                    }
 
                     println!(
                         "执行器 {} 完成任务 {:?} 在 {:?}",
