@@ -3,23 +3,6 @@ use std::{collections::BTreeMap, ffi::c_void};
 
 use crate::cuda_check;
 
-pub fn alloc_pinned<T: Sized>(len: usize) -> *mut T {
-    let mut ptr: *mut T = std::ptr::null_mut();
-    unsafe {
-        cuda_check!(cudaMallocHost(
-            &mut ptr as *mut *mut T as *mut *mut c_void,
-            len * std::mem::size_of::<T>()
-        ));
-    }
-    ptr
-}
-
-pub fn free_pinned<T: Sized>(ptr: *mut T) {
-    unsafe {
-        cuda_check!(cudaFreeHost(ptr as *mut c_void));
-    }
-}
-
 pub struct StaticAllocator {
     device_id: i32,
     base_ptr: *mut std::ffi::c_void,

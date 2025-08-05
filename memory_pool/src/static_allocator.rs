@@ -1,9 +1,6 @@
-use std::{collections::BTreeMap, os::raw::c_void};
+use std::collections::BTreeMap;
 
-use zkpoly_cuda_api::{
-    bindings::{cudaFreeHost, cudaMallocHost},
-    cuda_check,
-};
+use zkpoly_cuda_api::mem::{alloc_pinned, free_pinned};
 
 struct SanityChecker {
     /// A mapping from start to end of allocated ranges.
@@ -56,16 +53,12 @@ pub struct CpuStaticAllocator {
 unsafe impl Send for CpuStaticAllocator {}
 
 fn allocate_pinned_memory(capacity: usize) -> *mut u8 {
-    let mut ptr: *mut c_void = std::ptr::null_mut();
-    unsafe { cuda_check!(cudaMallocHost(&mut ptr, capacity)) };
-
-    ptr as *mut u8
+    alloc_pinned(capacity)
 }
 
-fn free_pinned_memory(ptr: *mut u8) {
-    unsafe {
-        cuda_check!(cudaFreeHost(ptr as *mut c_void));
-    }
+#[allow(unused_variables)]
+fn free_pinned_memory(ptr: *mut u8, capacity: usize) {
+    free_pinned(ptr);
 }
 
 impl CpuStaticAllocator {
@@ -83,10 +76,11 @@ impl CpuStaticAllocator {
     }
 
     pub fn slice(&self, offset: usize, size: usize) -> Self {
+        let base_ptr = unsafe { self.base_ptr.byte_add(offset) };
         Self {
             capacity: size,
             checker: self.checker.as_ref().map(|_| SanityChecker::new()),
-            base_ptr: unsafe { self.base_ptr.byte_add(offset) },
+            base_ptr,
             primary: false,
         }
     }
@@ -118,7 +112,7 @@ impl CpuStaticAllocator {
 impl Drop for CpuStaticAllocator {
     fn drop(&mut self) {
         if self.primary {
-            free_pinned_memory(self.base_ptr);
+            free_pinned_memory(self.base_ptr, self.capacity);
         }
     }
 }

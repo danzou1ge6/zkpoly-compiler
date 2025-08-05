@@ -19,105 +19,6 @@ use prelude::*;
 
 define_usize_id!(TaskId);
 
-#[derive(Debug)]
-struct HalfMemory {
-    assigned_tasks: HashSet<TaskId>,
-    used: usize,
-    offset: usize,
-    total: usize,
-    estimated_free_at: Instant,
-}
-
-impl HalfMemory {
-    fn empty(offset: usize, size: usize) -> Self {
-        Self {
-            assigned_tasks: HashSet::new(),
-            used: 0,
-            offset,
-            total: size,
-            estimated_free_at: Instant::now(),
-        }
-    }
-
-    fn free(&self) -> bool {
-        self.assigned_tasks.is_empty()
-    }
-
-    fn add_task(&mut self, task: &AcceptedTask, estimated_free_at: Instant) -> usize {
-        let offset = self.offset + self.used;
-
-        let task_size = task.version.as_ref().unwrap().memory_limit() as usize;
-        self.assigned_tasks.insert(task.id);
-        self.used += task_size;
-        self.estimated_free_at = self.estimated_free_at.max(estimated_free_at);
-
-        offset
-    }
-
-    fn space_left(&self) -> usize {
-        self.total - self.used
-    }
-}
-
-#[derive(Debug)]
-enum AvailableMemory {
-    Intact(Option<TaskId>),
-    Halved([HalfMemory; 2]),
-}
-
-impl AvailableMemory {
-    fn try_switch_to_intact(&mut self) {
-        match &self {
-            AvailableMemory::Halved([h1, h2]) if h1.free() && h2.free() => {
-                *self = AvailableMemory::Intact(None)
-            }
-            _ => {}
-        }
-    }
-
-    fn try_switch_to_halved(&mut self, total_memory: usize) {
-        if let AvailableMemory::Intact(None) = &self {
-            let half_size = total_memory / 2;
-            *self = AvailableMemory::Halved([
-                HalfMemory::empty(0, half_size),
-                HalfMemory::empty(half_size, total_memory - half_size),
-            ]);
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct GlobalResources {
-    available_cards: Vec<i32>,
-    available_memory: AvailableMemory,
-    /// Total bytes of CPU memory
-    total_memory: usize,
-}
-
-impl GlobalResources {
-    pub fn new(cards: Vec<i32>, available_memory: usize) -> Self {
-        Self {
-            available_memory: AvailableMemory::Intact(None),
-            total_memory: available_memory,
-            available_cards: cards,
-        }
-    }
-}
-
-fn try_take_cards(cards: &mut Vec<i32>, n: usize) -> Option<Vec<i32>> {
-    if cards.len() >= n {
-        Some((0..n).map(|_| cards.pop().unwrap()).collect())
-    } else {
-        None
-    }
-}
-
-impl GlobalResources {
-    fn try_take_cards(&mut self, n: usize) -> Option<Vec<i32>> {
-        try_take_cards(&mut self.available_cards, n)
-    }
-}
-
 mod erased;
 mod submitter;
 
@@ -316,6 +217,10 @@ impl Scheduler {
                     accepted.memory_offset.unwrap(),
                     accepted.version.as_ref().unwrap().memory_limit() as usize,
                 ),
+                // cpu: CpuStaticAllocator::new(
+                //     accepted.version.as_ref().unwrap().memory_limit() as usize,
+                //     true,
+                // ),
                 gpu: self.hd_info.gpu_allocators_for(
                     self.core.config.memory_check,
                     accepted.cards.iter().copied(),
@@ -451,16 +356,6 @@ pub fn make_scheduler<Rt: RuntimeType>(
 
                     drop(runtime);
 
-                    unsafe {
-                        use zkpoly_cuda_api::bindings::cudaDeviceReset;
-                        use zkpoly_cuda_api::bindings::cudaSetDevice;
-                        use zkpoly_cuda_api::cuda_check;
-                        for card in task.accepted.cards.iter() {
-                            cuda_check!(cudaSetDevice(*card));
-                            cuda_check!(cudaDeviceReset());
-                        }
-                    }
-
                     println!(
                         "执行器 {} 完成任务 {:?} 在 {:?}",
                         i, task.accepted.id, elapsed,
@@ -495,7 +390,7 @@ pub fn make_scheduler<Rt: RuntimeType>(
     let memory_check = config.memory_check;
     let core = Core::new(
         config,
-        GlobalResources::new(
+        core::GlobalResources::new(
             (0..hd_info.gpus().count()).map(|x| x as i32).collect(),
             hd_info.cpu().memory_limit() as usize,
         ),
