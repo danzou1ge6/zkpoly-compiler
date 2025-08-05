@@ -478,7 +478,7 @@ impl<T> Versions<T> {
             let path = entry?.path();
             if path
                 .file_stem()
-                .is_some_and(|f| f.to_string_lossy().into_owned().starts_with("versions_"))
+                .is_some_and(|f| f.to_string_lossy().into_owned().starts_with("version_"))
                 && path.is_file()
                 && path
                     .extension()
@@ -507,7 +507,7 @@ impl<T> Versions<T> {
             let path = entry?.path();
             if path
                 .file_stem()
-                .is_some_and(|f| f.to_string_lossy().into_owned().starts_with("versions_"))
+                .is_some_and(|f| f.to_string_lossy().into_owned().starts_with("version_"))
                 && path.is_file()
                 && path
                     .extension()
@@ -515,10 +515,11 @@ impl<T> Versions<T> {
             {
                 let mut f = std::fs::File::open(path)?;
 
+                let mut buffer = String::new();
+                f.read_to_string(&mut buffer)?;
+
                 // SAFETY: All existing immutable reference to `buffers` are to elements before the one we are pushing here
                 unsafe {
-                    let mut buffer = String::new();
-                    f.read_to_string(&mut buffer);
                     let buffers: *mut Vec<String> = buffers as *const _ as _;
                     buffers.as_mut().unwrap().push(buffer);
                 }
