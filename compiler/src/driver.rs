@@ -2,7 +2,7 @@
 //! eventually producing the [`Artifect`] which can be run by the dispatcher.
 
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     io::{Read, Write},
     panic::PanicHookInfo,
     path::PathBuf,
@@ -176,7 +176,7 @@ impl DebugOptions {
 }
 
 /// Configure a device's memory.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[derive(Debug, PartialOrd, Ord, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct MemoryInfo {
     pub(crate) memory_limit: u64,
     pub(crate) smithereen_space: u64,
@@ -489,6 +489,35 @@ impl<T> Versions<T> {
                 .map(|(cpu, t)| {
                     let t2 = f(&cpu, t, VersionsHelper { mem_info: &cpu })?;
                     Ok((cpu, t2))
+                })
+                .collect::<Result<_, _>>()?,
+        ))
+    }
+
+    pub fn map_i<'s, T2, Rt: RuntimeType>(
+        self,
+        mut f: impl for<'a> FnMut(
+            &'a MemoryInfo,
+            T,
+            VersionsHelper<'a>,
+        ) -> Result<(MemoryInfo, T2), Error<'s, Rt>>,
+    ) -> Result<Versions<T2>, Error<'s, Rt>> {
+        let mut existent_versions = BTreeSet::new();
+
+        Ok(Versions(
+            self.0
+                .into_iter()
+                .filter_map(|(cpu, t)| {
+                    let (cpu, t2) = match f(&cpu, t, VersionsHelper { mem_info: &cpu }) {
+                        Ok(x) => x,
+                        Err(e) => return Some(Err(e)),
+                    };
+                    if existent_versions.contains(&cpu) {
+                        None
+                    } else {
+                        existent_versions.insert(cpu.clone());
+                        Some(Ok((cpu, t2)))
+                    }
                 })
                 .collect::<Result<_, _>>()?,
         ))
