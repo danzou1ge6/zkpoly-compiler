@@ -1,5 +1,8 @@
+//! This module provides methods to drive the compiler through various intermediate representations,
+//! eventually producing the [`Artifect`] which can be run by the dispatcher.
+
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, HashMap},
     io::{Read, Write},
     panic::PanicHookInfo,
     path::PathBuf,
@@ -23,6 +26,7 @@ use crate::{
 
 pub use ast::ConstantPool;
 
+/// Controls whether and where debugging files are written to.
 #[derive(Debug, Clone)]
 pub struct DebugOptions {
     debug_dir: PathBuf,
@@ -49,6 +53,7 @@ pub struct DebugOptions {
 }
 
 impl DebugOptions {
+    /// Enable all debugging files, written to directory `debug_dir`.
     pub fn all(debug_dir: PathBuf) -> Self {
         std::fs::create_dir_all(&debug_dir).unwrap();
         Self {
@@ -76,6 +81,7 @@ impl DebugOptions {
         }
     }
 
+    /// Enable no debugging files, written to directory `debug_dir`.
     pub fn none(debug_dir: PathBuf) -> Self {
         std::fs::create_dir_all(&debug_dir).unwrap();
         Self {
@@ -103,6 +109,7 @@ impl DebugOptions {
         }
     }
 
+    /// Enable only critical debugging files, written to directory `debug_dir`.
     pub fn minimal(debug_dir: PathBuf) -> Self {
         let r = Self::none(debug_dir);
         Self {
@@ -116,23 +123,27 @@ impl DebugOptions {
         }
     }
 
+    /// Configure whether to debug Type3 intermediate results.
     pub fn with_type3(mut self, switch: bool) -> Self {
         self.debug_fresh_type3 = switch;
         self.debug_extend_rewriting = switch;
         self
     }
 
+    /// Configure whether to debug emitted instructions.
     pub fn with_inst(mut self, switch: bool) -> Self {
         self.debug_multithread_instructions = switch;
         self.debug_instructions = switch;
         self
     }
 
+    /// Configure the Type2 visualizer to use.
     pub fn with_type2_visualizer(mut self, type2_visualizer: Type2DebugVisualizer) -> Self {
         self.type2_visualizer = type2_visualizer;
         self
     }
 
+    /// Configure whether to print the pass being applied during compilation.
     pub fn with_log(mut self, log: bool) -> Self {
         self.log = log;
         self
@@ -164,6 +175,7 @@ impl DebugOptions {
     }
 }
 
+/// Configure a device's memory.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct MemoryInfo {
     pub(crate) memory_limit: u64,
@@ -171,6 +183,8 @@ pub struct MemoryInfo {
 }
 
 impl MemoryInfo {
+    /// Configure the device to use `memory_limit` bytes of memory,
+    /// `smithereen_space` of which are dedicated to small memory objects.
     pub fn new(memory_limit: u64, smithereen_space: u64) -> Self {
         Self {
             memory_limit,
@@ -178,37 +192,45 @@ impl MemoryInfo {
         }
     }
 
+    /// Get memory limit in bytes of the configuration.
     pub fn memory_limit(&self) -> u64 {
         self.memory_limit
     }
 
+    /// Get memory limit in giga bytes of the configuration.
     pub fn memory_limit_gigabytes(&self) -> f64 {
         self.memory_limit as f64 / 2.0_f64.powi(30)
     }
 
+    /// Get memory space dedicated to small memory objects.
     pub fn smithereen_space(&self) -> u64 {
         self.smithereen_space
     }
 
+    /// Get memory space dedicated to large memory objects.
     pub fn integral_space(&self) -> u64 {
         self.memory_limit - self.smithereen_space
     }
 
-    pub fn page_number(&self, page_size: u64) -> u64 {
+    pub(crate) fn page_number(&self, page_size: u64) -> u64 {
         self.integral_space() / page_size
     }
 }
 
+/// Configure a disk device to provide memory for computation.
 #[derive(Debug, Clone)]
 pub struct DiskMemoryInfo {
     disk_path: Option<PathBuf>,
 }
 
 impl DiskMemoryInfo {
-    pub fn new(disk_path: Option<PathBuf>) -> Self {
-        Self { disk_path }
+    /// Configure to use the disk device holding `path` in file system.
+    /// If [`None`] is provided, use system temporary directory.
+    pub fn new(path: Option<PathBuf>) -> Self {
+        Self { disk_path: path }
     }
 
+    /// Get the path configured in `new`.
     pub fn disk_path(&self) -> Option<&PathBuf> {
         self.disk_path.as_ref()
     }
@@ -218,6 +240,7 @@ impl DiskMemoryInfo {
     }
 }
 
+/// Configure various devices in system for computation.
 #[derive(Debug, Clone)]
 pub struct HardwareInfo {
     gpus: Vec<MemoryInfo>,
@@ -227,18 +250,22 @@ pub struct HardwareInfo {
 }
 
 impl HardwareInfo {
+    /// Get configured number of GPU's in the system.
     pub fn n_gpus(&self) -> usize {
         self.gpus.len()
     }
 
+    /// Iterate through each GPU's configuration.
     pub fn gpus(&self) -> impl Iterator<Item = &MemoryInfo> {
         self.gpus.iter()
     }
 
+    /// Iterate through each disk device's configuration.
     pub fn disks(&self) -> impl Iterator<Item = &DiskMemoryInfo> {
         self.disk.iter()
     }
 
+    /// Get CPU memory's configuration.
     pub fn cpu(&self) -> &MemoryInfo {
         &self.cpu
     }
@@ -250,6 +277,7 @@ impl HardwareInfo {
             .expect("no GPU")
     }
 
+    /// Create a configuation with only one CPU, no GPU nor disk.
     pub fn new(cpu: MemoryInfo) -> Self {
         Self {
             gpus: Vec::new(),
@@ -259,6 +287,7 @@ impl HardwareInfo {
         }
     }
 
+    /// Configure page size used in the system.
     pub fn with_page_size(self, page_size: u64) -> Self {
         Self {
             page_size: Some(page_size),
@@ -266,32 +295,42 @@ impl HardwareInfo {
         }
     }
 
+    /// Configure CPU.
     pub fn with_cpu(self, cpu: MemoryInfo) -> Self {
         HardwareInfo { cpu, ..self }
     }
 
+    /// Add a disk configuation.
     pub fn with_disk(mut self, info: DiskMemoryInfo) -> Self {
         self.disk.push(info);
         self
     }
 
+    /// Add a GPU configuation.
     pub fn with_gpu(mut self, gpu: MemoryInfo) -> Self {
         self.gpus.push(gpu);
         self
     }
 
+    /// Get page size used in the system.
+    ///
+    /// # Panics
+    /// When system page size is not configured
     pub fn page_size(&self) -> u64 {
         self.page_size.expect("page size not specified")
     }
 
+    /// Get number of disks in the system.
     pub fn disks_available(&self) -> usize {
         self.disk.len()
     }
 
+    /// Build the CPU memory pool as configured.
     pub fn cpu_allocator(&self, memory_check: bool) -> CpuStaticAllocator {
         CpuStaticAllocator::new(self.cpu().memory_limit() as usize, memory_check)
     }
 
+    /// Build the GPU memory pools as configured, indexed by CUDA device ID's.
     pub fn gpu_allocators(&self, memory_check: bool) -> HashMap<i32, CudaAllocator> {
         use zkpoly_cuda_api::mem;
         self.gpus()
@@ -316,6 +355,8 @@ impl HardwareInfo {
             .collect()
     }
 
+    /// Build the GPU memory pools as configured, for a subset of GPU's identified by
+    /// CUDA device ID's.
     pub fn gpu_allocators_for(
         &self,
         memory_check: bool,
@@ -344,6 +385,7 @@ impl HardwareInfo {
             .collect()
     }
 
+    /// Build the Disk memory pools as configured.
     pub fn disk_allocator(&self, max_block: usize) -> DiskMemoryPool {
         self.disks()
             .map(|disk_info| {
@@ -353,7 +395,7 @@ impl HardwareInfo {
             .collect()
     }
 
-    pub fn smaller_cpus<'a>(
+    pub(crate) fn smaller_cpus<'a>(
         &'a self,
         divisions: impl Iterator<Item = u32> + 'a,
     ) -> impl Iterator<Item = MemoryInfo> + 'a {
@@ -791,6 +833,7 @@ pub enum Error<'s, Rt: RuntimeType> {
 }
 
 #[derive(Clone)]
+/// Used for preventing panics to cause subprocesses writing debug files to exit.
 pub struct PanicJoinHandler(
     Arc<
         Mutex<(

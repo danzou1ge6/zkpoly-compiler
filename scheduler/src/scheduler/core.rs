@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use super::*;
 
 #[derive(Debug)]
@@ -105,7 +107,7 @@ impl GlobalResources {
 pub struct Core {
     pub config: SchedulerConfig,
     /// Newly submitted tasks go here
-    pending_tasks: Vec<AcceptedTask>,
+    pending_tasks: VecDeque<AcceptedTask>,
     /// We schedule tasks window by window. by algorithms described in
     ///   Approximate Algorithms for Scheduling Parallelizable Tasks
     /// Takss from `pending_tasks` are dumped to this queue periodically
@@ -126,7 +128,7 @@ impl Core {
     ) -> Self {
         Self {
             config: config,
-            pending_tasks: Vec::new(),
+            pending_tasks: VecDeque::new(),
             scheduling_window: Vec::new(),
             scheduling_window_sorted: false,
             scheduling_window_allotted: false,
@@ -153,13 +155,16 @@ impl Core {
             version: None,
             memory_offset: None,
         };
-        self.pending_tasks.push(accepted);
+        self.pending_tasks.push_back(accepted);
         id
     }
 
     fn dump_tasks_to_scheduling_window(&mut self) {
-        self.scheduling_window
-            .extend(std::mem::take(&mut self.pending_tasks).into_iter());
+        let n = self
+            .config
+            .schedule_window_size
+            .min(self.pending_tasks.len());
+        self.scheduling_window.extend(self.pending_tasks.drain(..n));
         self.scheduling_window_sorted = false;
         self.scheduling_window_allotted = false;
     }
@@ -219,6 +224,8 @@ impl Core {
     /// Choose from schedule window a task to run.
     /// The returned [`AcceptedTask`] guarantees that the `version`, `cards` and `memory_offset` fields are set.
     pub fn schedule(&mut self) -> Option<AcceptedTask> {
+        let cards_per_request = 1;
+
         if self.scheduling_window.is_empty() {
             self.dump_tasks_to_scheduling_window();
         }
@@ -245,7 +252,7 @@ impl Core {
         }) {
             self.resources.available_memory.try_switch_to_intact();
 
-            if let Some(cards) = self.resources.try_take_cards(self.config.cards_per_request) {
+            if let Some(cards) = self.resources.try_take_cards(cards_per_request) {
                 if let AvailableMemory::Intact(None) = self.resources.available_memory {
                     let mut task = self.scheduling_window.remove(j);
                     task.cards = cards;
@@ -285,10 +292,9 @@ impl Core {
                 halves.sort_by_key(|halve| halve.estimated_free_at);
 
                 for half in halves {
-                    if let Some(cards) = try_take_cards(
-                        &mut self.resources.available_cards,
-                        self.config.cards_per_request,
-                    ) {
+                    if let Some(cards) =
+                        try_take_cards(&mut self.resources.available_cards, cards_per_request)
+                    {
                         if half.space_left()
                             >= task.version.as_ref().unwrap().memory_limit() as usize
                         {

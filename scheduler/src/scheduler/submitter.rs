@@ -8,22 +8,30 @@ define_usize_id!(ProgramId);
 pub mod exposed {
     use super::*;
 
+    /// The result of task exeuction.
     pub struct RunReturn<Rt: RuntimeType> {
+        /// Return value of the computation graph.
         pub ret_value: Option<Variable<Rt>>,
         pub log: Log,
+        /// Total time consumed to run the computation.
         pub time: Duration,
     }
+
+    /// The taks to submit to the scheduler.
     pub struct SubmittedTask<Rt: RuntimeType> {
         pub(super) program: ProgramToken<Rt>,
         pub(super) inputs: EntryTable<Rt>,
     }
+
     impl<Rt: RuntimeType> SubmittedTask<Rt> {
+        /// Create a task that invokes artifect `program` with `inputs`.
         pub fn new(program: ProgramToken<Rt>, inputs: EntryTable<Rt>) -> Self {
             Self { program, inputs }
         }
     }
 
     #[derive(Debug, Clone)]
+    /// Unique identifier for each artifect added to the scheduler.
     pub struct ProgramToken<Rt: RuntimeType> {
         pub(super) id: ProgramId,
         _phantom: PhantomData<Rt>,
@@ -40,9 +48,11 @@ pub mod exposed {
         }
     }
 
+    /// A collection of artifects to put in the scheduler.
     pub struct Programs<Rt: RuntimeType>(pub(super) Heap<ProgramId, Artifect<Rt>>);
 
     impl<Rt: RuntimeType> Programs<Rt> {
+        /// Add artifect to the collection, returnning its identifier.
         pub fn push(&mut self, artifect: Artifect<Rt>) -> ProgramToken<Rt> {
             let id = self.0.push(artifect);
             ProgramToken::new(id)
@@ -101,6 +111,7 @@ pub enum Message {
     Add(erased::BoxedArtifect, mpsc::Sender<ProgramId>),
 }
 
+/// A submitter connected to some scheduler.
 #[derive(Debug, Clone)]
 pub struct Submitter<Rt: RuntimeType> {
     pub(super) sender: mpsc::Sender<Message>,
@@ -109,6 +120,9 @@ pub struct Submitter<Rt: RuntimeType> {
 
 pub type SubmitResult<T> = Result<T, mpsc::SendError<Message>>;
 
+/// The result of the submitted task, yet to be fulfilled.
+/// Internally, [`Future`] contains a channel receiver where the scheduler
+/// will put result after task has completed.
 pub struct Future<Rt: RuntimeType> {
     receiver: crossbeam_channel::Receiver<RunReturn>,
     _phantom: PhantomData<Rt>,
@@ -135,6 +149,7 @@ impl<Rt: RuntimeType> Future<Rt> {
 }
 
 impl<Rt: RuntimeType> Submitter<Rt> {
+    /// Submit a task to the scheduler.
     pub fn submit(&self, task: exposed::SubmittedTask<Rt>) -> SubmitResult<Future<Rt>> {
         let (sender, receiver) = crossbeam_channel::unbounded::<RunReturn>();
 
@@ -149,6 +164,7 @@ impl<Rt: RuntimeType> Submitter<Rt> {
         })
     }
 
+    /// Add a new artifect to the scheduler.
     pub fn add_artifect(&self, artifect: Artifect<Rt>) -> SubmitResult<exposed::ProgramToken<Rt>> {
         let (sender, receiver) = mpsc::channel::<ProgramId>();
 
@@ -158,6 +174,8 @@ impl<Rt: RuntimeType> Submitter<Rt> {
         Ok(exposed::ProgramToken::new(id))
     }
 
+    /// Clone to a submitter that runs on different [`RuntimeType`], but still connected to the
+    /// same scheduler.
     pub fn alternative_rt<Rt2: RuntimeType>(&self) -> Submitter<Rt2> {
         Submitter {
             sender: self.sender.clone(),

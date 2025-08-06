@@ -8,6 +8,7 @@ use super::{
     HardwareInfo, Versions,
 };
 
+/// The Type3 IR after applying various Type3 passes.
 pub struct ProcessedType3<'s, Rt: RuntimeType> {
     pub(super) versions: Versions<fresh_type3::Version<'s, Rt>>,
     pub(super) uf_table: type2::user_function::Table<Rt>,
@@ -17,6 +18,9 @@ pub struct ProcessedType3<'s, Rt: RuntimeType> {
 }
 
 impl<'s, Rt: RuntimeType> ProcessedType3<'s, Rt> {
+    /// Run the final kernel generation and other passes to obtain [`SemiArtifect`].
+    /// `kernel_dir` controls in which directory the compiler puts temporary source files
+    /// and the compiled libraries.
     pub fn to_artifect(
         self,
         options: &DebugOptions,

@@ -9,6 +9,7 @@ pub struct Version<'s, Rt: RuntimeType> {
     pub memory_statistics: type2::memory_planning::Statistics,
 }
 
+/// The fresh Type3 IR after memory planning from Type2 IR.
 pub struct FreshType3<'s, Rt: RuntimeType> {
     pub(super) versions: Versions<Version<'s, Rt>>,
     pub(super) uf_table: type2::user_function::Table<Rt>,
@@ -18,6 +19,7 @@ pub struct FreshType3<'s, Rt: RuntimeType> {
 }
 
 impl<'s, Rt: RuntimeType> FreshType3<'s, Rt> {
+    /// Apply passes to obtain processed Type3 IR.
     pub fn apply_passes<'a>(
         self,
         options: &'a DebugOptions,

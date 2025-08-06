@@ -9,6 +9,7 @@ use crate::{
     transit::type2,
 };
 
+/// The Type2 IR before kernel fusion.
 pub struct UnfusedType2<'s, Rt: RuntimeType> {
     pub(super) cg: type2::Cg<'s, Rt>,
     pub(super) constant_table: type2::ConstantTable<Rt>,
@@ -17,6 +18,11 @@ pub struct UnfusedType2<'s, Rt: RuntimeType> {
 }
 
 impl<'s, Rt: RuntimeType> UnfusedType2<'s, Rt> {
+    /// Apply kernel fusion.
+    ///
+    /// `versions_cpu_memory_divisons` control different versions to compile for different CPU memory usage.
+    /// For example, `[0, 1, 2]` with CPU memory size set to 64GB yields versions that run with
+    /// 64GB, 32GB and 16GB.
     pub fn fuse(
         self,
         options: &DebugOptions,

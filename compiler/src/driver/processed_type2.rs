@@ -10,6 +10,7 @@ use super::{
     HardwareInfo, PanicJoinHandler, SubDigraph, Versions,
 };
 
+/// The intermediate result after applying various passes on Type2.
 pub struct ProcessedType2<'s, Rt: RuntimeType> {
     pub(super) cg: Versions<type2::Cg<'s, Rt>>,
     pub(super) constant_table: type2::ConstantTable<Rt>,
@@ -18,6 +19,7 @@ pub struct ProcessedType2<'s, Rt: RuntimeType> {
 }
 
 impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
+    /// Lower to Type3 IR by through memory planning and some other passes.
     pub fn to_type3(
         self,
         options: &DebugOptions,

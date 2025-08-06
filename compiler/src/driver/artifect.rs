@@ -15,11 +15,12 @@ use crate::{driver::MemoryInfo, transit::type2};
 use super::{type3, ConstantPool, Versions};
 
 #[derive(Clone)]
-pub struct Version<Rt: RuntimeType> {
+pub(crate) struct Version<Rt: RuntimeType> {
     pub chunk: type3::lowering::Chunk<Rt>,
     pub statistics: type2::memory_planning::Statistics,
 }
 
+/// The compilation artifect ready to run by the runtime.
 #[derive(Clone)]
 pub struct Artifect<Rt: RuntimeType> {
     pub(super) versions: Versions<Version<Rt>>,
@@ -27,6 +28,9 @@ pub struct Artifect<Rt: RuntimeType> {
     pub(super) libs: Libs,
 }
 
+/// The compilation artifect almost ready to run by the runtime.
+/// At this point, constants can be dumped to disk so [`SemiArtifect`]
+/// can be serialized to file, whereas [`Artifect`] cannot.
 pub struct SemiArtifect<Rt: RuntimeType> {
     pub(super) versions: Versions<Version<Rt>>,
     pub(super) constant_table: args::ConstantTable<Rt>,
@@ -35,6 +39,7 @@ pub struct SemiArtifect<Rt: RuntimeType> {
 }
 
 impl<Rt: RuntimeType> SemiArtifect<Rt> {
+    /// Finish the last step and obtain [`Artifect`].
     pub fn finish(self, constant_pool: &mut ConstantPool) -> Artifect<Rt> {
         // - Move Constants to where they should be
         let constant_table = move_constant_table(
@@ -53,6 +58,8 @@ impl<Rt: RuntimeType> SemiArtifect<Rt> {
         }
     }
 
+    /// Write everything in the [`Artifect`] to file, including instructions and constants.
+    /// To load the dump, use `load_artifect` method on [`super::FreshType2`].
     pub fn dump(
         &self,
         dir: impl AsRef<std::path::Path>,
@@ -77,6 +84,7 @@ impl<Rt: RuntimeType> SemiArtifect<Rt> {
     }
 }
 
+/// The memory pools on each memory device, used for running the artifect.
 pub struct Pools {
     pub cpu: CpuStaticAllocator,
     pub gpu: HashMap<i32, zkpoly_cuda_api::mem::CudaAllocator>,
@@ -86,10 +94,13 @@ pub struct Pools {
 pub type GpuMapping = Arc<dyn Fn(i32) -> i32 + Send + Sync>;
 
 impl<Rt: RuntimeType> Artifect<Rt> {
+    /// The versions included in the artifect.
+    /// Each version runs on different CPU memory usage.
     pub fn versions(&self) -> impl Iterator<Item = &MemoryInfo> {
         self.versions.iter()
     }
 
+    /// The maximum block size that will be used if using a buddy allocator.
     pub fn max_bs(&self) -> usize {
         let max_lbs = self
             .versions
@@ -102,6 +113,10 @@ impl<Rt: RuntimeType> Artifect<Rt> {
         max_bs
     }
 
+    /// Make a kernel dispatcher (the runtime) to run this artifect.
+    ///
+    /// `version` selects the artifect version that runs on certain CPU memory usage;
+    /// No requirements are imposed on `pools`' contents, it's only a scratchboard for one dispatcher run.
     pub fn prepare_dispatcher<'d>(
         &self,
         version: &MemoryInfo,
