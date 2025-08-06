@@ -74,7 +74,7 @@ namespace detail {
         std::array<const u32*, Config::n_precompute> h_points;
         Point **d_buckets_sum_buf;
         Array2D<Point, Config::n_windows, Config::n_buckets> *buckets_sum;
-        unsigned short *mutex_buf;
+        u32 *mutex_buf;
         unsigned short **initialized_buf;
         Array2D<unsigned short, Config::n_windows, Config::n_buckets> *initialized;
         // record for number of logical windows in each actual window

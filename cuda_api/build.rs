@@ -16,7 +16,6 @@ fn main() {
     println!("cargo:rustc-link-lib=dylib=cudart"); // 使用动态链接
     println!("cargo:rustc-link-lib=dylib=cudadevrt");
     println!("cargo:rustc-link-lib=dylib=cuda");
-    println!("cargo:rustc-link-lib=dylib=cufile");
     println!("cargo:rustc-link-lib=dylib=stdc++");
 
     // The bindgen::Builder is the main entry point

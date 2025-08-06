@@ -216,7 +216,7 @@ namespace curve
             __device__ __host__ __forceinline__ bool is_on_curve() const & {
                 Element t0, t1;
                 t0 = x.square();
-                if constexpr (!Params::a().is_zero()) t0 = t0 + Params::a();
+                if (!Params::a().is_zero()) t0 = t0 + Params::a();
                 t0 = t0 * x;
                 t0 = t0 + Params::b();
                 t1 = y.square();
@@ -237,7 +237,7 @@ namespace curve
                 auto s = x * v;
                 auto x2 = x.square();
                 auto m = x2 + x2 + x2;
-                if constexpr (!Params::a().is_zero()) m = m + Params::a();
+                if (!Params::a().is_zero()) m = m + Params::a();
                 auto x3 = m.square() - s - s;
                 auto y3 = m * (s - x3) - w * y;
                 return PointXYZZ(x3, y3, v, w);
@@ -306,7 +306,7 @@ namespace curve
                 auto zzz2 = zzz.square();
                 if (zz3 != zzz2) return false;
                 Element a_x_zz2;
-                if constexpr (Params::a().is_zero()) a_x_zz2 = Element::zero();
+                if (Params::a().is_zero()) a_x_zz2 = Element::zero();
                 else a_x_zz2 = Params::a() * x * zz2;
                 auto b_zz3 = Params::b() * zz3;
                 return y2 == x3 + a_x_zz2 + b_zz3;
@@ -382,7 +382,7 @@ namespace curve
                 auto s = x * v;
                 auto x2 = x.square();
                 auto m = x2 + x2 + x2;
-                if constexpr (!Params::a().is_zero()) m = m + (Params::a() * zz.square());
+                if (!Params::a().is_zero()) m = m + (Params::a() * zz.square());
                 auto x3 = m.square() - s - s;
                 auto y3 = m * (s - x3) - w * y;
                 auto zz3 = v * zz;

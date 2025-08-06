@@ -1,6 +1,6 @@
 target("test_msm")
     add_files("./tests/test_msm.cu")
-    add_cugencodes("native")
+    add_cugencodes("compute_70")
 -- option("MSM_BITS")
 --     set_default("254") -- 默认值为 TEMPLATE_A
 --     set_showmenu(true) -- 在 xmake f --help 中显示该选项

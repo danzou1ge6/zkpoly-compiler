@@ -13,9 +13,9 @@ namespace bls12381
 
   namespace device_constants
   {
-    constexpr __device__ Element b = Element(BaseNumber(BIG_INTEGER_CHUNKS12(0x9d64551, 0x3d83de7e, 0x8ec9733b, 0xbf78ab2f, 0xb1d37ebe, 0xe6ba24d7, 0x478fe97a, 0x6b0a807f, 0x53cc0032, 0xfc34000a, 0xaa270000, 0x000cfff3)));
-    constexpr __device__ Element b3 = Element(BaseNumber(BIG_INTEGER_CHUNKS12(0x381be09, 0x7f0bb4e1, 0x6140b1fc, 0xfb1e54b7, 0xb10330b7, 0xc0a95bc6, 0x6f7ee9ce, 0x4a6e8b59, 0xdcb8009a, 0x43480020, 0x44760000, 0x0027552e)));
-    constexpr __device__ Element a = Element(BaseNumber(BIG_INTEGER_CHUNKS12(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)));
+    const __device__ Element b = Element(BaseNumber(BIG_INTEGER_CHUNKS12(0x9d64551, 0x3d83de7e, 0x8ec9733b, 0xbf78ab2f, 0xb1d37ebe, 0xe6ba24d7, 0x478fe97a, 0x6b0a807f, 0x53cc0032, 0xfc34000a, 0xaa270000, 0x000cfff3)));
+    const __device__ Element b3 = Element(BaseNumber(BIG_INTEGER_CHUNKS12(0x381be09, 0x7f0bb4e1, 0x6140b1fc, 0xfb1e54b7, 0xb10330b7, 0xc0a95bc6, 0x6f7ee9ce, 0x4a6e8b59, 0xdcb8009a, 0x43480020, 0x44760000, 0x0027552e)));
+    const __device__ Element a = Element(BaseNumber(BIG_INTEGER_CHUNKS12(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)));
   }
 
   namespace host_constants

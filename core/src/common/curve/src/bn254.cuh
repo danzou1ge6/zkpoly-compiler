@@ -12,11 +12,11 @@ namespace bn254
 
   namespace device_constants
   {
-    constexpr __device__ Element b = Element(Number(BIG_INTEGER_CHUNKS8(
+    const __device__ Element b = Element(Number(BIG_INTEGER_CHUNKS8(
         0x2a1f6744, 0xce179d8e, 0x334bea4e, 0x696bd284, 0x1f6ac17a, 0xe15521b9, 0x7a17caa9, 0x50ad28d7)));
-    constexpr __device__ Element b3 = Element(Number(BIG_INTEGER_CHUNKS8(
+    const __device__ Element b3 = Element(Number(BIG_INTEGER_CHUNKS8(
         0x1d9598e8, 0xa7e39857, 0x2943337e, 0x3940c6d1, 0x2f3d6f4d, 0xd31bd011, 0xf60647ce, 0x410d7ff7)));
-    constexpr __device__ Element a = Element(Number(BIG_INTEGER_CHUNKS8(
+    const __device__ Element a = Element(Number(BIG_INTEGER_CHUNKS8(
         0, 0, 0, 0, 0, 0, 0, 0)));
   }
 
