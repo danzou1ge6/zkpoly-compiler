@@ -9,11 +9,11 @@ use super::object_analysis::size::LogBlockSizes;
 pub fn realize<'s, 'a, T, Rt: RuntimeType>(
     ops: OperationSeq<'s, T, Pointer>,
     mut allocators_x: AllocatorCollection<'a, 's, T, Pointer, Rt>,
-    libs: Libs,
     object_id_allocator: IdAllocator<ObjectId>,
     obj_inf: &object_info::Info<Rt>,
     hd_info: &HardwareInfo,
     lbss: LogBlockSizes,
+    execution_device: impl Fn(VertexId) -> type2::Device,
 ) -> Result<(type3::Chunk<'s, Rt>, machine::Statistics), Error<'s>>
 where
     T: std::fmt::Debug,
@@ -34,14 +34,8 @@ where
     let machine = &mut machine_x;
     let aux = &mut aux_x;
 
-    // fixme
-    println!("begin realization");
-
     for (_, op) in ops.into_iter() {
         use Operation::*;
-
-        // fixme
-        println!("op = {:?}", &op);
 
         match op {
             Type2(vid, outputs, node, temps, src) => {
@@ -132,6 +126,7 @@ where
                             temp: temp_regs,
                             vertex: node,
                             vid,
+                            device: execution_device(vid),
                         },
                         src,
                     ),
@@ -174,7 +169,6 @@ where
             reg_id_allocator: machine_x.reg_booking.reg_id_allocator(),
             obj_id_allocator: object_id_allocator,
             lbss,
-            libs,
             _phantom: PhantomData,
         },
         machine_x.statistics,

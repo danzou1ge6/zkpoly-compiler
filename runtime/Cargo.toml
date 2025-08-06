@@ -20,6 +20,9 @@ rayon = "1.10.0"
 libc = "0.2"
 scopeguard = "1.2.0"
 waterfall = { path = "../waterfall" }
+plotters = { version = "0.3.3", default-features = false, features = [
+  "bitmap_encoder", "svg_backend", "histogram"
+] }
 
 [dev-dependencies]
 zkpoly_core = { path = "../core" }

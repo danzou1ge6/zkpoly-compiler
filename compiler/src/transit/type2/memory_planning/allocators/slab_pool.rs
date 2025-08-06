@@ -10,7 +10,7 @@ pub trait AddrMappingHandler {
 
 type Instant = Index;
 
-static DEBUG: bool = true;
+static DEBUG: bool = false;
 static DEBUG_SLABS: bool = false;
 
 #[derive(Clone, Debug)]
@@ -920,7 +920,7 @@ mod test {
     use std::collections::BTreeSet;
 
     use super::{
-        super::{slab_allocator::OffsettedAddrMapping, slab_allocator::AddrMapping},
+        super::{slab_allocator::AddrMapping, slab_allocator::OffsettedAddrMapping},
         Instant, IntegralSize,
     };
 

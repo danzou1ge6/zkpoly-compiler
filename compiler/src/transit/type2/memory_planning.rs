@@ -130,7 +130,7 @@ pub fn plan<'s, Rt: RuntimeType>(
     mut obj_id_allocator: IdAllocator<ObjectId>,
     execution_device: impl Fn(VertexId) -> type2::Device,
     hd_info: &driver::HardwareInfo,
-    mut libs: Libs,
+    libs: &mut Libs,
 ) -> Result<(type3::Chunk<'s, Rt>, Statistics), Error<'s>> {
     let ops: OperationSeq<'_, ObjectId, Pointer> = OperationSeq::construct(
         cg,
@@ -139,7 +139,7 @@ pub fn plan<'s, Rt: RuntimeType>(
         &execution_device,
         &def_use,
         &mut obj_id_allocator,
-        &mut libs,
+        libs,
     );
 
     let obj_info = object_info::Info::<Rt>::collect(&ops);
@@ -150,15 +150,12 @@ pub fn plan<'s, Rt: RuntimeType>(
 
     let lbss = allocators::collect_integral_sizes(obj_info.sizes());
     let mut gpu_allocators: Vec<
-        SmithereenWrapper<PageAllocator<Pointer, Rt, Gpu>, Pointer, Rt, Gpu>,
+        SmithereenWrapper<SlabAllocator<Pointer, Rt, Gpu>, Pointer, Rt, Gpu>,
     > = hd_info
         .gpus()
         .map(|gpu| {
             SmithereenWrapper::new(
-                PageAllocator::new(
-                    gpu.page_number(hd_info.page_size()) as usize,
-                    hd_info.page_size(),
-                ),
+                SlabAllocator::new(gpu.integral_space(), gpu.smithereen_space(), lbss.clone()),
                 gpu.smithereen_space(),
                 0,
             )
@@ -244,11 +241,11 @@ pub fn plan<'s, Rt: RuntimeType>(
     let (chunk, realization_statistics) = realization::realize(
         ops,
         allocators,
-        libs,
         obj_id_allocator,
         &obj_info,
         hd_info,
         LogBlockSizes::new(lbss),
+        &execution_device,
     )?;
 
     let disk_allocator = disk_allocator.unwrap();
@@ -256,12 +253,6 @@ pub fn plan<'s, Rt: RuntimeType>(
     if hd_info.disks_available() == 0 && disk_allocator.peak_memory_usage() > 0 {
         panic!("disk is not enabled but some objects are spilled to disk; this indicates insufficient CPU space");
     }
-
-    // fixme
-    println!(
-        "Disk peak memory usage is {}",
-        disk_allocator.peak_memory_usage()
-    );
 
     Ok((
         chunk,

@@ -1339,7 +1339,8 @@ fn test_transfer_gpu_disk_large_no_direct() {
         BuddyDiskPool::new(2usize.pow(34), Some("/tmp".into())).unwrap(),
         // BuddyDiskPool::new(2usize.pow(28), Some("/data/tmp".into())).unwrap(),
     ];
-    let gpu_pool = PageAllocator::new(DeviceType::GPU { device_id: 0 }, 1024 * 1024 * 1024 * 8, 1);
+    let mut gpu_pool =
+        PageAllocator::new(DeviceType::GPU { device_id: 0 }, 1024 * 1024 * 1024 * 8, 1);
     let mut array1 = ScalarArray::<F>::alloc_cpu(2usize.pow(28), &mut cpu_pool);
     array1.iter_mut().enumerate().for_each(|(id, v)| {
         *v = F::from(id as u64);

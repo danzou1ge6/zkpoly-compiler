@@ -25,7 +25,7 @@ pub enum AllocMethod {
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum AllocVariant {
-    Paged,
+    Paged { size: usize, pages: usize },
     Offset,
     Dynamic,
 }
@@ -260,10 +260,7 @@ pub fn instruction_label<Rt: RuntimeType>(
     }
 }
 
-pub fn instruction_label_by_meta(
-    inst: &InstructionNode,
-    meta: Option<&FuncMeta>,
-) -> String {
+pub fn instruction_label_by_meta(inst: &InstructionNode, meta: Option<&FuncMeta>) -> String {
     use InstructionNode::*;
     match inst {
         Allocate { device, .. } => format!("Allocate({:?})", device),

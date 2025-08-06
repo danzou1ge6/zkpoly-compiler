@@ -9,7 +9,7 @@ pub struct FunctionType {
     pub(crate) ret_inplace: Vec<Option<usize>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Function<Rt: RuntimeType> {
     pub f: ast::user_function::Function<Rt>,
     pub typ: FunctionType,

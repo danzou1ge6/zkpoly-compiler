@@ -35,8 +35,6 @@ fn scheduler_with_scheduler<S: Scheduler>(
         });
 
         counter += 1;
-
-        print!("[Scheduler] Scheduled {} / {}: {:?}\n", counter, scheduler.total(), vid);
     }
     println!();
 

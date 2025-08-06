@@ -133,6 +133,7 @@ def generate_makefile(targets, output_file="Makefile.msm", cuda_path="/usr/local
     
     # 写入Makefile
     with open(output_file, "w") as f:
+        f.write(f"# SM Version: {cuda_arch}\n", )
         f.write("# 自动生成的MSM编译Makefile\n\n")
         f.write("# 所有头文件依赖\n")
         f.write(f"HEADERS := {headers_str}\n\n")

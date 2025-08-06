@@ -1,5 +1,7 @@
 use std::{
+    borrow::BorrowMut,
     collections::{BTreeSet, HashMap},
+    ops::DerefMut,
     sync::{Arc, Mutex},
     thread,
 };
@@ -18,7 +20,12 @@ use crate::{
     instructions::{Instruction, InstructionNode},
 };
 
-use zkpoly_cuda_api::{mem::CudaAllocator, stream::CudaEventRaw};
+use zkpoly_cuda_api::{
+    bindings::{cudaDeviceSynchronize, cudaSetDevice},
+    cuda_check,
+    mem::CudaAllocator,
+    stream::{CudaEvent, CudaEventRaw},
+};
 
 use zkpoly_memory_pool::{static_allocator::CpuStaticAllocator, BuddyDiskPool};
 
@@ -35,7 +42,7 @@ pub struct Runtime<T: RuntimeType> {
     events: EventTable,
     pub mem_allocator: Option<CpuStaticAllocator>,
     gpu_allocator: HashMap<i32, CudaAllocator>,
-    disk_allocator: Vec<BuddyDiskPool>,
+    disk_allocator: Arc<Mutex<Vec<BuddyDiskPool>>>,
     rng: AsyncRng,
     _libs: Libs,
 }
@@ -101,7 +108,7 @@ impl<T: RuntimeType> Runtime<T> {
         n_threads: usize,
         mem_allocator: CpuStaticAllocator,
         gpu_allocator: HashMap<i32, CudaAllocator>,
-        disk_allocator: Vec<BuddyDiskPool>,
+        disk_allocator: Arc<Mutex<Vec<BuddyDiskPool>>>,
         rng: AsyncRng,
         gpu_mapping: Arc<dyn Fn(i32) -> i32 + Send + Sync>,
         libs: Libs,
@@ -170,7 +177,7 @@ impl<T: RuntimeType> Runtime<T> {
                 &self.instructions,
                 Some(&mut self.mem_allocator.as_mut().unwrap()),
                 Some(&mut self.gpu_allocator),
-                Some(&mut self.disk_allocator),
+                Some(self.disk_allocator.as_ref()),
                 0,
             )
         };
@@ -207,7 +214,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         instructions: &[Instruction],
         mut mem_allocator: Option<&mut CpuStaticAllocator>,
         mut gpu_allocator: Option<&mut HashMap<i32, CudaAllocator>>,
-        mut disk_allocator: Option<&mut Vec<BuddyDiskPool>>,
+        disk_allocator: Option<&Mutex<Vec<BuddyDiskPool>>>,
         _thread_id: usize,
     ) -> Option<Variable<T>> {
         let mut disk2gpu_temp_buffer: Vec<*mut u8> = Vec::new();
@@ -251,12 +258,12 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                         alloc_method,
                         &mut mem_allocator,
                         &mut gpu_allocator,
-                        &mut disk_allocator,
+                        &mut disk_allocator.map(|m| m.lock().unwrap()),
                     );
 
                     if let Typ::Stream = &typ {
-                        let event = CudaEventRaw::new();
                         let stream = var.unwrap_stream();
+                        let event = CudaEventRaw::new(stream.get_device());
                         event.record(stream);
                         self.debug_writer.new_stream(
                             instruction.unwrap_stream(),
@@ -278,7 +285,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                             alloc_method,
                             &mut mem_allocator,
                             &mut gpu_allocator,
-                            &mut disk_allocator,
+                            &mut disk_allocator.map(|m| m.lock().unwrap()),
                         );
                         *guard = None;
                     } else {
@@ -294,7 +301,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                 } => {
                     let src = (*self.variable)[src_id].as_ref().unwrap();
                     let dst = (*self.variable)[dst_id].as_mut().unwrap();
-                    self.transfer(src, dst, src_device, dst_device, stream, 
+                    self.transfer(src, dst, src_device.clone(), dst_device.clone(), stream, 
                                   &mut disk2gpu_temp_buffer, &mut gpu2disk_temp_buffer, temp_size);
                 }
                 FuncCall {

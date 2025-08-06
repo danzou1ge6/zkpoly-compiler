@@ -6,7 +6,6 @@ use zkpoly_runtime::args::RuntimeType;
 
 pub fn prettify<'s, Rt: RuntimeType>(
     chunk: &Chunk<'s, Rt>,
-    execution_devices: impl Fn(type2::VertexId) -> type2::Device,
     writer: &mut impl Write,
 ) -> std::io::Result<()> {
     let head = r#"
@@ -27,7 +26,7 @@ pub fn prettify<'s, Rt: RuntimeType>(
 
     chunk
         .iter_instructions()
-        .map(|(idx, inst)| prettify_inst(chunk, idx, inst, &execution_devices, writer))
+        .map(|(idx, inst)| prettify_inst(chunk, idx, inst, writer))
         .collect::<Result<Vec<_>, _>>()?;
 
     let tail = r#"
@@ -94,7 +93,6 @@ fn prettify_inst<'s, Rt: RuntimeType>(
     chunk: &Chunk<'s, Rt>,
     idx: InstructionIndex,
     inst: &Instruction<'s>,
-    execution_devices: impl Fn(type2::VertexId) -> type2::Device,
     writer: &mut impl Write,
 ) -> std::io::Result<()> {
     let def_rows: Vec<_> = inst
@@ -155,7 +153,7 @@ fn prettify_inst<'s, Rt: RuntimeType>(
         .collect::<Vec<_>>()
         .join(", ");
     let src_info = format_src_info(inst);
-    let track = inst.track(execution_devices, |r| chunk.register_devices[&r]);
+    let track = inst.track(|r| chunk.register_devices[&r]);
 
     writeln!(writer, "  <td>{}</td>", label)?;
     writeln!(writer, "  <td>{:?}</td>", track)?;

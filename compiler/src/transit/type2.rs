@@ -19,7 +19,6 @@ use zkpoly_common::digraph::internal::SubDigraph;
 use zkpoly_common::heap::UsizeId;
 use zkpoly_common::load_dynamic::Libs;
 pub use zkpoly_common::typ::PolyType;
-use zkpoly_memory_pool::CpuMemoryPool;
 pub use zkpoly_runtime::args::{RuntimeType, Variable};
 pub use zkpoly_runtime::error::RuntimeError;
 
@@ -84,7 +83,8 @@ where
     }
 
     pub fn relabeled<I2>(&self, mapping: &mut impl FnMut(I) -> I2) -> NttAlgorithm<I2> {
-        self.try_relabeled::<_, ()>(&mut |i| Ok(mapping(i))).unwrap()
+        self.try_relabeled::<_, ()>(&mut |i| Ok(mapping(i)))
+            .unwrap()
     }
 }
 
@@ -530,6 +530,16 @@ where
     }
 }
 
+impl<I, C> template::VertexNode<I, arith::ArithGraph<I, arith::ExprId>, C, user_function::Id> {
+    pub fn deterministic<Rt: RuntimeType>(&self, uf_table: &user_function::Table<Rt>) -> bool {
+        match self {
+            template::VertexNode::Blind(..) => false,
+            template::VertexNode::UserFunction(f, _) => uf_table[*f].f.deterministic,
+            _ => true,
+        }
+    }
+}
+
 impl<I, C, E> template::VertexNode<I, arith::ArithGraph<I, arith::ExprId>, C, E>
 where
     I: Clone,
@@ -565,22 +575,41 @@ where
             RotateIdx(s, deg) => RotateIdx(mapping(s.clone())?, *deg),
             Slice(s, start, end) => Slice(mapping(s.clone())?, *start, *end),
             Interpolate { xs, ys } => Interpolate {
-                xs: xs.iter().map(|x| mapping(x.clone())).collect::<Result<_, _>>()?,
-                ys: ys.iter().map(|x| mapping(x.clone())).collect::<Result<_, _>>()?,
+                xs: xs
+                    .iter()
+                    .map(|x| mapping(x.clone()))
+                    .collect::<Result<_, _>>()?,
+                ys: ys
+                    .iter()
+                    .map(|x| mapping(x.clone()))
+                    .collect::<Result<_, _>>()?,
             },
             Blind(s, left, right) => Blind(mapping(s.clone())?, *left, *right),
-            Array(es) => Array(es.iter().map(|x| mapping(x.clone())).collect::<Result<_, _>>()?),
-            AssmblePoly(s, es) => {
-                AssmblePoly(s.clone(), es.iter().map(|x| mapping(x.clone())).collect::<Result<_, _>>()?)
-            }
+            Array(es) => Array(
+                es.iter()
+                    .map(|x| mapping(x.clone()))
+                    .collect::<Result<_, _>>()?,
+            ),
+            AssmblePoly(s, es) => AssmblePoly(
+                s.clone(),
+                es.iter()
+                    .map(|x| mapping(x.clone()))
+                    .collect::<Result<_, _>>()?,
+            ),
             Msm {
                 alg,
                 polys: scalars,
                 points,
             } => Msm {
                 alg: alg.clone(),
-                polys: scalars.iter().map(|x| mapping(x.clone())).collect::<Result<_, _>>()?,
-                points: points.iter().map(|x| mapping(x.clone())).collect::<Result<_, _>>()?,
+                polys: scalars
+                    .iter()
+                    .map(|x| mapping(x.clone()))
+                    .collect::<Result<_, _>>()?,
+                points: points
+                    .iter()
+                    .map(|x| mapping(x.clone()))
+                    .collect::<Result<_, _>>()?,
             },
             HashTranscript {
                 transcript,
@@ -596,7 +625,9 @@ where
             ArrayGet(s, i) => ArrayGet(mapping(s.clone())?, *i),
             UserFunction(fid, args) => UserFunction(
                 fid.clone(),
-                args.iter().map(|x| mapping(x.clone())).collect::<Result<_, _>>()?,
+                args.iter()
+                    .map(|x| mapping(x.clone()))
+                    .collect::<Result<_, _>>()?,
             ),
             KateDivision(lhs, rhs) => KateDivision(mapping(lhs.clone())?, mapping(rhs.clone())?),
             EvaluatePoly { poly, at } => EvaluatePoly {
@@ -699,7 +730,10 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
         let on_device = super::type3::Device::for_execution_on;
         let on_gpu = |dev: Device| {
             if !dev.is_gpu() {
-                panic!("this vertex {:?} needs to be executed on some GPU, got {:?}", vid, device);
+                panic!(
+                    "this vertex {:?} needs to be executed on some GPU, got {:?}",
+                    vid, device
+                );
             }
             on_device(dev)
         };
@@ -729,7 +763,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
                 Some((
                     temporary_space::msm::<Rt>(alg, *len as usize, libs),
                     // We are using only one gpu for now
-                    on_device(Device::Gpu(0))
+                    on_device(Device::Gpu(0)),
                 ))
             }
             HashTranscript { .. } => None,
