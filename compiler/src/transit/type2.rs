@@ -148,6 +148,8 @@ pub mod template;
 
 pub mod sliceable_subgraph;
 
+/// The computation graph with full type information and sliceable subgraphs,
+/// but uses alternative labels.
 pub mod alt_label {
     use super::*;
     pub type VertexNode<'s, I, Rt> = template::VertexNode<
@@ -165,21 +167,36 @@ pub mod alt_label_no_subgraph {
     pub type VertexNode<I> = template::VertexNode<I, Arith<I>, ConstantId, user_function::Id, ()>;
 }
 
+/// The standard computation graph with full type information and sliceable subgraphs,
+/// after subgraph slicing.
 pub type VertexNode<'s, Rt> = alt_label::VertexNode<'s, VertexId, Rt>;
 pub type Vertex<'s, Rt> = alt_label::Vertex<'s, VertexId, Rt>;
 pub type Cg<'s, Rt> = transit::Cg<VertexId, Vertex<'s, Rt>>;
 pub type CgSubgraph<'g, 's, Rt> = SubDigraph<'g, VertexId, Vertex<'s, Rt>>;
 
+/// The computation graph generated from AST.
+/// It has only partial type information, and it does not contain any sliceable subgraph.
 pub mod partial_typed {
     use super::*;
-    pub type VertexNode<'s, T> = template::VertexNode<
-        VertexId,
-        Arith<VertexId>,
-        ConstantId,
-        user_function::Id,
-        sliceable_subgraph::CgPartialTyped<'s, T>,
-    >;
-    pub type Vertex<'s, T> = transit::Vertex<VertexNode<'s, T>, T, SourceInfo<'s>>;
+    pub type VertexNode =
+        template::VertexNode<VertexId, Arith<VertexId>, ConstantId, user_function::Id, ()>;
+    pub type Vertex<'s, T> = transit::Vertex<VertexNode, T, SourceInfo<'s>>;
+}
+
+/// The computation graph after type inference.
+/// It has full tyep information, but still does not contain any sliceable subgraph.
+pub mod unsliced {
+    pub mod alt_label {
+        use super::super::*;
+        pub type VertexNode<I> =
+            template::VertexNode<I, Arith<I>, ConstantId, user_function::Id, ()>;
+        pub type Vertex<'s, I, T> = transit::Vertex<VertexNode<I>, T, SourceInfo<'s>>;
+        pub type Cg<'s, I, T> = transit::Cg<I, Vertex<'s, I, T>>;
+    }
+
+    pub type VertexNode = alt_label::VertexNode<super::VertexId>;
+    pub type Vertex<'s, Rt> = alt_label::Vertex<'s, super::VertexId, super::Typ<Rt>>;
+    pub type Cg<'s, Rt> = alt_label::Cg<'s, super::VertexId, super::Typ<Rt>>;
 }
 
 impl<I: UsizeId, C, E, T, S, Sg> digraph::internal::Predecessors<I>
@@ -271,41 +288,30 @@ where
     }
 }
 
-impl<I, C> template::VertexNode<I, arith::ArithGraph<I, arith::ExprId>, C, user_function::Id> {
+impl<I, C, S>
+    template::VertexNode<I, arith::ArithGraph<I, arith::ExprId>, C, user_function::Id, S>
+{
     pub fn deterministic<Rt: RuntimeType>(&self, uf_table: &user_function::Table<Rt>) -> bool {
         match self {
-            template::VertexNode::Blind(..) => false,
+            template::VertexNode::Sliceable(template::SliceableNode::Blind(..)) => false,
             template::VertexNode::UserFunction(f, _) => uf_table[*f].f.deterministic,
             _ => true,
         }
     }
 }
 
-impl<'s, I, Is, C, E, Rt: RuntimeType>
-    template::VertexNode<
-        I,
-        arith::ArithGraph<I, arith::ExprId>,
-        C,
-        E,
-        sliceable_subgraph::alt_label::Cg<'s, Is, I, Rt>,
-    >
+impl<'s, I, C, E, S> template::VertexNode<I, arith::ArithGraph<I, arith::ExprId>, C, E, S>
 where
-    I: Clone,
-    Is: Clone,
+    I: Clone + 'static,
     C: Clone,
     E: Clone,
+    S: template::SubgraphNode<I>,
 {
-    pub fn try_relabeled<I2: Default + Ord + std::fmt::Debug + Clone, Er>(
+    pub fn try_relabeled<I2: Default + Ord + std::fmt::Debug + Clone + 'static, Er>(
         &self,
         mut mapping: impl FnMut(I) -> Result<I2, Er>,
     ) -> Result<
-        template::VertexNode<
-            I2,
-            arith::ArithGraph<I2, arith::ExprId>,
-            C,
-            E,
-            sliceable_subgraph::alt_label::Cg<'s, Is, I2, Rt>,
-        >,
+        template::VertexNode<I2, arith::ArithGraph<I2, arith::ExprId>, C, E, S::AltLabeled<I2>>,
         Er,
     > {
         use template::VertexNode::*;
@@ -390,13 +396,8 @@ where
     pub fn relabeled<I2: Default + Ord + std::fmt::Debug + Clone>(
         &self,
         mut mapping: impl FnMut(I) -> I2,
-    ) -> template::VertexNode<
-        I2,
-        arith::ArithGraph<I2, arith::ExprId>,
-        C,
-        E,
-        sliceable_subgraph::alt_label::Cg<'s, Is, I2, Rt>,
-    > {
+    ) -> template::VertexNode<I2, arith::ArithGraph<I2, arith::ExprId>, C, E, S::AltLabeled<I2>>
+    {
         self.try_relabeled::<_, ()>(|i| Ok(mapping(i))).unwrap()
     }
 
@@ -472,7 +473,6 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
                 // We are using only one gpu for now
                 on_gpu(Device::Gpu(0)),
             )),
-            Sliceable(Slice2(..)) => None,
             Subgraph(..) => None,
             Sliceable(NewPoly(..)) => None,
             Sliceable(Constant(..)) => None,
@@ -540,7 +540,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
 }
 
 pub struct Program<'s, Rt: RuntimeType> {
-    pub(crate) cg: Cg<'s, Rt>,
+    pub(crate) cg: unsliced::Cg<'s, Rt>,
     pub(crate) user_function_table: user_function::Table<Rt>,
     pub(crate) consant_table: ConstantTable<Rt>,
 }

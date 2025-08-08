@@ -226,13 +226,16 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
             return Ok(typ.clone());
         }
 
+        use type2::template::LastSliceableNode::*;
+        use type2::template::SliceableNode::*;
         use type2::template::VertexNode::*;
+
         let v = cg.g.vertex(vid);
         let err = |node| Error::new(node, v.src().clone(), vid);
 
         let typ = match v.node() {
-            NewPoly(deg, _, ptyp) => type2::Typ::Poly((*ptyp, *deg)),
-            Constant(..) => v
+            Sliceable(NewPoly(deg, _, ptyp)) => type2::Typ::Poly((*ptyp, *deg)),
+            UnsliceableConstant(..) | Sliceable(Constant(..)) => v
                 .try_to_type2_typ()
                 .expect("a constant vertex should have complete type annotation from AST"),
             Extend(vin, to_deg) => {
@@ -245,8 +248,9 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
                 }
                 type2::Typ::Poly((pty, *to_deg))
             }
-            SingleArith(a) => self.infer_single_arith(cg, a, &err)?,
-            Arith { .. } => panic!("ArithGraph cannot come from AST"),
+            Subgraph(..) => panic!("subgraph unpexcted in AST"),
+            Sliceable(SingleArith(a)) => self.infer_single_arith(cg, a, &err)?,
+            Sliceable(Arith { .. }) => panic!("ArithGraph cannot come from AST"),
             Entry(..) => v
                 .try_to_type2_typ()
                 .expect("entry point of graph should have type annotation from AST"),
@@ -255,11 +259,11 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
                 let deg = self.try_unwrap_poly_typ(cg, *s, *from, err)?;
                 type2::Typ::Poly((*to, deg))
             }
-            RotateIdx(vin, _) => {
+            Sliceable(RotateIdx(vin, _)) => {
                 let deg = self.try_unwrap_poly_typ(cg, *vin, PolyType::Lagrange, err)?;
                 type2::Typ::Poly((PolyType::Lagrange, deg))
             }
-            Blind(vin, begin, end) => {
+            Sliceable(Blind(vin, begin, end)) => {
                 let (pty, deg) = self.try_unwrap_poly(cg, *vin, &err)?;
                 if !(*begin < *end && *end <= deg) {
                     return Err(err(ErrorNode::BadSlice {
@@ -331,7 +335,7 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
 
                 type2::Typ::Poly((PolyType::Coef, *deg))
             }
-            Msm { polys, points, .. } => {
+            LastSliceable(Msm { polys, points, .. }) => {
                 if points.len() != 1 {
                     panic!("MSM from AST should only have one set of base points");
                 }
@@ -426,27 +430,27 @@ impl<Rt: RuntimeType> TypeInferer<Rt> {
                 self.try_unwrap_scalar(cg, *b, &err)?;
                 type2::Typ::Poly((PolyType::Coef, deg))
             }
-            EvaluatePoly { poly, at: b } => {
+            LastSliceable(EvaluatePoly { poly, at: b }) => {
                 let _deg = self.try_unwrap_poly_typ(cg, *poly, PolyType::Coef, &err)?;
                 self.try_unwrap_scalar(cg, *b, &err)?;
                 type2::Typ::Scalar
             }
-            BatchedInvert(poly) => {
+            Sliceable(BatchedInvert(poly)) => {
                 let deg = self.try_unwrap_poly_typ(cg, *poly, PolyType::Lagrange, &err)?;
                 type2::Typ::Poly((PolyType::Lagrange, deg))
             }
-            ScanMul { x0, poly } => {
+            Sliceable(ScanMul { x0, poly }) => {
                 let deg = self.try_unwrap_poly_typ(cg, *poly, PolyType::Lagrange, &err)?;
                 self.try_unwrap_scalar(cg, *x0, &err)?;
                 type2::Typ::Poly((PolyType::Lagrange, deg))
             }
-            DistributePowers { poly, powers } => {
+            Sliceable(DistributePowers { poly, powers }) => {
                 let (pty, deg) = self.try_unwrap_poly(cg, *poly, &err)?;
                 let _powers_deg =
                     self.try_unwrap_poly_typ(cg, *powers, PolyType::Lagrange, &err)?;
                 type2::Typ::Poly((pty, deg))
             }
-            ScalarInvert { .. } => panic!("ScalarInvert cannot come from AST"),
+            Sliceable(ScalarInvert { .. }) => panic!("ScalarInvert cannot come from AST"),
             IndexPoly(poly, idx) => {
                 let (_, deg) = self.try_unwrap_poly(cg, *poly, &err)?;
 

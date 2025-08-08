@@ -8,7 +8,11 @@ use zkpoly_runtime::{
     args::{RuntimeType, Variable},
 };
 
-use self::transit::type2::{self, VertexId, VertexNode};
+use self::transit::type2::{
+    self,
+    template::{LastSliceableNode, SliceableNode, VertexNode},
+    VertexId,
+};
 
 pub mod lowering;
 

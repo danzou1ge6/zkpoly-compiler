@@ -183,7 +183,7 @@ pub mod template {
         /// An Type2 vertex that is executed on chunked inputs and outputs
         Chunked(
             Vec<(ResidentalValue<Option<P>>, Option<Object>)>,
-            type2::sliceable_subgraph::alt_label::VertexNode<VertexInput<<P>, VertexInput<P>>,
+            type2::sliceable_subgraph::alt_label::VertexNode<VertexInput<P>, VertexInput<P>>,
             SourceInfo<'s>,
         ),
 

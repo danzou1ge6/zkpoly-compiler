@@ -34,7 +34,10 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for Scalar<Rt> {
             match &self.inner.t {
                 Arith(sa) => {
                     let arith = sa.to_arith(cg);
-                    new_vertex(VertexNode::SingleArith(arith), Some(Typ::Scalar))
+                    new_vertex(
+                        VertexNode::Sliceable(SliceableNode::SingleArith(arith)),
+                        Some(Typ::Scalar),
+                    )
                 }
                 Constant(x) => {
                     let constant = cg.add_cpu_constant(
@@ -42,14 +45,26 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for Scalar<Rt> {
                         None,
                         zkpoly_common::typ::Typ::Scalar,
                     );
-                    new_vertex(VertexNode::Constant(constant), Some(Typ::Scalar))
+                    new_vertex(
+                        VertexNode::Sliceable(SliceableNode::Constant(constant)),
+                        Some(Typ::Scalar),
+                    )
                 }
-                One => new_vertex(VertexNode::Constant(cg.one), Some(Typ::Scalar)),
-                Zero => new_vertex(VertexNode::Constant(cg.zero), Some(Typ::Scalar)),
+                One => new_vertex(
+                    VertexNode::Sliceable(SliceableNode::Constant(cg.one)),
+                    Some(Typ::Scalar),
+                ),
+                Zero => new_vertex(
+                    VertexNode::Sliceable(SliceableNode::Constant(cg.zero)),
+                    Some(Typ::Scalar),
+                ),
                 EvaluatePoly(poly, scalar) => {
                     let poly = poly.erase(cg);
                     let at = scalar.erase(cg);
-                    new_vertex(VertexNode::EvaluatePoly { poly, at }, Some(Typ::Scalar))
+                    new_vertex(
+                        VertexNode::LastSliceable(LastSliceableNode::EvaluatePoly { poly, at }),
+                        Some(Typ::Scalar),
+                    )
                 }
                 IndexCoef(poly, idx) => {
                     let poly = poly.erase(cg);

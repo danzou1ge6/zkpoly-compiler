@@ -756,9 +756,9 @@ fn debug_type2_with_seq<'s, Rt: std::fmt::Debug + RuntimeType>(
     }
 }
 
-fn debug_partial_typed_type2<'s, Ty: std::fmt::Debug>(
+fn debug_partial_typed_type2<'s, Ty: std::fmt::Debug, Ts: std::fmt::Debug>(
     fpath: PathBuf,
-    g: &Digraph<type2::VertexId, type2::partial_typed::Vertex<'s, Option<Ty>>>,
+    g: &Digraph<type2::VertexId, type2::partial_typed::Vertex<'s, Option<Ty>, Ts>>,
     error_vid: type2::VertexId,
     output_vid: type2::VertexId,
     visualizer: Type2DebugVisualizer,
@@ -807,7 +807,7 @@ fn compile_dot(fpath: PathBuf) -> JoinHandle<()> {
 
 fn check_type2_dag<'s, Rt: RuntimeType>(
     fpath: PathBuf,
-    g: &Digraph<type2::VertexId, type2::Vertex<'s, Rt>>,
+    g: &Digraph<type2::VertexId, type2::unsliced::Vertex<'s, Rt>>,
     output_vid: type2::VertexId,
     visualizer: Type2DebugVisualizer,
 ) -> bool {

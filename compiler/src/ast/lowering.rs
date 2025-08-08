@@ -1,6 +1,10 @@
 use std::collections::BTreeMap;
 use zkpoly_common::{
-    arith::{Arith, BinOp, UnrOp}, devices::DeviceType, digraph::internal::Digraph, heap::Heap, typ::PolyType
+    arith::{Arith, BinOp, UnrOp},
+    devices::DeviceType,
+    digraph::internal::Digraph,
+    heap::Heap,
+    typ::PolyType,
 };
 pub use zkpoly_runtime::args::ConstantId;
 use zkpoly_runtime::args::{RuntimeType, Variable};
@@ -150,9 +154,11 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
         value: Variable<Rt>,
         name: Option<String>,
         typ: zkpoly_common::typ::Typ,
-        device: DeviceType
+        device: DeviceType,
     ) -> ConstantId {
-        let id = self.constant_table.push(Constant::new(value, name, typ, device));
+        let id = self
+            .constant_table
+            .push(Constant::new(value, name, typ, device));
         id
     }
 
@@ -238,14 +244,12 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
         }
     }
 
-    pub fn new(
-        output_v: impl super::TypeEraseable<Rt>,
-    ) -> (Self, VertexId) {
+    pub fn new(output_v: impl super::TypeEraseable<Rt>) -> (Self, VertexId) {
         let mut cg = Self::empty();
         let output_vid = output_v.erase(&mut cg);
         let src_info = cg.g.vertex(output_vid).src().clone();
         let return_vid = cg.g.add_vertex(Vertex::new(
-            type2::VertexNode::Return(output_vid),
+            type2::template::VertexNode::Return(output_vid),
             None,
             src_info,
         ));

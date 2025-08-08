@@ -14,6 +14,7 @@ mod prelude {
         lower_typ,
         value::{self, ObjectId, OutputValue, VertexInput, VertexOutput},
     };
+    pub use super::super::{Operation, OperationSeq};
     pub use sliceable_subgraph::{Vertex, VertexId, VertexNode};
     pub use type2::sliceable_subgraph;
     pub use type2::Device;
@@ -24,11 +25,11 @@ mod prelude {
         typ::{Slice, Typ},
     };
     pub use zkpoly_runtime::args::RuntimeType;
-    pub use super::super::{Operation, OperationSeq};
 }
 
 use prelude::*;
 
+mod body;
 mod prologue;
 mod slice_analysis;
 

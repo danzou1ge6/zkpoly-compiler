@@ -5,7 +5,12 @@ use crate::{
     transit::{type2, SourceInfo},
 };
 
-use super::{temporary_space, Cg, Vertex, VertexId, VertexNode};
+use super::{
+    template::SliceableNode,
+    temporary_space,
+    unsliced::{Cg, Vertex, VertexNode},
+    VertexId,
+};
 use zkpoly_common::{
     arith::{
         self, Arith, ArithGraph, ArithUnrOp, ArithVertex, ExprId, FusedType, Mutability, Operation,
@@ -41,7 +46,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
             return false;
         }
         match v.node() {
-            VertexNode::SingleArith(a) => match a {
+            VertexNode::Sliceable(SliceableNode::SingleArith(a)) => match a {
                 Arith::Bin(arith::BinOp::Pp(op), lhs, rhs) => {
                     if matches!(op, arith::ArithBinOp::Add | arith::ArithBinOp::Sub) {
                         let (pty1, deg1) = self.g.vertex(*lhs).typ().unwrap_poly();
@@ -188,7 +193,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
     ) {
         let v = self.g.vertex(vid);
         match v.node() {
-            VertexNode::SingleArith(arith) => {
+            VertexNode::Sliceable(SliceableNode::SingleArith(arith)) => {
                 self.mark_bwd(vid, from, false, fused, to, fuse_id);
                 self.mark_fwd(vid, to, succ, false, fused, from, fuse_id);
 
@@ -511,10 +516,10 @@ fn _fuse_arith<'s, Rt: RuntimeType>(cg: Cg<'s, Rt>, hw_info: &HardwareInfo) -> (
                 // decide the polynomial representation
                 ag.poly_repr = get_poly_repr(&output_types);
 
-                let arith_node = VertexNode::Arith {
+                let arith_node = VertexNode::Sliceable(SliceableNode::Arith {
                     arith: ag.clone(),
                     chunking,
-                };
+                });
 
                 // add the arith graph to the new graph
                 let node_id = new_graph.add_vertex(Vertex::new(arith_node, typ, src_info));

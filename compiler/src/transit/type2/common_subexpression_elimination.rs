@@ -1,14 +1,19 @@
 use std::collections::BTreeMap;
 
 use zkpoly_common::{define_usize_id, digraph::internal::Digraph, union_find::UnionFind};
-use zkpoly_runtime::args::{ConstantId, RuntimeType};
+use zkpoly_runtime::args::RuntimeType;
 
 use crate::transit::{
-    type2::{VertexId, VertexNode},
-    Vertex,
+    self,
+    type2::{
+        template::SliceableNode,
+        unsliced::{
+            self,
+            alt_label::{Cg, Vertex, VertexNode},
+        },
+        VertexId,
+    },
 };
-
-use super::{template, Cg};
 
 define_usize_id!(EquivalenceClassId);
 
@@ -24,12 +29,7 @@ impl EquivalenceClass {
     }
 }
 
-pub type EquivalenceNode = template::VertexNode<
-    EquivalenceClass,
-    zkpoly_common::arith::ArithGraph<EquivalenceClass, zkpoly_common::arith::ExprId>,
-    ConstantId,
-    zkpoly_runtime::functions::UserFunctionId,
->;
+pub type EquivalenceNode = VertexNode<EquivalenceClass>;
 
 fn get_equivalence_class<Rt: RuntimeType>(
     node2class: &BTreeMap<EquivalenceNode, EquivalenceClass>,
@@ -38,7 +38,7 @@ fn get_equivalence_class<Rt: RuntimeType>(
     uf_table: &super::user_function::Table<Rt>,
 ) -> EquivalenceClass {
     match node {
-        EquivalenceNode::RotateIdx(father, offset) => {
+        EquivalenceNode::Sliceable(SliceableNode::RotateIdx(father, offset)) => {
             let mut class = father.clone();
             class.rotate(*offset);
             class
@@ -58,9 +58,9 @@ fn get_equivalence_class<Rt: RuntimeType>(
 }
 
 pub fn cse<'s, Rt: RuntimeType>(
-    cg: Cg<'s, Rt>,
+    cg: unsliced::Cg<'s, Rt>,
     uf_table: &super::user_function::Table<Rt>,
-) -> Cg<'s, Rt> {
+) -> unsliced::Cg<'s, Rt> {
     let mut vid2class: BTreeMap<VertexId, EquivalenceClass> = BTreeMap::new();
     let mut node2class: BTreeMap<EquivalenceNode, EquivalenceClass> = BTreeMap::new();
     let mut class2new_id: BTreeMap<EquivalenceClass, VertexId> = BTreeMap::new();
@@ -68,7 +68,7 @@ pub fn cse<'s, Rt: RuntimeType>(
     let mut id_allocator = 0;
 
     for (vid, v) in cg.g.topology_sort() {
-        let Vertex(node, typ, src) = v.clone();
+        let transit::Vertex(node, typ, src) = v.clone();
 
         let eq_node: EquivalenceNode =
             node.relabeled(&mut |vid| vid2class.get(&vid).cloned().unwrap());
@@ -78,7 +78,7 @@ pub fn cse<'s, Rt: RuntimeType>(
 
         // insert new node
         if !class2new_id.contains_key(&class) {
-            let new_node: VertexNode = node.relabeled(&mut |vid| {
+            let new_node: VertexNode<_> = node.relabeled(&mut |vid| {
                 class2new_id
                     .get(vid2class.get(&vid).unwrap())
                     .cloned()
@@ -121,7 +121,9 @@ pub fn cse<'s, Rt: RuntimeType>(
     }
 }
 
-pub fn tackle_equality_transforms<'s, Rt: RuntimeType>(mut cg: Cg<'s, Rt>) -> (Cg<'s, Rt>, bool) {
+pub fn tackle_equality_transforms<'s, T>(
+    mut cg: Cg<'s, VertexId, T>,
+) -> (Cg<'s, VertexId, T>, bool) {
     // some transformations such as assert_eq can create nodes the same as the original,
     // in this case, we need to move all the nodes pointing at the origin node to the new node
 

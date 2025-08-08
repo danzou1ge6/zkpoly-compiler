@@ -3,7 +3,10 @@ use std::ops::{Add, Div, Mul, Neg, Sub};
 use zkpoly_common::typ::PolyType;
 use zkpoly_runtime::runtime::transfer::Transfer;
 
-use crate::{transit::type2::template::VertexNode, transit::type2::NttAlgorithm};
+use crate::{
+    transit::type2::template::{LastSliceableNode, SliceableNode, VertexNode},
+    transit::type2::NttAlgorithm,
+};
 
 use super::*;
 
@@ -39,13 +42,17 @@ impl<'c, Rt: RuntimeType> TypeEraseable<Rt> for PolyLagrange<Rt> {
                 Arith(la) => {
                     let arith = la.to_arith(cg);
                     Vertex::new(
-                        VertexNode::SingleArith(arith),
+                        VertexNode::Sliceable(SliceableNode::SingleArith(arith)),
                         Some(Typ::lagrange()),
                         self.src_lowered(),
                     )
                 }
                 New(init, deg) => Vertex::new(
-                    VertexNode::NewPoly(*deg, init.clone(), PolyType::Lagrange),
+                    VertexNode::Sliceable(SliceableNode::NewPoly(
+                        *deg,
+                        init.clone(),
+                        PolyType::Lagrange,
+                    )),
                     Some(Typ::Poly((PolyType::Lagrange, Some(*deg)))),
                     self.src_lowered(),
                 ),
@@ -57,7 +64,7 @@ impl<'c, Rt: RuntimeType> TypeEraseable<Rt> for PolyLagrange<Rt> {
                         data.device.clone(),
                     );
                     Vertex::new(
-                        VertexNode::Constant(constant_id),
+                        VertexNode::Sliceable(SliceableNode::Constant(constant_id)),
                         Some(Typ::lagrange_with_deg(*len)),
                         self.src_lowered(),
                     )
@@ -78,7 +85,7 @@ impl<'c, Rt: RuntimeType> TypeEraseable<Rt> for PolyLagrange<Rt> {
                 RotateIdx(operand, x) => {
                     let operand = operand.erase(cg);
                     Vertex::new(
-                        VertexNode::RotateIdx(operand, *x),
+                        VertexNode::Sliceable(SliceableNode::RotateIdx(operand, *x)),
                         Some(Typ::lagrange()),
                         self.src_lowered(),
                     )
@@ -86,7 +93,7 @@ impl<'c, Rt: RuntimeType> TypeEraseable<Rt> for PolyLagrange<Rt> {
                 Blind(operand, start, end) => {
                     let operand = operand.erase(cg);
                     Vertex::new(
-                        VertexNode::Blind(operand, *start, *end),
+                        VertexNode::Sliceable(SliceableNode::Blind(operand, *start, *end)),
                         Some(Typ::lagrange()),
                         self.src_lowered(),
                     )
@@ -103,7 +110,7 @@ impl<'c, Rt: RuntimeType> TypeEraseable<Rt> for PolyLagrange<Rt> {
                     let poly = poly.erase(cg);
                     let powers = powers.erase(cg);
                     Vertex::new(
-                        VertexNode::DistributePowers { poly, powers },
+                        VertexNode::Sliceable(SliceableNode::DistributePowers { poly, powers }),
                         Some(Typ::lagrange()),
                         self.src_lowered(),
                     )
@@ -112,7 +119,7 @@ impl<'c, Rt: RuntimeType> TypeEraseable<Rt> for PolyLagrange<Rt> {
                     let poly = poly.erase(cg);
                     let x0 = x0.erase(cg);
                     Vertex::new(
-                        VertexNode::ScanMul { poly, x0 },
+                        VertexNode::Sliceable(SliceableNode::ScanMul { poly, x0 }),
                         Some(Typ::lagrange()),
                         self.src_lowered(),
                     )

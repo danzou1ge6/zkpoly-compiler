@@ -48,10 +48,10 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for PrecomputedPoints<Rt> {
                 zkpoly_common::typ::Typ::PointBase {
                     len: 2usize.pow(self.inner.t.1),
                 },
-                self.inner.t.0.device.clone()
+                self.inner.t.0.device.clone(),
             );
             Vertex::new(
-                VertexNode::Constant(constant),
+                VertexNode::Sliceable(SliceableNode::Constant(constant)),
                 Some(Typ::PointBase {
                     log_n: self.inner.t.1,
                 }),
@@ -126,7 +126,7 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for Point<Rt> {
                     zkpoly_common::typ::Typ::Point,
                 );
                 Vertex::new(
-                    VertexNode::Constant(constant),
+                    VertexNode::Sliceable(SliceableNode::Constant(constant)),
                     Some(Typ::Point),
                     self.src_lowered(),
                 )

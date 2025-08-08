@@ -23,11 +23,11 @@ impl<Rt: RuntimeType> TypeEraseable<Rt> for ArrayUntyped<Rt> {
             let points = points.erase(cg);
             let len = polys.len();
             Vertex::new(
-                VertexNode::Msm {
+                VertexNode::LastSliceable(LastSliceableNode::Msm {
                     polys,
                     points: vec![points],
                     alg: MsmConfig::default(),
-                },
+                }),
                 Some(Typ::Array(Box::new(Typ::Point), len)),
                 src,
             )
