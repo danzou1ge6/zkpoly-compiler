@@ -259,7 +259,8 @@ pub fn plan<'s, Rt: RuntimeType>(
         Statistics {
             realization_statistics,
             disk_peak_usage: disk_allocator.peak_memory_usage(),
-            cpu_peak_usage: cpu_allocator.unwrap().unwrap().peak_memory_usage(),
+            cpu_peak_usage: cpu_allocator.unwrap().unwrap().peak_memory_usage()
+                + hd_info.cpu().smithereen_space(),
             disk_constants_size,
             cpu_constants_size,
         },
