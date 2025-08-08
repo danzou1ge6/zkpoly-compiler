@@ -27,14 +27,17 @@ impl Object {
 }
 
 impl Object {
+    pub fn can_be_sliced(&self) -> bool {
+        matches!(&self.typ, Typ::PointBase { .. } | Typ::ScalarArray { .. })
+    }
     fn add_range(&mut self, range: Slice) {
-        if matches!(&self.typ, Typ::PointBase { .. } | Typ::ScalarArray { .. }) {
+        if self.can_be_sliced() {
             self.ranges.push(range);
         }
     }
 
     fn set_ranges(&mut self, ranges: Vec<Slice>) {
-        if matches!(&self.typ, Typ::PointBase { .. } | Typ::ScalarArray { .. }) {
+        if self.can_be_sliced() {
             self.ranges = ranges;
         }
     }

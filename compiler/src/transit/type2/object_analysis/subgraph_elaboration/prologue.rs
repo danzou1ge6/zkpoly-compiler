@@ -40,6 +40,8 @@ where
     }
 }
 
+/// Produce a value for object analysis.
+/// The produce value has normalized node, the provided object and the desired device from slice analysis.
 fn make_value<P>(sav: &slice_analysis::Value, object: Object) -> ResidentalValue<Option<P>> {
     ResidentalValue::new(
         value::Value::new(
@@ -68,9 +70,12 @@ impl PrologueBuilder {
             use sliceable_subgraph::template::VertexNode::*;
             use type2::template::SliceableNode::*;
             match v.node() {
-                Inner(RotateIdx(..)) | TupleGet(..) => {}
-                Input(..) | Return(..) => todo!(),
+                Inner(RotateIdx(..)) | TupleGet(..) => {
+                    // Their information are already embeded in [`Object`]'s
+                }
+                Input(..) | Return(..) => todo!("consider how to convey prologue input and output operations to memory planning; also, we may have intermediate return in the future"),
                 _ => {
+                    // All inputs should have the same slice
                     let the_slice = def_use
                         .input(vid)
                         .iter()
@@ -79,15 +84,18 @@ impl PrologueBuilder {
                         .collect::<AllEqualReducer<_>>()
                         .take();
 
+                    // If input is sliced, then each output should be defined on the same slice
                     if let Some(slice) = the_slice {
                         def_use.value(vid).iter().for_each(|ov| {
-                            self.available_slices
-                                .insert(ov.deref().object().id(), slice);
+                            if ov.object().can_be_sliced() {
+                                self.available_slices.insert(ov.object().id(), slice);
+                            }
                         })
                     }
 
                     let mut mutable_objects = BTreeMap::new();
 
+                    // Rewrite inputs to [`ResidentalValue`]'s for object analysis
                     let node = v.node().relabeled(
                         |u| {
                             def_use
@@ -96,6 +104,10 @@ impl PrologueBuilder {
                                 .find(|(vid, _)| u == *vid)
                                 .map(|(_, vi)| {
                                     // Make cloned slice if needed
+                                    // - If the input is sliced
+                                    //   - If the needed slice is same as slice object we already have, use it
+                                    //   - Otherwise, emit a clone operation to obtain the desired input slice
+                                    // - Otherwise, trivially produce value for object analysis
                                     let mut input_objects = vi.iter().map(|v| {
                                         if let Some(input_slice) = v.object().ranges().next() {
                                             let availabele_slice =
@@ -137,6 +149,9 @@ impl PrologueBuilder {
                                         }
                                     });
 
+                                    // Wrap the objects in [`VertexInput`]
+                                    // - Since slices are expected to consume small space, we always make a clone for mutable uses.
+                                    //   The new object will have a new object ID and no slice.
                                     match vi {
                                         VertexInput::Single(_, Mutability::Const) => {
                                             VertexInput::Single(
@@ -177,12 +192,23 @@ impl PrologueBuilder {
                         &inputs_mapping,
                     );
 
+                    // The output of the vertex should have slice the same as `the_slice`
                     let output = def_use
                         .value(vid)
                         .iter()
                         .map(|ov| {
                             (
-                                make_value(ov.deref(), Object::new(ov.object().id(), the_slice)),
+                                make_value(
+                                    ov,
+                                    Object::new(
+                                        ov.object().id(),
+                                        if ov.object().can_be_sliced() {
+                                            the_slice
+                                        } else {
+                                            None
+                                        },
+                                    ),
+                                ),
                                 ov.inplace_of().map(|src_vid| {
                                     def_use
                                         .input(vid)
