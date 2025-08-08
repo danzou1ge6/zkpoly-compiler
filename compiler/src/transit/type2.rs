@@ -162,13 +162,7 @@ pub mod alt_label {
 
 pub mod alt_label_no_subgraph {
     use super::*;
-    pub type VertexNode<I> = template::VertexNode<
-        I,
-        Arith<I>,
-        ConstantId,
-        user_function::Id,
-        ()
-    >;
+    pub type VertexNode<I> = template::VertexNode<I, Arith<I>, ConstantId, user_function::Id, ()>;
 }
 
 pub type VertexNode<'s, Rt> = alt_label::VertexNode<'s, VertexId, Rt>;
@@ -208,7 +202,7 @@ impl<'s, I, C, Sg, T, S>
     transit::Vertex<
         template::VertexNode<I, arith::ArithGraph<I, arith::ExprId>, C, user_function::Id, Sg>,
         T,
-        S
+        S,
     >
 where
     I: Copy + 'static,
@@ -295,8 +289,6 @@ impl<'s, I, Is, C, E, Rt: RuntimeType>
         E,
         sliceable_subgraph::alt_label::Cg<'s, Is, I, Rt>,
     >
-
-
 where
     I: Clone,
     Is: Clone,
@@ -346,7 +338,6 @@ where
                     .map(|x| mapping(x.clone()))
                     .collect::<Result<_, _>>()?,
             },
-            Blind(s, left, right) => Blind(mapping(s.clone())?, *left, *right),
             Array(es) => Array(
                 es.iter()
                     .map(|x| mapping(x.clone()))
@@ -358,21 +349,6 @@ where
                     .map(|x| mapping(x.clone()))
                     .collect::<Result<_, _>>()?,
             ),
-            Msm {
-                alg,
-                polys: scalars,
-                points,
-            } => Msm {
-                alg: alg.clone(),
-                polys: scalars
-                    .iter()
-                    .map(|x| mapping(x.clone()))
-                    .collect::<Result<_, _>>()?,
-                points: points
-                    .iter()
-                    .map(|x| mapping(x.clone()))
-                    .collect::<Result<_, _>>()?,
-            },
             Array(es) => Array(
                 es.iter()
                     .map(|x| mapping(x.clone()))
