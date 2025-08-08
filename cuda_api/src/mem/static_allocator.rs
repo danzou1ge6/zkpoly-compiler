@@ -3,23 +3,6 @@ use std::{collections::BTreeMap, ffi::c_void};
 
 use crate::cuda_check;
 
-pub fn alloc_pinned<T: Sized>(len: usize) -> *mut T {
-    let mut ptr: *mut T = std::ptr::null_mut();
-    unsafe {
-        cuda_check!(cudaMallocHost(
-            &mut ptr as *mut *mut T as *mut *mut c_void,
-            len * std::mem::size_of::<T>()
-        ));
-    }
-    ptr
-}
-
-pub fn free_pinned<T: Sized>(ptr: *mut T) {
-    unsafe {
-        cuda_check!(cudaFreeHost(ptr as *mut c_void));
-    }
-}
-
 pub struct StaticAllocator {
     device_id: i32,
     base_ptr: *mut std::ffi::c_void,
@@ -27,6 +10,8 @@ pub struct StaticAllocator {
     check_overlap: bool,
     ranges: BTreeMap<usize, usize>, // [left, right)
 }
+
+unsafe impl Send for StaticAllocator {}
 
 impl StaticAllocator {
     pub fn new(device_id: i32, max_size: usize, check_overlap: bool) -> Self {
@@ -50,7 +35,6 @@ impl StaticAllocator {
         let right = offset + len * std::mem::size_of::<F>();
         assert!(right <= self.max_size);
         if self.check_overlap {
-            println!("Allocating range: {} - {}", left, right);
             let gap = self.ranges.lower_bound(std::ops::Bound::Included(&left));
             if let Some((pred_start, pre_end)) = gap.peek_prev() {
                 if !(pre_end <= &left) {
@@ -77,7 +61,6 @@ impl StaticAllocator {
         if self.check_overlap {
             let offset = unsafe { (ptr as *mut c_void).offset_from(self.base_ptr) } as usize;
             assert!(self.ranges.contains_key(&offset));
-            println!("Freeing range: {}", offset);
             self.ranges.remove(&offset);
         }
     }

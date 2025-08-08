@@ -1,17 +1,19 @@
 use core::panic;
 use std::{
-    ops::{Index, IndexMut}, ptr::{copy_nonoverlapping}
+    ops::{Index, IndexMut},
+    ptr::copy_nonoverlapping,
 };
 
 use group::ff::Field;
 use rand_core::RngCore;
 use zkpoly_common::devices::DeviceType;
 use zkpoly_cuda_api::{
-    mem::{alloc_pinned, free_pinned}, stream::CudaStream
+    mem::{alloc_pinned, free_pinned},
+    stream::CudaStream,
 };
 use zkpoly_memory_pool::{
     buddy_disk_pool::{
-        cpu_read_from_disk, cpu_write_to_disk, gpu_read_from_disk, gpu_write_to_disk, DiskAllocInfo
+        cpu_read_from_disk, cpu_write_to_disk, gpu_read_from_disk, gpu_write_to_disk, DiskAllocInfo,
     },
     BuddyDiskPool, CpuMemoryPool,
 };
@@ -1053,11 +1055,7 @@ impl<F: Field> Transfer for ScalarArray<F> {
         assert!(self.slice_info.is_none());
         assert!(target.slice_info.is_none());
         let alligned_size = (self.len * size_of::<F>()).next_multiple_of(4096);
-        cpu_write_to_disk(
-            self.values as *const u8,
-            &target.disk_pos,
-            alligned_size,
-        );
+        cpu_write_to_disk(self.values as *const u8, &target.disk_pos, alligned_size);
     }
 
     fn disk2cpu(&self, target: &mut Self) {
@@ -1067,11 +1065,7 @@ impl<F: Field> Transfer for ScalarArray<F> {
         assert!(self.slice_info.is_none());
         assert!(target.slice_info.is_none());
         let alligned_size = (self.len * size_of::<F>()).next_multiple_of(4096);
-        cpu_read_from_disk(
-            target.values as *mut u8,
-            &self.disk_pos,
-            alligned_size,
-        );
+        cpu_read_from_disk(target.values as *mut u8, &self.disk_pos, alligned_size);
     }
 
     fn gpu2disk(&self, target: &mut Self) {
@@ -1221,7 +1215,7 @@ fn test_transfer_gpu_disk() {
         BuddyDiskPool::new(2usize.pow(28), Some("/tmp".into())).unwrap(),
         // BuddyDiskPool::new(2usize.pow(28), Some("/data/tmp".into())).unwrap(),
     ];
-    let gpu_pool = PageAllocator::new(DeviceType::GPU { device_id: 0 }, 1024 * 1024 * 2, 2);
+    let mut gpu_pool = PageAllocator::new(DeviceType::GPU { device_id: 0 }, 1024 * 1024 * 2, 2);
     let mut array1 = ScalarArray::<F>::alloc_cpu(1024, &mut cpu_pool);
     array1.iter_mut().for_each(|v| {
         *v = F::random(rand_core::OsRng);
@@ -1276,7 +1270,8 @@ fn test_transfer_gpu_disk_large() {
         BuddyDiskPool::new(2usize.pow(34), Some("/tmp".into())).unwrap(),
         // BuddyDiskPool::new(2usize.pow(28), Some("/data/tmp".into())).unwrap(),
     ];
-    let gpu_pool = PageAllocator::new(DeviceType::GPU { device_id: 0 }, 1024 * 1024 * 1024 * 8, 1);
+    let mut gpu_pool =
+        PageAllocator::new(DeviceType::GPU { device_id: 0 }, 1024 * 1024 * 1024 * 8, 1);
     let mut array1 = ScalarArray::<F>::alloc_cpu(2usize.pow(28), &mut cpu_pool);
     array1.iter_mut().enumerate().for_each(|(id, v)| {
         *v = F::from(id as u64);
@@ -1332,7 +1327,8 @@ fn test_transfer_gpu_disk_large_no_direct() {
         BuddyDiskPool::new(2usize.pow(34), Some("/tmp".into())).unwrap(),
         // BuddyDiskPool::new(2usize.pow(28), Some("/data/tmp".into())).unwrap(),
     ];
-    let gpu_pool = PageAllocator::new(DeviceType::GPU { device_id: 0 }, 1024 * 1024 * 1024 * 8, 1);
+    let mut gpu_pool =
+        PageAllocator::new(DeviceType::GPU { device_id: 0 }, 1024 * 1024 * 1024 * 8, 1);
     let mut array1 = ScalarArray::<F>::alloc_cpu(2usize.pow(28), &mut cpu_pool);
     array1.iter_mut().enumerate().for_each(|(id, v)| {
         *v = F::from(id as u64);
@@ -1351,7 +1347,14 @@ fn test_transfer_gpu_disk_large_no_direct() {
     let temp_buffers = vec![temp_buffer];
 
     // array2.disk2gpu(&mut array3);
-    zkpoly_memory_pool::buddy_disk_pool::gpu_read_from_disk_no_direct(array3.values.cast(), &array2.disk_pos, 2usize.pow(28) * size_of::<F>(), 0, &temp_buffers, temp_size);
+    zkpoly_memory_pool::buddy_disk_pool::gpu_read_from_disk_no_direct(
+        array3.values.cast(),
+        &array2.disk_pos,
+        2usize.pow(28) * size_of::<F>(),
+        0,
+        &temp_buffers,
+        temp_size,
+    );
     // gpu_write_to_disk_no_direct(array3.values.cast(), &array2.disk_pos, 2usize.pow(28) * size_of::<F>(), 0, &temp_buffers, temp_size);
 
     let mut array4 = ScalarArray::<F>::alloc_cpu(2usize.pow(28), &mut cpu_pool);
@@ -1372,7 +1375,14 @@ fn test_transfer_gpu_disk_large_no_direct() {
     let mut array5 = ScalarArray::<F>::alloc_disk(2usize.pow(28), &mut disk_pool);
 
     // array3.gpu2disk(&mut array5);
-    zkpoly_memory_pool::buddy_disk_pool::gpu_write_to_disk_no_direct(array3.values.cast(), &array5.disk_pos, 2usize.pow(28) * size_of::<F>(), 0, &temp_buffers, temp_size);
+    zkpoly_memory_pool::buddy_disk_pool::gpu_write_to_disk_no_direct(
+        array3.values.cast(),
+        &array5.disk_pos,
+        2usize.pow(28) * size_of::<F>(),
+        0,
+        &temp_buffers,
+        temp_size,
+    );
     let mut array6 = ScalarArray::<F>::alloc_cpu(2usize.pow(28), &mut cpu_pool);
     array5.disk2cpu(&mut array6);
     for i in 0..2usize.pow(28) {

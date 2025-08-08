@@ -1,5 +1,7 @@
 use std::{
+    borrow::BorrowMut,
     collections::{BTreeSet, HashMap},
+    ops::DerefMut,
     sync::{Arc, Mutex},
     thread,
 };
@@ -18,7 +20,12 @@ use crate::{
     instructions::{Instruction, InstructionNode},
 };
 
-use zkpoly_cuda_api::{bindings::cudaDeviceSynchronize, cuda_check, mem::CudaAllocator, stream::{CudaEvent, CudaEventRaw}};
+use zkpoly_cuda_api::{
+    bindings::{cudaDeviceSynchronize, cudaSetDevice},
+    cuda_check,
+    mem::CudaAllocator,
+    stream::{CudaEvent, CudaEventRaw},
+};
 
 use zkpoly_memory_pool::{static_allocator::CpuStaticAllocator, BuddyDiskPool};
 
@@ -26,6 +33,7 @@ pub mod alloc;
 pub mod assert_eq;
 pub mod transfer;
 
+/// The runtime that executes compilation artifect.
 pub struct Runtime<T: RuntimeType> {
     instructions: Vec<Instruction>,
     gpu_mapping: Arc<dyn Fn(i32) -> i32 + Send + Sync>,
@@ -35,11 +43,12 @@ pub struct Runtime<T: RuntimeType> {
     events: EventTable,
     pub mem_allocator: Option<CpuStaticAllocator>,
     gpu_allocator: HashMap<i32, CudaAllocator>,
-    disk_allocator: Vec<BuddyDiskPool>,
+    disk_allocator: Arc<Mutex<Vec<BuddyDiskPool>>>,
     rng: AsyncRng,
     _libs: Libs,
 }
 
+/// Options for debugging runtime runs.
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub struct RuntimeDebug {
     pub bench_kernel: bool,
@@ -49,6 +58,7 @@ pub struct RuntimeDebug {
 }
 
 impl RuntimeDebug {
+    /// No debugging is enabled.
     pub fn none() -> Self {
         Self {
             bench_kernel: false,
@@ -58,6 +68,7 @@ impl RuntimeDebug {
         }
     }
 
+    /// Controls whether to bench kernels.
     pub fn with_bench_kernel(self, bench_mark: bool) -> Self {
         Self {
             bench_kernel: bench_mark,
@@ -65,6 +76,7 @@ impl RuntimeDebug {
         }
     }
 
+    /// Controls whether to print each instruction before execution.
     pub fn with_print_instruction(self, print_instruction: bool) -> Self {
         Self {
             print_instruction,
@@ -72,6 +84,8 @@ impl RuntimeDebug {
         }
     }
 
+    /// Control whether to record time used to execute each instruction.
+    /// If this is enabled, the returned [`debug::Log`] will be non-empty.
     pub fn with_record_time(self, record_time: bool) -> Self {
         Self {
             record_time,
@@ -79,6 +93,7 @@ impl RuntimeDebug {
         }
     }
 
+    /// Control whether to force instructions to execute in serial, for debugging.
     pub fn with_serial_execution(self, serial_execution: bool) -> Self {
         Self {
             serial_execution,
@@ -101,7 +116,7 @@ impl<T: RuntimeType> Runtime<T> {
         n_threads: usize,
         mem_allocator: CpuStaticAllocator,
         gpu_allocator: HashMap<i32, CudaAllocator>,
-        disk_allocator: Vec<BuddyDiskPool>,
+        disk_allocator: Arc<Mutex<Vec<BuddyDiskPool>>>,
         rng: AsyncRng,
         gpu_mapping: Arc<dyn Fn(i32) -> i32 + Send + Sync>,
         libs: Libs,
@@ -170,7 +185,7 @@ impl<T: RuntimeType> Runtime<T> {
                 &self.instructions,
                 Some(&mut self.mem_allocator.as_mut().unwrap()),
                 Some(&mut self.gpu_allocator),
-                Some(&mut self.disk_allocator),
+                Some(self.disk_allocator.as_ref()),
                 0,
             )
         };
@@ -207,7 +222,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         instructions: &[Instruction],
         mut mem_allocator: Option<&mut CpuStaticAllocator>,
         mut gpu_allocator: Option<&mut HashMap<i32, CudaAllocator>>,
-        mut disk_allocator: Option<&mut Vec<BuddyDiskPool>>,
+        disk_allocator: Option<&Mutex<Vec<BuddyDiskPool>>>,
         _thread_id: usize,
     ) -> Option<Variable<T>> {
         for (i, instruction) in instructions.into_iter().enumerate() {
@@ -248,12 +263,12 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                         alloc_method,
                         &mut mem_allocator,
                         &mut gpu_allocator,
-                        &mut disk_allocator,
+                        &mut disk_allocator.map(|m| m.lock().unwrap()),
                     );
 
                     if let Typ::Stream = &typ {
-                        let event = CudaEventRaw::new();
                         let stream = var.unwrap_stream();
+                        let event = CudaEventRaw::new(stream.get_device());
                         event.record(stream);
                         self.debug_writer.new_stream(
                             instruction.unwrap_stream(),
@@ -275,7 +290,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                             alloc_method,
                             &mut mem_allocator,
                             &mut gpu_allocator,
-                            &mut disk_allocator,
+                            &mut disk_allocator.map(|m| m.lock().unwrap()),
                         );
                         *guard = None;
                     } else {
@@ -291,7 +306,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                 } => {
                     let src = (*self.variable)[src_id].as_ref().unwrap();
                     let dst = (*self.variable)[dst_id].as_mut().unwrap();
-                    self.transfer(src, dst, src_device, dst_device, stream);
+                    self.transfer(src, dst, src_device.clone(), dst_device.clone(), stream);
                 }
                 FuncCall {
                     func_id,

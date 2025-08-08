@@ -195,7 +195,7 @@ macro_rules! impl_poly_new {
                     xmake_config("POLY_FIELD", field_type);
                     xmake_run("poly");
                 }
-                let lib = libs.load("libpoly.so");
+                let lib = libs.load_relative("libpoly.so");
                 let c_func = unsafe { lib.get(concat!($symbol_name, "\0").as_bytes()) }.unwrap();
                 Self {
                     _marker: PhantomData,
@@ -287,7 +287,7 @@ impl<T: RuntimeType> ScalarPow<T> {
             xmake_config("POLY_FIELD", field_type);
             xmake_run("poly");
         }
-        let lib = libs.load("libpoly.so");
+        let lib = libs.load_relative("libpoly.so");
         let c_func = unsafe { lib.get(concat!("scalar_pow", "\0").as_bytes()) }.unwrap();
         Self {
             _marker: PhantomData,

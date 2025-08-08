@@ -784,7 +784,7 @@ namespace detail {
             u64 offset = i * part_len;
             u64 cur_len = std::min(part_len, len - offset);
 
-            CUDA_CHECK(cudaMemcpyAsync(points, h_points[0] + offset * PointAffine::N_WORDS, sizeof(PointAffine) * part_len, cudaMemcpyHostToDevice, stream));
+            CUDA_CHECK(cudaMemcpyAsync(points, h_points[0] + offset * PointAffine::N_WORDS, sizeof(PointAffine) * cur_len, cudaMemcpyHostToDevice, stream));
 
             u32 grid = div_ceil(cur_len, 256);
             u32 block = 256;

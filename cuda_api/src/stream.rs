@@ -78,28 +78,31 @@ impl Drop for CudaEvent {
     }
 }
 
-// Assume the event is recorded on the current device, so we don't need to set the device again
 pub struct CudaEventRaw {
+    device_id: i32,
     event: cudaEvent_t,
 }
 
 impl CudaEventRaw {
-    pub fn new() -> Self {
+    pub fn new(device_id: i32) -> Self {
         let mut event: cudaEvent_t = std::ptr::null_mut();
         unsafe {
+            cuda_check!(cudaSetDevice(device_id));
             cuda_check!(cudaEventCreateWithFlags(&mut event, cudaEventBlockingSync));
         }
-        Self { event }
+        Self { event, device_id }
     }
 
     pub fn record(&self, stream: &CudaStream) {
         unsafe {
+            cuda_check!(cudaSetDevice(self.device_id));
             cuda_check!(cudaEventRecord(self.event, stream.raw()));
         }
     }
 
     pub fn sync(&self) {
         unsafe {
+            cuda_check!(cudaSetDevice(self.device_id));
             cuda_check!(cudaEventSynchronize(self.event));
         }
     }
@@ -111,6 +114,7 @@ impl CudaEventRaw {
     pub fn elapsed(&self, other: &CudaEventRaw) -> f32 {
         let mut elapsed: f32 = 0.0;
         unsafe {
+            cuda_check!(cudaSetDevice(self.device_id));
             cuda_check!(cudaEventElapsedTime(&mut elapsed, self.event, other.event));
         }
         elapsed
@@ -120,6 +124,7 @@ impl CudaEventRaw {
 impl Drop for CudaEventRaw {
     fn drop(&mut self) {
         unsafe {
+            cuda_check!(cudaSetDevice(self.device_id));
             cuda_check!(cudaEventDestroy(self.event));
         }
     }

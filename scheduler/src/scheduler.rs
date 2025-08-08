@@ -1,277 +1,431 @@
-use std::collections::HashMap;
-use std::sync::{mpsc, Arc, Mutex};
-use std::thread;
-use std::time::Duration;
-use zkpoly_compiler::driver::artifect::Pools;
-use zkpoly_compiler::driver::{Artifect, HardwareInfo};
-use zkpoly_memory_pool::static_allocator::CpuStaticAllocator;
-use zkpoly_runtime::args::{EntryTable, RuntimeType, Variable};
-use zkpoly_runtime::async_rng::AsyncRng;
-use zkpoly_runtime::debug::Log;
-use zkpoly_runtime::runtime::{RuntimeDebug, RuntimeInfo};
-
-// 资源需求结构体
-#[derive(Debug, Clone)]
-pub struct ResourceRequirement {
-    pub cpu_memory_mb: u64,    // CPU内存需求 (MB)
-    pub disk_space_mb: u64,    // 磁盘空间需求 (MB)
+mod prelude {
+    pub use std::collections::{HashMap, HashSet};
+    pub use std::sync::{mpsc, Arc, Mutex};
+    pub use std::thread::{self};
+    pub use std::time::{Duration, Instant};
+    pub use zkpoly_common::define_usize_id;
+    pub use zkpoly_common::heap::{Heap, IdAllocator, UsizeId};
+    pub use zkpoly_compiler::driver::artifect::{GpuMapping, Pools};
+    pub use zkpoly_compiler::driver::{Artifect, HardwareInfo, MemoryInfo};
+    pub use zkpoly_memory_pool::buddy_disk_pool::DiskMemoryPool;
+    pub use zkpoly_memory_pool::static_allocator::CpuStaticAllocator;
+    pub use zkpoly_runtime::args::{EntryTable, RuntimeType, Variable};
+    pub use zkpoly_runtime::async_rng::AsyncRng;
+    pub use zkpoly_runtime::debug::Log;
+    pub use zkpoly_runtime::runtime::{Runtime, RuntimeDebug};
 }
 
-// 全局资源管理器
+use prelude::*;
+
+define_usize_id!(TaskId);
+
+mod erased;
+mod submitter;
+
+pub use submitter::exposed::*;
+use submitter::ProgramId;
+pub use submitter::Submitter;
+
+struct WorkerFinishRespond {
+    r: submitter::RunReturn,
+    id: TaskId,
+    program: ProgramId,
+    version: MemoryInfo,
+    cards: Vec<i32>,
+}
+
+struct LaunchedTask {
+    /// The `version`, `cards` and `memory_offset` fields in `accepted`
+    /// are expected to be set here.
+    accepted: AcceptedTask,
+    runtime: erased::BoxedRuntime,
+    runtime_debug: RuntimeDebug,
+}
+
+struct AcceptedTask {
+    id: TaskId,
+    submitted: submitter::SubmittedTask,
+    version: Option<MemoryInfo>,
+    cards: Vec<i32>,
+    memory_offset: Option<usize>,
+}
+
+impl std::fmt::Debug for AcceptedTask {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AcceptedTask")
+            .field("id", &self.id)
+            .field("version", &self.version)
+            .field("cards", &self.cards)
+            .field("program", &self.submitted.program)
+            .field("memory_offset", &self.memory_offset)
+            .finish()
+    }
+}
+
+struct ExecutorHandle {
+    thread: thread::JoinHandle<()>,
+}
+
+/// Handle to the scheduler thread.
 #[derive(Debug)]
-pub struct GlobalResourceManager {
-    available_cpu_memory_mb: Arc<Mutex<u64>>,
-    available_disk_space_mb: Arc<Mutex<u64>>,
-    total_cpu_memory_mb: u64,
-    total_disk_space_mb: u64,
+pub struct SchedulerHandle {
+    shutdown_sender: mpsc::Sender<()>,
+    thread: thread::JoinHandle<()>,
 }
 
-impl GlobalResourceManager {
-    pub fn new(total_cpu_memory_mb: u64, total_disk_space_mb: u64) -> Self {
+impl SchedulerHandle {
+    /// Shutdown the scheduler thread and executor threads.
+    pub fn shutdown(self) {
+        self.shutdown_sender
+            .send(())
+            .expect("send shutdown command failed");
+        self.thread.join().expect("join scheduler failed");
+    }
+}
+
+/// Configuration for the scheduler.
+pub struct SchedulerConfig {
+    num_executors: usize,
+    memory_check: bool,
+    runtime_debug: RuntimeDebug,
+    schedule_window_size: usize,
+}
+
+impl Default for SchedulerConfig {
+    fn default() -> Self {
+        SchedulerConfig {
+            num_executors: 4,
+            memory_check: true,
+            runtime_debug: RuntimeDebug::none(),
+            schedule_window_size: 32,
+        }
+    }
+}
+
+impl SchedulerConfig {
+    /// Controls number of executors launched by the scheduler.
+    pub fn with_num_executors(self, x: usize) -> Self {
         Self {
-            available_cpu_memory_mb: Arc::new(Mutex::new(total_cpu_memory_mb)),
-            available_disk_space_mb: Arc::new(Mutex::new(total_disk_space_mb)),
-            total_cpu_memory_mb,
-            total_disk_space_mb,
+            num_executors: x,
+            ..self
         }
     }
 
-    // 尝试分配资源，如果资源不足返回false
-    pub fn try_allocate(&self, requirement: &ResourceRequirement) -> bool {
-        let mut cpu_memory = self.available_cpu_memory_mb.lock().unwrap();
-        let mut disk_space = self.available_disk_space_mb.lock().unwrap();
-
-        if *cpu_memory >= requirement.cpu_memory_mb && *disk_space >= requirement.disk_space_mb {
-            *cpu_memory -= requirement.cpu_memory_mb;
-            *disk_space -= requirement.disk_space_mb;
-            true
-        } else {
-            false
+    /// Controls whether memory sanity checks are enabled, for debugging.
+    pub fn with_memory_check(self, x: bool) -> Self {
+        Self {
+            memory_check: x,
+            ..self
         }
     }
 
-    // 释放资源
-    pub fn release(&self, requirement: &ResourceRequirement) {
-        let mut cpu_memory = self.available_cpu_memory_mb.lock().unwrap();
-        let mut disk_space = self.available_disk_space_mb.lock().unwrap();
-
-        *cpu_memory += requirement.cpu_memory_mb;
-        *disk_space += requirement.disk_space_mb;
-
-        // 确保不超过总量
-        if *cpu_memory > self.total_cpu_memory_mb {
-            *cpu_memory = self.total_cpu_memory_mb;
-        }
-        if *disk_space > self.total_disk_space_mb {
-            *disk_space = self.total_disk_space_mb;
+    /// Controls runtime debug options.
+    pub fn with_runtime_debug(self, x: RuntimeDebug) -> Self {
+        Self {
+            runtime_debug: x,
+            ..self
         }
     }
 
-    // 获取当前可用资源信息
-    pub fn get_available_resources(&self) -> (u64, u64) {
-        let cpu_memory = *self.available_cpu_memory_mb.lock().unwrap();
-        let disk_space = *self.available_disk_space_mb.lock().unwrap();
-        (cpu_memory, disk_space)
-    }
-
-    // 获取资源使用率
-    pub fn get_utilization(&self) -> (f64, f64) {
-        let (available_cpu, available_disk) = self.get_available_resources();
-        let cpu_utilization = 1.0 - (available_cpu as f64 / self.total_cpu_memory_mb as f64);
-        let disk_utilization = 1.0 - (available_disk as f64 / self.total_disk_space_mb as f64);
-        (cpu_utilization, disk_utilization)
+    /// Configures the schedule window size.
+    pub fn with_schedule_window_size(self, x: usize) -> Self {
+        Self {
+            schedule_window_size: x,
+            ..self
+        }
     }
 }
 
-// 任务状态
-#[derive(Debug)]
-pub enum TaskStatus {
-    Pending,
-    Running { assigned_cards: Vec<usize> }, // 任务正在运行，包含已分配的卡片
-    Completed,
+struct Knowlede {
+    /// Duration for all versions are expected to be found here.
+    /// There fore, they must be initialized to some estimations before hand.
+    time_experience: Heap<ProgramId, Vec<(MemoryInfo, Duration)>>,
 }
 
-// 任务结构
-struct Task<Rt: RuntimeType> {
-    artifect: Artifect<Rt>,
-    status: Arc<Mutex<TaskStatus>>,
-    result_sender: mpsc::Sender<(Option<Variable<Rt>>, Log, RuntimeInfo<Rt>)>, // 用于发送任务结果
-    hardware_info: HardwareInfo,
+impl Knowlede {
+    fn estimate_time(&self, program: ProgramId, version: &MemoryInfo) -> Duration {
+        let assoc = &self.time_experience[program];
+        assoc
+            .iter()
+            .find(|(v1, _)| v1 == version)
+            .map(|(_, t)| *t)
+            .unwrap()
+    }
+
+    fn update(&mut self, program: ProgramId, version: &MemoryInfo, duration: Duration) {
+        const SMOOTH_FACTOR: f32 = 0.4;
+
+        let assoc = &mut self.time_experience[program];
+        let (_, old) = assoc.iter_mut().find(|(v1, _)| v1 == version).unwrap();
+
+        *old = old.mul_f32(SMOOTH_FACTOR) + duration.mul_f32(1.0 - SMOOTH_FACTOR);
+    }
+}
+
+struct Control {
+    reception: mpsc::Receiver<submitter::Message>,
+    executors: Vec<ExecutorHandle>,
+    shutdown_receiver: mpsc::Receiver<()>,
+    task_launcher: crossbeam_channel::Sender<LaunchedTask>,
+    result_receiver: crossbeam_channel::Receiver<WorkerFinishRespond>,
+    result_relayer: HashMap<TaskId, crossbeam_channel::Sender<submitter::RunReturn>>,
+}
+
+mod core;
+
+use core::Core;
+use std::marker::PhantomData;
+
+/// The scheduler.
+/// It runs in a dedicated thread, and communicates with executors and users with channels.
+pub struct Scheduler {
+    hd_info: HardwareInfo,
+    control: Control,
+    core: Core,
+    cpu_memory: CpuStaticAllocator,
+    disk_memory: Arc<Mutex<DiskMemoryPool>>,
     rng: AsyncRng,
-    inputs: EntryTable<Rt>,
-    debug_opt: RuntimeDebug,
-    resource_requirement: ResourceRequirement, // 任务的资源需求
+    shutdown_sender: mpsc::Sender<()>,
 }
 
-pub struct Scheduler<Rt: RuntimeType> {
-    pub cards_per_request: usize,
-    pub total_cards: usize,
-    sender: crossbeam_channel::Sender<Task<Rt>>,
-    _scheduler_threads: Vec<thread::JoinHandle<()>>,
-    resource_manager: Arc<GlobalResourceManager>,
-}
+impl Scheduler {
+    fn add_task(&mut self, submit: submitter::Submit) -> TaskId {
+        let id = self.core.add_task(submit.task);
+        self.control.result_relayer.insert(id, submit.result_sender);
+        id
+    }
 
-impl<Rt: RuntimeType> Scheduler<Rt> {
-    pub fn new(
-        cards_per_request: usize,
-        total_cards: usize,
-        total_cpu_memory_mb: u64,
-        total_disk_space_mb: u64,
-    ) -> Self {
-        assert!(
-            total_cards % cards_per_request == 0,
-            "Total cards must be a multiple of cards per request"
+    fn finish_task(&mut self, resp: WorkerFinishRespond) {
+        self.core.finish(
+            resp.id,
+            &resp.cards,
+            resp.program,
+            &resp.version,
+            resp.r.time,
         );
 
-        let resource_manager = Arc::new(GlobalResourceManager::new(
-            total_cpu_memory_mb,
-            total_disk_space_mb,
-        ));
+        let _ = self
+            .control
+            .result_relayer
+            .remove(&resp.id)
+            .unwrap()
+            .try_send(resp.r);
+    }
 
-        let (sender, receiver) = crossbeam_channel::unbounded();
-        let mut scheduler_threads = Vec::new();
+    fn schedule_task(&mut self) {
+        while let Some(accepted) = self.core.schedule() {
+            let pools = Pools {
+                cpu: self.cpu_memory.slice(
+                    accepted.memory_offset.unwrap(),
+                    accepted.version.as_ref().unwrap().memory_limit() as usize,
+                ),
+                // cpu: CpuStaticAllocator::new(
+                //     accepted.version.as_ref().unwrap().memory_limit() as usize,
+                //     true,
+                // ),
+                gpu: self.hd_info.gpu_allocators_for(
+                    self.core.config.memory_check,
+                    accepted.cards.iter().copied(),
+                ),
+                disk: self.disk_memory.clone(),
+            };
 
-        for i in (0..total_cards).step_by(cards_per_request) {
-            let receiver: crossbeam_channel::Receiver<Task<Rt>> = receiver.clone();
-            let resource_manager_clone = Arc::clone(&resource_manager);
-            let cur_cards = (i..(i + cards_per_request))
-                .into_iter()
-                .collect::<Vec<usize>>();
-            scheduler_threads.push(thread::spawn(move || {
-                let cur_cards_clone = cur_cards.clone();
-                let gpu_mapping = Arc::new(move |x: i32| cur_cards_clone[x as usize] as i32);
-                while let Ok(task) = receiver.recv() {
-                    // 等待资源可用
-                    while !resource_manager_clone.try_allocate(&task.resource_requirement) {
-                        println!(
-                            "Scheduler thread {}: Waiting for resources - need {}MB CPU memory, {}MB disk space",
-                            i / cards_per_request,
-                            task.resource_requirement.cpu_memory_mb,
-                            task.resource_requirement.disk_space_mb
-                        );
-                        let (available_cpu, available_disk) = resource_manager_clone.get_available_resources();
-                        println!(
-                            "Available resources: {}MB CPU memory, {}MB disk space",
-                            available_cpu, available_disk
-                        );
-                        thread::sleep(Duration::from_millis(100)); // 等待100ms后重试
+            let runtime = self.core.programs[accepted.submitted.program].prepare_dispatcher(
+                accepted.version.as_ref().unwrap(),
+                pools,
+                self.rng.clone(),
+                Arc::new({
+                    let mapping = accepted.cards.clone();
+                    move |i| mapping[i as usize]
+                }),
+            );
+
+            let launched = LaunchedTask {
+                accepted,
+                runtime,
+                runtime_debug: self.core.config.runtime_debug.clone(),
+            };
+            self.control
+                .task_launcher
+                .send(launched)
+                .expect("all task spawn closed");
+        }
+    }
+
+    /// Launch the scheduler thread.
+    pub fn launch(mut self) -> SchedulerHandle {
+        let shutdown_sender = self.shutdown_sender.clone();
+
+        let jh = thread::spawn(move || {
+            println!(
+                "调度器线程启动，管理 {} 个执行器",
+                self.core.config.num_executors
+            );
+
+            loop {
+                // 检查是否有新的用户任务
+                while let Ok(msg) = self.control.reception.try_recv() {
+                    match msg {
+                        submitter::Message::Submit(submitted) => {
+                            let id = self.add_task(submitted);
+                            self.schedule_task();
+                            println!("调度器接收到新任务 {:?}", id);
+                        }
+                        submitter::Message::Add(ar, sender) => {
+                            self.core.knowledge.time_experience.push(
+                                ar.versions()
+                                    .map(|ver| (ver.clone(), Duration::from_secs(1)))
+                                    .collect(),
+                            );
+                            let id = self.core.programs.push(ar);
+                            let _ = sender.send(id);
+                        }
                     }
+                }
 
-                    let mut status = task.status.lock().unwrap();
-                    assert!(
-                        matches!(*status, TaskStatus::Pending),
-                        "Task must be pending before running"
-                    );
-                    *status = TaskStatus::Running {
-                        assigned_cards: cur_cards.clone(),
-                    }; // 更新任务状态为运行中，并记录已分配的卡片
-                    drop(status); // 释放锁
+                // 执行器完成
+                while let Ok(resp) = self.control.result_receiver.try_recv() {
+                    println!("任务 {:?} 完成", resp.id);
+                    self.finish_task(resp);
+                    self.schedule_task();
+                }
 
-                    println!(
-                        "Scheduler thread {}: Starting task with GPUs {:?}, allocated {}MB CPU memory, {}MB disk space",
-                        i / cards_per_request,
-                        cur_cards,
-                        task.resource_requirement.cpu_memory_mb,
-                        task.resource_requirement.disk_space_mb
-                    );
+                if let Ok(..) = self.control.shutdown_receiver.try_recv() {
+                    break;
+                }
 
-                    let result: (Option<Variable<Rt>>, Log, RuntimeInfo<Rt>);
-                    let pools = task.artifect.create_pools(&task.hardware_info, true);
-                    let mut runtime = task.artifect.prepare_dispatcher(
-                        pools,
-                        task.rng,
-                        gpu_mapping.clone(),
-                    );
+                // 短暂休眠避免忙等待
+                thread::sleep(Duration::from_millis(10));
+            }
 
+            drop(self.control.task_launcher);
+
+            println!("准备调度器退出，等待工作线程结束");
+            for exe in self.control.executors {
+                exe.thread.join().unwrap();
+            }
+
+            println!("调度器退出");
+        });
+
+        SchedulerHandle {
+            shutdown_sender,
+            thread: jh,
+        }
+    }
+}
+
+/// Make a new scheduler and launch executor threads.
+pub fn make_scheduler<Rt: RuntimeType>(
+    hd_info: HardwareInfo,
+    config: SchedulerConfig,
+    rng: AsyncRng,
+    disk_pool: DiskMemoryPool,
+    programs: Programs<Rt>,
+) -> (Scheduler, submitter::Submitter<Rt>) {
+    let cards_per_request = 1; // For now this is a constant.
+
+    assert!(
+        hd_info.gpus().count() % cards_per_request == 0,
+        "Total cards must be a multiple of cards per request"
+    );
+
+    // 创建任务接收通道（用户 -> 调度器）
+    let (task_submitter, task_reception) = mpsc::channel::<submitter::Message>();
+
+    // 创建执行任务通道（调度器 -> 执行器）
+    let (task_launcher, task_spawn) = crossbeam_channel::unbounded::<LaunchedTask>();
+
+    // 创建执行器状态通道（执行器 -> 调度器）
+    let (result_sender, result_receiver) = crossbeam_channel::unbounded::<WorkerFinishRespond>();
+
+    let (shutdown_sender, shutdown_receiver) = mpsc::channel::<()>();
+
+    let executors = (0..config.num_executors)
+        .map(|i| {
+            let task_spawn = task_spawn.clone();
+            let result_sender = result_sender.clone();
+
+            let executor_thread = thread::spawn(move || {
+                println!("执行器线程 {} 启动", i);
+
+                while let Ok(task) = task_spawn.recv() {
+                    println!("执行器 {} 开始执行任务 {:?}", i, task.accepted.id,);
+
+                    // 执行任务
                     let start = std::time::Instant::now();
-                    (result, _) = runtime.run(&task.inputs, task.debug_opt);
+
+                    let mut runtime = task.runtime;
+                    let (r, log) =
+                        runtime.run(task.accepted.submitted.inputs.as_ref(), task.runtime_debug);
                     let elapsed = start.elapsed();
 
-                    // 释放资源
-                    resource_manager_clone.release(&task.resource_requirement);
+                    drop(runtime);
 
-                    // 更新任务状态为已完成
-                    let mut status = task.status.lock().unwrap();
-                    *status = TaskStatus::Completed;
-                    drop(status); // 释放锁
-                    
-                    let (cpu_util, disk_util) = resource_manager_clone.get_utilization();
                     println!(
-                        "Scheduler thread {} completed task with GPUs {:?} in {:?}. Resource utilization: CPU {:.1}%, Disk {:.1}%",
-                        i / cards_per_request,
-                        cur_cards,
-                        elapsed,
-                        cpu_util * 100.0,
-                        disk_util * 100.0
+                        "执行器 {} 完成任务 {:?} 在 {:?}",
+                        i, task.accepted.id, elapsed,
                     );
 
-                    task.result_sender
-                        .send(result)
-                        .expect("Failed to send task result");
+                    // 发送结果
+                    if let Err(e) = result_sender.send(WorkerFinishRespond {
+                        r: submitter::RunReturn {
+                            ret_value: r,
+                            log,
+                            time: elapsed,
+                        },
+                        id: task.accepted.id,
+                        program: task.accepted.submitted.program,
+                        version: task.accepted.version.unwrap(),
+                        cards: task.accepted.cards,
+                    }) {
+                        eprintln!(
+                            "执行器 {} 发送任务 {:?} 结果失败: {:?}",
+                            i, task.accepted.id, e
+                        );
+                    }
                 }
-            }))
-        }
+            });
 
-        Self {
-            cards_per_request,
-            total_cards,
-            sender,
-            _scheduler_threads: scheduler_threads,
-            resource_manager,
-        }
-    }
+            ExecutorHandle {
+                thread: executor_thread,
+            }
+        })
+        .collect::<Vec<_>>();
 
-    pub fn add_request(
-        &self,
-        request: Artifect<Rt>,
-        hd_info: HardwareInfo,
-        rng: AsyncRng,
-        inputs: EntryTable<Rt>,
-        debug_opt: RuntimeDebug,
-    ) -> (
-        Arc<Mutex<TaskStatus>>,
-        mpsc::Receiver<(Option<Variable<Rt>>, Log, RuntimeInfo<Rt>)>,
-    ) {
-        let (result_sender, result_receiver) = mpsc::channel();
-        let status = Arc::new(Mutex::new(TaskStatus::Pending));
+    let memory_check = config.memory_check;
+    let core = Core::new(
+        config,
+        core::GlobalResources::new(
+            (0..hd_info.gpus().count()).map(|x| x as i32).collect(),
+            hd_info.cpu().memory_limit() as usize,
+        ),
+        programs.erase(),
+    );
 
-        let apply_utilization_ratio = |need: u64| -> u64 {
-            ((need as f64) * 1.2) as u64
-        };
+    let control = Control {
+        reception: task_reception,
+        executors,
+        shutdown_receiver,
+        task_launcher,
+        result_receiver,
+        result_relayer: HashMap::new(),
+    };
 
-        let resource_requirement = ResourceRequirement {
-            cpu_memory_mb: request.memory_statistics().cpu_peak_usage.div_ceil(2u64.pow(20)),
-            disk_space_mb: apply_utilization_ratio(request.memory_statistics().disk_peak_usage).div_ceil(2u64.pow(20)),
-        };
+    let sch = Scheduler {
+        cpu_memory: hd_info.cpu_allocator(memory_check),
+        hd_info,
+        control,
+        core,
+        disk_memory: Arc::new(Mutex::new(disk_pool)),
+        rng,
+        shutdown_sender,
+    };
 
-        let task = Task {
-            artifect: request,
-            status: Arc::clone(&status),
-            result_sender,
-            hardware_info: hd_info,
-            rng,
-            inputs,
-            debug_opt,
-            resource_requirement,
-        };
+    let smt = submitter::Submitter {
+        sender: task_submitter,
+        _phantom: PhantomData,
+    };
 
-        self.sender
-            .send(task)
-            .expect("Failed to send task to scheduler");
-
-        (status, result_receiver)
-    }
-
-    // 获取当前资源状态
-    pub fn get_resource_status(&self) -> (u64, u64, f64, f64) {
-        let (available_cpu, available_disk) = self.resource_manager.get_available_resources();
-        let (cpu_util, disk_util) = self.resource_manager.get_utilization();
-        (available_cpu, available_disk, cpu_util, disk_util)
-    }
-
-    // 预估任务是否能够立即执行（不保证一定能执行，因为资源状态可能变化）
-    pub fn can_execute_immediately(&self, requirement: &ResourceRequirement) -> bool {
-        let (available_cpu, available_disk) = self.resource_manager.get_available_resources();
-        available_cpu >= requirement.cpu_memory_mb && available_disk >= requirement.disk_space_mb
-    }
+    (sch, smt)
 }

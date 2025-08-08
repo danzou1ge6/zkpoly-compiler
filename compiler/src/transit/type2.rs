@@ -277,6 +277,16 @@ where
     }
 }
 
+impl<I, C> template::VertexNode<I, arith::ArithGraph<I, arith::ExprId>, C, user_function::Id> {
+    pub fn deterministic<Rt: RuntimeType>(&self, uf_table: &user_function::Table<Rt>) -> bool {
+        match self {
+            template::VertexNode::Blind(..) => false,
+            template::VertexNode::UserFunction(f, _) => uf_table[*f].f.deterministic,
+            _ => true,
+        }
+    }
+}
+
 impl<'s, I, Is, C, E, Rt: RuntimeType>
     template::VertexNode<
         I,
@@ -285,6 +295,8 @@ impl<'s, I, Is, C, E, Rt: RuntimeType>
         E,
         sliceable_subgraph::alt_label::Cg<'s, Is, I, Rt>,
     >
+
+
 where
     I: Clone,
     Is: Clone,
@@ -330,6 +342,33 @@ where
                     .map(|x| mapping(x.clone()))
                     .collect::<Result<_, _>>()?,
                 ys: ys
+                    .iter()
+                    .map(|x| mapping(x.clone()))
+                    .collect::<Result<_, _>>()?,
+            },
+            Blind(s, left, right) => Blind(mapping(s.clone())?, *left, *right),
+            Array(es) => Array(
+                es.iter()
+                    .map(|x| mapping(x.clone()))
+                    .collect::<Result<_, _>>()?,
+            ),
+            AssmblePoly(s, es) => AssmblePoly(
+                s.clone(),
+                es.iter()
+                    .map(|x| mapping(x.clone()))
+                    .collect::<Result<_, _>>()?,
+            ),
+            Msm {
+                alg,
+                polys: scalars,
+                points,
+            } => Msm {
+                alg: alg.clone(),
+                polys: scalars
+                    .iter()
+                    .map(|x| mapping(x.clone()))
+                    .collect::<Result<_, _>>()?,
+                points: points
                     .iter()
                     .map(|x| mapping(x.clone()))
                     .collect::<Result<_, _>>()?,

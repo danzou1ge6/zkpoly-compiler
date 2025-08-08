@@ -204,9 +204,6 @@ impl<'a, 's, T, P, Rt: RuntimeType> AllocatorCollection<'a, 's, T, P, Rt> {
             })
             .collect();
 
-        // fixme
-        println!("{:?} is available on {:?}", object, devices);
-
         devices
     }
 }

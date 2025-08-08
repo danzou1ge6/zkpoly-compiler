@@ -17,7 +17,7 @@ use crate::{
 type StreamTable = BTreeMap<instructions::Stream, (CudaStream, CudaEventRaw, Instant)>;
 
 #[derive(Clone)]
-pub struct Writer {
+pub(crate) struct Writer {
     sender: crossbeam_channel::Sender<Message>,
     thread: ThreadId,
     streams: Arc<Mutex<StreamTable>>,
@@ -47,7 +47,7 @@ impl Writer {
         stream_number: instructions::Stream,
     ) -> CudaEventRaw {
         let (stream, _stream_begin, _) = guard.get(&stream_number).unwrap();
-        let event = CudaEventRaw::new();
+        let event = CudaEventRaw::new(stream.get_device());
         event.record(stream);
         event
     }
@@ -127,18 +127,18 @@ impl Writer {
     }
 }
 
-pub struct Logger {
+pub(crate) struct Logger {
     executed_instructions: Vec<InstructionExecution<RuntimeUptime>>,
 }
 
 impl Logger {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             executed_instructions: Vec::new(),
         }
     }
 
-    pub fn spawn(self) -> LoggerHandle {
+    pub(crate) fn spawn(self) -> LoggerHandle {
         let (sender, receiver) = crossbeam_channel::unbounded::<Message>();
         let handle = std::thread::spawn(move || {
             let mut logger = self;
@@ -163,18 +163,19 @@ impl Logger {
     }
 }
 
-pub struct LoggerHandle {
+pub(crate) struct LoggerHandle {
     join_handle: std::thread::JoinHandle<Logger>,
     writer: Writer,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The execution time recorded for each instruction.
 pub struct Log {
     executed_instructions: Vec<InstructionExecution<Uptime>>,
 }
 
 impl LoggerHandle {
-    pub fn writer(&self) -> Writer {
+    pub(crate) fn writer(&self) -> Writer {
         self.writer.clone()
     }
 
@@ -249,12 +250,20 @@ enum MessageNode {
     Terminate,
 }
 
+#[allow(dead_code)]
 struct Message {
     thread: ThreadId,
     node: MessageNode,
 }
 
+impl InstructionExecution<Uptime> {
+    fn duration_nanos(&self) -> u128 {
+        self.end.nanos - self.start.nanos
+    }
+}
+
 impl Log {
+    /// Build waterfall graph from this log.
     pub fn waterfall(&self) -> waterfall::Builder {
         let mut builder = waterfall::Builder::new("Runtime Statistics".to_string());
 
@@ -314,3 +323,5 @@ impl Log {
         builder
     }
 }
+
+pub mod statistics;

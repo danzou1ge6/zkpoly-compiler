@@ -100,7 +100,7 @@ fn load_lib<T: RuntimeType>(libs: &mut Libs) -> &'static libloading::Library {
         xmake_config("NTT_FIELD", field_type);
         xmake_run("ntt");
     }
-    libs.load(LIB_NAME)
+    libs.load_relative(LIB_NAME)
 }
 
 impl<T: RuntimeType> DistributePowers<T> {

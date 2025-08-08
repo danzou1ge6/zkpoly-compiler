@@ -1,6 +1,9 @@
+//! This module provides methods to drive the compiler through various intermediate representations,
+//! eventually producing the [`Artifect`] which can be run by the dispatcher.
+
 use std::{
-    collections::{BTreeMap, HashMap},
-    io::Write,
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    io::{Read, Write},
     panic::PanicHookInfo,
     path::PathBuf,
     process::Command,
@@ -18,10 +21,12 @@ use zkpoly_runtime::args::RuntimeType;
 use crate::{
     ast,
     transit::{type2, type3},
+    utils::human_readable_size,
 };
 
 pub use ast::ConstantPool;
 
+/// Controls whether and where debugging files are written to.
 #[derive(Debug, Clone)]
 pub struct DebugOptions {
     debug_dir: PathBuf,
@@ -48,6 +53,7 @@ pub struct DebugOptions {
 }
 
 impl DebugOptions {
+    /// Enable all debugging files, written to directory `debug_dir`.
     pub fn all(debug_dir: PathBuf) -> Self {
         std::fs::create_dir_all(&debug_dir).unwrap();
         Self {
@@ -75,6 +81,7 @@ impl DebugOptions {
         }
     }
 
+    /// Enable no debugging files, written to directory `debug_dir`.
     pub fn none(debug_dir: PathBuf) -> Self {
         std::fs::create_dir_all(&debug_dir).unwrap();
         Self {
@@ -102,6 +109,7 @@ impl DebugOptions {
         }
     }
 
+    /// Enable only critical debugging files, written to directory `debug_dir`.
     pub fn minimal(debug_dir: PathBuf) -> Self {
         let r = Self::none(debug_dir);
         Self {
@@ -115,52 +123,68 @@ impl DebugOptions {
         }
     }
 
+    /// Configure whether to debug Type3 intermediate results.
     pub fn with_type3(mut self, switch: bool) -> Self {
         self.debug_fresh_type3 = switch;
         self.debug_extend_rewriting = switch;
         self
     }
 
+    /// Configure whether to debug emitted instructions.
     pub fn with_inst(mut self, switch: bool) -> Self {
         self.debug_multithread_instructions = switch;
         self.debug_instructions = switch;
         self
     }
 
+    /// Configure the Type2 visualizer to use.
     pub fn with_type2_visualizer(mut self, type2_visualizer: Type2DebugVisualizer) -> Self {
         self.type2_visualizer = type2_visualizer;
         self
     }
 
+    /// Configure whether to print the pass being applied during compilation.
     pub fn with_log(mut self, log: bool) -> Self {
         self.log = log;
         self
     }
 
-    fn log_suround<R, E>(
+    fn log_suround<R, E, S1, S2>(
         &self,
-        prologue: &str,
+        prologue: S1,
         f: impl FnOnce() -> Result<R, E>,
-        epilogue: &str,
-    ) -> Result<R, E> {
+        epilogue: S2,
+    ) -> Result<R, E>
+    where
+        S1: AsRef<str>,
+        S2: AsRef<str>,
+    {
         if self.log {
-            println!("[Compiler] {}", prologue);
+            println!("[Compiler] {}", prologue.as_ref());
         }
         let r = f()?;
         if self.log {
-            println!("[Compiler] {}", epilogue);
+            println!("[Compiler] {}", epilogue.as_ref());
         }
         Ok(r)
     }
+
+    pub fn with_debug_dir(self, debug_dir: PathBuf) -> Self {
+        std::fs::create_dir_all(&debug_dir).unwrap();
+        Self { debug_dir, ..self }
+    }
 }
 
-#[derive(Debug, Clone)]
+/// Configure a device's memory.
+#[derive(Debug, PartialOrd, Ord, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct MemoryInfo {
     pub(crate) memory_limit: u64,
     pub(crate) smithereen_space: u64,
 }
 
 impl MemoryInfo {
+    /// Configure the device to use `memory_limit` bytes of memory,
+    /// `smithereen_space` of which are dedicated to small memory objects.
     pub fn new(memory_limit: u64, smithereen_space: u64) -> Self {
         Self {
             memory_limit,
@@ -168,33 +192,45 @@ impl MemoryInfo {
         }
     }
 
+    /// Get memory limit in bytes of the configuration.
     pub fn memory_limit(&self) -> u64 {
         self.memory_limit
     }
 
+    /// Get memory limit in giga bytes of the configuration.
+    pub fn memory_limit_gigabytes(&self) -> f64 {
+        self.memory_limit as f64 / 2.0_f64.powi(30)
+    }
+
+    /// Get memory space dedicated to small memory objects.
     pub fn smithereen_space(&self) -> u64 {
         self.smithereen_space
     }
 
+    /// Get memory space dedicated to large memory objects.
     pub fn integral_space(&self) -> u64 {
         self.memory_limit - self.smithereen_space
     }
 
-    pub fn page_number(&self, page_size: u64) -> u64 {
+    pub(crate) fn page_number(&self, page_size: u64) -> u64 {
         self.integral_space() / page_size
     }
 }
 
+/// Configure a disk device to provide memory for computation.
 #[derive(Debug, Clone)]
 pub struct DiskMemoryInfo {
     disk_path: Option<PathBuf>,
 }
 
 impl DiskMemoryInfo {
-    pub fn new(disk_path: Option<PathBuf>) -> Self {
-        Self { disk_path }
+    /// Configure to use the disk device holding `path` in file system.
+    /// If [`None`] is provided, use system temporary directory.
+    pub fn new(path: Option<PathBuf>) -> Self {
+        Self { disk_path: path }
     }
 
+    /// Get the path configured in `new`.
     pub fn disk_path(&self) -> Option<&PathBuf> {
         self.disk_path.as_ref()
     }
@@ -204,6 +240,7 @@ impl DiskMemoryInfo {
     }
 }
 
+/// Configure various devices in system for computation.
 #[derive(Debug, Clone)]
 pub struct HardwareInfo {
     gpus: Vec<MemoryInfo>,
@@ -213,18 +250,22 @@ pub struct HardwareInfo {
 }
 
 impl HardwareInfo {
+    /// Get configured number of GPU's in the system.
     pub fn n_gpus(&self) -> usize {
         self.gpus.len()
     }
 
+    /// Iterate through each GPU's configuration.
     pub fn gpus(&self) -> impl Iterator<Item = &MemoryInfo> {
         self.gpus.iter()
     }
 
+    /// Iterate through each disk device's configuration.
     pub fn disks(&self) -> impl Iterator<Item = &DiskMemoryInfo> {
         self.disk.iter()
     }
 
+    /// Get CPU memory's configuration.
     pub fn cpu(&self) -> &MemoryInfo {
         &self.cpu
     }
@@ -236,6 +277,7 @@ impl HardwareInfo {
             .expect("no GPU")
     }
 
+    /// Create a configuation with only one CPU, no GPU nor disk.
     pub fn new(cpu: MemoryInfo) -> Self {
         Self {
             gpus: Vec::new(),
@@ -245,6 +287,7 @@ impl HardwareInfo {
         }
     }
 
+    /// Configure page size used in the system.
     pub fn with_page_size(self, page_size: u64) -> Self {
         Self {
             page_size: Some(page_size),
@@ -252,28 +295,42 @@ impl HardwareInfo {
         }
     }
 
+    /// Configure CPU.
+    pub fn with_cpu(self, cpu: MemoryInfo) -> Self {
+        HardwareInfo { cpu, ..self }
+    }
+
+    /// Add a disk configuation.
     pub fn with_disk(mut self, info: DiskMemoryInfo) -> Self {
         self.disk.push(info);
         self
     }
 
+    /// Add a GPU configuation.
     pub fn with_gpu(mut self, gpu: MemoryInfo) -> Self {
         self.gpus.push(gpu);
         self
     }
 
+    /// Get page size used in the system.
+    ///
+    /// # Panics
+    /// When system page size is not configured
     pub fn page_size(&self) -> u64 {
         self.page_size.expect("page size not specified")
     }
 
+    /// Get number of disks in the system.
     pub fn disks_available(&self) -> usize {
         self.disk.len()
     }
 
+    /// Build the CPU memory pool as configured.
     pub fn cpu_allocator(&self, memory_check: bool) -> CpuStaticAllocator {
         CpuStaticAllocator::new(self.cpu().memory_limit() as usize, memory_check)
     }
 
+    /// Build the GPU memory pools as configured, indexed by CUDA device ID's.
     pub fn gpu_allocators(&self, memory_check: bool) -> HashMap<i32, CudaAllocator> {
         use zkpoly_cuda_api::mem;
         self.gpus()
@@ -298,6 +355,37 @@ impl HardwareInfo {
             .collect()
     }
 
+    /// Build the GPU memory pools as configured, for a subset of GPU's identified by
+    /// CUDA device ID's.
+    pub fn gpu_allocators_for(
+        &self,
+        memory_check: bool,
+        device_ids: impl Iterator<Item = i32>,
+    ) -> HashMap<i32, CudaAllocator> {
+        use zkpoly_cuda_api::mem;
+        device_ids
+            .map(|id| {
+                let gpu = &self.gpus[id as usize];
+                (
+                    id as i32,
+                    CudaAllocator {
+                        statik: mem::StaticAllocator::new(
+                            id,
+                            gpu.memory_limit() as usize,
+                            memory_check,
+                        ),
+                        page: mem::PageAllocator::new(
+                            zkpoly_common::devices::DeviceType::GPU { device_id: id },
+                            self.page_size() as usize,
+                            0,
+                        ),
+                    },
+                )
+            })
+            .collect()
+    }
+
+    /// Build the Disk memory pools as configured.
     pub fn disk_allocator(&self, max_block: usize) -> DiskMemoryPool {
         self.disks()
             .map(|disk_info| {
@@ -305,6 +393,225 @@ impl HardwareInfo {
                 BuddyDiskPool::new(max_block, disk_path).expect("cannot create disk pool")
             })
             .collect()
+    }
+
+    pub(crate) fn smaller_cpus<'a>(
+        &'a self,
+        divisions: impl Iterator<Item = u32> + 'a,
+    ) -> impl Iterator<Item = MemoryInfo> + 'a {
+        divisions.map(|p| {
+            MemoryInfo::new(
+                self.cpu.memory_limit / 2u64.pow(p),
+                self.cpu.smithereen_space,
+            )
+        })
+    }
+}
+
+struct VersionsHelper<'a> {
+    mem_info: &'a MemoryInfo,
+}
+
+impl<'a> VersionsHelper<'a> {
+    fn log_prologue<S>(&self, msg: S) -> String
+    where
+        S: AsRef<str>,
+    {
+        format!(
+            "{} for {}",
+            msg.as_ref(),
+            human_readable_size(self.mem_info.memory_limit())
+        )
+    }
+
+    fn debug_filename(&self, f: &'static str) -> String {
+        let pb = PathBuf::from(f);
+        let stem = pb.file_stem().unwrap().to_str().unwrap();
+        let ext = pb.extension().unwrap().to_str().unwrap();
+        pb.with_file_name(format!(
+            "{}_{}.{}",
+            stem,
+            human_readable_size(self.mem_info.memory_limit()),
+            ext
+        ))
+        .to_str()
+        .unwrap()
+        .to_string()
+    }
+
+    fn dirname(&self, f: &'static str) -> String {
+        format!(
+            "{}_{}",
+            f,
+            human_readable_size(self.mem_info.memory_limit())
+        )
+    }
+}
+
+#[derive(Clone)]
+struct Versions<T>(Vec<(MemoryInfo, T)>);
+
+impl<T> Versions<T> {
+    pub fn build<'s, Rt: RuntimeType>(
+        hardware_info: &HardwareInfo,
+        divisions: impl Iterator<Item = u32>,
+        mut f: impl for<'a> FnMut(&'a MemoryInfo, VersionsHelper<'a>) -> Result<T, Error<'s, Rt>>,
+    ) -> Result<Self, Error<'s, Rt>> {
+        let infos = hardware_info.smaller_cpus(divisions).collect::<Vec<_>>();
+        infos.iter().fold(HashMap::<String, MemoryInfo>::new(), |mut acc, e| {
+            let s = human_readable_size(e.memory_limit());
+            if let Some(m) = acc.get(&s) {
+                panic!("We are distinguishing versions of artifect using human readable CPU memory limits, but your configuration of versions are undistinguishable: One with size {}({}) and the other with {}", e.memory_limit(), s, m.memory_limit())
+            } else {
+                acc.insert(s, e.clone());
+                acc
+            }
+        });
+
+        Ok(Self(
+            infos
+                .into_iter()
+                .map(|cpu| {
+                    let t = f(&cpu, VersionsHelper { mem_info: &cpu })?;
+                    Ok((cpu, t))
+                })
+                .collect::<Result<_, _>>()?,
+        ))
+    }
+
+    pub fn map<'s, T2, Rt: RuntimeType>(
+        self,
+        mut f: impl for<'a> FnMut(&'a MemoryInfo, T, VersionsHelper<'a>) -> Result<T2, Error<'s, Rt>>,
+    ) -> Result<Versions<T2>, Error<'s, Rt>> {
+        Ok(Versions(
+            self.0
+                .into_iter()
+                .map(|(cpu, t)| {
+                    let t2 = f(&cpu, t, VersionsHelper { mem_info: &cpu })?;
+                    Ok((cpu, t2))
+                })
+                .collect::<Result<_, _>>()?,
+        ))
+    }
+
+    pub fn map_i<'s, T2, Rt: RuntimeType>(
+        self,
+        mut f: impl for<'a> FnMut(
+            &'a MemoryInfo,
+            T,
+            VersionsHelper<'a>,
+        ) -> Result<(MemoryInfo, T2), Error<'s, Rt>>,
+    ) -> Result<Versions<T2>, Error<'s, Rt>> {
+        let mut existent_versions = BTreeSet::new();
+
+        Ok(Versions(
+            self.0
+                .into_iter()
+                .filter_map(|(cpu, t)| {
+                    let (cpu, t2) = match f(&cpu, t, VersionsHelper { mem_info: &cpu }) {
+                        Ok(x) => x,
+                        Err(e) => return Some(Err(e)),
+                    };
+                    if existent_versions.contains(&cpu) {
+                        None
+                    } else {
+                        existent_versions.insert(cpu.clone());
+                        Some(Ok((cpu, t2)))
+                    }
+                })
+                .collect::<Result<_, _>>()?,
+        ))
+    }
+
+    pub fn dump(
+        &self,
+        dir: impl AsRef<std::path::Path>,
+        mut write: impl FnMut(std::fs::File, &MemoryInfo, &T) -> std::io::Result<()>,
+    ) -> std::io::Result<()> {
+        for (cpu, t) in self.0.iter() {
+            let f = std::fs::File::create(dir.as_ref().join(format!(
+                "version_{}.json",
+                human_readable_size(cpu.memory_limit)
+            )))?;
+
+            write(f, cpu, t)?;
+        }
+        Ok(())
+    }
+
+    pub fn load(
+        dir: impl AsRef<std::path::Path>,
+        mut read: impl FnMut(std::fs::File) -> std::io::Result<(MemoryInfo, T)>,
+    ) -> std::io::Result<Self> {
+        let mut r = Vec::new();
+
+        for entry in dir.as_ref().read_dir()? {
+            let path = entry?.path();
+            if path
+                .file_stem()
+                .is_some_and(|f| f.to_string_lossy().into_owned().starts_with("version_"))
+                && path.is_file()
+                && path
+                    .extension()
+                    .is_some_and(|ext| ext.to_string_lossy().into_owned() == "json")
+            {
+                let f = std::fs::File::open(path)?;
+
+                let x = read(f)?;
+                r.push(x);
+            }
+        }
+        Ok(Self(r))
+    }
+
+    pub fn load_buffered<'b>(
+        dir: impl AsRef<std::path::Path>,
+        buffers: &'b mut Vec<String>,
+        mut read: impl FnMut(&'b str) -> std::io::Result<(MemoryInfo, T)>,
+    ) -> std::io::Result<Self>
+    where
+        T: 'b,
+    {
+        let mut r = Vec::new();
+
+        for entry in dir.as_ref().read_dir()? {
+            let path = entry?.path();
+            if path
+                .file_stem()
+                .is_some_and(|f| f.to_string_lossy().into_owned().starts_with("version_"))
+                && path.is_file()
+                && path
+                    .extension()
+                    .is_some_and(|ext| ext.to_string_lossy().into_owned() == "json")
+            {
+                let mut f = std::fs::File::open(path)?;
+
+                let mut buffer = String::new();
+                f.read_to_string(&mut buffer)?;
+
+                // SAFETY: All existing immutable reference to `buffers` are to elements before the one we are pushing here
+                unsafe {
+                    let buffers: *mut Vec<String> = buffers as *const _ as _;
+                    buffers.as_mut().unwrap().push(buffer);
+                }
+
+                let x = read(buffers.last().unwrap())?;
+                r.push(x);
+            }
+        }
+        Ok(Self(r))
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &MemoryInfo> {
+        self.0.iter().map(|(m, _)| m)
+    }
+
+    pub fn iter_items(&self) -> impl Iterator<Item = &(MemoryInfo, T)> {
+        self.0.iter()
+    }
+
+    pub fn ref_of(&self, mem: &MemoryInfo) -> Option<&T> {
+        self.0.iter().find(|(m, _)| m == mem).map(|(_, t)| t)
     }
 }
 
@@ -555,6 +862,7 @@ pub enum Error<'s, Rt: RuntimeType> {
 }
 
 #[derive(Clone)]
+/// Used for preventing panics to cause subprocesses writing debug files to exit.
 pub struct PanicJoinHandler(
     Arc<
         Mutex<(
@@ -603,6 +911,7 @@ pub mod fresh_type2;
 pub mod fresh_type3;
 pub mod processed_type2;
 pub mod processed_type3;
+pub mod unfused_type2;
 
 pub use artifect::Artifect;
 pub use fresh_type2::FreshType2;

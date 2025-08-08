@@ -389,24 +389,22 @@ impl<S> ScalarArith<S> {
     }
 }
 
+/// Contains constants involved in computation.
 #[derive(Debug)]
 pub struct ConstantPool {
     pub cpu: CpuMemoryPool,
-    pub disk: Option<DiskMemoryPool>
+    pub disk: Option<DiskMemoryPool>,
 }
 
 impl ConstantPool {
     pub fn only_cpu(cpu: CpuMemoryPool) -> Self {
-        Self {
-            cpu,
-            disk: None
-        }
+        Self { cpu, disk: None }
     }
 
     pub fn with_disk(cpu: CpuMemoryPool, disk: DiskMemoryPool) -> Self {
         Self {
             cpu,
-            disk: Some(disk)
+            disk: Some(disk),
         }
     }
 

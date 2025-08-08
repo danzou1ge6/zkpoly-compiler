@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::MutexGuard;
 
 use group::prime::PrimeCurveAffine;
 use zkpoly_common::{devices::DeviceType, typ::Typ};
@@ -43,7 +44,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         alloc_method: AllocMethod,
         mem_allocator: &mut Option<&mut CpuStaticAllocator>,
         gpu_allocator: &mut Option<&mut HashMap<i32, CudaAllocator>>,
-        disk_allocator: &mut Option<&mut Vec<BuddyDiskPool>>,
+        disk_allocator: &mut Option<MutexGuard<Vec<BuddyDiskPool>>>,
     ) -> Variable<T> {
         match typ {
             Typ::ScalarArray { len, meta: _ } => {
@@ -192,7 +193,7 @@ impl<T: RuntimeType> RuntimeInfo<T> {
         alloc_method: AllocVariant,
         mem_allocator: &mut Option<&mut CpuStaticAllocator>,
         gpu_allocator: &mut Option<&mut HashMap<i32, CudaAllocator>>,
-        disk_allocator: &mut Option<&mut Vec<BuddyDiskPool>>,
+        disk_allocator: &mut Option<MutexGuard<Vec<BuddyDiskPool>>>,
     ) {
         match var {
             Variable::ScalarArray(poly) => match poly.device {
@@ -211,9 +212,13 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                             .statik
                             .free(poly.values);
                     }
-                    AllocVariant::Paged => {
-                        // For now, we don't unmap pages
-                    }
+                    AllocVariant::Paged { pages, size } => get_gpu_allocator(
+                        device_id,
+                        gpu_allocator,
+                    )
+                    .page
+                    .deallocate(poly.values, size, pages),
+                    // AllocVariant::Paged { .. } => {}
                     otherwise => unsupported_alloc_variant(otherwise, poly.device.clone()),
                 },
                 DeviceType::Disk => match alloc_method {
@@ -239,9 +244,13 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                             .statik
                             .free(point_base.values);
                     }
-                    AllocVariant::Paged => {
-                        // For now, we don't unmap pages
-                    }
+                    AllocVariant::Paged { pages, size } => get_gpu_allocator(
+                        device_id,
+                        gpu_allocator,
+                    )
+                    .page
+                    .deallocate(point_base.values, size, pages),
+                    // AllocVariant::Paged { .. } => {}
                     otherwise => unsupported_alloc_variant(otherwise, point_base.device.clone()),
                 },
                 _ => unimplemented!(),
@@ -295,9 +304,13 @@ impl<T: RuntimeType> RuntimeInfo<T> {
                             .statik
                             .free(gpu_buffer.ptr);
                     }
-                    AllocVariant::Paged => {
-                        // For now, we don't unmap pages
-                    }
+                    AllocVariant::Paged { pages, size } => get_gpu_allocator(
+                        device_id,
+                        gpu_allocator,
+                    )
+                    .page
+                    .deallocate(gpu_buffer.ptr, size, pages),
+                    // AllocVariant::Paged { .. } => {}
                     otherwise => {
                         unsupported_alloc_variant(otherwise, DeviceType::GPU { device_id })
                     }

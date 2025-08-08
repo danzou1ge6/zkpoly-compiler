@@ -1,19 +1,105 @@
 // This file implements a page allocator using CUDA virtual memory APIs.
 
+use std::collections::HashMap;
+
 use zkpoly_common::devices::DeviceType;
 
 use crate::{
     bindings::{
-        cuInit, cuMemAddressFree, cuMemAddressReserve, cuMemCreate, cuMemGetAllocationGranularity, cuMemMap, cuMemRelease, cuMemSetAccess, cuMemUnmap, CUdeviceptr, CUmemAccessDesc, CUmemAccess_flags_enum_CU_MEM_ACCESS_FLAGS_PROT_READWRITE, CUmemAllocationGranularity_flags_enum_CU_MEM_ALLOC_GRANULARITY_MINIMUM, CUmemAllocationProp, CUmemAllocationType_enum_CU_MEM_ALLOCATION_TYPE_PINNED, CUmemGenericAllocationHandle, CUmemLocation, CUmemLocationType_enum_CU_MEM_LOCATION_TYPE_DEVICE, CUmemLocationType_enum_CU_MEM_LOCATION_TYPE_HOST_NUMA
+        cuInit, cuMemAddressFree, cuMemAddressReserve, cuMemCreate, cuMemGetAllocationGranularity,
+        cuMemMap, cuMemRelease, cuMemSetAccess, cuMemUnmap, CUdeviceptr, CUmemAccessDesc,
+        CUmemAccess_flags_enum_CU_MEM_ACCESS_FLAGS_PROT_READWRITE,
+        CUmemAllocationGranularity_flags_enum_CU_MEM_ALLOC_GRANULARITY_MINIMUM,
+        CUmemAllocationProp, CUmemAllocationType_enum_CU_MEM_ALLOCATION_TYPE_PINNED,
+        CUmemGenericAllocationHandle, CUmemLocation,
+        CUmemLocationType_enum_CU_MEM_LOCATION_TYPE_DEVICE,
+        CUmemLocationType_enum_CU_MEM_LOCATION_TYPE_HOST_NUMA,
     },
     cuda_driver_check,
 };
+
+struct SanityChecker {
+    page_vas: Vec<Option<CUdeviceptr>>,
+    va_pages: HashMap<u64, Vec<usize>>,
+}
+
+impl SanityChecker {
+    pub fn new(pages: usize) -> Self {
+        SanityChecker {
+            page_vas: (0..pages).map(|_| None).collect(),
+            va_pages: HashMap::new(),
+        }
+    }
+
+    pub fn assign(&mut self, page_id: usize, va: CUdeviceptr) {
+        if let Some(occpied_va) = self.page_vas[page_id] {
+            panic!(
+                "allocating page {} to virtual address {} while it is still occupied by {}",
+                page_id, va, occpied_va
+            );
+        }
+
+        self.va_pages.entry(va).or_default().push(page_id);
+        self.page_vas[page_id] = Some(va);
+    }
+
+    pub fn unassign(&mut self, va: CUdeviceptr) {
+        if !self
+            .va_pages
+            .get(&va)
+            .is_some_and(|pages| !pages.is_empty())
+        {
+            panic!(
+                "virtual address {} is not mapped to any physical address",
+                va
+            );
+        }
+
+        for page_id in self.va_pages[&va].iter().cloned() {
+            if let Some(occupied_va) = self.page_vas[page_id] {
+                if occupied_va != va {
+                    panic!(
+                        "freeing page {} for virtual address {}, but it is mapped to {}",
+                        page_id, va, occupied_va
+                    );
+                }
+
+                self.page_vas[page_id] = None;
+            } else {
+                panic!(
+                    "freeing page {} for virtual address {}, but it is unmapped",
+                    page_id, va
+                );
+            }
+        }
+
+        let _ = self.va_pages.remove(&va);
+    }
+
+    pub fn check_all_freed(&self) {
+        if let Some((page, va)) = self
+            .page_vas
+            .iter()
+            .enumerate()
+            .filter_map(|(page, va)| Some((page, va.clone()?)))
+            .next()
+        {
+            panic!(
+                "upon dropping page allocator, page {} is still mapped to virtual address {}",
+                page, va
+            )
+        }
+    }
+}
 
 pub struct PageAllocator {
     device: DeviceType,
     page_size: usize,
     page_table: Vec<CUmemGenericAllocationHandle>, // handle for physical memory
+    sanity_checker: SanityChecker,
 }
+
+unsafe impl Send for PageAllocator {}
 
 fn get_location(device: &DeviceType) -> CUmemLocation {
     let mut location: CUmemLocation = unsafe { std::mem::zeroed() };
@@ -66,7 +152,6 @@ impl PageAllocator {
 
             // now we start to allocate the page table
             let page_table = (0..page_num)
-                .into_iter()
                 .map(|_| {
                     let mut handle: CUmemGenericAllocationHandle = std::mem::zeroed();
                     cuda_driver_check!(cuMemCreate(&mut handle, page_size, &prop, 0));
@@ -78,11 +163,12 @@ impl PageAllocator {
                 device,
                 page_size,
                 page_table,
+                sanity_checker: SanityChecker::new(page_num),
             }
         }
     }
 
-    pub fn allocate<T: Sized>(&self, va_size: usize, page_ids: Vec<usize>) -> *mut T {
+    pub fn allocate<T: Sized>(&mut self, va_size: usize, page_ids: Vec<usize>) -> *mut T {
         // allocate a virtual address space, and map the pages to it
         // check the virtual address space size is larger than the page size
         assert!(va_size >= self.page_size * page_ids.len());
@@ -104,6 +190,7 @@ impl PageAllocator {
                     self.page_table[*page_id],
                     0 // must be 0
                 ));
+                self.sanity_checker.assign(*page_id, va);
 
                 // set the access permission
                 cuda_driver_check!(cuMemSetAccess(va + offset, self.page_size, &access_desc, 1));
@@ -115,47 +202,49 @@ impl PageAllocator {
         }
     }
 
-    pub fn extend<T: Sized>(
-        &self,
-        va: *mut T,
-        va_size: usize,
-        allocated_pages: usize,
-        page_ids: Vec<usize>,
-    ) {
-        // extend the virtual address space, and map the pages to it
-        // check the virtual address space size is larger than the page size
-        assert!(va_size >= self.page_size * (allocated_pages + page_ids.len()));
-        unsafe {
-            let mut offset = (self.page_size * allocated_pages) as u64;
-            let access_desc = get_access_desc(&self.device);
+    // pub fn extend<T: Sized>(
+    //     &mut self,
+    //     va: *mut T,
+    //     va_size: usize,
+    //     allocated_pages: usize,
+    //     page_ids: Vec<usize>,
+    // ) {
+    //     // extend the virtual address space, and map the pages to it
+    //     // check the virtual address space size is larger than the page size
+    //     assert!(va_size >= self.page_size * (allocated_pages + page_ids.len()));
+    //     unsafe {
+    //         let mut offset = (self.page_size * allocated_pages) as u64;
+    //         let access_desc = get_access_desc(&self.device);
 
-            for page_id in page_ids.iter() {
-                // map the pages to the virtual address space
-                cuda_driver_check!(cuMemMap(
-                    va as u64 + offset,
-                    self.page_size,
-                    0, // must be 0
-                    self.page_table[*page_id],
-                    0 // must be 0
-                ));
+    //         for page_id in page_ids.iter() {
+    //             // map the pages to the virtual address space
+    //             cuda_driver_check!(cuMemMap(
+    //                 va as u64 + offset,
+    //                 self.page_size,
+    //                 0, // must be 0
+    //                 self.page_table[*page_id],
+    //                 0 // must be 0
+    //             ));
 
-                // set the access permission
-                cuda_driver_check!(cuMemSetAccess(
-                    va as u64 + offset,
-                    self.page_size,
-                    &access_desc,
-                    1
-                ));
+    //             // set the access permission
+    //             cuda_driver_check!(cuMemSetAccess(
+    //                 va as u64 + offset,
+    //                 self.page_size,
+    //                 &access_desc,
+    //                 1
+    //             ));
 
-                offset += self.page_size as u64;
-            }
-        }
-    }
+    //             offset += self.page_size as u64;
+    //         }
+    //     }
+    // }
 
-    pub fn deallocate<T: Sized>(&self, va: *mut T, va_size: usize, allocated_pages: usize) {
+    pub fn deallocate<T: Sized>(&mut self, va: *mut T, va_size: usize, allocated_pages: usize) {
         unsafe {
             let mut offset = 0;
             let va = va as u64;
+            self.sanity_checker.unassign(va);
+
             for _ in 0..allocated_pages {
                 // unmap the pages from the virtual address space
                 cuda_driver_check!(cuMemUnmap(va + offset, self.page_size));
@@ -173,6 +262,7 @@ impl PageAllocator {
 
 impl Drop for PageAllocator {
     fn drop(&mut self) {
+        self.sanity_checker.check_all_freed();
         unsafe {
             for handle in &self.page_table {
                 cuda_driver_check!(cuMemRelease(*handle));
@@ -190,7 +280,7 @@ mod tests {
     #[test]
     fn test_allocate_write_read_deallocate() {
         let page_size = 1024 * 1024 * 2; // 2MB
-        let allocator = PageAllocator::new(DeviceType::GPU { device_id: 0 }, page_size, 10);
+        let mut allocator = PageAllocator::new(DeviceType::GPU { device_id: 0 }, page_size, 10);
 
         let num_pages_to_alloc = 2;
         let va_size = page_size * num_pages_to_alloc * 2; // Reserve more VA than needed for the mapping
@@ -226,96 +316,96 @@ mod tests {
             assert_eq!(host_data_write, host_data_read);
         }
         println!("Deallocating memory...");
-        allocator.deallocate(ptr, va_size,  num_pages_to_alloc);
+        allocator.deallocate(ptr, va_size, num_pages_to_alloc);
     }
 
-    #[test]
-    fn test_extend_memory() {
-        let page_size = 1024 * 1024 * 2; // 2MB
-        let total_physical_pages = 10;
-        let allocator = PageAllocator::new(
-            DeviceType::GPU { device_id: 0 },
-            page_size,
-            total_physical_pages,
-        );
+    // #[test]
+    // fn test_extend_memory() {
+    //     let page_size = 1024 * 1024 * 2; // 2MB
+    //     let total_physical_pages = 10;
+    //     let mut allocator = PageAllocator::new(
+    //         DeviceType::GPU { device_id: 0 },
+    //         page_size,
+    //         total_physical_pages,
+    //     );
 
-        let initial_pages_count = 2;
-        let initial_page_ids = vec![0, 1];
-        // VA size must be large enough for the sum of initial and extended pages.
-        let va_size = page_size * (initial_pages_count + 3 + 2); // e.g., for 7 pages total if extending by 3
+    //     let initial_pages_count = 2;
+    //     let initial_page_ids = vec![0, 1];
+    //     // VA size must be large enough for the sum of initial and extended pages.
+    //     let va_size = page_size * (initial_pages_count + 3 + 2); // e.g., for 7 pages total if extending by 3
 
-        let ptr = allocator.allocate::<u8>(va_size, initial_page_ids.clone());
-        assert!(!ptr.is_null());
+    //     let ptr = allocator.allocate::<u8>(va_size, initial_page_ids.clone());
+    //     assert!(!ptr.is_null());
 
-        let initial_data_size = page_size * initial_pages_count;
-        let mut host_data_initial_write = vec![0u8; initial_data_size];
-        for i in 0..initial_data_size {
-            host_data_initial_write[i] = (i % 128) as u8;
-        }
+    //     let initial_data_size = page_size * initial_pages_count;
+    //     let mut host_data_initial_write = vec![0u8; initial_data_size];
+    //     for i in 0..initial_data_size {
+    //         host_data_initial_write[i] = (i % 128) as u8;
+    //     }
 
-        unsafe {
-            crate::cuda_driver_check!(crate::bindings::cudaMemcpy(
-                ptr as *mut c_void,
-                host_data_initial_write.as_ptr() as *const c_void,
-                initial_data_size,
-                crate::bindings::cudaMemcpyKind_cudaMemcpyHostToDevice
-            ));
+    //     unsafe {
+    //         crate::cuda_driver_check!(crate::bindings::cudaMemcpy(
+    //             ptr as *mut c_void,
+    //             host_data_initial_write.as_ptr() as *const c_void,
+    //             initial_data_size,
+    //             crate::bindings::cudaMemcpyKind_cudaMemcpyHostToDevice
+    //         ));
 
-            let mut host_data_initial_read = vec![0u8; initial_data_size];
-            crate::cuda_driver_check!(crate::bindings::cudaMemcpy(
-                host_data_initial_read.as_mut_ptr() as *mut c_void,
-                ptr as *const c_void,
-                initial_data_size,
-                crate::bindings::cudaMemcpyKind_cudaMemcpyDeviceToHost
-            ));
-            assert_eq!(host_data_initial_write, host_data_initial_read);
-        }
+    //         let mut host_data_initial_read = vec![0u8; initial_data_size];
+    //         crate::cuda_driver_check!(crate::bindings::cudaMemcpy(
+    //             host_data_initial_read.as_mut_ptr() as *mut c_void,
+    //             ptr as *const c_void,
+    //             initial_data_size,
+    //             crate::bindings::cudaMemcpyKind_cudaMemcpyDeviceToHost
+    //         ));
+    //         assert_eq!(host_data_initial_write, host_data_initial_read);
+    //     }
 
-        let extend_pages_count = 3;
-        let extend_page_ids = vec![2, 3, 4]; // Use different physical pages
-        allocator.extend(ptr, va_size, initial_pages_count, extend_page_ids.clone());
+    //     let extend_pages_count = 3;
+    //     let extend_page_ids = vec![2, 3, 4]; // Use different physical pages
+    //     allocator.extend(ptr, va_size, initial_pages_count, extend_page_ids.clone());
 
-        let extended_data_size = page_size * extend_pages_count;
-        let mut host_data_extended_write = vec![0u8; extended_data_size];
-        for i in 0..extended_data_size {
-            host_data_extended_write[i] = ((i + 128) % 256) as u8; // Different data pattern
-        }
+    //     let extended_data_size = page_size * extend_pages_count;
+    //     let mut host_data_extended_write = vec![0u8; extended_data_size];
+    //     for i in 0..extended_data_size {
+    //         host_data_extended_write[i] = ((i + 128) % 256) as u8; // Different data pattern
+    //     }
 
-        unsafe {
-            let extended_ptr_offset = ptr.add(initial_data_size);
-            crate::cuda_driver_check!(crate::bindings::cudaMemcpy(
-                extended_ptr_offset as *mut c_void,
-                host_data_extended_write.as_ptr() as *const c_void,
-                extended_data_size,
-                crate::bindings::cudaMemcpyKind_cudaMemcpyHostToDevice
-            ));
+    //     unsafe {
+    //         let extended_ptr_offset = ptr.add(initial_data_size);
+    //         crate::cuda_driver_check!(crate::bindings::cudaMemcpy(
+    //             extended_ptr_offset as *mut c_void,
+    //             host_data_extended_write.as_ptr() as *const c_void,
+    //             extended_data_size,
+    //             crate::bindings::cudaMemcpyKind_cudaMemcpyHostToDevice
+    //         ));
 
-            let mut host_data_extended_read = vec![0u8; extended_data_size];
-            crate::cuda_driver_check!(crate::bindings::cudaMemcpy(
-                host_data_extended_read.as_mut_ptr() as *mut c_void,
-                extended_ptr_offset as *const c_void,
-                extended_data_size,
-                crate::bindings::cudaMemcpyKind_cudaMemcpyDeviceToHost
-            ));
-            assert_eq!(host_data_extended_write, host_data_extended_read);
+    //         let mut host_data_extended_read = vec![0u8; extended_data_size];
+    //         crate::cuda_driver_check!(crate::bindings::cudaMemcpy(
+    //             host_data_extended_read.as_mut_ptr() as *mut c_void,
+    //             extended_ptr_offset as *const c_void,
+    //             extended_data_size,
+    //             crate::bindings::cudaMemcpyKind_cudaMemcpyDeviceToHost
+    //         ));
+    //         assert_eq!(host_data_extended_write, host_data_extended_read);
 
-            // Verify the entire mapped region
-            let total_data_size = initial_data_size + extended_data_size;
-            let mut host_data_total_read = vec![0u8; total_data_size];
-            crate::cuda_driver_check!(crate::bindings::cudaMemcpy(
-                host_data_total_read.as_mut_ptr() as *mut c_void,
-                ptr as *const c_void,
-                total_data_size,
-                crate::bindings::cudaMemcpyKind_cudaMemcpyDeviceToHost
-            ));
+    //         // Verify the entire mapped region
+    //         let total_data_size = initial_data_size + extended_data_size;
+    //         let mut host_data_total_read = vec![0u8; total_data_size];
+    //         crate::cuda_driver_check!(crate::bindings::cudaMemcpy(
+    //             host_data_total_read.as_mut_ptr() as *mut c_void,
+    //             ptr as *const c_void,
+    //             total_data_size,
+    //             crate::bindings::cudaMemcpyKind_cudaMemcpyDeviceToHost
+    //         ));
 
-            let mut expected_total_data = host_data_initial_write.clone();
-            expected_total_data.extend_from_slice(&host_data_extended_write);
-            assert_eq!(expected_total_data, host_data_total_read);
-        }
+    //         let mut expected_total_data = host_data_initial_write.clone();
+    //         expected_total_data.extend_from_slice(&host_data_extended_write);
+    //         assert_eq!(expected_total_data, host_data_total_read);
+    //     }
 
-        allocator.deallocate(ptr, va_size, initial_pages_count + extend_pages_count);
-    }
+    //     allocator.deallocate(ptr, va_size, initial_pages_count + extend_pages_count);
+    // }
 
     #[test]
     #[should_panic(expected = "page size must be aligned to minimum page size")]
@@ -352,44 +442,44 @@ mod tests {
     #[should_panic(expected = "assertion failed: va_size >= self.page_size * page_ids.len()")]
     fn test_allocate_insufficient_va_size() {
         let page_size = 1024 * 1024 * 2;
-        let allocator = PageAllocator::new(DeviceType::GPU { device_id: 0 }, page_size, 10);
+        let mut allocator = PageAllocator::new(DeviceType::GPU { device_id: 0 }, page_size, 10);
         let page_ids_to_alloc = vec![0, 1]; // Requesting 2 pages (total size: page_size * 2)
         let insufficient_va_size = page_size * 1; // VA reserved for only 1 page
                                                   // This should panic because va_size is not enough for page_ids_to_alloc.len() pages.
         allocator.allocate::<u8>(insufficient_va_size, page_ids_to_alloc);
     }
 
-    #[test]
-    #[should_panic(
-        expected = "assertion failed: va_size >= self.page_size * (allocated_pages + page_ids.len())"
-    )]
-    fn test_extend_insufficient_va_size() {
-        let page_size = 1024 * 1024 * 2;
-        let allocator = PageAllocator::new(DeviceType::GPU { device_id: 0 }, page_size, 10);
+    // #[test]
+    // #[should_panic(
+    //     expected = "assertion failed: va_size >= self.page_size * (allocated_pages + page_ids.len())"
+    // )]
+    // fn test_extend_insufficient_va_size() {
+    //     let page_size = 1024 * 1024 * 2;
+    //     let mut allocator = PageAllocator::new(DeviceType::GPU { device_id: 0 }, page_size, 10);
 
-        let initial_pages_count = 1;
-        let initial_page_ids = vec![0];
-        // Reserve VA for only 2 pages initially.
-        let va_size_allocated_initially = page_size * 2;
+    //     let initial_pages_count = 1;
+    //     let initial_page_ids = vec![0];
+    //     // Reserve VA for only 2 pages initially.
+    //     let va_size_allocated_initially = page_size * 2;
 
-        let ptr = allocator.allocate::<u8>(va_size_allocated_initially, initial_page_ids);
-        assert!(!ptr.is_null());
+    //     let ptr = allocator.allocate::<u8>(va_size_allocated_initially, initial_page_ids);
+    //     assert!(!ptr.is_null());
 
-        // Try to extend by 2 more pages. Total required: 1 (initial) + 2 (extend) = 3 pages.
-        // The initially allocated VA (for 2 pages) is insufficient for 3 pages.
-        let extend_page_ids = vec![1, 2];
-        allocator.extend(
-            ptr,
-            va_size_allocated_initially,
-            initial_pages_count,
-            extend_page_ids,
-        );
-    }
+    //     // Try to extend by 2 more pages. Total required: 1 (initial) + 2 (extend) = 3 pages.
+    //     // The initially allocated VA (for 2 pages) is insufficient for 3 pages.
+    //     let extend_page_ids = vec![1, 2];
+    //     allocator.extend(
+    //         ptr,
+    //         va_size_allocated_initially,
+    //         initial_pages_count,
+    //         extend_page_ids,
+    //     );
+    // }
 
     #[test]
     fn test_gpu_massive_allocate() {
         let page_size = 1024 * 1024 * 1024 * 2;
-        let allocator = PageAllocator::new(DeviceType::GPU { device_id: 0 }, page_size, 10);
+        let mut allocator = PageAllocator::new(DeviceType::GPU { device_id: 0 }, page_size, 10);
         let num_pages_to_alloc = 1; // Allocate 2GB
         let va_size = page_size * num_pages_to_alloc;
         for i in 0..4096 {
@@ -397,7 +487,11 @@ mod tests {
                 .map(|j| (i + j) % 10) // Wrap around the available pages
                 .collect::<Vec<_>>();
             let ptr = allocator.allocate::<u8>(va_size, page_ids);
-            assert!(!ptr.is_null(), "Failed to allocate memory for iteration {}", i);
+            assert!(
+                !ptr.is_null(),
+                "Failed to allocate memory for iteration {}",
+                i
+            );
             println!("iteration {} successed", i);
         }
     }
@@ -432,7 +526,7 @@ mod tests {
             );
         }
 
-        let allocator = PageAllocator::new(device, page_size, 5);
+        let mut allocator = PageAllocator::new(device, page_size, 5);
 
         let num_pages_to_alloc = 2;
         let va_size = page_size * num_pages_to_alloc * 2; // Reserve more VA

@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::args::{RuntimeType, Variable};
@@ -16,7 +17,11 @@ pub trait RegisteredFunction<T: RuntimeType> {
 }
 
 pub type Closure<T> = Arc<
-    dyn Fn(Vec<&mut Variable<T>>, Vec<&Variable<T>>, Arc<dyn Fn(i32) -> i32 + Send + Sync>) -> Result<(), RuntimeError>
+    dyn Fn(
+            Vec<&mut Variable<T>>,
+            Vec<&Variable<T>>,
+            Arc<dyn Fn(i32) -> i32 + Send + Sync>,
+        ) -> Result<(), RuntimeError>
         + Sync
         + Send
         + 'static,
@@ -34,6 +39,7 @@ pub struct FusedKernelMeta {
     pub num_vars: usize,
     pub num_mut_vars: usize,
     pub pipelined_meta: Option<PipelinedMeta>,
+    pub lib_path: PathBuf, // path to the library, if None, it uses the default one
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, PartialOrd, Eq, Ord)]
@@ -96,7 +102,11 @@ impl<T: RuntimeType> Function<T> {
     pub fn new(
         meta: FuncMeta,
         f: Arc<
-            dyn Fn(Vec<&mut Variable<T>>, Vec<&Variable<T>>, Arc<dyn Fn(i32) -> i32 + Send + Sync>) -> Result<(), RuntimeError>
+            dyn Fn(
+                    Vec<&mut Variable<T>>,
+                    Vec<&Variable<T>>,
+                    Arc<dyn Fn(i32) -> i32 + Send + Sync>,
+                ) -> Result<(), RuntimeError>
                 + Sync
                 + Send
                 + 'static,

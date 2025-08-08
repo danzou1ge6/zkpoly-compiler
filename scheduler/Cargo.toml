@@ -10,3 +10,4 @@ zkpoly_cuda_api = { path = "../cuda_api" }
 zkpoly_compiler = { path = "../compiler" }
 zkpoly_runtime = { path = "../runtime" }
 crossbeam-channel = { version = "0.5.14"}
+serde = { version = "1.0", features = ["derive"] }

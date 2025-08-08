@@ -1,19 +1,25 @@
-use std::io::{Read, Write};
+use std::{io::Write, path::PathBuf};
 use zkpoly_common::load_dynamic::Libs;
 use zkpoly_runtime::args::{self, RuntimeType};
+
+use crate::driver::artifect;
 
 use super::{
     artifect::{Artifect, SemiArtifect},
     ast, check_type2_dag, debug_partial_typed_type2, debug_type2,
     processed_type2::ProcessedType2,
-    type2, type3, ConstantPool, DebugOptions, Error, HardwareInfo, PanicJoinHandler,
+    type2, type3,
+    unfused_type2::UnfusedType2,
+    ConstantPool, DebugOptions, Error, HardwareInfo, MemoryInfo, PanicJoinHandler, Versions,
 };
 
+/// Type2 intermediate representation built from AST.
 pub struct FreshType2<'s, Rt: RuntimeType> {
     prog: type2::Program<'s, Rt>,
 }
 
 impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
+    /// Build from AST. Runs type inference here.
     pub fn from_ast(
         ast: impl ast::TypeEraseable<Rt>,
         options: &DebugOptions,
@@ -70,13 +76,17 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
         Ok(Self { prog: t2prog })
     }
 
+    /// Apply passes to obtain [`UnfusedType2`].
+    ///
+    /// This method needs mutable access to `constant_pool`, because due to precomputation for MSM and NTT
+    /// new constants may be added.
     pub fn apply_passes(
         self,
         options: &DebugOptions,
         hardware_info: &HardwareInfo,
         constant_pool: &mut ConstantPool,
         ctx: &PanicJoinHandler,
-    ) -> Result<ProcessedType2<'s, Rt>, Error<'static, Rt>> {
+    ) -> Result<UnfusedType2<'s, Rt>, Error<'static, Rt>> {
         let type2::Program {
             cg: t2cg,
             consant_table: mut t2const_tab,
@@ -182,7 +192,11 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
         // - Common Subexpression Elimination
         let t2cg = options.log_suround(
             "Eliminating common subexpressions",
-            || Ok(type2::common_subexpression_elimination::cse(t2cg)),
+            || {
+                Ok(type2::common_subexpression_elimination::cse(
+                    t2cg, &t2uf_tab,
+                ))
+            },
             "Done.",
         )?;
 
@@ -204,32 +218,7 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
             ));
         }
 
-        // - Arithmetic Kernel Fusion
-        let t2cg = options.log_suround(
-            "Fusing arithmetic kernels",
-            || Ok(type2::kernel_fusion::fuse_arith(t2cg, &hardware_info)),
-            "Done.",
-        )?;
-
-        if !check_type2_dag(
-            options.debug_dir.join("type2_kernel_fusion.dot"),
-            &t2cg.g,
-            t2cg.output,
-            options.type2_visualizer,
-        ) {
-            panic!("graph is not a DAG after Arithmetic Kernel Fusion");
-        }
-
-        if options.debug_kernel_fusion {
-            ctx.add(debug_type2(
-                options.debug_dir.join("type2_kernel_fusion.dot"),
-                &t2cg.g,
-                t2cg.output,
-                options.type2_visualizer,
-            ));
-        }
-
-        Ok(ProcessedType2 {
+        Ok(UnfusedType2 {
             cg: t2cg,
             constant_table: t2const_tab,
             uf_table: t2uf_tab,
@@ -237,19 +226,25 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
         })
     }
 
+    /// Base on fresh Type2, directly load [`Artifect`] from file system without need for further passes.
+    /// During loading, stored constants are written to `constant_pool`.
     pub fn load_artifect(
         mut self,
         dir: impl AsRef<std::path::Path>,
         constant_pool: &mut ConstantPool,
     ) -> std::io::Result<Artifect<Rt>> {
-        let mut chunk_f = std::fs::File::open(dir.as_ref().join("chunk.json"))?;
-        let rt_chunk_deserializer: type3::lowering::serialization::ChunkDeserializer =
-            serde_json::from_reader(&mut chunk_f)?;
-        let rt_chunk = rt_chunk_deserializer.deserialize_into_chunk(self.prog.user_function_table);
+        let mut libs = Libs::new();
 
-        let mut statistics_f = std::fs::File::open(dir.as_ref().join("memory-statistics.json"))?;
-        let statistics: type2::memory_planning::Statistics =
-            serde_json::from_reader(&mut statistics_f)?;
+        let versions = Versions::load(&dir, |f| {
+            let (cpu, chunk, statistics): (
+                MemoryInfo,
+                type3::lowering::serialization::ChunkDeserializer,
+                type2::memory_planning::Statistics,
+            ) = serde_json::from_reader(f)?;
+            let chunk =
+                chunk.deserialize_into_chunk(self.prog.user_function_table.clone(), &mut libs);
+            Ok((cpu, artifect::Version { chunk, statistics }))
+        })?;
 
         let mut ct_header_f = std::fs::File::open(dir.as_ref().join("constants-manifest.json"))?;
         let ct_header: args::serialization::Header = serde_json::from_reader(&mut ct_header_f)?;
@@ -263,24 +258,25 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
         )?;
 
         Ok(Artifect {
-            chunk: rt_chunk,
+            versions,
             constant_table: self.prog.consant_table,
-            memory_statistics: statistics,
+            libs,
         })
     }
 
     pub fn load_processed_type2<'de>(
         mut self,
-        str_buf: &'de mut String,
         dir: impl AsRef<std::path::Path>,
+        buffers: &'de mut Vec<String>,
         constant_pool: &mut ConstantPool,
     ) -> std::io::Result<ProcessedType2<'de, Rt>>
     where
         Rt: serde::Serialize + serde::Deserialize<'de>,
     {
-        let mut cg_f = std::fs::File::open(dir.as_ref().join("cg.json"))?;
-        cg_f.read_to_string(str_buf)?;
-        let cg: type2::Cg<'de, Rt> = serde_json::from_str(str_buf)?;
+        let cg = Versions::load_buffered(&dir, buffers, |buf| {
+            let (cpu, cg): (MemoryInfo, type2::Cg<'de, Rt>) = serde_json::from_str(buf)?;
+            Ok((cpu, cg))
+        })?;
 
         let mut ct_header_f = std::fs::File::open(dir.as_ref().join("constants-manifest.json"))?;
         let ct_header: args::serialization::Header = serde_json::from_reader(&mut ct_header_f)?;
@@ -301,28 +297,46 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
         })
     }
 
+    /// Apply all passes to obtain [`Artifect`].
+    ///
+    /// For meanings of each argument, refer to lowering methods on [`FreshType2`], [`UnfusedType2`], etc.
     pub fn to_artifect(
         self,
         options: &DebugOptions,
         hardware_info: &HardwareInfo,
         constant_pool: &mut ConstantPool,
+        versions_cpu_memory_divisions: impl Iterator<Item = u32>,
         ctx: &PanicJoinHandler,
+        kernel_dir: PathBuf,
     ) -> Result<Artifect<Rt>, Error<'s, Rt>> {
         Ok(self
-            .to_semi_artifect(options, hardware_info, constant_pool, ctx)?
+            .to_semi_artifect(
+                options,
+                hardware_info,
+                constant_pool,
+                versions_cpu_memory_divisions,
+                ctx,
+                kernel_dir,
+            )?
             .finish(constant_pool))
     }
 
+    /// Apply all passes to obtain [`SemiArtifect`].
+    ///
+    /// For meanings of each argument, refer to lowering methods on [`FreshType2`], [`UnfusedType2`], etc.
     pub fn to_semi_artifect(
         self,
         options: &DebugOptions,
         hardware_info: &HardwareInfo,
         constant_pool: &mut ConstantPool,
+        versions_cpu_memory_divisions: impl Iterator<Item = u32>,
         ctx: &PanicJoinHandler,
+        kernel_dir: PathBuf,
     ) -> Result<SemiArtifect<Rt>, Error<'s, Rt>> {
         self.apply_passes(options, hardware_info, constant_pool, ctx)?
+            .fuse(options, hardware_info, versions_cpu_memory_divisions, ctx)?
             .to_type3(options, hardware_info, constant_pool, ctx)?
             .apply_passes(options)?
-            .to_artifect(options, hardware_info)
+            .to_artifect(options, hardware_info, kernel_dir)
     }
 }

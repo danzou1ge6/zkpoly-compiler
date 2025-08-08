@@ -46,12 +46,12 @@ impl ChunkDeserializer {
     pub fn deserialize_into_chunk<Rt: RuntimeType>(
         self,
         user_ftable: type2::user_function::Table<Rt>,
+        libs: &mut Libs,
     ) -> Chunk<Rt> {
-        let mut libs = Libs::new();
         let mut uf_table: Heap<UserFunctionId, _> = user_ftable.map(&mut (|_, f| Some(f)));
         let f_table = self
             .f_table
-            .map(&mut |_, kernel_type| load_function(&kernel_type, &mut libs, &mut uf_table));
+            .map(&mut |_, kernel_type| load_function(&kernel_type, libs, &mut uf_table));
         let event_table = self.event_table;
         let n_variables = self.n_variables;
         let n_threads = self.n_threads;
@@ -63,7 +63,6 @@ impl ChunkDeserializer {
             n_variables,
             n_threads,
             lbss: self.lbss,
-            libs: libs,
         }
     }
 }
