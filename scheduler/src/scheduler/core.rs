@@ -276,11 +276,11 @@ impl Core {
         if !self.scheduling_window_sorted {
             self.scheduling_window.sort_by(|a, b| {
                 self.knowledge
-                    .estimate_time(a.submitted.program, b.version.as_ref().unwrap())
+                    .estimate_time(a.submitted.program, a.version.as_ref().unwrap())
                     .cmp(
                         &self
                             .knowledge
-                            .estimate_time(a.submitted.program, b.version.as_ref().unwrap()),
+                            .estimate_time(b.submitted.program, b.version.as_ref().unwrap()),
                     )
                     .reverse()
             });

@@ -219,10 +219,6 @@ impl Scheduler {
                     accepted.memory_offset.unwrap(),
                     accepted.version.as_ref().unwrap().memory_limit() as usize,
                 ),
-                // cpu: CpuStaticAllocator::new(
-                //     accepted.version.as_ref().unwrap().memory_limit() as usize,
-                //     true,
-                // ),
                 gpu: self.hd_info.gpu_allocators_for(
                     self.core.config.memory_check,
                     accepted.cards.iter().copied(),
