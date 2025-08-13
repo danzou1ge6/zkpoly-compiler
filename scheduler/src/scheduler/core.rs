@@ -100,8 +100,18 @@ fn try_take_cards(cards: &mut Vec<i32>, n: usize) -> Option<Vec<i32>> {
 }
 
 impl GlobalResources {
-    fn try_take_cards(&mut self, n: usize) -> Option<Vec<i32>> {
-        try_take_cards(&mut self.available_cards, n)
+    fn try_take_cards<T>(
+        &mut self,
+        n: usize,
+        f: impl FnOnce(Vec<i32>, &mut Self) -> Option<T>,
+    ) -> Option<T> {
+        let cards = try_take_cards(&mut self.available_cards, n)?;
+        if let Some(r) = f(cards.clone(), self) {
+            Some(r)
+        } else {
+            self.available_cards.extend_from_slice(&cards);
+            None
+        }
     }
 }
 pub struct Core {
@@ -252,19 +262,22 @@ impl Core {
         }) {
             self.resources.available_memory.try_switch_to_intact();
 
-            if let Some(cards) = self.resources.try_take_cards(cards_per_request) {
-                if let AvailableMemory::Intact(None) = self.resources.available_memory {
-                    let mut task = self.scheduling_window.remove(j);
-                    task.cards = cards;
-                    task.memory_offset = Some(0);
-                    self.resources.available_memory = AvailableMemory::Intact(Some(task.id));
+            return self
+                .resources
+                .try_take_cards(cards_per_request, |cards, resources| {
+                    if let AvailableMemory::Intact(None) = resources.available_memory {
+                        let mut task = self.scheduling_window.remove(j);
+                        task.cards = cards;
+                        task.memory_offset = Some(0);
+                        resources.available_memory = AvailableMemory::Intact(Some(task.id));
 
-                    println!("调度任务 {:?} ，使用整块内存", &task);
+                        println!("调度任务 {:?} ，使用整块内存", &task);
 
-                    return Some(task);
-                }
-            }
-            return None;
+                        Some(task)
+                    } else {
+                        None
+                    }
+                });
         }
 
         self.resources
@@ -288,33 +301,35 @@ impl Core {
         }
 
         if let Some(task) = self.scheduling_window.last() {
-            if let AvailableMemory::Halved(halves) = &mut self.resources.available_memory {
-                halves.sort_by_key(|halve| halve.estimated_free_at);
+            let version = task.version.clone();
 
-                for half in halves {
-                    if let Some(cards) =
-                        try_take_cards(&mut self.resources.available_cards, cards_per_request)
-                    {
-                        if half.space_left()
-                            >= task.version.as_ref().unwrap().memory_limit() as usize
-                        {
-                            let mut task = self.scheduling_window.pop().unwrap();
-                            let estimated_free_at = Instant::now()
-                                + self.knowledge.estimate_time(
-                                    task.submitted.program,
-                                    task.version.as_ref().unwrap(),
-                                );
-                            task.cards = cards;
-                            task.memory_offset = Some(half.add_task(&task, estimated_free_at));
+            return self
+                .resources
+                .try_take_cards(cards_per_request, |cards, resources| {
+                    if let AvailableMemory::Halved(halves) = &mut resources.available_memory {
+                        halves.sort_by_key(|halve| halve.estimated_free_at);
 
-                            println!("调度任务 {:?} ，使用半块内存", &task);
+                        for half in halves {
+                            if half.space_left()
+                                >= version.as_ref().unwrap().memory_limit() as usize
+                            {
+                                let mut task = self.scheduling_window.pop().unwrap();
+                                let estimated_free_at = Instant::now()
+                                    + self.knowledge.estimate_time(
+                                        task.submitted.program,
+                                        task.version.as_ref().unwrap(),
+                                    );
+                                task.cards = cards;
+                                task.memory_offset = Some(half.add_task(&task, estimated_free_at));
 
-                            return Some(task);
+                                println!("调度任务 {:?} ，使用半块内存", &task);
+
+                                return Some(task);
+                            }
                         }
                     }
-                }
-            }
-            return None;
+                    None
+                });
         }
 
         None
@@ -352,5 +367,9 @@ impl Core {
         }
 
         self.resources.available_cards.extend_from_slice(cards);
+    }
+
+    pub fn resources(&self) -> &GlobalResources {
+        &self.resources
     }
 }

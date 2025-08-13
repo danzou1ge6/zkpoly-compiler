@@ -281,8 +281,9 @@ impl Scheduler {
 
                 // 执行器完成
                 while let Ok(resp) = self.control.result_receiver.try_recv() {
-                    println!("任务 {:?} 完成", resp.id);
+                    let id = resp.id;
                     self.finish_task(resp);
+                    println!("任务 {:?} 完成", id);
                     self.schedule_task();
                 }
 
