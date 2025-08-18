@@ -51,6 +51,8 @@ impl<Rt: RuntimeType> SemiArtifect<Rt> {
             constant_pool.disk.as_mut(),
         );
 
+        constant_pool.cpu.shrink();
+
         Artifect {
             versions: self.versions,
             constant_table,
