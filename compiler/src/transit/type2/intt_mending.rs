@@ -6,8 +6,8 @@ use zkpoly_runtime::args::RuntimeType;
 
 use crate::ast::RuntimeCorrespondance;
 
-use super::{template::SliceableNode, unsliced, ConstantTable, Typ, VertexId};
-use unsliced::{Cg, Vertex, VertexNode};
+use super::{template::SliceableNode, no_subgraph, ConstantTable, Typ, VertexId};
+use no_subgraph::{Cg, Vertex, VertexNode};
 
 pub fn mend<'s, Rt: RuntimeType>(
     mut cg: Cg<'s, Rt>,

@@ -7,7 +7,7 @@ use crate::transit::{
     self,
     type2::{
         template::SliceableNode,
-        unsliced::{
+        no_subgraph::{
             self,
             alt_label::{Cg, Vertex, VertexNode},
         },
@@ -58,9 +58,9 @@ fn get_equivalence_class<Rt: RuntimeType>(
 }
 
 pub fn cse<'s, Rt: RuntimeType>(
-    cg: unsliced::Cg<'s, Rt>,
+    cg: no_subgraph::Cg<'s, Rt>,
     uf_table: &super::user_function::Table<Rt>,
-) -> unsliced::Cg<'s, Rt> {
+) -> no_subgraph::Cg<'s, Rt> {
     let mut vid2class: BTreeMap<VertexId, EquivalenceClass> = BTreeMap::new();
     let mut node2class: BTreeMap<EquivalenceNode, EquivalenceClass> = BTreeMap::new();
     let mut class2new_id: BTreeMap<EquivalenceClass, VertexId> = BTreeMap::new();

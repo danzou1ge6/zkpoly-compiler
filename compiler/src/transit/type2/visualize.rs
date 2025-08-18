@@ -98,7 +98,7 @@ pub fn write_graph_with_optional_seq<'s, Ty: Debug>(
     extra_tooltip: impl Fn(VertexId, &partial_typed::Vertex<'s, Ty>) -> Option<String>,
     edge_tooltip: impl Fn(VertexId, &partial_typed::Vertex<'s, Ty>) -> Option<Vec<(VertexId, String)>>,
 ) -> std::io::Result<()> {
-    let mut builder = vis::Builder::new();
+    let mut builder = vis::DigraphBuilder::new();
 
     // Write nodes
     for (i, vid) in seq.clone().enumerate() {
@@ -130,8 +130,10 @@ pub fn write_graph_with_optional_seq<'s, Ty: Debug>(
             let cluster_id = format!("_{}_arith_", usize::from(vid));
             builder.cluster(
                 cluster_id,
-                vis::Cluster::new(vis::Vertex::new(label).with_color(color).with_info(tooltip))
-                    .with_children(subgraph_vertices),
+                vis::ClusterBuilder::new(
+                    vis::Vertex::new(label).with_color(color).with_info(tooltip),
+                )
+                .with_children(subgraph_vertices),
             );
             continue;
         }

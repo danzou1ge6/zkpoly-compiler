@@ -4,14 +4,15 @@ use zkpoly_runtime::args::RuntimeType;
 use super::{processed_type2::ProcessedType2, Error};
 use crate::{
     driver::{
-        check_type2_dag, debug_type2, DebugOptions, HardwareInfo, PanicJoinHandler, Versions,
+        check_type2_subgraphed_dag, check_type2_unsubgraphed_dag, DebugOptions, HardwareInfo,
+        PanicJoinHandler, Versions,
     },
     transit::type2,
 };
 
 /// The Type2 IR before kernel fusion.
 pub struct UnfusedType2<'s, Rt: RuntimeType> {
-    pub(super) cg: type2::Cg<'s, Rt>,
+    pub(super) cg: type2::no_subgraph::Cg<'s, Rt>,
     pub(super) constant_table: type2::ConstantTable<Rt>,
     pub(super) uf_table: type2::user_function::Table<Rt>,
     pub(super) libs: Libs,
@@ -28,7 +29,7 @@ impl<'s, Rt: RuntimeType> UnfusedType2<'s, Rt> {
         options: &DebugOptions,
         hardware_info: &HardwareInfo,
         versions_cpu_memory_divisions: impl Iterator<Item = u32>,
-        ctx: &PanicJoinHandler,
+        _ctx: &PanicJoinHandler,
     ) -> Result<ProcessedType2<'s, Rt>, Error<'s, Rt>> {
         let UnfusedType2 {
             cg: t2cg,
@@ -53,29 +54,49 @@ impl<'s, Rt: RuntimeType> UnfusedType2<'s, Rt> {
                     "Done.",
                 )?;
 
-                if !check_type2_dag(
+                if !check_type2_unsubgraphed_dag(
                     options
                         .debug_dir
                         .join(helper.debug_filename("type2_kernel_fusion.dot")),
-                    &t2cg.g,
-                    t2cg.output,
+                    &t2cg,
                     options.type2_visualizer,
                 ) {
                     panic!("graph is not a DAG after Arithmetic Kernel Fusion");
                 }
 
                 if options.debug_kernel_fusion {
-                    ctx.add(debug_type2(
+                    type2::pretty::unsubgraphed_cg::debug_graph(
+                        &t2cg,
                         options.debug_dir.join("type2_kernel_fusion.dot"),
-                        &t2cg.g,
-                        t2cg.output,
-                        options.type2_visualizer,
-                    ));
+                    );
                 }
 
                 Ok(t2cg)
             },
         )?;
+
+        let t2cg_versions = t2cg_versions.map(|_cpu, t2cg, helper| {
+            let t2cg = type2::subgraph_slicing::fuse(t2cg, 100);
+
+            if !check_type2_subgraphed_dag(
+                options
+                    .debug_dir
+                    .join(helper.debug_filename("type2_subgraph_partition.dot")),
+                &t2cg,
+                options.type2_visualizer,
+            ) {
+                panic!("graph is not a DAG after Arithmetic Kernel Fusion");
+            }
+
+            if options.debug_kernel_fusion {
+                type2::pretty::subgraphed_cg::debug_graph(
+                    &t2cg,
+                    options.debug_dir.join("type2_subgraph_partition.dot"),
+                );
+            }
+
+            Ok(t2cg)
+        })?;
 
         Ok(ProcessedType2 {
             cg: t2cg_versions,

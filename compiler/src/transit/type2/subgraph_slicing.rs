@@ -301,9 +301,11 @@ fn fuse_sliceable_subgraphs_from<'s, Rt: RuntimeType>(
 }
 
 pub fn fuse<'s, Rt: RuntimeType>(
-    mut cg: super::Cg<'s, Rt>,
+    cg: super::no_subgraph::Cg<'s, Rt>,
     subgraph_minimum_order: usize,
 ) -> super::Cg<'s, Rt> {
+    let mut cg = cg.map_vertices(|v| v.map_node(|vn| vn.with_s()));
+
     let seq =
         cg.g.dfs_from(cg.output)
             .map(|(vid, _)| vid)

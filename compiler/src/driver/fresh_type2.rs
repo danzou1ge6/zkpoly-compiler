@@ -6,9 +6,10 @@ use crate::driver::artifect;
 
 use super::{
     artifect::{Artifect, SemiArtifect},
-    ast, check_type2_dag, debug_partial_typed_type2, debug_type2,
+    ast, check_type2_unsubgraphed_dag,
     processed_type2::ProcessedType2,
-    type2, type3,
+    type2::{self, pretty::unsubgraphed_cg::debug_graph},
+    type3,
     unfused_type2::UnfusedType2,
     ConstantPool, DebugOptions, Error, HardwareInfo, MemoryInfo, PanicJoinHandler, Versions,
 };
@@ -23,7 +24,7 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
     pub fn from_ast(
         ast: impl ast::TypeEraseable<Rt>,
         options: &DebugOptions,
-        ctx: &PanicJoinHandler,
+        _ctx: &PanicJoinHandler,
     ) -> Result<Self, Error<'s, Rt>> {
         let (ast_cg, output_vid) = options.log_suround(
             "Lowering AST to Type2...",
@@ -32,12 +33,10 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
         )?;
 
         if options.debug_fresh_type2 {
-            ctx.add(debug_type2(
-                options.debug_dir.join("type2_fresh.dot"),
+            type2::pretty::partial_typed::debug_graph(
                 &ast_cg.g,
-                output_vid,
-                options.type2_visualizer,
-            ));
+                options.debug_dir.join("type2_fresh.dot"),
+            );
         }
 
         if options.debug_user_function_table {
@@ -52,23 +51,16 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
                 Ok(t2prog) => Ok(t2prog),
                 Err((e, g)) => {
                     let fpath = options.debug_dir.join("type2_type_inference.dot");
-                    debug_partial_typed_type2(
-                        fpath,
-                        &g,
-                        e.vid,
-                        output_vid,
-                        options.type2_visualizer,
-                    )
-                    .map(|j| j.join().unwrap());
+                    type2::pretty::type_error::debug_graph(&g, e.vid, &fpath)
+                        .expect("write debug file error");
 
                     Err(Error::Typ(e))
                 }
             }?;
 
-        if !check_type2_dag(
+        if !check_type2_unsubgraphed_dag(
             options.debug_dir.join("type2_type_inference.dot"),
-            &t2prog.cg.g,
-            output_vid,
+            &t2prog.cg,
             options.type2_visualizer,
         ) {
             return Err(Error::NotDag);
@@ -85,7 +77,7 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
         options: &DebugOptions,
         hardware_info: &HardwareInfo,
         constant_pool: &mut ConstantPool,
-        ctx: &PanicJoinHandler,
+        _ctx: &PanicJoinHandler,
     ) -> Result<UnfusedType2<'s, Rt>, Error<'static, Rt>> {
         let type2::Program {
             cg: t2cg,
@@ -96,12 +88,7 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
         let mut libs = Libs::new();
 
         if options.debug_type_inference {
-            ctx.add(debug_type2(
-                options.debug_dir.join("type2_type_inference.dot"),
-                &t2cg.g,
-                t2cg.output,
-                options.type2_visualizer,
-            ));
+            debug_graph(&t2cg, options.debug_dir.join("type2_type_inference.dot"));
         }
 
         // Apply Type2 passes
@@ -112,22 +99,16 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
             "Done.",
         )?;
 
-        if !check_type2_dag(
+        if !check_type2_unsubgraphed_dag(
             options.debug_dir.join("type2_intt_mending.dot"),
-            &t2cg.g,
-            t2cg.output,
+            &t2cg,
             options.type2_visualizer,
         ) {
             panic!("graph is not a DAG after INTT Mending");
         }
 
         if options.debug_intt_mending {
-            ctx.add(debug_type2(
-                options.debug_dir.join("type2_intt_mending.dot"),
-                &t2cg.g,
-                t2cg.output,
-                options.type2_visualizer,
-            ));
+            debug_graph(&t2cg, options.debug_dir.join("type2_intt_mending.dot"));
         }
 
         // - Precompute NTT and MSM constants
@@ -146,22 +127,16 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
             "Done.",
         )?;
 
-        if !check_type2_dag(
+        if !check_type2_unsubgraphed_dag(
             options.debug_dir.join("type2_precompute.dot"),
-            &t2cg.g,
-            t2cg.output,
+            &t2cg,
             options.type2_visualizer,
         ) {
             panic!("graph is not a DAG after Precomputing");
         }
 
         if options.debug_precompute {
-            ctx.add(debug_type2(
-                options.debug_dir.join("type2_precompute.dot"),
-                &t2cg.g,
-                t2cg.output,
-                options.type2_visualizer,
-            ));
+            debug_graph(&t2cg, options.debug_dir.join("type2_precompute.dot"));
         }
 
         // - Manage Inversions: Rewrite inversions of scalars and polynomials to dedicated operators
@@ -171,22 +146,16 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
             "Done.",
         )?;
 
-        if !check_type2_dag(
+        if !check_type2_unsubgraphed_dag(
             options.debug_dir.join("type2_manage_invers.dot"),
-            &t2cg.g,
-            t2cg.output,
+            &t2cg,
             options.type2_visualizer,
         ) {
             panic!("graph is not a DAG after Managing Inversions");
         }
 
         if options.debug_manage_invers {
-            ctx.add(debug_type2(
-                options.debug_dir.join("type2_manage_invers.dot"),
-                &t2cg.g,
-                t2cg.output,
-                options.type2_visualizer,
-            ));
+            debug_graph(&t2cg, options.debug_dir.join("type2_manage_invers.dot"));
         }
 
         // - Common Subexpression Elimination
@@ -200,22 +169,16 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
             "Done.",
         )?;
 
-        if !check_type2_dag(
+        if !check_type2_unsubgraphed_dag(
             options.debug_dir.join("type2_cse.dot"),
-            &t2cg.g,
-            t2cg.output,
+            &t2cg,
             options.type2_visualizer,
         ) {
             panic!("graph is not a DAG after CSE");
         }
 
         if options.debug_cse {
-            ctx.add(debug_type2(
-                options.debug_dir.join("type2_cse.dot"),
-                &t2cg.g,
-                t2cg.output,
-                options.type2_visualizer,
-            ));
+            debug_graph(&t2cg, options.debug_dir.join("type2_cse.dot"));
         }
 
         Ok(UnfusedType2 {

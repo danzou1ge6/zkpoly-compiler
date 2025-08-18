@@ -2,7 +2,7 @@ use zkpoly_common::arith::{Arith, ArithBinOp, ArithUnrOp, BinOp, SpOp, UnrOp};
 use zkpoly_runtime::args::RuntimeType;
 
 use super::template::SliceableNode;
-use super::unsliced::{Cg, Vertex, VertexNode};
+use super::no_subgraph::{Cg, Vertex, VertexNode};
 
 pub fn manage_inverse<'s, Rt: RuntimeType>(mut cg: Cg<'s, Rt>) -> Cg<'s, Rt> {
     let order = cg.g.vertices().collect::<Vec<_>>();

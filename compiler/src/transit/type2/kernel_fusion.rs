@@ -8,7 +8,7 @@ use crate::{
 use super::{
     template::SliceableNode,
     temporary_space,
-    unsliced::{Cg, Vertex, VertexNode},
+    no_subgraph::{Cg, Vertex, VertexNode},
     VertexId,
 };
 use zkpoly_common::{

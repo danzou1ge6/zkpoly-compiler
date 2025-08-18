@@ -24,6 +24,12 @@ pub use zkpoly_runtime::error::RuntimeError;
 
 zkpoly_common::define_usize_id!(VertexId);
 
+impl std::fmt::Display for VertexId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", usize::from(*self))
+    }
+}
+
 pub type Arith<I> = arith::ArithGraph<I, arith::ExprId>;
 
 #[derive(
@@ -162,11 +168,6 @@ pub mod alt_label {
     pub type Vertex<'s, I, Rt> = transit::Vertex<VertexNode<'s, I, Rt>, Typ<Rt>, SourceInfo<'s>>;
 }
 
-pub mod alt_label_no_subgraph {
-    use super::*;
-    pub type VertexNode<I> = template::VertexNode<I, Arith<I>, ConstantId, user_function::Id, ()>;
-}
-
 /// The standard computation graph with full type information and sliceable subgraphs,
 /// after subgraph slicing.
 pub type VertexNode<'s, Rt> = alt_label::VertexNode<'s, VertexId, Rt>;
@@ -185,7 +186,7 @@ pub mod partial_typed {
 
 /// The computation graph after type inference.
 /// It has full tyep information, but still does not contain any sliceable subgraph.
-pub mod unsliced {
+pub mod no_subgraph {
     pub mod alt_label {
         use super::super::*;
         pub type VertexNode<I> =
@@ -300,148 +301,6 @@ impl<I, C, S>
     }
 }
 
-impl<'s, I, C, E, S> template::VertexNode<I, arith::ArithGraph<I, arith::ExprId>, C, E, S>
-where
-    I: Clone + 'static,
-    C: Clone,
-    E: Clone,
-    S: template::SubgraphNode<I>,
-{
-    pub fn try_relabeled<I2: Default + Ord + std::fmt::Debug + Clone + 'static, Er>(
-        &self,
-        mut mapping: impl FnMut(I) -> Result<I2, Er>,
-    ) -> Result<
-        template::VertexNode<I2, arith::ArithGraph<I2, arith::ExprId>, C, E, S::AltLabeled<I2>>,
-        Er,
-    > {
-        use template::VertexNode::*;
-
-        let r = match self {
-            Sliceable(sn) => Sliceable(template::SliceableNode::try_relabeled(sn, &mut mapping)?),
-            LastSliceable(lsn) => LastSliceable(lsn.try_relabeld(mapping)?),
-            Subgraph(s) => Subgraph(s.try_relabeled(&mut mapping)?),
-            UnsliceableConstant(c) => UnsliceableConstant(c.clone()),
-            Extend(s, deg) => Extend(mapping(s.clone())?, deg.clone()),
-            PolyPermute(input, table, len) => {
-                PolyPermute(mapping(input.clone())?, mapping(table.clone())?, *len)
-            }
-            Entry(idx) => Entry(*idx),
-            Return(x) => Return(mapping(x.clone())?),
-            Ntt { alg, s, to, from } => Ntt {
-                alg: alg.try_relabeled(&mut mapping)?,
-                s: mapping(s.clone())?,
-                to: to.clone(),
-                from: from.clone(),
-            },
-            Slice(s, start, end) => Slice(mapping(s.clone())?, *start, *end),
-            Interpolate { xs, ys } => Interpolate {
-                xs: xs
-                    .iter()
-                    .map(|x| mapping(x.clone()))
-                    .collect::<Result<_, _>>()?,
-                ys: ys
-                    .iter()
-                    .map(|x| mapping(x.clone()))
-                    .collect::<Result<_, _>>()?,
-            },
-            Array(es) => Array(
-                es.iter()
-                    .map(|x| mapping(x.clone()))
-                    .collect::<Result<_, _>>()?,
-            ),
-            AssmblePoly(s, es) => AssmblePoly(
-                s.clone(),
-                es.iter()
-                    .map(|x| mapping(x.clone()))
-                    .collect::<Result<_, _>>()?,
-            ),
-            Array(es) => Array(
-                es.iter()
-                    .map(|x| mapping(x.clone()))
-                    .collect::<Result<_, _>>()?,
-            ),
-            AssmblePoly(s, es) => AssmblePoly(
-                s.clone(),
-                es.iter()
-                    .map(|x| mapping(x.clone()))
-                    .collect::<Result<_, _>>()?,
-            ),
-            HashTranscript {
-                transcript,
-                value,
-                typ,
-            } => HashTranscript {
-                transcript: mapping(transcript.clone())?,
-                value: mapping(value.clone())?,
-                typ: typ.clone(),
-            },
-            SqueezeScalar(transcript) => SqueezeScalar(mapping(transcript.clone())?),
-            TupleGet(s, i) => TupleGet(mapping(s.clone())?, *i),
-            ArrayGet(s, i) => ArrayGet(mapping(s.clone())?, *i),
-            UserFunction(fid, args) => UserFunction(
-                fid.clone(),
-                args.iter()
-                    .map(|x| mapping(x.clone()))
-                    .collect::<Result<_, _>>()?,
-            ),
-            KateDivision(lhs, rhs) => KateDivision(mapping(lhs.clone())?, mapping(rhs.clone())?),
-            IndexPoly(x, idx) => IndexPoly(mapping(x.clone())?, *idx),
-            AssertEq(x, y, msg) => AssertEq(mapping(x.clone())?, mapping(y.clone())?, msg.clone()),
-            Print(x, s) => Print(mapping(x.clone())?, s.clone()),
-        };
-
-        Ok(r)
-    }
-
-    pub fn relabeled<I2: Default + Ord + std::fmt::Debug + Clone>(
-        &self,
-        mut mapping: impl FnMut(I) -> I2,
-    ) -> template::VertexNode<I2, arith::ArithGraph<I2, arith::ExprId>, C, E, S::AltLabeled<I2>>
-    {
-        self.try_relabeled::<_, ()>(|i| Ok(mapping(i))).unwrap()
-    }
-
-    pub fn track(&self, device: Device) -> super::type3::Track {
-        use super::type3::Track::*;
-        use template::VertexNode::*;
-
-        let on_device = super::type3::Track::on_device;
-        let currespounding_gpu = |dev: Device| {
-            if !device.is_gpu() {
-                panic!("this vertex needs to be executed on some GPU");
-            }
-            on_device(dev)
-        };
-
-        let err_no_track = |name: &'static str| -> ! { panic!("no track for {}", name) };
-
-        match self {
-            Sliceable(sn) => sn.track(device),
-            LastSliceable(lsn) => lsn.track(device),
-            UnsliceableConstant(..) => Cpu,
-            Subgraph(..) => err_no_track("Subgraph"),
-            Extend(..) => on_device(device),
-            PolyPermute(..) => currespounding_gpu(device),
-            Entry(..) => Cpu,
-            Return(..) => MemoryManagement,
-            Ntt { .. } => currespounding_gpu(device),
-            Slice(..) => err_no_track("Slice"),
-            Interpolate { .. } => Cpu,
-            Array(..) => err_no_track("Array"),
-            AssmblePoly(..) => Cpu,
-            HashTranscript { .. } => Cpu,
-            SqueezeScalar(..) => Cpu,
-            TupleGet(..) => err_no_track("TupleGet"),
-            ArrayGet(..) => err_no_track("ArrayGet"),
-            UserFunction(..) => Cpu,
-            KateDivision(..) => currespounding_gpu(device),
-            IndexPoly(..) => on_device(device),
-            AssertEq(..) => Cpu,
-            Print(..) => Cpu,
-        }
-    }
-}
-
 impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
     pub fn temporary_space_needed(
         &self,
@@ -540,7 +399,7 @@ impl<'s, Rt: RuntimeType> Cg<'s, Rt> {
 }
 
 pub struct Program<'s, Rt: RuntimeType> {
-    pub(crate) cg: unsliced::Cg<'s, Rt>,
+    pub(crate) cg: no_subgraph::Cg<'s, Rt>,
     pub(crate) user_function_table: user_function::Table<Rt>,
     pub(crate) consant_table: ConstantTable<Rt>,
 }
@@ -555,6 +414,7 @@ pub mod manage_inverse;
 pub mod memory_planning;
 pub mod object_analysis;
 pub mod precompute;
+pub mod pretty;
 pub mod pretty_print;
 pub mod subgraph_slicing;
 pub mod temporary_space;

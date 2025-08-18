@@ -119,6 +119,19 @@ pub struct Cg<I, V> {
     pub(crate) g: Digraph<I, V>,
 }
 
+impl<I, V> Cg<I, V> {
+    pub fn map_vertices<V2>(self, mut f: impl FnMut(V) -> V2) -> Cg<I, V2>
+    where
+        I: UsizeId,
+    {
+        let g = self.g.map(&mut |i, v| f(v));
+        Cg {
+            output: self.output,
+            g,
+        }
+    }
+}
+
 impl<I, V> Cg<I, V>
 where
     I: UsizeId,
@@ -166,6 +179,10 @@ impl<N, T, S> Vertex<N, T, S> {
 
     pub fn map_typ<T2>(self, f: impl FnOnce(T) -> T2) -> Vertex<N, T2, S> {
         Vertex(self.0, f(self.1), self.2)
+    }
+
+    pub fn map_node<N2>(self, f: impl FnOnce(N) -> N2) -> Vertex<N2, T, S> {
+        Vertex(f(self.0), self.1, self.2)
     }
 }
 

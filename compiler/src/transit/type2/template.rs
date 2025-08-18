@@ -360,7 +360,7 @@ where
         Box::new(std::iter::repeat(None))
     }
 
-    pub fn try_relabeld<I2, Er>(
+    pub fn try_relabeled<I2, Er>(
         &self,
         mut mapping: impl FnMut(I) -> Result<I2, Er>,
     ) -> Result<LastSliceableNode<I2>, Er>
@@ -391,7 +391,7 @@ where
     where
         I2: Default + Ord + std::fmt::Debug + Clone,
     {
-        self.try_relabeld::<I2, ()>(|x| Ok(mapping(x))).unwrap()
+        self.try_relabeled::<I2, ()>(|x| Ok(mapping(x))).unwrap()
     }
 
     pub fn track(&self, device: super::Device) -> super::super::type3::Track {
@@ -589,4 +589,174 @@ where
     }
 }
 
+impl<I, C, E> VertexNode<I, super::Arith<I>, C, E, ()> {
+    pub fn with_s<S>(self) -> VertexNode<I, super::Arith<I>, C, E, S> {
+        use VertexNode::*;
+        match self {
+            Sliceable(sn) => Sliceable(sn),
+            LastSliceable(lsn) => LastSliceable(lsn),
+            Subgraph(_) => panic!("sliceable subgraph vertex not expected"),
+            UnsliceableConstant(c) => UnsliceableConstant(c),
+            Extend(s, deg) => Extend(s, deg),
+            PolyPermute(input, table, len) => PolyPermute(input, table, len),
+            Entry(idx) => Entry(idx),
+            Return(x) => Return(x),
+            Ntt { alg, s, to, from } => Ntt { alg, s, to, from },
+            Slice(s, start, end) => Slice(s, start, end),
+            Interpolate { xs, ys } => Interpolate { xs, ys },
+            Array(es) => Array(es),
+            AssmblePoly(s, es) => AssmblePoly(s, es),
+            HashTranscript {
+                transcript,
+                value,
+                typ,
+            } => HashTranscript {
+                transcript,
+                value,
+                typ,
+            },
+            SqueezeScalar(transcript) => SqueezeScalar(transcript),
+            TupleGet(s, i) => TupleGet(s, i),
+            ArrayGet(s, i) => ArrayGet(s, i),
+            UserFunction(fid, args) => UserFunction(fid, args),
+            KateDivision(lhs, rhs) => KateDivision(lhs, rhs),
+            IndexPoly(x, idx) => IndexPoly(x, idx),
+            AssertEq(x, y, msg) => AssertEq(x, y, msg),
+            Print(x, s) => Print(x, s),
+        }
+    }
+}
+
+impl<'s, I, C, E, S> VertexNode<I, super::Arith<I>, C, E, S>
+where
+    I: Clone + 'static,
+    C: Clone,
+    E: Clone,
+    S: SubgraphNode<I>,
+{
+    pub fn try_relabeled<I2: Default + Ord + std::fmt::Debug + Clone + 'static, Er>(
+        &self,
+        mut mapping: impl FnMut(I) -> Result<I2, Er>,
+    ) -> Result<VertexNode<I2, arith::ArithGraph<I2, arith::ExprId>, C, E, S::AltLabeled<I2>>, Er>
+    {
+        use VertexNode::*;
+
+        let r = match self {
+            Sliceable(sn) => Sliceable(SliceableNode::try_relabeled(sn, &mut mapping)?),
+            LastSliceable(lsn) => LastSliceable(lsn.try_relabeled(mapping)?),
+            Subgraph(s) => Subgraph(s.try_relabeled(&mut mapping)?),
+            UnsliceableConstant(c) => UnsliceableConstant(c.clone()),
+            Extend(s, deg) => Extend(mapping(s.clone())?, deg.clone()),
+            PolyPermute(input, table, len) => {
+                PolyPermute(mapping(input.clone())?, mapping(table.clone())?, *len)
+            }
+            Entry(idx) => Entry(*idx),
+            Return(x) => Return(mapping(x.clone())?),
+            Ntt { alg, s, to, from } => Ntt {
+                alg: alg.try_relabeled(&mut mapping)?,
+                s: mapping(s.clone())?,
+                to: to.clone(),
+                from: from.clone(),
+            },
+            Slice(s, start, end) => Slice(mapping(s.clone())?, *start, *end),
+            Interpolate { xs, ys } => Interpolate {
+                xs: xs
+                    .iter()
+                    .map(|x| mapping(x.clone()))
+                    .collect::<Result<_, _>>()?,
+                ys: ys
+                    .iter()
+                    .map(|x| mapping(x.clone()))
+                    .collect::<Result<_, _>>()?,
+            },
+            Array(es) => Array(
+                es.iter()
+                    .map(|x| mapping(x.clone()))
+                    .collect::<Result<_, _>>()?,
+            ),
+            AssmblePoly(s, es) => AssmblePoly(
+                s.clone(),
+                es.iter()
+                    .map(|x| mapping(x.clone()))
+                    .collect::<Result<_, _>>()?,
+            ),
+            HashTranscript {
+                transcript,
+                value,
+                typ,
+            } => HashTranscript {
+                transcript: mapping(transcript.clone())?,
+                value: mapping(value.clone())?,
+                typ: typ.clone(),
+            },
+            SqueezeScalar(transcript) => SqueezeScalar(mapping(transcript.clone())?),
+            TupleGet(s, i) => TupleGet(mapping(s.clone())?, *i),
+            ArrayGet(s, i) => ArrayGet(mapping(s.clone())?, *i),
+            UserFunction(fid, args) => UserFunction(
+                fid.clone(),
+                args.iter()
+                    .map(|x| mapping(x.clone()))
+                    .collect::<Result<_, _>>()?,
+            ),
+            KateDivision(lhs, rhs) => KateDivision(mapping(lhs.clone())?, mapping(rhs.clone())?),
+            IndexPoly(x, idx) => IndexPoly(mapping(x.clone())?, *idx),
+            AssertEq(x, y, msg) => AssertEq(mapping(x.clone())?, mapping(y.clone())?, msg.clone()),
+            Print(x, s) => Print(mapping(x.clone())?, s.clone()),
+        };
+
+        Ok(r)
+    }
+
+    pub fn relabeled<I2: Default + Ord + std::fmt::Debug + Clone>(
+        &self,
+        mut mapping: impl FnMut(I) -> I2,
+    ) -> VertexNode<I2, arith::ArithGraph<I2, arith::ExprId>, C, E, S::AltLabeled<I2>>
+    where
+        I2: 'static,
+    {
+        self.try_relabeled::<_, ()>(|i| Ok(mapping(i))).unwrap()
+    }
+
+    pub fn track(&self, device: super::Device) -> super::super::type3::Track {
+        use super::super::type3::Track::{self, *};
+        use VertexNode::*;
+
+        let on_device = Track::on_device;
+        let currespounding_gpu = |dev: super::Device| {
+            if !device.is_gpu() {
+                panic!("this vertex needs to be executed on some GPU");
+            }
+            on_device(dev)
+        };
+
+        let err_no_track = |name: &'static str| -> ! { panic!("no track for {}", name) };
+
+        match self {
+            Sliceable(sn) => sn.track(device),
+            LastSliceable(lsn) => lsn.track(device),
+            UnsliceableConstant(..) => Cpu,
+            Subgraph(..) => err_no_track("Subgraph"),
+            Extend(..) => on_device(device),
+            PolyPermute(..) => currespounding_gpu(device),
+            Entry(..) => Cpu,
+            Return(..) => MemoryManagement,
+            Ntt { .. } => currespounding_gpu(device),
+            Slice(..) => err_no_track("Slice"),
+            Interpolate { .. } => Cpu,
+            Array(..) => err_no_track("Array"),
+            AssmblePoly(..) => Cpu,
+            HashTranscript { .. } => Cpu,
+            SqueezeScalar(..) => Cpu,
+            TupleGet(..) => err_no_track("TupleGet"),
+            ArrayGet(..) => err_no_track("ArrayGet"),
+            UserFunction(..) => Cpu,
+            KateDivision(..) => currespounding_gpu(device),
+            IndexPoly(..) => on_device(device),
+            AssertEq(..) => Cpu,
+            Print(..) => Cpu,
+        }
+    }
+}
+
+pub mod labelling;
 pub mod pretty;

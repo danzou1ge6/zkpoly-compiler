@@ -22,14 +22,14 @@ use crate::{
         type2::{
             template::{LastSliceableNode, SliceableNode},
             typ::template::Typ,
-            unsliced, NttAlgorithm, VertexId,
+            no_subgraph, NttAlgorithm, VertexId,
         },
         SourceInfo,
     },
     utils::GenOmega,
 };
 
-use unsliced::{Cg, Vertex, VertexNode};
+use no_subgraph::{Cg, Vertex, VertexNode};
 
 pub fn precompute<'s, Rt: RuntimeType>(
     mut cg: Cg<'s, Rt>,

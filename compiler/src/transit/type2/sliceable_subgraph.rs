@@ -1,11 +1,16 @@
 use zkpoly_common::digraph;
-use zkpoly_runtime::args::RuntimeType;
 
 use super::template::{LastSliceableNode, SliceableNode, VertexNode as OuterVertexNode};
 use super::transit::{self, SourceInfo};
 use super::{Arith, ConstantId, Typ};
 
 zkpoly_common::define_usize_id!(VertexId);
+
+impl std::fmt::Display for VertexId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", usize::from(*self))
+    }
+}
 
 pub mod template {
     use zkpoly_common::{digraph::internal::Digraph, heap::UsizeId};
@@ -101,6 +106,14 @@ pub mod template {
             }
         }
 
+        pub fn unwrap_output(&self) -> &[I] {
+            use VertexNode::*;
+            match self {
+                Return(r) => r,
+                _ => panic!("called unwrap_output on non-output vertex"),
+            }
+        }
+
         /// Provided a vertex in the big graph and returns a vertex in sliceable subgraph.
         /// If the given vertex is not sliceable nor last-sliceable, it is considered to be
         /// input to the subgraph.
@@ -138,7 +151,7 @@ pub mod template {
             Ok(match self {
                 Input(ie) => Input(fe(ie.clone())?),
                 Inner(sn) => Inner(sn.try_relabeled(&mut f)?),
-                Last(lsn) => Last(lsn.try_relabeld(&mut f)?),
+                Last(lsn) => Last(lsn.try_relabeled(&mut f)?),
                 TupleGet(t, i) => TupleGet(f(t.clone())?, *i),
                 Return(r) => Return(r.iter().cloned().map(f).collect::<Result<Vec<_>, _>>()?),
             })
@@ -222,6 +235,13 @@ pub mod template {
                 loop_output: self.loop_output.clone(),
             })
         }
+
+        pub fn nth_output(&self, i: usize) -> I
+        where
+            I: UsizeId,
+        {
+            self.g.vertex(self.output).node().unwrap_output()[i]
+        }
     }
 
     impl<I, Ie, C, T, S> super::super::template::SubgraphNode<Ie>
@@ -260,6 +280,173 @@ pub mod template {
             self.try_relabeled(f)
         }
     }
+
+    mod labeling {
+        use super::super::super::template::labelling::{EdgeLabel, LabelT};
+        use super::VertexNode;
+        use std::fmt::{Debug, Display};
+
+        impl<'a, I, Ie, C> Display for LabelT<'a, VertexNode<I, Ie, C>>
+        where
+            C: Debug,
+        {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                use VertexNode::*;
+                match &self.0 {
+                    Input(..) => write!(f, "Input"),
+                    Inner(sn) => write!(f, "{}", LabelT(sn)),
+                    Last(lsn) => write!(f, "{}", LabelT(lsn)),
+                    TupleGet(_, i) => write!(f, "TupleGet({i})"),
+                    Return(..) => write!(f, "Return"),
+                }
+            }
+        }
+
+        impl<I, Ie, C> VertexNode<I, Ie, C> {
+            pub fn labeled_uses<'a>(
+                &'a self,
+            ) -> Box<dyn Iterator<Item = (I, Option<EdgeLabel>)> + 'a>
+            where
+                I: Clone,
+            {
+                use VertexNode::*;
+                match self {
+                    Return(xs) => Box::new(
+                        xs.iter()
+                            .enumerate()
+                            .map(|(i, x)| (x.clone(), Some(EdgeLabel::Enumerate("x", i)))),
+                    ),
+                    _ => Box::new(self.uses().map(|x| (x, None))),
+                }
+            }
+        }
+    }
+
+    mod pretty {
+        use super::super::super::template::labelling::LabelT;
+        use super::*;
+        use crate::transit;
+        use cytoscape_visualizer::{self as vis, pretty::*};
+        use zkpoly_common::arith;
+
+        use std::fmt::{Debug, Display};
+
+        type Vertex<Ii, I, C, T, S> = transit::Vertex<VertexNode<Ii, I, C>, T, S>;
+
+        impl<I, Ii, T, C, S> IdentifyVertex<Ii> for Vertex<Ii, I, C, T, S> {}
+
+        impl<I, Ii, T, C, S> PrettyVertex<Ii, I, ()> for transit::Vertex<VertexNode<Ii, I, C>, T, S>
+        where
+            Ii: Display + Clone,
+            I: Display + Clone,
+            T: Debug,
+            S: Debug,
+            C: Debug,
+        {
+            fn pretty_vertex<'a>(
+                &self,
+                vid: Ii,
+                ctx: Context<'a>,
+                _aux: &(),
+                builder: &mut vis::Builder,
+            ) {
+                let id = Self::identifier(vid, &ctx);
+                let label = LabelT(self.node()).to_string();
+
+                if let VertexNode::Inner(SliceableNode::Arith { arith, .. }) = self.node() {
+                    let mut cluster_builder = vis::ClusterBuilder::new(vis::Vertex::new(label));
+                    pretty_vertices(arith, &(), ctx.push(&id), &mut cluster_builder);
+                    builder.cluster(id, cluster_builder);
+                } else {
+                    builder.vertex(
+                        id,
+                        vis::Vertex::new(label).with_info(format!(
+                            "{:?}\\n@{:?}",
+                            self.typ(),
+                            self.src()
+                        )),
+                    );
+                }
+            }
+
+            fn labeled_predecessors(
+                &self,
+            ) -> impl Iterator<Item = (PredecessorId<Ii, I>, vis::EdgeStyle)> {
+                let r: Box<dyn Iterator<Item = _>> =
+                    if let VertexNode::Input(outer_id) = self.node() {
+                        Box::new(std::iter::once((
+                            PredecessorId::External(outer_id.clone()),
+                            vis::EdgeStyle::default(),
+                        )))
+                    } else {
+                        Box::new(self.node().labeled_uses().map(|(u, el)| {
+                            (
+                                PredecessorId::Internal(u),
+                                vis::EdgeStyle::default()
+                                    .with_optional_label(el.map(|el| el.to_string())),
+                            )
+                        }))
+                    };
+                r
+            }
+
+            fn pretty_vertex_internal_edges<'a, G>(
+                &self,
+                vid: Ii,
+                ctx: Context<'a>,
+                _aux: &(),
+                g: &G,
+                builder: &mut vis::Builder,
+            ) where
+                G: PrettyGraph<Self, Ii>,
+                Self: Sized,
+            {
+                let id = Self::identifier(vid, &ctx);
+                if let VertexNode::Inner(SliceableNode::Arith { arith, .. }) = self.node() {
+                    pretty_edges(arith, &(), ctx.push(&id), g, builder)
+                }
+            }
+        }
+
+        impl<I, Ii, T, C, S> PrettyGraph<Vertex<Ii, I, C, T, S>, Ii> for Cg<Ii, Vertex<Ii, I, C, T, S>>
+        where
+            Ii: UsizeId + Display,
+            I: Display + Clone,
+            T: Debug,
+            C: Debug,
+            S: Debug,
+        {
+            fn vertices(&self) -> impl Iterator<Item = Ii> {
+                use VertexNode::*;
+                self.g
+                    .vertices()
+                    .filter(|i| match self.g.vertex(*i).node() {
+                        TupleGet(..) => false,
+                        _ => true,
+                    })
+            }
+
+            fn vertex(&self, vid: Ii) -> &Vertex<Ii, I, C, T, S> {
+                self.g.vertex(vid)
+            }
+
+            fn indirect_from<'a>(&self, vid: Ii, ctx: &Context<'a>) -> vis::Id {
+                match self.g.vertex(vid).node() {
+                    VertexNode::TupleGet(from, i) => match self.g.vertex(*from).node() {
+                        VertexNode::Inner(SliceableNode::Arith { arith, .. }) => {
+                            let id = Vertex::<Ii, I, C, T, S>::identifier(*from, ctx);
+                            arith::ArithVertex::<Ii, _>::identifier(
+                                arith.outputs[*i],
+                                &ctx.push(&id),
+                            )
+                        }
+                        _ => panic!("tuple get only expected to get from Arith"),
+                    },
+                    _ => Vertex::<Ii, I, C, T, S>::identifier(vid, ctx),
+                }
+            }
+        }
+    }
 }
 
 pub mod alt_label {
@@ -267,7 +454,8 @@ pub mod alt_label {
 
     pub type VertexNode<I, Ie> = template::VertexNode<I, Ie, ConstantId>;
     pub type Vertex<'s, I, Ie, T> = transit::Vertex<VertexNode<I, Ie>, T, SourceInfo<'s>>;
-    pub type Cg<'s, I, Ie, Rt> = template::Cg<VertexId, Vertex<'s, I, Ie, super::Typ<Rt>>>;
+    pub type Cg<'s, I, Ie, Rt> = template::Cg<I, Vertex<'s, I, Ie, super::Typ<Rt>>>;
+    pub type CgPartilTyped<'s, I, Ie, T> = template::Cg<I, Vertex<'s, I, Ie, T>>;
 }
 
 pub type VertexNode = alt_label::VertexNode<VertexId, super::VertexId>;

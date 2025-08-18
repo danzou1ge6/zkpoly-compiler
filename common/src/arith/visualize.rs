@@ -7,7 +7,7 @@ pub fn subgraph_vertices<I: Copy>(
     ag: &ArithGraph<I, ExprId>,
     vertex_name_prefix: &str,
     all_output_id: String,
-    builder: &mut vis::Builder,
+    builder: &mut vis::DigraphBuilder,
 ) -> Vec<vis::Id> {
     let mut vertices = Vec::new();
 
@@ -34,7 +34,7 @@ pub fn subgraph_edges<I: Copy + Eq>(
     all_output_id: String,
     vid: impl Fn(I) -> String,
     edge_tooltips: Option<Vec<(I, String)>>,
-    builder: &mut vis::Builder,
+    builder: &mut vis::DigraphBuilder,
 ) {
     for v in ag.g.vertices() {
         let op = &ag.g.vertex(v).op;

@@ -115,6 +115,12 @@ pub type UnrOp = op_template::UnrOp<ArithUnrOp, ArithUnrOp>;
 
 define_usize_id!(ExprId);
 
+impl std::fmt::Display for ExprId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", usize::from(*self))
+    }
+}
+
 /// Kind-specific data of expressions.
 #[derive(
     Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
