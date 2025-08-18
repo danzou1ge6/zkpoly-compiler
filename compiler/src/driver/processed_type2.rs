@@ -7,9 +7,10 @@ use zkpoly_runtime::args::{self, RuntimeType};
 
 use super::{
     debug_type2, debug_type2_def_use, debug_type2_with_seq, type2, DebugOptions, Error,
-    HardwareInfo, PanicJoinHandler, SubDigraph, Versions,
+    HardwareInfo, MemoryInfo, PanicJoinHandler, SubDigraph, Versions,
 };
 
+/// The intermediate result after applying various passes on Type2.
 pub struct ProcessedType2<'s, Rt: RuntimeType> {
     pub(super) cg: Versions<type2::Cg<'s, Rt>>,
     pub(super) constant_table: type2::ConstantTable<Rt>,
@@ -18,6 +19,7 @@ pub struct ProcessedType2<'s, Rt: RuntimeType> {
 }
 
 impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
+    /// Lower to Type3 IR by through memory planning and some other passes.
     pub fn to_type3(
         self,
         options: &DebugOptions,
@@ -29,7 +31,7 @@ impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
             cg: t2cg_versions,
             constant_table: t2const_tab,
             uf_table: t2uf_tab,
-            libs: mut libs,
+            mut libs,
         } = self;
 
         if hardware_info.disks_available() != constant_pool.disk.as_ref().map_or(0, |x| x.len()) {
@@ -49,7 +51,7 @@ impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
             }
         });
 
-        let chunk_versions = t2cg_versions.map(|cpu, t2cg, helper| {
+        let chunk_versions = t2cg_versions.map_i(|cpu, t2cg, helper| {
             let hardware_info = hardware_info.clone().with_cpu(cpu.clone());
             let hardware_info = &hardware_info;
 
@@ -224,10 +226,15 @@ impl<'s, Rt: RuntimeType> ProcessedType2<'s, Rt> {
                 println!("Memory Planning Statistics:\n{:?}", &statistics);
             }
 
-            Ok(fresh_type3::Version {
-                chunk: t3chunk,
-                memory_statistics: statistics,
-            })
+            let cpu = MemoryInfo::new(statistics.cpu_peak_usage, cpu.smithereen_space());
+
+            Ok((
+                cpu,
+                fresh_type3::Version {
+                    chunk: t3chunk,
+                    memory_statistics: statistics,
+                },
+            ))
         })?;
 
         Ok(FreshType3 {

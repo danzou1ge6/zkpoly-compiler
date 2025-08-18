@@ -33,6 +33,7 @@ pub mod alloc;
 pub mod assert_eq;
 pub mod transfer;
 
+/// The runtime that executes compilation artifect.
 pub struct Runtime<T: RuntimeType> {
     instructions: Vec<Instruction>,
     gpu_mapping: Arc<dyn Fn(i32) -> i32 + Send + Sync>,
@@ -47,6 +48,7 @@ pub struct Runtime<T: RuntimeType> {
     _libs: Libs,
 }
 
+/// Options for debugging runtime runs.
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub struct RuntimeDebug {
     pub bench_kernel: bool,
@@ -56,6 +58,7 @@ pub struct RuntimeDebug {
 }
 
 impl RuntimeDebug {
+    /// No debugging is enabled.
     pub fn none() -> Self {
         Self {
             bench_kernel: false,
@@ -65,6 +68,7 @@ impl RuntimeDebug {
         }
     }
 
+    /// Controls whether to bench kernels.
     pub fn with_bench_kernel(self, bench_mark: bool) -> Self {
         Self {
             bench_kernel: bench_mark,
@@ -72,6 +76,7 @@ impl RuntimeDebug {
         }
     }
 
+    /// Controls whether to print each instruction before execution.
     pub fn with_print_instruction(self, print_instruction: bool) -> Self {
         Self {
             print_instruction,
@@ -79,6 +84,8 @@ impl RuntimeDebug {
         }
     }
 
+    /// Control whether to record time used to execute each instruction.
+    /// If this is enabled, the returned [`debug::Log`] will be non-empty.
     pub fn with_record_time(self, record_time: bool) -> Self {
         Self {
             record_time,
@@ -86,6 +93,7 @@ impl RuntimeDebug {
         }
     }
 
+    /// Control whether to force instructions to execute in serial, for debugging.
     pub fn with_serial_execution(self, serial_execution: bool) -> Self {
         Self {
             serial_execution,

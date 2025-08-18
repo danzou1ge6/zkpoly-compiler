@@ -389,24 +389,22 @@ impl<S> ScalarArith<S> {
     }
 }
 
+/// Contains constants involved in computation.
 #[derive(Debug)]
 pub struct ConstantPool {
     pub cpu: CpuMemoryPool,
-    pub disk: Option<DiskMemoryPool>
+    pub disk: Option<DiskMemoryPool>,
 }
 
 impl ConstantPool {
     pub fn only_cpu(cpu: CpuMemoryPool) -> Self {
-        Self {
-            cpu,
-            disk: None
-        }
+        Self { cpu, disk: None }
     }
 
     pub fn with_disk(cpu: CpuMemoryPool, disk: DiskMemoryPool) -> Self {
         Self {
             cpu,
-            disk: Some(disk)
+            disk: Some(disk),
         }
     }
 
@@ -420,6 +418,37 @@ impl ConstantPool {
 
     pub fn unwrap_disk(&mut self) -> &mut DiskMemoryPool {
         self.disk.as_mut().unwrap()
+    }
+
+    pub fn deallocate<Rt: RuntimeType>(&mut self, var: Variable<Rt>) {
+        use zkpoly_common::devices::DeviceType::*;
+        use Variable::*;
+
+        let unexpected_device = || panic!("constants not expected on GPU");
+
+        match var {
+            ScalarArray(mut poly) => match poly.device {
+                CPU => self.cpu.free(poly.values),
+                Disk => poly.free_disk(self.unwrap_disk()),
+                _ => unexpected_device(),
+            },
+            PointArray(mut point_base) => match point_base.device {
+                CPU => self.cpu.free(point_base.values),
+                Disk => point_base.free_disk(self.unwrap_disk()),
+                _ => unexpected_device(),
+            },
+            Point(mut point) => point.deallocate(),
+            Scalar(mut scalar) => scalar.deallocate(),
+            Transcript(mut transcript) => transcript.deallocate(),
+            Any(mut x) => x.dealloc(),
+            _ => panic!("variable can never be a constant or input"),
+        }
+    }
+
+    pub fn deallocate_inputs<Rt: RuntimeType>(&mut self, inputs_table: rt::args::EntryTable<Rt>) {
+        inputs_table
+            .into_iter_with_id()
+            .for_each(|(_, var)| self.deallocate(var))
     }
 }
 

@@ -13,11 +13,13 @@ use super::{
     ConstantPool, DebugOptions, Error, HardwareInfo, MemoryInfo, PanicJoinHandler, Versions,
 };
 
+/// Type2 intermediate representation built from AST.
 pub struct FreshType2<'s, Rt: RuntimeType> {
     prog: type2::Program<'s, Rt>,
 }
 
 impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
+    /// Build from AST. Runs type inference here.
     pub fn from_ast(
         ast: impl ast::TypeEraseable<Rt>,
         options: &DebugOptions,
@@ -74,6 +76,10 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
         Ok(Self { prog: t2prog })
     }
 
+    /// Apply passes to obtain [`UnfusedType2`].
+    ///
+    /// This method needs mutable access to `constant_pool`, because due to precomputation for MSM and NTT
+    /// new constants may be added.
     pub fn apply_passes(
         self,
         options: &DebugOptions,
@@ -220,6 +226,8 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
         })
     }
 
+    /// Base on fresh Type2, directly load [`Artifect`] from file system without need for further passes.
+    /// During loading, stored constants are written to `constant_pool`.
     pub fn load_artifect(
         mut self,
         dir: impl AsRef<std::path::Path>,
@@ -289,6 +297,9 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
         })
     }
 
+    /// Apply all passes to obtain [`Artifect`].
+    ///
+    /// For meanings of each argument, refer to lowering methods on [`FreshType2`], [`UnfusedType2`], etc.
     pub fn to_artifect(
         self,
         options: &DebugOptions,
@@ -310,6 +321,9 @@ impl<'s, Rt: RuntimeType> FreshType2<'s, Rt> {
             .finish(constant_pool))
     }
 
+    /// Apply all passes to obtain [`SemiArtifect`].
+    ///
+    /// For meanings of each argument, refer to lowering methods on [`FreshType2`], [`UnfusedType2`], etc.
     pub fn to_semi_artifect(
         self,
         options: &DebugOptions,

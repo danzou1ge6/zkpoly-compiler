@@ -26,14 +26,7 @@ pub use submitter::exposed::*;
 use submitter::ProgramId;
 pub use submitter::Submitter;
 
-#[derive(Debug)]
-pub enum TaskStatus {
-    Pending,
-    Running,
-    Completed,
-}
-
-pub struct WorkerFinishRespond {
+struct WorkerFinishRespond {
     r: submitter::RunReturn,
     id: TaskId,
     program: ProgramId,
@@ -73,6 +66,7 @@ struct ExecutorHandle {
     thread: thread::JoinHandle<()>,
 }
 
+/// Handle to the scheduler thread.
 #[derive(Debug)]
 pub struct SchedulerHandle {
     shutdown_sender: mpsc::Sender<()>,
@@ -80,6 +74,7 @@ pub struct SchedulerHandle {
 }
 
 impl SchedulerHandle {
+    /// Shutdown the scheduler thread and executor threads.
     pub fn shutdown(self) {
         self.shutdown_sender
             .send(())
@@ -88,32 +83,27 @@ impl SchedulerHandle {
     }
 }
 
+/// Configuration for the scheduler.
 pub struct SchedulerConfig {
-    cards_per_request: usize,
     num_executors: usize,
     memory_check: bool,
     runtime_debug: RuntimeDebug,
+    schedule_window_size: usize,
 }
 
 impl Default for SchedulerConfig {
     fn default() -> Self {
         SchedulerConfig {
-            cards_per_request: 1,
             num_executors: 4,
             memory_check: true,
             runtime_debug: RuntimeDebug::none(),
+            schedule_window_size: 32,
         }
     }
 }
 
 impl SchedulerConfig {
-    pub fn with_cards_per_request(self, x: usize) -> Self {
-        Self {
-            cards_per_request: x,
-            ..self
-        }
-    }
-
+    /// Controls number of executors launched by the scheduler.
     pub fn with_num_executors(self, x: usize) -> Self {
         Self {
             num_executors: x,
@@ -121,6 +111,7 @@ impl SchedulerConfig {
         }
     }
 
+    /// Controls whether memory sanity checks are enabled, for debugging.
     pub fn with_memory_check(self, x: bool) -> Self {
         Self {
             memory_check: x,
@@ -128,9 +119,18 @@ impl SchedulerConfig {
         }
     }
 
+    /// Controls runtime debug options.
     pub fn with_runtime_debug(self, x: RuntimeDebug) -> Self {
         Self {
             runtime_debug: x,
+            ..self
+        }
+    }
+
+    /// Configures the schedule window size.
+    pub fn with_schedule_window_size(self, x: usize) -> Self {
+        Self {
+            schedule_window_size: x,
             ..self
         }
     }
@@ -176,6 +176,8 @@ mod core;
 use core::Core;
 use std::marker::PhantomData;
 
+/// The scheduler.
+/// It runs in a dedicated thread, and communicates with executors and users with channels.
 pub struct Scheduler {
     hd_info: HardwareInfo,
     control: Control,
@@ -217,10 +219,6 @@ impl Scheduler {
                     accepted.memory_offset.unwrap(),
                     accepted.version.as_ref().unwrap().memory_limit() as usize,
                 ),
-                // cpu: CpuStaticAllocator::new(
-                //     accepted.version.as_ref().unwrap().memory_limit() as usize,
-                //     true,
-                // ),
                 gpu: self.hd_info.gpu_allocators_for(
                     self.core.config.memory_check,
                     accepted.cards.iter().copied(),
@@ -250,6 +248,7 @@ impl Scheduler {
         }
     }
 
+    /// Launch the scheduler thread.
     pub fn launch(mut self) -> SchedulerHandle {
         let shutdown_sender = self.shutdown_sender.clone();
 
@@ -282,8 +281,9 @@ impl Scheduler {
 
                 // 执行器完成
                 while let Ok(resp) = self.control.result_receiver.try_recv() {
-                    println!("任务 {:?} 完成", resp.id);
+                    let id = resp.id;
                     self.finish_task(resp);
+                    println!("任务 {:?} 完成", id);
                     self.schedule_task();
                 }
 
@@ -312,6 +312,7 @@ impl Scheduler {
     }
 }
 
+/// Make a new scheduler and launch executor threads.
 pub fn make_scheduler<Rt: RuntimeType>(
     hd_info: HardwareInfo,
     config: SchedulerConfig,
@@ -319,8 +320,10 @@ pub fn make_scheduler<Rt: RuntimeType>(
     disk_pool: DiskMemoryPool,
     programs: Programs<Rt>,
 ) -> (Scheduler, submitter::Submitter<Rt>) {
+    let cards_per_request = 1; // For now this is a constant.
+
     assert!(
-        hd_info.gpus().count() % config.cards_per_request == 0,
+        hd_info.gpus().count() % cards_per_request == 0,
         "Total cards must be a multiple of cards per request"
     );
 
