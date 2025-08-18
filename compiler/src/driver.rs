@@ -332,27 +332,7 @@ impl HardwareInfo {
 
     /// Build the GPU memory pools as configured, indexed by CUDA device ID's.
     pub fn gpu_allocators(&self, memory_check: bool) -> HashMap<i32, CudaAllocator> {
-        use zkpoly_cuda_api::mem;
-        self.gpus()
-            .enumerate()
-            .map(|(id, gpu)| {
-                (
-                    id as i32,
-                    CudaAllocator {
-                        statik: mem::StaticAllocator::new(
-                            0,
-                            gpu.smithereen_space() as usize,
-                            memory_check,
-                        ),
-                        page: mem::PageAllocator::new(
-                            zkpoly_common::devices::DeviceType::GPU { device_id: 0 },
-                            self.page_size() as usize,
-                            gpu.page_number(self.page_size()) as usize,
-                        ),
-                    },
-                )
-            })
-            .collect()
+        self.gpu_allocators_for(memory_check, 0..(self.gpus.len() as i32))
     }
 
     /// Build the GPU memory pools as configured, for a subset of GPU's identified by

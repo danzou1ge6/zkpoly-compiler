@@ -30,10 +30,14 @@ impl StaticAllocator {
     }
 
     pub fn allocate<F: Sized>(&mut self, offset: usize, len: usize) -> *mut F {
-        assert!(offset < self.max_size);
         let left = offset;
         let right = offset + len * std::mem::size_of::<F>();
-        assert!(right <= self.max_size);
+        if right >= self.max_size {
+            panic!(
+                "allocating space out of range: [{}, {}) out of {}",
+                left, right, self.max_size
+            )
+        }
         if self.check_overlap {
             let gap = self.ranges.lower_bound(std::ops::Bound::Included(&left));
             if let Some((pred_start, pre_end)) = gap.peek_prev() {
