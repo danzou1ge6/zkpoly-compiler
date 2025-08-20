@@ -6,6 +6,8 @@ mod prelude {
         ops::Deref,
     };
 
+    pub use super::value::ValueNode;
+
     pub use super::cg_def_use::{DefUse, Die};
     pub use zkpoly_common::{
         define_usize_id,
@@ -24,17 +26,11 @@ mod prelude {
 
     pub use super::super::{Cg, VertexId};
 
-    pub use super::value::{Object, ObjectId, ValueNode};
+    pub use super::template::{ChunkedOp, MemoryOp, Type2Op};
 }
 
 use prelude::*;
 mod subgraph_elaboration;
-
-pub type Value = value::Value<Object, value::ValueNode>;
-pub type VertexNode<'s, Rt> = type2::alt_label::VertexNode<'s, value::VertexInput<Value>, Rt>;
-pub type VertexInput = value::VertexInput<Value>;
-pub type OutputValue = value::OutputValue<Value, VertexId>;
-pub type VertexOutput = value::VertexOutput<OutputValue>;
 
 pub fn decide_device_for_non_constant(execution_device: type2::Device) -> Device {
     match execution_device {
@@ -59,53 +55,54 @@ fn decide_device<'s, Rt: RuntimeType>(
 
 /// Determine [`ValueNode`] for a freshly defined Type2 type.
 /// That is, no slice, no rotation.
-pub fn lower_typ<Rt: RuntimeType>(t2typ: &type2::Typ<Rt>) -> ValueNode {
+pub fn lower_typ<S, Rt: RuntimeType>(
+    t2typ: &type2::Typ<Rt>,
+    leaf_constructor: &mut impl FnMut(ValueNode) -> S,
+) -> value::Tree<S>
+where
+    S: Clone,
+{
     use type2::typ::template::Typ::*;
+    let f = leaf_constructor;
     match t2typ {
-        Poly((_, deg0)) => ValueNode::plain_scalar_array(*deg0 as usize),
-        Scalar => ValueNode::Scalar,
-        Point => ValueNode::Point,
-        PointBase { log_n } => ValueNode::PointBase {
+        Poly((_, deg0)) => value::Tree::Single(f(ValueNode::plain_scalar_array(*deg0 as usize))),
+        Scalar => value::Tree::Single(f(ValueNode::Scalar)),
+        Point => value::Tree::Single(f(ValueNode::Point)),
+        PointBase { log_n } => value::Tree::Single(f(ValueNode::PointBase {
             len: 2usize.pow(*log_n),
-        },
-        Transcript => ValueNode::Transcript,
-        Tuple(..) => panic!("tuple unexpected"),
-        Array(..) => panic!("array unexpected"),
-        Any(tid, size) => ValueNode::Any(tid.clone().into(), *size as usize),
+        })),
+        Transcript => value::Tree::Single(f(ValueNode::Transcript)),
+        Tuple(vs) => {
+            let vs = vs.iter().map(|x| lower_typ(x, f)).collect();
+            value::Tree::Tuple(vs)
+        }
+        Array(t, len) => {
+            let t = lower_typ(t, f);
+            value::Tree::Tuple((0..*len).map(|_| t.clone()).collect())
+        }
+        Any(tid, size) => {
+            value::Tree::Single(f(ValueNode::Any(tid.clone().into(), *size as usize)))
+        }
         _Phantom(_) => unreachable!(),
     }
 }
 
 pub mod template {
 
-    use super::{
-        define_usize_id, value, Device, Heap, Object, ObjectId, Slice, SourceInfo, Value, VertexId,
-    };
+    use super::{define_usize_id, value, Device, Heap, Slice, SourceInfo, VertexId};
     use crate::transit::type2;
 
-    /// A value that we know where its pointer points to.
-    #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
-    pub struct ResidentalValue<P>(Value, P);
+    pub type Atom<O> = value::Atom<O, value::ValueNode>;
+    pub type Value<O> = value::Tree<Atom<O>>;
+    pub type OutputAtom<O> = value::OutputT<Atom<O>, Atom<O>>;
+    pub type InputAtom<O> = value::InputT<Atom<O>>;
 
-    impl<P> std::fmt::Debug for ResidentalValue<P>
-    where
-        P: std::fmt::Debug,
-    {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(
-                f,
-                "(o{}, {:?}, {:?}, {:?})",
-                usize::from(self.object_id()),
-                self.device(),
-                self.node(),
-                self.pointer()
-            )
-        }
-    }
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    pub struct ResidentalT<V, P>(V, P);
 
-    impl<P> ResidentalValue<P> {
-        pub fn new(value: Value, pointer: P) -> Self {
-            ResidentalValue(value, pointer)
+    impl<V, P> ResidentalT<V, P> {
+        pub fn new(value: V, pointer: P) -> Self {
+            ResidentalT(value, pointer)
         }
 
         pub fn pointer(&self) -> &P {
@@ -113,41 +110,123 @@ pub mod template {
         }
 
         pub fn with_pointer(self, pointer: P) -> Self {
-            ResidentalValue(self.0, pointer)
+            ResidentalT(self.0, pointer)
         }
 
-        pub fn value(&self) -> &Value {
+        pub fn value(&self) -> &V {
             &self.0
-        }
-
-        pub fn with_object_id(self, object_id: ObjectId) -> Self {
-            ResidentalValue(self.0.with_object_id(object_id), self.1)
         }
     }
 
-    impl<P> std::ops::Deref for ResidentalValue<P> {
-        type Target = Value;
+    impl<V, P> std::ops::Deref for ResidentalT<V, P> {
+        type Target = V;
         fn deref(&self) -> &Self::Target {
             &self.0
         }
     }
 
-    impl<P> From<Value> for ResidentalValue<P>
+    impl<V, P> From<V> for ResidentalT<V, P>
     where
         P: Default,
     {
-        fn from(value: Value) -> Self {
-            ResidentalValue(value, P::default())
+        fn from(value: V) -> Self {
+            ResidentalT(value, P::default())
         }
     }
 
-    impl<P> ResidentalValue<Option<P>> {
-        pub fn assume_pointed(self) -> ResidentalValue<P> {
-            ResidentalValue(self.0, self.1.unwrap())
+    impl<V, P> ResidentalT<V, Option<P>> {
+        pub fn assume_pointed(self) -> ResidentalT<V, P> {
+            ResidentalT(self.0, self.1.unwrap())
         }
     }
 
-    pub type VertexInput<P> = value::VertexInput<ResidentalValue<Option<P>>>;
+    pub type ResidentalAtom<O, P> = ResidentalT<Atom<O>, P>;
+    pub type ResidentalValue<O, P> = value::Tree<ResidentalAtom<O, P>>;
+
+    pub type InputRv<O, P> = value::Tree<value::InputT<ResidentalAtom<O, P>>>;
+    pub type OutputRv<O, P> =
+        value::Tree<value::OutputT<ResidentalAtom<O, P>, ResidentalAtom<O, P>>>;
+
+    pub type VertexNode<O, P> = type2::no_subgraph::alt_label::VertexNode<InputRv<O, P>>;
+    pub type ChunkedNode<O, P> =
+        type2::sliceable_subgraph::alt_label::VertexNode<InputRv<O, P>, InputRv<O, P>>;
+
+    #[derive(Debug, Clone)]
+    pub struct Type2Op<'s, O, P> {
+        vid: VertexId,
+        output: OutputRv<O, P>,
+        node: VertexNode<O, P>,
+        temporaries: Vec<ResidentalAtom<O, P>>,
+        src: SourceInfo<'s>,
+    }
+
+    #[derive(Debug, Clone)]
+    pub struct ChunkedOp<'s, O, P> {
+        vid: type2::sliceable_subgraph::VertexId,
+        output: OutputRv<O, P>,
+        node: ChunkedNode<O, P>,
+        src: SourceInfo<'s>,
+    }
+
+    impl<'s, O, P> ChunkedOp<'s, O, P> {
+        pub fn new(
+            vid: type2::sliceable_subgraph::VertexId,
+            output: OutputRv<O, P>,
+            node: ChunkedNode<O, P>,
+            src: SourceInfo<'s>,
+        ) -> Self {
+            Self {
+                vid,
+                output,
+                node,
+                src,
+            }
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    pub enum MemoryOp<O, P> {
+        /// [`Clone(o1, d, o2, s)`]  means o1, d <- Clone o2, s,
+        /// i.e., Clone a (potential) slice `s` of object `o2` and store it to a new object `o1` on device `d`.
+        Clone(O, Device, O, Option<Slice>),
+
+        /// [`Clone2(o1, d, {s_i})`] means o1, d <- Clone {o2_i}, s_i,
+        /// i.e., Clone slices `s_i` and concatenate them to obtain `o1` on device `d`
+        Clone2(O, Device, Vec<(O, Slice)>),
+
+        /// Like [`Eject`], [`Reclaim`] and [`Tranfer`], but here transfers are carried out
+        /// by units of objects, and slicing is supported.
+        EjectObject(Atom<O>, ResidentalAtom<O, P>),
+        ReclaimObject(ResidentalAtom<O, P>, Atom<O>),
+        TransferObject(ResidentalAtom<O, P>, ResidentalAtom<O, P>),
+
+        /// [`Eject(d1, t, d2, p)`] means d1 <- Eject t, d2, p,
+        /// i.e., eject object `t` from device `d2` at memory location `p` to device `d1`.
+        ///
+        /// This operation is emitted when we are planninng memory of a device but not its parent.
+        /// At this point, we only know where the object resides on `d2` but not on `d1`.
+        /// Later after we has planned memory of `d1`, this operation should be rewritten to a [`Transfer`]
+        Eject(Device, O, Device, P),
+
+        /// [`Reclaim(d1, p, t, d2`] means d1, p <- Reclaim t, d2,
+        /// i.e., reclaim object `t` from device `d2` to device `t1` at memory location `p`.
+        /// This operation serves a similar purpose as [`Eject`], but in the opposite direction.
+        ///
+        /// However, when really planning memory of `d2`, if the token is not found on `d2`,
+        /// it must have been poped to `d2`'s parent device.
+        /// In this case, we postpone reclaim to planning of `d2`'s parent device.
+        Reclaim(Device, P, O, Device),
+
+        /// [`Transfer(d1, p1, t, d2, p2)`] means d1, p <- Transfer t, d2, p,
+        /// i.e. transfer object `t` from device `d2` at memory location `p2` to device `d1` at memory location `p1`.
+        Transfer(Device, P, O, Device, P),
+
+        /// Allocate some object on device
+        Allocate(O, Device, P),
+
+        /// Deallocate some object on device
+        Deallocate(O, Device, P),
+    }
 
     /// A memory relevant operation involved in executing a Type2 computation graph.
     ///
@@ -156,77 +235,60 @@ pub mod template {
     ///
     /// Only operations with a specific pointer for each operand can be lowered to Type3.
     #[derive(Debug, Clone)]
-    pub enum Operation<'s, T, P> {
+    pub enum Operation<'s, O, P> {
         /// A Type2 vertex translated to value inputs/outputs.
-        /// For `Type2(vid, o, i, t, s)`, `o` are the outputs, `i` are the inputs and `t` are temporary spaces.
         ///
         /// Depending on current device of memory planning, some of the values' pointers
         /// may be unknown.
         ///
         /// All temporary spaces belong to the same object.
-        Type2(
-            VertexId,
-            Vec<(ResidentalValue<Option<P>>, Option<Object>)>,
-            type2::alt_label_no_subgraph::VertexNode<VertexInput<P>>,
-            Vec<ResidentalValue<Option<P>>>,
-            SourceInfo<'s>,
-        ),
+        Type2(Type2Op<'s, O, Option<P>>),
 
         /// A subgraph of Type2 CG that is executed for each chunk of output polynomials
         Subgraph {
-            uses: Vec<ResidentalValue<Option<P>>>,
-            prologue: Vec<Operation<'s, T, P>>,
-            body: Vec<Operation<'s, T, P>>,
+            uses: Vec<ResidentalValue<O, Option<P>>>,
+            // TODO some SgOperation's here and ?
             src: SourceInfo<'s>,
         },
 
-        /// An Type2 vertex that is executed on chunked inputs and outputs
-        Chunked(
-            Vec<(ResidentalValue<Option<P>>, Option<Object>)>,
-            type2::sliceable_subgraph::alt_label::VertexNode<VertexInput<P>, VertexInput<P>>,
-            SourceInfo<'s>,
-        ),
+        M(MemoryOp<O, P>),
+    }
 
-        /// [`Clone(o1, d, o2, s)`]  means o1, d <- Clone o2, s,
-        /// i.e., Clone a (potential) slice `s` of object `o2` and store it to a new object `o1` on device `d`.
-        Clone(Object, Device, Object, Option<Slice>),
+    impl<'s, O, P> From<MemoryOp<O, P>> for Operation<'s, O, P> {
+        fn from(value: MemoryOp<O, P>) -> Self {
+            Self::M(value)
+        }
+    }
 
-        /// [`Clone2(o1, d, {s_i})`] means o1, d <- Clone {o2_i}, s_i,
-        /// i.e., Clone slices `s_i` and concatenate them to obtain `o1` on device `d`
-        Clone2(Object, Device, Vec<(Object, Slice)>),
+    impl<'s, O, P> From<Type2Op<'s, O, Option<P>>> for Operation<'s, O, P> {
+        fn from(value: Type2Op<'s, O, Option<P>>) -> Self {
+            Self::Type2(value)
+        }
+    }
 
-        /// Like [`Eject`], [`Reclaim`] and [`Tranfer`], but here transfers are carried out
-        /// by units of objects, and slicing is supported.
-        EjectObject(Value, ResidentalValue<P>),
-        ReclaimObject(ResidentalValue<P>, Value),
-        TransferObject(ResidentalValue<P>, ResidentalValue<P>),
-
-        /// [`Eject(d1, t, d2, p)`] means d1 <- Eject t, d2, p,
-        /// i.e., eject token `t` from device `d2` at memory location `p` to device `d1`.
+    #[derive(Debug, Clone)]
+    pub enum SubgraphOperation<'s, O, P> {
+        /// A Type2 vertex translated to value inputs/outputs.
         ///
-        /// This operation is emitted when we are planninng memory of a device but not its parent.
-        /// At this point, we only know where the object resides on `d2` but not on `d1`.
-        /// Later after we has planned memory of `d1`, this operation should be rewritten to a [`Transfer`]
-        Eject(Device, T, Device, P),
-
-        /// [`Reclaim(d1, p, t, d2`] means d1, p <- Reclaim t, d2,
-        /// i.e., reclaim token `t` from device `d2` to device `t1` at memory location `p`.
-        /// This operation serves a similar purpose as [`Eject`], but in the opposite direction.
+        /// Depending on current device of memory planning, some of the values' pointers
+        /// may be unknown.
         ///
-        /// However, when really planning memory of `d2`, if the token is not found on `d2`,
-        /// it must have been poped to `d2`'s parent device.
-        /// In this case, we postpone reclaim to planning of `d2`'s parent device.
-        Reclaim(Device, P, T, Device),
+        /// All temporary spaces belong to the same object.
+        Type2(ChunkedOp<'s, O, Option<P>>),
 
-        /// [`Transfer(d1, p1, t, d2, p2)`] means d1, p <- Transfer t, d2, p,
-        /// i.e. transfer token `t` from device `d2` at memory location `p2` to device `d1` at memory location `p1`.
-        Transfer(Device, P, T, Device, P),
+        M(MemoryOp<O, P>),
+    }
 
-        /// Allocate some token on device
-        Allocate(T, Device, P),
+    impl<'s, O, P> From<MemoryOp<O, P>> for SubgraphOperation<'s, O, P> {
+        fn from(value: MemoryOp<O, P>) -> Self {
+            Self::M(value)
+        }
+    }
 
-        /// Deallocate some token on device
-        Deallocate(T, Device, P),
+    impl<'s, O, P> From<ChunkedOp<'s, O, Option<P>>> for SubgraphOperation<'s, O, P> {
+        fn from(value: ChunkedOp<'s, O, Option<P>>) -> Self {
+            Self::Type2(value)
+        }
     }
 
     impl<'s, T, P> Operation<'s, T, P>
@@ -323,22 +385,22 @@ pub mod template {
 
     /// A sequence of [`Operation`]
     #[derive(Debug, Clone)]
-    pub struct OperationSeq<'s, T, P>(Heap<Index, Operation<'s, T, P>>);
+    pub struct OperationSeq<R>(Heap<Index, R>);
 
-    impl<'s, T, P> OperationSeq<'s, T, P> {
+    impl<R> OperationSeq<R> {
         pub fn empty() -> Self {
             OperationSeq(Heap::new())
         }
 
-        pub fn emit(&mut self, op: Operation<'s, T, P>) {
-            self.0.push(op);
+        pub fn emit(&mut self, op: impl Into<R>) {
+            self.0.push(op.into());
         }
 
-        pub fn iter<'a>(&'a self) -> impl Iterator<Item = (Index, &'a Operation<'s, T, P>)> + 'a {
+        pub fn iter<'a>(&'a self) -> impl Iterator<Item = (Index, &'a R)> + 'a {
             self.0.iter_with_id()
         }
 
-        pub fn into_iter(self) -> impl Iterator<Item = (Index, Operation<'s, T, P>)> {
+        pub fn into_iter(self) -> impl Iterator<Item = (Index, R)> {
             self.0.into_iter_with_id()
         }
     }

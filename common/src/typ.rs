@@ -38,7 +38,10 @@ impl Slice {
 
     pub fn relative_to(&self, other: &Self) -> Self {
         if !self.is_contained_in(other) {
-            panic!("slice {:?} is not contained in {:?}, cannot get relative slice", self, other);
+            panic!(
+                "slice {:?} is not contained in {:?}, cannot get relative slice",
+                self, other
+            );
         }
         Slice(self.0 - other.0, self.1)
     }
@@ -230,6 +233,24 @@ impl template::Typ<()> {
             ScalarArray { len, .. } => ScalarArray {
                 len: *len,
                 meta: Slice::new(0, *len as u64),
+            },
+            PointBase { len } => PointBase { len: *len },
+            Scalar => Scalar,
+            Transcript => Transcript,
+            Point => Point,
+            Tuple => Tuple,
+            Any(tid, len) => Any(*tid, *len),
+            Stream => Stream,
+            GpuBuffer(len, ..) => GpuBuffer(*len, Slice::new(0, *len as u64)),
+        }
+    }
+
+    pub fn with_slice(&self, slice: Option<Slice>) -> template::Typ<PolyMeta> {
+        use template::Typ::*;
+        match self {
+            ScalarArray { len, .. } => ScalarArray {
+                len: *len,
+                meta: slice.unwrap(),
             },
             PointBase { len } => PointBase { len: *len },
             Scalar => Scalar,

@@ -17,26 +17,19 @@ impl From<&ObjectId> for ObjectId {
 pub type ValueNode = Typ<Slice>;
 
 /// An object is an immutable piece of data on some storage device.
-/// Objects belonging to the same [`ObjectId`] can be concatenated to a complete object,
-/// which now is a polynomial
+/// Objects that are slices belonging to the same [`ObjectId`] can be concatenated to a complete object,
+/// If an object is part of a polynomial, `slice` must be non-None
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Object {
     id: ObjectId,
-    slice: Option<Slice>,
+    node: ValueNode,
 }
 
 impl Object {
-    pub fn new(object_id: ObjectId, slice: Option<Slice>) -> Self {
+    pub fn new(object_id: ObjectId, node: ValueNode) -> Self {
         Object {
             id: object_id,
-            slice,
-        }
-    }
-
-    pub fn not_sliced(object_id: ObjectId) -> Self {
-        Object {
-            id: object_id,
-            slice: None,
+            node,
         }
     }
 
@@ -47,14 +40,14 @@ impl Object {
     pub fn with_object_id(&self, object_id: ObjectId) -> Self {
         Object {
             id: object_id,
-            slice: self.slice.clone(),
+            node: self.node.clone(),
         }
     }
 }
 
 /// Represents what we know now about what's inside a runtime register
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Value<O, N> {
+pub struct Atom<O, N> {
     /// The object it points to
     object: O,
     /// On which memory device the object resides.
@@ -64,9 +57,113 @@ pub struct Value<O, N> {
     node: N,
 }
 
-impl<O, N> Value<O, N> {
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Tree<S> {
+    Single(S),
+    Tuple(Vec<Tree<S>>),
+}
+
+impl<S> Default for Tree<S> {
+    fn default() -> Self {
+        Tree::Tuple(Vec::new())
+    }
+}
+
+pub mod tree_iter {
+    use super::Tree;
+
+    pub struct Iter<'t, S> {
+        pub(super) stack: Vec<&'t Tree<S>>,
+    }
+
+    impl<'t, S> Iterator for Iter<'t, S> {
+        type Item = &'t S;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            loop {
+                let top = self.stack.pop()?;
+                match top {
+                    Tree::Single(x) => return Some(x),
+                    Tree::Tuple(xs) => xs.iter().for_each(|x| self.stack.push(x)),
+                }
+            }
+        }
+    }
+
+    pub struct IterMut<'t, S> {
+        pub(super) stack: Vec<&'t mut Tree<S>>,
+    }
+
+    impl<'t, S> Iterator for IterMut<'t, S> {
+        type Item = &'t mut S;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            loop {
+                let top = self.stack.pop()?;
+                match top {
+                    Tree::Single(x) => return Some(x),
+                    Tree::Tuple(xs) => xs.iter_mut().for_each(|x| self.stack.push(x)),
+                }
+            }
+        }
+    }
+}
+
+impl<S> Tree<S> {
+    pub fn map_ref<S1>(&self, mut f: impl FnMut(&S) -> S1) -> Tree<S1> {
+        match self {
+            Tree::Single(s) => Tree::Single(f(s)),
+            Tree::Tuple(vs) => Tree::Tuple(vs.iter().map(|x| x.map_ref(&mut f)).collect()),
+        }
+    }
+
+    pub fn iter1<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Tree<S>> + 'a> {
+        match self {
+            Tree::Single(..) => Box::new(std::iter::once(self)),
+            Tree::Tuple(xs) => Box::new(xs.iter()),
+        }
+    }
+
+    pub fn iter1_mut<'a>(&'a mut self) -> Box<dyn Iterator<Item = &'a mut Tree<S>> + 'a> {
+        match self {
+            Tree::Single(..) => Box::new(std::iter::once(self)),
+            Tree::Tuple(xs) => Box::new(xs.iter_mut()),
+        }
+    }
+
+    pub fn unwrap_leaf_mut(&mut self) -> &mut S {
+        match self {
+            Tree::Single(x) => x,
+            _ => panic!("called unwrap_leaf_mut on Tuple node"),
+        }
+    }
+
+    pub fn unwrap_leaf(&self) -> &S {
+        match self {
+            Tree::Single(x) => x,
+            _ => panic!("called unwrap_leaf on Tuple node"),
+        }
+    }
+
+    pub fn unwrap_tuple(&self) -> &[Tree<S>] {
+        match self {
+            Tree::Single(..) => panic!("called unwrap_tuple on Single node"),
+            Tree::Tuple(xs) => xs.as_slice(),
+        }
+    }
+
+    pub fn iter<'a>(&'a self) -> tree_iter::Iter<'a, S> {
+        tree_iter::Iter { stack: vec![self] }
+    }
+
+    pub fn iter_mut<'a>(&'a mut self) -> tree_iter::IterMut<'a, S> {
+        tree_iter::IterMut { stack: vec![self] }
+    }
+}
+
+impl<O, N> Atom<O, N> {
     pub fn new(object: O, device: Device, node: N) -> Self {
-        Value {
+        Atom {
             object,
             device,
             node,
@@ -89,7 +186,7 @@ impl<O, N> Value<O, N> {
         N: Clone,
         O: Clone,
     {
-        Value {
+        Atom {
             node: self.node.clone(),
             object: self.object.clone(),
             device,
@@ -100,7 +197,7 @@ impl<O, N> Value<O, N> {
     where
         N: Clone,
     {
-        Value {
+        Atom {
             object,
             device: self.device,
             node: self.node.clone(),
@@ -111,7 +208,7 @@ impl<O, N> Value<O, N> {
     where
         O: Clone,
     {
-        Value {
+        Atom {
             object: self.object.clone(),
             device: self.device,
             node,
@@ -127,12 +224,12 @@ impl<O, N> Value<O, N> {
     }
 }
 
-impl<N> Value<Object, N> {
+impl<N> Atom<Object, N> {
     pub fn with_object_id(&self, object_id: ObjectId) -> Self
     where
         N: Clone,
     {
-        Value {
+        Atom {
             object: self.object.with_object_id(object_id),
             device: self.device,
             node: self.node.clone(),
@@ -144,7 +241,7 @@ impl<N> Value<Object, N> {
     }
 }
 
-impl<O> Value<O, ValueNode> {
+impl<O> Atom<O, ValueNode> {
     pub fn object_size<Rt: RuntimeType>(&self) -> usize {
         use std::mem::size_of;
         match &self.node {
@@ -223,240 +320,94 @@ impl<O> Value<O, ValueNode> {
 /// If `.1` is [`Some`], it is the index of the input value taken inplace.
 /// A input value is said to be taken inplace if the underlying memory space is then used by the output.
 #[derive(Debug, Clone)]
-pub struct OutputValue<V, I>(V, Option<I>);
+pub struct OutputT<V, I> {
+    v: V,
+    inplace_of: Option<I>,
+}
 
-impl<V, I> std::ops::Deref for OutputValue<V, I> {
+impl<V, I> std::ops::Deref for OutputT<V, I> {
     type Target = V;
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.v
     }
 }
 
-impl<V, I> std::ops::DerefMut for OutputValue<V, I> {
+impl<V, I> std::ops::DerefMut for OutputT<V, I> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+        &mut self.v
     }
 }
 
-impl<V, I> OutputValue<V, I> {
+impl<V, I> OutputT<V, I> {
     pub fn new(value: V, inplace: Option<I>) -> Self {
-        OutputValue(value, inplace)
+        OutputT {
+            v: value,
+            inplace_of: inplace,
+        }
     }
 
     pub fn non_inplace(value: V) -> Self {
-        OutputValue(value, None)
+        OutputT {
+            v: value,
+            inplace_of: None,
+        }
+    }
+
+    pub fn with_non_inplace(&self) -> Self
+    where
+        V: Clone,
+    {
+        OutputT {
+            v: self.v.clone(),
+            inplace_of: None,
+        }
     }
 
     pub fn inplace_of(&self) -> Option<I>
     where
         I: Clone,
     {
-        self.1.clone()
+        self.inplace_of.clone()
+    }
+
+    pub fn inplace_of_mut(&mut self) -> &mut Option<I> {
+        &mut self.inplace_of
     }
 }
 
-/// A Type2 Vertex can either output a single value or a tuple of values.
-/// They are distinguished here to recognize subsequent TupleGet's.
-#[derive(Debug, Clone)]
-pub enum VertexOutput<V> {
-    Tuple(Vec<V>),
-    Single(V),
-}
+pub type OutputValue<V, I> = Tree<OutputT<V, I>>;
 
-impl<V> VertexOutput<V> {
-    pub fn object_ids<'s, N>(&'s self) -> Box<dyn Iterator<Item = ObjectId> + 's>
-    where
-        V: Deref<Target = Value<Object, N>>,
-    {
-        use VertexOutput::*;
-        match self {
-            Tuple(ss) => Box::new(ss.iter().map(|x| x.deref().object_id())),
-            Single(s) => Box::new([s.deref().object_id()].into_iter()),
-        }
-    }
-
-    pub fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = &'a V> + 'a> {
-        use VertexOutput::*;
-        match self {
-            Tuple(ss) => Box::new(ss.iter()),
-            Single(s) => Box::new([s].into_iter()),
-        }
-    }
-
-    pub fn iter_mut<'a>(&'a mut self) -> Box<dyn Iterator<Item = &'a mut V> + 'a> {
-        use VertexOutput::*;
-        match self {
-            Tuple(ss) => Box::new(ss.iter_mut()),
-            Single(s) => Box::new([s].into_iter()),
-        }
-    }
-
-    pub fn try_unwrap_single(&self) -> Option<&V> {
-        use VertexOutput::*;
-        match self {
-            Single(s) => Some(s),
-            _ => None,
-        }
-    }
-
-    pub fn unwrap_single(&self) -> &V {
-        use VertexOutput::*;
-        match self {
-            Single(s) => s,
-            _ => panic!("called unwrap_single on VertexValue::Tuple"),
-        }
-    }
-
-    pub fn unwrap_single_mut(&mut self) -> &mut V {
-        use VertexOutput::*;
-        match self {
-            Single(s) => s,
-            _ => panic!("called unwrap_single on VertexValue::Tuple"),
-        }
-    }
-
-    pub fn unwrap_tuple(&self) -> &Vec<V> {
-        use VertexOutput::*;
-        match self {
-            Tuple(v) => v,
-            _ => panic!("called unwrap_tuple on VertexValue::Single"),
-        }
-    }
-}
-
-impl<O, N, I> VertexOutput<OutputValue<Value<O, N>, I>>
-where
-    O: Clone,
-    N: Clone,
-{
-    pub fn with_no_inplace(self) -> Self {
-        use VertexOutput::*;
-        match self {
-            Tuple(ss) => VertexOutput::Tuple(
-                ss.iter()
-                    .map(|OutputValue(v, _)| OutputValue(v.clone(), None))
-                    .collect(),
-            ),
-            Single(OutputValue(v, _)) => VertexOutput::Single(OutputValue(v.clone(), None)),
-        }
-    }
-
-    pub fn with_device(&self, device: Device) -> Self
-    where
-        I: Clone,
-    {
-        use VertexOutput::*;
-        match self {
-            Tuple(ss) => VertexOutput::Tuple(
-                ss.iter()
-                    .map(|OutputValue(v, inplace)| {
-                        OutputValue(v.with_device(device), inplace.as_ref().cloned())
-                    })
-                    .collect(),
-            ),
-            Single(OutputValue(v, inplace)) => VertexOutput::Single(OutputValue(
-                v.with_device(device),
-                inplace.as_ref().cloned(),
-            )),
-        }
-    }
-}
-
-/// One of the input values to a vertex.
-/// The ordering doesn't matter, it's just for using it as BTreeMap index.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum VertexInput<V> {
-    Single(V, Mutability),
-    Tuple(Vec<V>),
+pub struct InputT<V> {
+    v: V,
+    mutability: Mutability,
 }
 
-/// This is a meaning less default. Just to make the arith subgraph API work.
-impl<V> Default for VertexInput<V> {
-    fn default() -> Self {
-        Self::Tuple(Vec::new())
-    }
-}
-
-impl<V> VertexInput<V> {
-    pub fn unwrap_single(&self) -> (&V, &Mutability) {
-        use VertexInput::*;
-        match self {
-            Single(v, m) => (v, m),
-            _ => panic!("called unwrap_single on VertexInput::Tuple"),
-        }
+impl<V> InputT<V> {
+    pub fn new(v: V, m: Mutability) -> Self {
+        Self { v, mutability: m }
     }
 
-    pub fn unwrap_single_mut(&mut self) -> (&mut V, &mut Mutability) {
-        use VertexInput::*;
-        match self {
-            Single(v, m) => (v, m),
-            _ => panic!("called unwrap_single on VertexInput::Tuple"),
-        }
+    pub fn immutable(v: V) -> Self {
+        Self::new(v, Mutability::Const)
     }
 
-    pub fn v_into<V1>(self) -> VertexInput<V1>
-    where
-        V1: From<V>,
-    {
-        use VertexInput::*;
-        match self {
-            Single(v, m) => Single(V1::from(v), m),
-            Tuple(tuple) => Tuple(tuple.into_iter().map(|v| V1::from(v)).collect()),
-        }
-    }
-
-    pub fn try_map_v<V1, Er>(
-        self,
-        mut f: impl FnMut(V) -> Result<V1, Er>,
-    ) -> Result<VertexInput<V1>, Er> {
-        use VertexInput::*;
-        Ok(match self {
-            Single(v, m) => Single(f(v)?, m),
-            Tuple(tuple) => Tuple(tuple.into_iter().map(f).collect::<Result<_, _>>()?),
-        })
-    }
-
-    pub fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = &'a V> + 'a> {
-        use VertexInput::*;
-        match self {
-            Single(v, _) => Box::new(std::iter::once(v)),
-            Tuple(tuple) => Box::new(tuple.iter()),
-        }
-    }
-
-    pub fn iter_mut<'a>(&'a mut self) -> Box<dyn Iterator<Item = &'a mut V> + 'a> {
-        use VertexInput::*;
-        match self {
-            Single(v, _) => Box::new(std::iter::once(v)),
-            Tuple(tuple) => Box::new(tuple.iter_mut()),
-        }
-    }
-
-    pub fn mutable(&self) -> Option<&V> {
-        match self {
-            Self::Single(v, Mutability::Mut) => Some(v),
-            _ => None,
-        }
-    }
-
-    pub fn is_mutable(&self) -> bool {
-        self.mutable().is_some()
-    }
-
-    pub fn single_mutable(v: V) -> Self {
-        VertexInput::Single(v, Mutability::Mut)
+    pub fn mutability(&self) -> Mutability {
+        self.mutability
     }
 }
 
-impl<N> VertexInput<Value<Object, N>>
-where
-    N: Clone,
-{
-    pub fn with_object_id(&self, object_id: ObjectId) -> Self {
-        use VertexInput::*;
-        match self {
-            Single(v, m) => Single(v.with_object_id(object_id), *m),
-            Tuple(tuple) => Tuple(tuple.iter().map(|v| v.with_object_id(object_id)).collect()),
-        }
+impl<V> std::ops::Deref for InputT<V> {
+    type Target = V;
+    fn deref(&self) -> &Self::Target {
+        &self.v
     }
 }
+
+impl<V> std::ops::DerefMut for InputT<V> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.v
+    }
+}
+
+pub type InputValue<V> = Tree<InputT<V>>;

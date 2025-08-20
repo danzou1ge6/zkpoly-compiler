@@ -1,6 +1,6 @@
 use zkpoly_common::heap::UsizeId;
 
-use super::super::template::ResidentalValue;
+use super::super::template::ResidentalT;
 use super::prelude::*;
 use super::slice_analysis;
 use super::value::Object;
@@ -11,7 +11,11 @@ pub struct PrologueBuilder {
 }
 
 pub struct Prologue<'s, P> {
-    ops: OperationSeq<'s, Object, P>,
+    // Each element `(inside, outside)` means slicing input object `outside` to obtain object `inside` used by internal ops.
+    inputs: Vec<(Object, Object)>,
+    ops: OperationSeq<SubgraphOperation<'s, Object, P>>,
+    intermediates: Vec<Object>,
+    outputs: Vec<Object>,
 }
 
 struct AllEqualReducer<T>(Option<T>);
@@ -40,14 +44,31 @@ where
     }
 }
 
-/// Produce a value for object analysis.
-/// The produce value has normalized node, the provided object and the desired device from slice analysis.
-fn make_value<P>(sav: &slice_analysis::Value, object: Object) -> ResidentalValue<Option<P>> {
-    ResidentalValue::new(
-        value::Value::new(
-            object,
-            sav.device(),
-            sav.object().node().with_normalized_p(),
+/// Produce an object for object analysis. Refer to `make_value` for detail.
+fn make_object(sav: &slice_analysis::Atom, object_slice: Option<Slice>) -> Object {
+    Object::new(
+        sav.object().id(),
+        sav.object().node().clone().with_slice(object_slice),
+    )
+}
+
+/// Produce an atom for object analysis.
+/// The produce atom has normalized node, the provided object ID and the desired device from slice analysis.
+///
+/// When `saa` 's object is part of a polynomial, the position of the part in the polynomial is specified by `object_is_slice`.
+/// The produced atom's node is normalized to the object.
+fn make_value<P>(
+    saa: &slice_analysis::Atom,
+    object_is_slice: Option<Slice>,
+) -> ResidentalAtom<Object, Option<P>> {
+    ResidentalT::new(
+        value::Atom::new(
+            make_object(saa, object_is_slice.clone()),
+            saa.device(),
+            saa.object()
+                .node()
+                .clone()
+                .with_slice(object_is_slice.map(|s| Slice::new(0, s.len()))),
         ),
         None,
     )
@@ -57,10 +78,13 @@ impl PrologueBuilder {
     pub fn construct<'s, P: UsizeId, Rt: RuntimeType>(
         &mut self,
         cg: &sliceable_subgraph::Cg<'s, Rt>,
-        inputs_mapping: impl Fn(type2::VertexId) -> super::super::template::VertexInput<P>,
+        inputs_mapping: impl Fn(type2::VertexId) -> super::super::template::InputRv<Object, Option<P>>,
         def_use: &slice_analysis::DefUse,
         obj_id_allocator: &mut IdAllocator<ObjectId>,
-    ) -> Prologue<'s, P> {
+    ) -> Prologue<'s, P>
+    where
+        P: Ord,
+    {
         let mut ops = OperationSeq::empty();
 
         // Note that Subgraph has no dead vertices for now
@@ -70,9 +94,10 @@ impl PrologueBuilder {
             use sliceable_subgraph::template::VertexNode::*;
             use type2::template::SliceableNode::*;
             match v.node() {
-                Inner(RotateIdx(..)) | TupleGet(..) => {
+                Inner(RotateIdx(..))  => {
                     // Their information are already embeded in [`Object`]'s
                 }
+                TupleGet(..) => todo!("how to unpack nested tuples"),
                 Input(..) | Return(..) => todo!("consider how to convey prologue input and output operations to memory planning; also, we may have intermediate return in the future"),
                 _ => {
                     // All inputs should have the same slice
@@ -93,10 +118,12 @@ impl PrologueBuilder {
                         })
                     }
 
-                    let mut mutable_objects = BTreeMap::new();
+                    let mut mutable_inputs = BTreeMap::new();
 
-                    // Rewrite inputs to [`ResidentalValue`]'s for object analysis
-                    let node = v.node().relabeled(
+                    // TODO handle slice-outs
+
+                    // Rewrite inputs to [`InputRv`]'s for object analysis
+                    let node: ChunkedNode<Object, Option<P>> = v.node().relabeled(
                         |u| {
                             def_use
                                 .input(vid)
@@ -107,87 +134,73 @@ impl PrologueBuilder {
                                     // - If the input is sliced
                                     //   - If the needed slice is same as slice object we already have, use it
                                     //   - Otherwise, emit a clone operation to obtain the desired input slice
-                                    // - Otherwise, trivially produce value for object analysis
-                                    let mut input_objects = vi.iter().map(|v| {
-                                        if let Some(input_slice) = v.object().ranges().next() {
+                                    // - Otherwise, trivially produce value (scalar, etc.)
+                                    vi.map_ref(|v| {
+                                        let (rv, cloned) = if let Some(input_slice) = v.object().ranges().next() {
                                             let availabele_slice =
                                                 &self.available_slices[&v.object().id()];
                                             if availabele_slice == input_slice {
                                                 (
-                                                    (make_value::<P>(
+                                                    make_value::<P>(
                                                         v,
-                                                        Object::new(
-                                                            v.object().id(),
-                                                            Some(input_slice.clone()),
-                                                        ),
-                                                    )),
+                                                        Some(input_slice.clone())
+                                                    ),
                                                     false,
                                                 )
                                             } else {
-                                                let cloned_obj = Object::new(
-                                                    v.object().id(),
-                                                    Some(input_slice.clone()),
+                                                let cloned_value =  make_value(
+                                                    v,
+                                                    Some(input_slice.clone())
                                                 );
-
-                                                ops.emit(Operation::Clone(
-                                                    cloned_obj.clone(),
+                                                ops.emit(MemoryOp::Clone(
+                                                    cloned_value.object().clone(),
                                                     v.device(),
-                                                    Object::new(
-                                                        v.object().id(),
-                                                        Some(availabele_slice.clone()),
-                                                    ),
+                                                    make_object(v, Some(availabele_slice.clone())),
                                                     Some(input_slice.relative_to(availabele_slice)),
                                                 ));
 
-                                                (make_value(v, cloned_obj), true)
+                                                (cloned_value, true)
                                             }
                                         } else {
                                             (
-                                                make_value(v, Object::new(v.object().id(), None)),
+                                                make_value(v, None),
                                                 false,
                                             )
+                                        };
+
+                                        match v.mutability() {
+                                            Mutability::Mut => {
+                                                if cloned {
+                                                    value::InputT::new(rv, Mutability::Mut)
+                                                } else {
+                                                    let new_obj_id = obj_id_allocator.alloc();
+                                                    let cloned_obj = Object::new(new_obj_id, rv.node().clone());
+
+                                                    ops.emit(MemoryOp::Clone(
+                                                        cloned_obj.clone(),
+                                                        v.device(),
+                                                        rv.object().clone(),
+                                                        None,
+                                                    ));
+
+                                                    let cloned_rv = 
+                                                        ResidentalT::new(
+                                                            value::Atom::new(cloned_obj, rv.device(), rv.node().clone()),
+                                                            None
+                                                        );
+
+                                                    mutable_inputs.insert(u, cloned_rv.clone());
+
+                                                    value::InputT::new(
+                                                        cloned_rv,
+                                                        Mutability::Mut
+                                                    )
+                                                }
+                                            },
+                                            _ => value::InputT::new(rv, Mutability::Const)
                                         }
-                                    });
-
-                                    // Wrap the objects in [`VertexInput`]
-                                    // - Since slices are expected to consume small space, we always make a clone for mutable uses.
-                                    //   The new object will have a new object ID and no slice.
-                                    match vi {
-                                        VertexInput::Single(_, Mutability::Const) => {
-                                            VertexInput::Single(
-                                                input_objects.next().unwrap().0,
-                                                Mutability::Const,
-                                            )
-                                        }
-                                        VertexInput::Single(v, Mutability::Mut) => {
-                                            let (rv, cloned) = input_objects.next().unwrap();
-                                            if cloned {
-                                                VertexInput::Single(rv, Mutability::Mut)
-                                            } else {
-                                                let new_obj_id = obj_id_allocator.alloc();
-                                                let cloned_obj = Object::not_sliced(new_obj_id);
-
-                                                ops.emit(Operation::Clone(
-                                                    cloned_obj.clone(),
-                                                    v.device(),
-                                                    rv.object().clone(),
-                                                    None,
-                                                ));
-
-                                                mutable_objects.insert(u, cloned_obj.clone());
-
-                                                VertexInput::Single(
-                                                    make_value(v, cloned_obj),
-                                                    Mutability::Mut,
-                                                )
-                                            }
-                                        }
-                                        VertexInput::Tuple(..) => VertexInput::Tuple(
-                                            input_objects.map(|(x, _)| x).collect(),
-                                        ),
-                                    }
-                                })
-                                .unwrap()
+                                    })
+                                }).unwrap()
                         },
                         &inputs_mapping,
                     );
@@ -195,39 +208,35 @@ impl PrologueBuilder {
                     // The output of the vertex should have slice the same as `the_slice`
                     let output = def_use
                         .value(vid)
-                        .iter()
-                        .map(|ov| {
-                            (
+                        .map_ref(|ov| {
+                            value::OutputT::new(
                                 make_value(
                                     ov,
-                                    Object::new(
-                                        ov.object().id(),
-                                        if ov.object().can_be_sliced() {
-                                            the_slice
-                                        } else {
-                                            None
-                                        },
-                                    ),
+                                    the_slice
                                 ),
                                 ov.inplace_of().map(|src_vid| {
                                     def_use
                                         .input(vid)
                                         .iter()
                                         .find(|(u, _)| *u == src_vid)
-                                        .map(|(u, _)| mutable_objects[u].clone())
+                                        .map(|(u, _)| mutable_inputs[u].clone())
                                         .unwrap()
                                 }),
                             )
-                        })
-                        .collect();
+                        });
 
-                    let chunked_op = Operation::Chunked(output, node, v.src().clone());
+                    let chunked_op = ChunkedOp::new(vid, output, node, v.src().clone());
 
                     ops.emit(chunked_op);
                 }
             }
         }
 
-        Prologue { ops }
+        Prologue {
+            ops,
+            inputs: todo!(),
+            outputs: todo!(),
+            intermediates: todo!(),
+        }
     }
 }
