@@ -1101,7 +1101,7 @@ impl<F: Field> Transfer for ScalarArray<F> {
             assert!(target.slice_info.is_none());
             let alligned_size = (self.len * size_of::<F>()).next_multiple_of(4096);
             // check there is enough space in temp_buffer
-            for _ in temp_buffer.len()..target.disk_pos.len() {
+            for _ in temp_buffer.len()..self.disk_pos.len() {
                 temp_buffer.push(alloc_pinned::<u8>(temp_size));
             }
             gpu_read_from_disk_no_direct(
@@ -1351,8 +1351,7 @@ fn test_transfer_gpu_disk_large_no_direct() {
     // Simulate GPU transfer
     let stream = CudaStream::new(0);
     let ptr_gpu: *mut F = gpu_pool.allocate(1024 * 1024 * 1024 * 16, vec![0]);
-    let array3 =
-        ScalarArray::<F>::new(2usize.pow(28), ptr_gpu, DeviceType::GPU { device_id: 0 });
+    let array3 = ScalarArray::<F>::new(2usize.pow(28), ptr_gpu, DeviceType::GPU { device_id: 0 });
 
     let temp_size: usize = 1024 * 1024 * 2; // 2MB temporary buffer size
     let temp_buffer = alloc_pinned::<u8>(temp_size); // 2MB temporary buffer
