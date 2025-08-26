@@ -203,6 +203,7 @@ pub mod unsliced {
                     Slice(i, a, b) => Slice(i, a, b),
                     Interpolate { xs, ys } => Interpolate { xs, ys },
                     Array(arr) => Array(arr),
+                    ScanMul { x0, poly } => ScanMul { x0, poly },
                     AssmblePoly(deg, xs) => AssmblePoly(deg, xs),
                     HashTranscript {
                         transcript,
@@ -373,6 +374,10 @@ where
                     .iter()
                     .map(|x| mapping(x.clone()))
                     .collect::<Result<_, _>>()?,
+            },
+            Self::ScanMul { x0, poly } => ScanMul {
+                x0: mapping(x0.clone())?,
+                poly: mapping(poly.clone())?,
             },
             Array(es) => Array(
                 es.iter()

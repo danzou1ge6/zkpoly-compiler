@@ -11,24 +11,11 @@ pub enum SliceableNode<I, A, C> {
     Constant(C),
     SingleArith(arith::Arith<I>),
     ScalarInvert(I),
-    Arith {
-        arith: A,
-        chunking: Option<u64>,
-    },
+    Arith { arith: A, chunking: Option<u64> },
     RotateIdx(I, i32),
     Blind(I, u64, u64),
     BatchedInvert(I),
-    /// `ScanMul` in a sliceable subgraph also outputs the product
-    ///   x0 a0 a1 ... an
-    /// Which is used as the `x0` of calculation of `ScanMul` in next slice
-    ScanMul {
-        x0: I,
-        poly: I,
-    },
-    DistributePowers {
-        poly: I,
-        powers: I,
-    },
+    DistributePowers { poly: I, powers: I },
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, serde::Serialize, serde::Deserialize)]
@@ -102,6 +89,10 @@ pub enum VertexNode<I, A, C, E, S> {
     Extend(I, u64),
     Entry(EntryId),
     Return(I),
+    ScanMul {
+        x0: I,
+        poly: I,
+    },
     /// A constant that can not be sliced, e.g. twiddle factors
     UnsliceableConstant(C),
     /// Convert a local from one representation to another
@@ -150,7 +141,6 @@ where
             RotateIdx(x, _) => Box::new([x].into_iter()),
             Blind(x, _, _) => Box::new([x].into_iter()),
             BatchedInvert(x) => Box::new([x].into_iter()),
-            ScanMul { x0, poly } => Box::new([x0, poly].into_iter()),
             DistributePowers { poly, powers } => Box::new([poly, powers].into_iter()),
         }
     }
@@ -166,7 +156,6 @@ where
             RotateIdx(x, _) => Box::new([x].into_iter()),
             Blind(x, _, _) => Box::new([x].into_iter()),
             BatchedInvert(x) => Box::new([x].into_iter()),
-            ScanMul { x0, poly } => Box::new([x0, poly].into_iter()),
             DistributePowers { poly, powers } => Box::new([poly, powers].into_iter()),
         }
     }
@@ -193,7 +182,6 @@ where
             RotateIdx(..) => Cpu,
             Blind(..) => Cpu,
             BatchedInvert(..) => Gpu,
-            ScanMul { .. } => Gpu,
             DistributePowers { .. } => Gpu,
         }
     }
@@ -264,10 +252,6 @@ where
             RotateIdx(x, n) => RotateIdx(mapping(x.clone())?, n.clone()),
             Blind(poly, n, m) => Blind(mapping(poly.clone())?, n.clone(), m.clone()),
             BatchedInvert(poly) => BatchedInvert(mapping(poly.clone())?),
-            ScanMul { x0, poly } => ScanMul {
-                x0: mapping(x0.clone())?,
-                poly: mapping(poly.clone())?,
-            },
             DistributePowers { poly, powers } => DistributePowers {
                 poly: mapping(poly.clone())?,
                 powers: mapping(powers.clone())?,
@@ -427,6 +411,7 @@ where
             HashTranscript {
                 transcript, value, ..
             } => Box::new([transcript, value].into_iter()),
+            ScanMul { x0, poly } => Box::new([x0, poly].into_iter()),
             SqueezeScalar(x) => Box::new([x].into_iter()),
             TupleGet(x, _) => Box::new([x].into_iter()),
             ArrayGet(x, _) => Box::new([x].into_iter()),
@@ -449,6 +434,7 @@ where
             LastSliceable(lsn) => lsn.uses_ref(),
             Subgraph(s) => Box::new(s.inputs()),
             Extend(x, _) => Box::new([x].into_iter()),
+            ScanMul { x0, poly } => Box::new([x0, poly].into_iter()),
             Ntt { s, alg, .. } => Box::new([s].into_iter().chain(alg.uses_ref())),
             Slice(x, ..) => Box::new([x].into_iter()),
             Interpolate { xs, ys } => Box::new(xs.iter().chain(ys.iter())),
@@ -495,7 +481,6 @@ where
             LastSliceable(LastSliceableNode::Msm { .. }) => true,
             Ntt { .. } => true,
             Sliceable(SliceableNode::Arith { chunking, .. }) => chunking.is_some(),
-            Sliceable(SliceableNode::ScanMul { .. }) => true,
             _ => false,
         }
     }

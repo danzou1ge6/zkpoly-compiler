@@ -119,7 +119,7 @@ impl<'c, Rt: RuntimeType> TypeEraseable<Rt> for PolyLagrange<Rt> {
                     let poly = poly.erase(cg);
                     let x0 = x0.erase(cg);
                     Vertex::new(
-                        VertexNode::Sliceable(SliceableNode::ScanMul { poly, x0 }),
+                        VertexNode::ScanMul { poly, x0 },
                         Some(Typ::lagrange()),
                         self.src_lowered(),
                     )
