@@ -125,9 +125,9 @@ pub struct Core {
     scheduling_window_sorted: bool,
     scheduling_window_allotted: bool,
     resources: GlobalResources,
-    pub programs: Heap<ProgramId, erased::BoxedArtifect>,
+    programs: Heap<ProgramId, erased::BoxedArtifect>,
     task_id_allocator: IdAllocator<TaskId>,
-    pub knowledge: Knowlede,
+    knowledge: Knowlede,
 }
 
 impl Core {
@@ -154,6 +154,19 @@ impl Core {
             programs: programs,
             task_id_allocator: IdAllocator::new(),
         }
+    }
+
+    pub fn add_artifect(&mut self, art: erased::BoxedArtifect) -> ProgramId {
+        self.knowledge.time_experience.push(
+            art.versions()
+                .map(|ver| (ver.clone(), Duration::from_secs(1)))
+                .collect(),
+        );
+        self.programs.push(art)
+    }
+
+    pub fn artifect(&self, program: ProgramId) -> &erased::BoxedArtifect {
+        &self.programs[program]
     }
 
     pub fn add_task(&mut self, submit: submitter::SubmittedTask) -> TaskId {
@@ -368,8 +381,154 @@ impl Core {
 
         self.resources.available_cards.extend_from_slice(cards);
     }
+}
 
-    pub fn resources(&self) -> &GlobalResources {
-        &self.resources
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    struct DummyArtifect {
+        version: MemoryInfo,
+    }
+
+    struct DummyInputs;
+
+    impl erased::Artifects for DummyArtifect {
+        fn versions<'a>(&'a self) -> Box<dyn Iterator<Item = &'a MemoryInfo> + 'a> {
+            Box::new(std::iter::once(&self.version))
+        }
+
+        fn prepare_dispatcher(
+            &self,
+            _version: &MemoryInfo,
+            _pools: Pools,
+            _rng: AsyncRng,
+            _gpu_mapping: GpuMapping,
+        ) -> erased::BoxedRuntime {
+            panic!("DummyArtifect cannot be run")
+        }
+    }
+
+    impl erased::VariableTables for DummyInputs {}
+
+    struct Iter<'c>(&'c mut Core);
+
+    impl<'c> Iterator for Iter<'c> {
+        type Item = AcceptedTask;
+        fn next(&mut self) -> Option<Self::Item> {
+            self.0.schedule()
+        }
+    }
+    impl Core {
+        fn schedule_iter(&mut self) -> Iter<'_> {
+            Iter(self)
+        }
+        fn finish_accepted_task(&mut self, t: &AcceptedTask, time: Duration) {
+            self.finish(
+                t.id,
+                &t.cards,
+                t.submitted.program,
+                t.version.as_ref().unwrap(),
+                time,
+            );
+        }
+    }
+
+    struct RunningTasks {
+        running_time: HashMap<TaskId, usize>,
+        running_tasks: Vec<(AcceptedTask, usize)>,
+        now: usize,
+    }
+
+    impl RunningTasks {
+        fn new() -> Self {
+            Self {
+                running_time: HashMap::new(),
+                running_tasks: Vec::new(),
+                now: 0,
+            }
+        }
+
+        fn schedule(&mut self, core: &mut Core) {
+            self.running_tasks.extend(core.schedule_iter().map(|t| {
+                println!("[+{}] 开始运行 {:?}", self.now, t.id);
+                (t, self.now)
+            }));
+        }
+
+        fn tick(&mut self, delta: usize, core: &mut Core) {
+            for _ in 0..delta {
+                self.tick1(core);
+            }
+        }
+
+        fn tick1(&mut self, core: &mut Core) {
+            self.now += 1;
+
+            while let Some(idx) = self
+                .running_tasks
+                .iter()
+                .position(|(rt, begin)| self.now - *begin > self.running_time[&rt.id])
+            {
+                let (t, begin) = self.running_tasks.remove(idx);
+                let dur = self.now - begin;
+                println!("[+{}] 结束 {:?}，耗时 {}", self.now, t.id, dur);
+                core.finish_accepted_task(&t, Duration::from_millis(dur as u64));
+            }
+
+            self.schedule(core);
+        }
+
+        fn submit(&mut self, task: submitter::SubmittedTask, running_time: usize, core: &mut Core) {
+            let id = core.add_task(task);
+            self.running_time.insert(id, running_time);
+
+            self.schedule(core);
+        }
+    }
+
+    #[test]
+    fn test_core_4card() {
+        let mut core = Core::new(
+            SchedulerConfig::default(),
+            GlobalResources::new(vec![0, 1, 2, 3], 2usize.pow(30)),
+            Heap::new(),
+        );
+
+        let prog_id = core.add_artifect(Box::new(DummyArtifect {
+            version: MemoryInfo::new(2u64.pow(28), 1024),
+        }));
+
+        let req = || submitter::SubmittedTask {
+            program: prog_id,
+            inputs: Box::new(DummyInputs),
+        };
+
+        let mut rts = RunningTasks::new();
+
+        let core = &mut core;
+
+        rts.submit(req(), 10, core);
+        rts.submit(req(), 11, core);
+        rts.submit(req(), 12, core);
+        rts.submit(req(), 13, core);
+
+        rts.tick(8, core);
+        rts.submit(req(), 10, core);
+        rts.submit(req(), 11, core);
+
+        rts.tick(7, core);
+        rts.submit(req(), 11, core);
+        rts.submit(req(), 12, core);
+
+        rts.tick(10, core);
+        rts.submit(req(), 10, core);
+        rts.submit(req(), 14, core);
+
+        rts.tick(100, core);
+
+        assert!(rts.running_tasks.is_empty());
+        assert!(core.pending_tasks.is_empty());
+        assert!(core.scheduling_window.is_empty());
     }
 }

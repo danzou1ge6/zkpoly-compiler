@@ -226,15 +226,18 @@ impl Scheduler {
                 disk: self.disk_memory.clone(),
             };
 
-            let runtime = self.core.programs[accepted.submitted.program].prepare_dispatcher(
-                accepted.version.as_ref().unwrap(),
-                pools,
-                self.rng.clone(),
-                Arc::new({
-                    let mapping = accepted.cards.clone();
-                    move |i| mapping[i as usize]
-                }),
-            );
+            let runtime = self
+                .core
+                .artifect(accepted.submitted.program)
+                .prepare_dispatcher(
+                    accepted.version.as_ref().unwrap(),
+                    pools,
+                    self.rng.clone(),
+                    Arc::new({
+                        let mapping = accepted.cards.clone();
+                        move |i| mapping[i as usize]
+                    }),
+                );
 
             let launched = LaunchedTask {
                 accepted,
@@ -267,13 +270,8 @@ impl Scheduler {
                             self.schedule_task();
                             println!("调度器接收到新任务 {:?}", id);
                         }
-                        submitter::Message::Add(ar, sender) => {
-                            self.core.knowledge.time_experience.push(
-                                ar.versions()
-                                    .map(|ver| (ver.clone(), Duration::from_secs(1)))
-                                    .collect(),
-                            );
-                            let id = self.core.programs.push(ar);
+                        submitter::Message::Add(art, sender) => {
+                            let id = self.core.add_artifect(art);
                             let _ = sender.send(id);
                         }
                     }
