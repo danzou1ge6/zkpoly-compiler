@@ -142,7 +142,10 @@ fn test_msm() {
         println!("testing for k = {k}:");
         let n: usize = 1 << k;
 
+        let start = std::time::Instant::now();
         let cpu_result = msm_halo2::best_multiexp(&coeffs[0][..n], &bases[..n]);
+        let end = std::time::Instant::now();
+        println!("cpu time for k = {k}: {:?}", end - start);
 
         let n_precompute = msm_config.get_precompute();
         println!("n_precompute: {n_precompute}");
@@ -209,12 +212,16 @@ fn test_msm() {
         }
 
         println!("running msm for k = {k}...");
+        let start = std::time::Instant::now();
         msm_fn(
             mut_var.iter_mut().map(|v| v).collect::<Vec<_>>(),
             var.iter().map(|v| v).collect::<Vec<_>>(),
             Arc::new(|x| x),
         )
         .unwrap();
+        let end = std::time::Instant::now();
+
+        println!("gpu time for k = {k}: {:?}", end - start);
 
         println!("checking for k = {k}...");
 

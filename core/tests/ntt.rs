@@ -15,6 +15,7 @@ use rand_xorshift::XorShiftRng;
 use zkpoly_common::devices::DeviceType;
 use zkpoly_common::load_dynamic::Libs;
 use zkpoly_core::ntt::*;
+use zkpoly_cuda_api::stream::CudaEventRaw;
 use zkpoly_cuda_api::stream::CudaStream;
 use zkpoly_memory_pool::CpuMemoryPool;
 use zkpoly_runtime::args::Variable;
@@ -52,7 +53,12 @@ fn test_ssip_ntt() {
         let omega = MyField::random(XorShiftRng::from_rng(OsRng).unwrap()); // would be weird if this mattered
 
         println!("testing on cpu for k = {k}...");
+
+        let start = std::time::Instant::now();
         arithmetic::best_fft(&mut data_rust, omega, k as u32);
+        let end = std::time::Instant::now();
+
+        println!("cpu time for k = {k}: {:?}", end - start);
 
         println!("precomputing twiddle factors for k = {k}...");
 
@@ -94,12 +100,19 @@ fn test_ssip_ntt() {
             stream.unwrap_stream(),
         );
 
+        let event_start = CudaEventRaw::new(0);
+        let event_end = CudaEventRaw::new(0);
+
+        event_start.record(stream.unwrap_stream());
+
         ntt_fn(
             vec![&mut poly_gpu_slice],
             vec![&twiddle_gpu, &stream],
             Arc::new(|x| x),
         )
         .unwrap();
+
+        event_end.record(stream.unwrap_stream());
 
         poly_gpu_slice
             .unwrap_scalar_array()
@@ -109,14 +122,14 @@ fn test_ssip_ntt() {
 
         stream.unwrap_stream().sync();
 
+        let time = event_start.elapsed(&event_end);
+
+        println!("gpu time for k = {k}: {:?} ms", time);
+
         let end2 = std::time::Instant::now();
         let dur1 = end1 - start;
         let dur2 = end2 - start;
 
-        println!(
-            "time for k = {k}: {:?} (launch) + {:?} (actual)",
-            dur1, dur2
-        );
 
         stream.unwrap_stream().free(ptr_data);
         stream.unwrap_stream().free(ptr_twiddle);
@@ -164,7 +177,11 @@ fn test_recompute_ntt() {
         let omega = MyField::random(XorShiftRng::from_rng(OsRng).unwrap()); // would be weird if this mattered
 
         println!("testing on cpu for k = {k}...");
+        let start = std::time::Instant::now();
         arithmetic::best_fft(&mut data_rust, omega, k as u32);
+        let end = std::time::Instant::now();
+
+        println!("cpu time for k = {k}: {:?}", end - start);
 
         println!("precomputing twiddle factors for k = {k}...");
 
@@ -201,16 +218,21 @@ fn test_recompute_ntt() {
 
         println!("testing on gpu for k = {k}...");
 
+        let event_start = CudaEventRaw::new(0);
+        let event_end = CudaEventRaw::new(0);
+
         poly_cpu.cpu2gpu(poly_gpu.unwrap_scalar_array_mut(), stream.unwrap_stream());
         pq.cpu2gpu(pq_gpu.unwrap_scalar_array_mut(), stream.unwrap_stream());
         omegas.cpu2gpu(omegas_gpu.unwrap_scalar_array_mut(), stream.unwrap_stream());
 
+        event_start.record(stream.unwrap_stream());
         ntt_fn(
             vec![&mut poly_gpu],
             vec![&pq_gpu, &omegas_gpu, &stream],
             Arc::new(|x| x),
         )
         .unwrap();
+        event_end.record(stream.unwrap_stream());
 
         poly_gpu
             .unwrap_scalar_array()
@@ -220,6 +242,8 @@ fn test_recompute_ntt() {
         stream.unwrap_stream().free(ptr_data);
         stream.unwrap_stream().free(ptr_pq);
         stream.unwrap_stream().free(ptr_omegas);
+
+        println!("gpu time for k = {k}: {:?} ms", event_start.elapsed(&event_end));
 
         println!("comparing results for k = {k}...");
 
