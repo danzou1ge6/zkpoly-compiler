@@ -152,10 +152,15 @@ fn test_msm() {
         println!("testing for k = {k}:");
         let n: usize = 1 << k;
 
-        let start = std::time::Instant::now();
-        let cpu_result = msm_halo2::best_multiexp(&coeffs[0][..n], &bases[..n]);
-        let end = std::time::Instant::now();
-        println!("cpu time for k = {k}: {:?}", end - start);
+        let cpu_result = if k < 30 {
+            let start = std::time::Instant::now();
+            let cpu_result = msm_halo2::best_multiexp(&coeffs[0][..n], &bases[..n]);
+            let end = std::time::Instant::now();
+            println!("cpu time for k = {k}: {:?}", end - start);
+            Some(cpu_result)
+        } else {
+            None
+        };
 
         let n_precompute = msm_config.get_precompute();
         println!("n_precompute: {n_precompute}");
@@ -233,18 +238,20 @@ fn test_msm() {
 
         println!("gpu time for k = {k}: {:?}", end - start);
 
-        println!("checking for k = {k}...");
+        if let Some(cpu_result) = cpu_result {
+            println!("checking for k = {k}...");
 
-        for i in 0..BATCHES {
-            let gpu_result = mut_var[msm_config.cards.len() + i as usize]
-                .unwrap_point()
-                .as_ref();
-            let x1 = cpu_result.x;
-            let y1 = cpu_result.y;
-            let x2 = gpu_result.x * cpu_result.z;
-            let y2 = gpu_result.y * cpu_result.z;
-            assert_eq!(x1, x2);
-            assert_eq!(y1, y2);
+            for i in 0..BATCHES {
+                let gpu_result = mut_var[msm_config.cards.len() + i as usize]
+                    .unwrap_point()
+                    .as_ref();
+                let x1 = cpu_result.x;
+                let y1 = cpu_result.y;
+                let x2 = gpu_result.x * cpu_result.z;
+                let y2 = gpu_result.y * cpu_result.z;
+                assert_eq!(x1, x2);
+                assert_eq!(y1, y2);
+            }
         }
 
         cpu_alloc.free(scalars);

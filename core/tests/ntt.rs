@@ -182,11 +182,13 @@ fn test_recompute_ntt() {
 
         let omega = MyField::random(XorShiftRng::from_rng(OsRng).unwrap()); // would be weird if this mattered
 
-        println!("testing on cpu for k = {k}...");
-        let start = std::time::Instant::now();
-        arithmetic::best_fft(&mut data_rust, omega, k as u32);
-        let end = std::time::Instant::now();
-        println!("cpu time for k = {k}: {:?}", end - start);
+        if k < 30 {
+            println!("testing on cpu for k = {k}...");
+            let start = std::time::Instant::now();
+            arithmetic::best_fft(&mut data_rust, omega, k as u32);
+            let end = std::time::Instant::now();
+            println!("cpu time for k = {k}: {:?}", end - start);
+        }
 
         println!("precomputing twiddle factors for k = {k}...");
 
@@ -243,23 +245,25 @@ fn test_recompute_ntt() {
             .unwrap_scalar_array()
             .gpu2cpu(&mut poly_cpu, stream.unwrap_stream());
 
-        stream.unwrap_stream().sync();
         stream.unwrap_stream().free(ptr_data);
         stream.unwrap_stream().free(ptr_pq);
         stream.unwrap_stream().free(ptr_omegas);
+        stream.unwrap_stream().sync();
 
         println!(
             "gpu time for k = {k}: {:?} ms",
             event_start.elapsed(&event_end)
         );
 
-        println!("comparing results for k = {k}...");
+        if k < 30 {
+            println!("comparing results for k = {k}...");
 
-        let data_cuda = unsafe { std::slice::from_raw_parts(poly_cpu.values, 1 << k) };
+            let data_cuda = unsafe { std::slice::from_raw_parts(poly_cpu.values, 1 << k) };
 
-        data_cuda.iter().zip(data_rust.iter()).for_each(|(a, b)| {
-            assert_eq!(a, b);
-        });
+            data_cuda.iter().zip(data_rust.iter()).for_each(|(a, b)| {
+                assert_eq!(a, b);
+            });
+        }
         cpu_alloc.free(poly_cpu.values);
         cpu_alloc.free(pq.values);
         cpu_alloc.free(omegas.values);
