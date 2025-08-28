@@ -24,6 +24,18 @@ use zkpoly_runtime::functions::*;
 use zkpoly_runtime::runtime::transfer::Transfer;
 use zkpoly_runtime::scalar::ScalarArray;
 
+fn random_data(k: u32) -> Vec<MyField> {
+    if k <= 20 {
+        (0..(1 << k))
+            .into_iter()
+            .map(|_| MyField::random(XorShiftRng::from_rng(OsRng).unwrap()))
+            .collect()
+    } else {
+        let data = random_data(k - 1);
+        data.iter().chain(data.iter()).cloned().collect()
+    }
+}
+
 #[test]
 fn test_ssip_ntt() {
     let mut libs = Libs::new();
@@ -39,10 +51,7 @@ fn test_ssip_ntt() {
 
     for k in (20..=SSIP_MAX_K).step_by(2) {
         println!("generating data for k = {k}...");
-        let mut data_rust: Vec<_> = (0..(1 << k))
-            .into_iter()
-            .map(|_| MyField::random(XorShiftRng::from_rng(OsRng).unwrap()))
-            .collect();
+        let mut data_rust: Vec<_> = random_data(k);
 
         let mut poly_cpu =
             ScalarArray::<MyField>::new(1 << k, cpu_alloc.allocate(1 << k), DeviceType::CPU);
@@ -162,10 +171,7 @@ fn test_recompute_ntt() {
 
     for k in (20..=RECM_MAX_K).step_by(2) {
         println!("generating data for k = {k}...");
-        let mut data_rust: Vec<_> = (0..(1 << k))
-            .into_iter()
-            .map(|_| MyField::random(XorShiftRng::from_rng(OsRng).unwrap()))
-            .collect();
+        let mut data_rust: Vec<_> = random_data(k);
 
         let mut poly_cpu =
             ScalarArray::<MyField>::new(1 << k, cpu_alloc.allocate(1 << k), DeviceType::CPU);
@@ -180,7 +186,6 @@ fn test_recompute_ntt() {
         let start = std::time::Instant::now();
         arithmetic::best_fft(&mut data_rust, omega, k as u32);
         let end = std::time::Instant::now();
-
         println!("cpu time for k = {k}: {:?}", end - start);
 
         println!("precomputing twiddle factors for k = {k}...");

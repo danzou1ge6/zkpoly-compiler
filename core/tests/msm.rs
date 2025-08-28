@@ -36,87 +36,97 @@ const SEED: [u8; 16] = [
 ];
 
 fn generate_curvepoints(k: u8) -> Vec<Point> {
-    let n: u64 = {
-        assert!(k < 64);
-        1 << k
-    };
+    if k <= 20 {
+        let n: u64 = {
+            assert!(k < 64);
+            1 << k
+        };
 
-    println!("Generating 2^{k} = {n} curve points..",);
-    let timer = SystemTime::now();
-    let bases = (0..n)
-        .into_par_iter()
-        .map_init(
-            || {
-                let mut thread_seed = SEED;
-                let uniq = current_thread_index().unwrap().to_ne_bytes();
-                assert!(std::mem::size_of::<usize>() == 8);
-                for i in 0..uniq.len() {
-                    thread_seed[i] += uniq[i];
-                    thread_seed[i + 8] += uniq[i];
-                }
-                XorShiftRng::from_seed(thread_seed)
-            },
-            |rng, _| Point::random(rng),
-        )
-        .collect();
-    let end = timer.elapsed().unwrap();
-    println!(
-        "Generating 2^{k} = {n} curve points took: {} sec.\n\n",
-        end.as_secs()
-    );
-    bases
+        println!("Generating 2^{k} = {n} curve points..",);
+        let timer = SystemTime::now();
+        let bases = (0..n)
+            .into_par_iter()
+            .map_init(
+                || {
+                    let mut thread_seed = SEED;
+                    let uniq = current_thread_index().unwrap().to_ne_bytes();
+                    assert!(std::mem::size_of::<usize>() == 8);
+                    for i in 0..uniq.len() {
+                        thread_seed[i] += uniq[i];
+                        thread_seed[i + 8] += uniq[i];
+                    }
+                    XorShiftRng::from_seed(thread_seed)
+                },
+                |rng, _| Point::random(rng),
+            )
+            .collect();
+        let end = timer.elapsed().unwrap();
+        println!(
+            "Generating 2^{k} = {n} curve points took: {} sec.\n\n",
+            end.as_secs()
+        );
+        bases
+    } else {
+        let data = generate_curvepoints(k - 1);
+        data.iter().chain(data.iter()).cloned().collect()
+    }
 }
 
 fn generate_coefficients(k: u8, bits: usize) -> Vec<Scalar> {
-    let n: u64 = {
-        assert!(k < 64);
-        1 << k
-    };
-    let max_val: Option<u128> = match bits {
-        1 => Some(1),
-        8 => Some(0xff),
-        16 => Some(0xffff),
-        32 => Some(0xffff_ffff),
-        64 => Some(0xffff_ffff_ffff_ffff),
-        128 => Some(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ffff),
-        256 => None,
-        _ => panic!("unexpected bit size {}", bits),
-    };
+    if k <= 20 {
+        let n: u64 = {
+            assert!(k < 64);
+            1 << k
+        };
+        let max_val: Option<u128> = match bits {
+            1 => Some(1),
+            8 => Some(0xff),
+            16 => Some(0xffff),
+            32 => Some(0xffff_ffff),
+            64 => Some(0xffff_ffff_ffff_ffff),
+            128 => Some(0xffff_ffff_ffff_ffff_ffff_ffff_ffff_ffff),
+            256 => None,
+            _ => panic!("unexpected bit size {}", bits),
+        };
 
-    println!("Generating 2^{k} = {n} coefficients..",);
-    let timer = SystemTime::now();
-    let coeffs = (0..n)
-        .into_par_iter()
-        .map_init(
-            || {
-                let mut thread_seed = SEED;
-                let uniq = current_thread_index().unwrap().to_ne_bytes();
-                assert!(std::mem::size_of::<usize>() == 8);
-                for i in 0..uniq.len() {
-                    thread_seed[i] += uniq[i];
-                    thread_seed[i + 8] += uniq[i];
-                }
-                XorShiftRng::from_seed(thread_seed)
-            },
-            |rng, _| {
-                if let Some(max_val) = max_val {
-                    let v_lo = rng.next_u64() as u128;
-                    let v_hi = rng.next_u64() as u128;
-                    let mut v = v_lo + (v_hi << 64);
-                    v &= max_val; // Mask the 128bit value to get a lower number of bits
-                    Scalar::from_u128(v)
-                } else {
-                    Scalar::random(rng)
-                }
-            },
-        )
-        .collect();
-    let end = timer.elapsed().unwrap();
-    println!(
-        "Generating 2^{k} = {n} coefficients took: {} sec.\n\n",
-        end.as_secs()
-    );
-    coeffs
+        println!("Generating 2^{k} = {n} coefficients..",);
+        let timer = SystemTime::now();
+        let coeffs = (0..n)
+            .into_par_iter()
+            .map_init(
+                || {
+                    let mut thread_seed = SEED;
+                    let uniq = current_thread_index().unwrap().to_ne_bytes();
+                    assert!(std::mem::size_of::<usize>() == 8);
+                    for i in 0..uniq.len() {
+                        thread_seed[i] += uniq[i];
+                        thread_seed[i + 8] += uniq[i];
+                    }
+                    XorShiftRng::from_seed(thread_seed)
+                },
+                |rng, _| {
+                    if let Some(max_val) = max_val {
+                        let v_lo = rng.next_u64() as u128;
+                        let v_hi = rng.next_u64() as u128;
+                        let mut v = v_lo + (v_hi << 64);
+                        v &= max_val; // Mask the 128bit value to get a lower number of bits
+                        Scalar::from_u128(v)
+                    } else {
+                        Scalar::random(rng)
+                    }
+                },
+            )
+            .collect();
+        let end = timer.elapsed().unwrap();
+        println!(
+            "Generating 2^{k} = {n} coefficients took: {} sec.\n\n",
+            end.as_secs()
+        );
+        coeffs
+    } else {
+        let data = generate_coefficients(k - 1, bits);
+        data.iter().chain(data.iter()).cloned().collect()
+    }
 }
 
 #[test]
