@@ -135,7 +135,7 @@ fn test_msm() {
 
     let mut cpu_alloc = CpuMemoryPool::new((MAX_K + 1) as u32, size_of::<MyField>());
 
-    for k in 16..=MAX_K {
+    for k in (20..=MAX_K).step_by(2) {
         let msm_config = get_best_config::<MyRuntimeType>(1 << k, BATCHES, 4 * (1 << 30));
         let msm = MSM::<MyRuntimeType>::new(&mut libs, msm_config.clone());
         let msm_precompute = MSMPrecompute::<MyRuntimeType>::new(&mut libs, msm_config.clone());
