@@ -1,11 +1,11 @@
 mod common;
-use std::{os::raw::c_void, sync::Arc};
 use std::ptr::null_mut;
 use std::time::SystemTime;
+use std::{os::raw::c_void, sync::Arc};
 
 use common::*;
 
-static MAX_K: u8 = 20;
+static MAX_K: u8 = 30;
 static BATCHES: u32 = 4;
 
 pub type MyCurve = <MyRuntimeType as RuntimeType>::PointAffine;

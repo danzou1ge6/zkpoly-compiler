@@ -3,7 +3,8 @@ use std::sync::Arc;
 
 use common::*;
 
-static MAX_K: u32 = 20;
+static SSIP_MAX_K: u32 = 29;
+static RECM_MAX_K: u32 = 30;
 
 use group::ff::Field;
 use halo2_proofs::arithmetic;
@@ -33,10 +34,10 @@ fn test_ssip_ntt() {
     };
 
     let precompute_fn = precompute.get_fn();
-    let mut cpu_alloc = CpuMemoryPool::new(MAX_K, size_of::<MyField>());
+    let mut cpu_alloc = CpuMemoryPool::new(SSIP_MAX_K, size_of::<MyField>());
     let stream = Variable::<MyRuntimeType>::Stream(CudaStream::new(0));
 
-    for k in 1..=MAX_K {
+    for k in (20..=SSIP_MAX_K).step_by(2) {
         println!("generating data for k = {k}...");
         let mut data_rust: Vec<_> = (0..(1 << k))
             .into_iter()
@@ -130,7 +131,6 @@ fn test_ssip_ntt() {
         let dur1 = end1 - start;
         let dur2 = end2 - start;
 
-
         stream.unwrap_stream().free(ptr_data);
         stream.unwrap_stream().free(ptr_twiddle);
 
@@ -157,10 +157,10 @@ fn test_recompute_ntt() {
     };
 
     let precompute_fn = precompute.get_fn();
-    let mut cpu_alloc = CpuMemoryPool::new(MAX_K, size_of::<MyField>());
+    let mut cpu_alloc = CpuMemoryPool::new(RECM_MAX_K, size_of::<MyField>());
     let stream = Variable::<MyRuntimeType>::Stream(CudaStream::new(0));
 
-    for k in 1..=MAX_K {
+    for k in (20..=RECM_MAX_K).step_by(2) {
         println!("generating data for k = {k}...");
         let mut data_rust: Vec<_> = (0..(1 << k))
             .into_iter()
@@ -243,7 +243,10 @@ fn test_recompute_ntt() {
         stream.unwrap_stream().free(ptr_pq);
         stream.unwrap_stream().free(ptr_omegas);
 
-        println!("gpu time for k = {k}: {:?} ms", event_start.elapsed(&event_end));
+        println!(
+            "gpu time for k = {k}: {:?} ms",
+            event_start.elapsed(&event_end)
+        );
 
         println!("comparing results for k = {k}...");
 
@@ -272,10 +275,10 @@ fn test_distribute_zeta() {
     };
 
     let precompute_fn = precompute.get_fn();
-    let mut cpu_alloc = CpuMemoryPool::new(MAX_K + 2, size_of::<MyField>());
+    let mut cpu_alloc = CpuMemoryPool::new(SSIP_MAX_K + 2, size_of::<MyField>());
     let stream = Variable::<MyRuntimeType>::Stream(CudaStream::new(0));
 
-    for k in 10..=MAX_K {
+    for k in 10..=SSIP_MAX_K {
         println!("generating data for k = {k}...");
         let data_rust: Vec<_> = (0..(1 << k))
             .into_iter()
@@ -360,9 +363,19 @@ fn test_distribute_zeta() {
         omegas.cpu2gpu(omegas_gpu.unwrap_scalar_array_mut(), stream.unwrap_stream());
         zeta_cpu.cpu2gpu(zeta_gpu.unwrap_scalar_array_mut(), stream.unwrap_stream());
 
-        zeta_fn(vec![&mut poly_gpu], vec![&zeta_gpu, &stream], Arc::new(|x|x)).unwrap();
+        zeta_fn(
+            vec![&mut poly_gpu],
+            vec![&zeta_gpu, &stream],
+            Arc::new(|x| x),
+        )
+        .unwrap();
 
-        ntt_fn(vec![&mut poly_gpu], vec![&pq_gpu, &omegas_gpu, &stream], Arc::new(|x|x)).unwrap();
+        ntt_fn(
+            vec![&mut poly_gpu],
+            vec![&pq_gpu, &omegas_gpu, &stream],
+            Arc::new(|x| x),
+        )
+        .unwrap();
 
         poly_gpu
             .unwrap_scalar_array()
